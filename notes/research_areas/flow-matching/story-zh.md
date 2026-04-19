@@ -240,7 +240,7 @@ $$
 這種「用離散步驟去近似連續時間演化」的方法，本質上會產生誤差，通常被稱為：**truncation error**.
 
 
-<iframe src="/personal_website/notes/research_areas/flow-matching/story-truncation-error-zh.html" class="demo-frame" style="height: 800px; width: 100%; border: none;"></iframe>
+<iframe src="/personal_website/notes/research_areas/flow-matching/story-truncation-error-zh.html" class="demo-frame" style="height: 960px; width: 100%; border: none;"></iframe>
 
 
 ---

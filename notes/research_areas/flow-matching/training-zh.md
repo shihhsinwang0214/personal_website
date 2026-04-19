@@ -38,7 +38,7 @@ $$
 把跨年人潮疏散到三個捷運站。
 
 <div class="demo-wrapper">
-  <iframe src="/personal_website/notes/research_areas/flow-matching/training-setting-zh.html" class="demo-frame"></iframe>
+  <iframe src="/personal_website/notes/research_areas/flow-matching/training-setting-zh.html" class="demo-frame" style = "height: 600px;"></iframe>
 
   
 </div>
@@ -68,7 +68,7 @@ $$
 你會發現畫面變成了一團混亂的毛線球！你可以多按幾次「重新隨機配對」，並試著拖曳「搬運進度 $t$ 」滑桿，觀察粒子在這團混亂的軌跡中是如何移動的。
 
 <div class="demo-wrapper">
-  <iframe src="/personal_website/notes/research_areas/flow-matching/training-stochastic-interpolants-zh.html" class="demo-frame"></iframe>
+  <iframe src="/personal_website/notes/research_areas/flow-matching/training-stochastic-interpolants-zh.html" class="demo-frame" style="height: 1200px; width: 100%; border: none;"></iframe>
 </div>
 
 > [👉 全螢幕](/personal_website/notes/research_areas/flow-matching/training-stochastic-interpolants-zh.html)
@@ -250,9 +250,9 @@ $$
 
 點擊「🎲 隨機抽取起點」或者直接在畫布中「自由拖曳起點」來模擬迷茫不知道方向的人，觀察用 1000 步 Euler Discretization 算出的平滑曲線！
 
-<div class="demo-wrapper">
-  <iframe src="/personal_website/notes/research_areas/flow-matching/training-follow-zh.html" class="demo-frame"></iframe>
-</div>
+
+<iframe src="/personal_website/notes/research_areas/flow-matching/training-follow-zh.html" class="demo-frame" style="height: 1500px; width: 100%; border: none;"></iframe>
+
 
 <p style="text-align: right; font-size: 0.85rem; margin-top: 6px;">
   <a href="/personal_website/notes/research_areas/flow-matching/training-follow-zh.html" target="_blank">↗ 全螢幕開啟</a>
