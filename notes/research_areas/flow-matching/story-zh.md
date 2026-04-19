@@ -147,7 +147,7 @@ $$
 
 
 <div class="demo-wrapper">
-  <iframe src="/personal_website/notes/zh/flow_matching_story_sim.html" class="demo-frame"></iframe>
+  <iframe src="/personal_website/notes/research_areas/flow-matching/story-sim-zh.html" class="demo-frame"></iframe>
 </div>
 
 ---
@@ -207,9 +207,8 @@ $$
 👉 最終得到生成的樣本 $x(1)$。
 
 <div class="demo-wrapper">
-  <iframe src="/personal_website/notes/zh/flow_matching_story_velocity.html" class="demo-frame"></iframe>
+  <iframe src="/personal_website/notes/research_areas/flow-matching/story-velocity-zh.html" class="demo-frame"></iframe>
 </div>
-
 
 ---
 
@@ -244,7 +243,7 @@ $$
 
 
 <div class="demo-wrapper">
-  <iframe src="/personal_website/notes/zh/flow_matching_story_truncation_error.html" class="demo-frame"></iframe>
+  <iframe src="/personal_website/notes/research_areas/flow-matching/story-truncation-error-zh.html" class="demo-frame"></iframe>
 </div>
 
 ---
