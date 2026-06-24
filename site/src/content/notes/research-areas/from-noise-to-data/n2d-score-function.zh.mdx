@@ -1,0 +1,94 @@
+---
+slug: "n2d-score-function"
+lang: "zh"
+title: "Score Function：資料分布的局部方向感"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-22
+summary: "score = ∇ log p，指向密度變高的方向；用 Tweedie 公式說明去噪與 score 其實是同一件事換個寫法。"
+demos:
+  - "notes/research_areas/noise-to-data/score-field.html"
+references:
+  - label: "Song & Ermon, Generative Modeling by Estimating Gradients of the Data Distribution (NeurIPS 2019)"
+    href: "https://arxiv.org/abs/1907.05600"
+  - label: "Vincent, A Connection Between Score Matching and Denoising Autoencoders (2011)"
+    href: "https://www.iro.umontreal.ca/~vincentp/Publications/smdae_techreport.pdf"
+  - label: "Song et al., Score-Based Generative Modeling through SDEs (ICLR 2021)"
+    href: "https://arxiv.org/abs/2011.13456"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Score Function：資料分布的局部方向感
+
+> 「From Noise to Data」系列第 8 篇。上一篇的「預測噪聲」，這一篇要揭穿它其實是一個更幾何的東西。
+
+翻開任何一篇 score-based 的論文，幾乎一定會撞到 $\nabla_x \log p(x)$ 這個符號，被稱作 score。第一次看到很容易心想：這到底在量什麼？跟我熟悉的「分數」有關係嗎？
+
+## 換個說法：往哪走，密度會變高？
+
+把 score 想成一個導航指針：站在空間任一點，它指向「資料密度上升最快」的方向。越靠近資料聚集的地方密度越高，score 就把你往那裡推。它不是評分、不是獎勵，就是 log 密度的梯度——一個純粹的幾何訊號。
+
+## 先在最小例子裡看懂
+
+對一維標準高斯 $p(x) = \mathcal{N}(0, 1)$，
+
+$$
+\nabla_x \log p(x) = \nabla_x\Big(-\tfrac{x^2}{2} + \text{const}\Big) = -x.
+$$
+
+讀法很直白：你在 $x = 3$，score 是 $-3$，把你往原點（高密度處）推；你在 $x = -2$，score 是 $+2$，同樣往中心推。離中心越遠，推力越大。
+
+下面的 demo 把這件事放到 2D：把滑鼠移到任一點，看那裡的 score 箭頭指向附近的資料聚集處；拉動噪聲程度 $\sigma$，看分布被抹平、score 變平滑。
+
+<iframe src="/personal_website/notes/research_areas/noise-to-data/score-field.html" class="demo-frame" title="Score Field 互動 demo" style="height: 760px; width: 100%; border: none;"></iframe>
+
+## 揭穿：去噪和 score 是同一件事
+
+這是這篇最值得帶走的一句。回到上一篇的加噪 $x_t = \alpha_t x_0 + \sigma_t \epsilon$。可以證明，最會去噪的模型（預測 $\epsilon$ 的最佳解 $\epsilon^\star$）和那一層分布的 score，差的只是一個已知的比例：
+
+$$
+\nabla_{x_t} \log p_t(x_t) = -\frac{\epsilon^\star(x_t, t)}{\sigma_t}.
+$$
+
+換句話說，**「猜噪聲」和「指向高密度」是同一個方向，只差一個 $-1/\sigma_t$**。難怪 denoising 能拿來生成——它本來就在估計 score。順帶一提，由此還能還原乾淨資料的最佳猜測（Tweedie 公式）：
+
+$$
+\mathbb{E}[x_0 \mid x_t] = \frac{x_t + \sigma_t^2\, \nabla_{x_t}\log p_t(x_t)}{\alpha_t}.
+$$
+
+如果上一篇你已經接受「去噪能生成」，那這篇等於告訴你：你早就在跟 score 打交道了。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="這裡的 score，和機器學習裡的「分類分數 / 信心分數 / reward」是同一類東西嗎？"
+  options={[
+    { text: "是，都是模型輸出的某種分數。", explain: "名字撞了而已。分類分數量「屬於某類的程度」，reward 量「好不好」，都和密度梯度無關。" },
+    { text: "算半個，它其實是對 likelihood 的分類信心。", explain: "不是。它不評估任何標籤或好壞，只描述密度的局部幾何。" },
+    { text: "不是。score 是 log 密度的梯度 ∇ log p(x)，一個指向密度上升方向的向量，與分類或獎勵無關。", correct: true, explain: "正解。它是幾何訊號，不是評分。把它和分類/獎勵分開，後面的 Langevin、反向 SDE 才看得懂。" },
+  ]}
+/>
+
+<Quiz
+  q="為什麼 diffusion 要在「很多不同噪聲程度」上學 score，而不是只學乾淨資料的 score？"
+  options={[
+    { text: "因為在乾淨資料上，遠離資料的地方幾乎沒有梯度訊號；先把分布抹平，才能在大範圍給出有用的方向，再逐層收斂。", correct: true, explain: "正解。純資料分布在空曠處 score 幾乎為零、難估；不同 σ 的平滑版本提供了從粗到細的導航，這也是 demo 裡 σ 變大時 score 變平滑的意義。" },
+    { text: "純粹為了省計算。", explain: "不是省計算；多尺度反而更花工。關鍵是讓空曠區域也有可靠的方向訊號。" },
+    { text: "因為乾淨資料的 score 不存在。", explain: "存在（在支撐集上），但在資料稀疏處難以估計且幾乎為零，所以需要不同噪聲程度。" },
+  ]}
+/>
+
+## 這怎麼接到論文？
+
+score-based generative models 學一個 $s_\theta(x, t) \approx \nabla_x \log p_t(x)$，再用它把樣本從噪聲推回資料——可以走隨機的 Langevin / 反向 SDE，也可以走確定性的 ODE。它和 diffusion 的去噪觀點是一體兩面，這也是 Song 等人把兩者統一進「score-based SDE」框架的基礎。
+
+## 下一步
+
+我們已經有兩種局部訊號：去噪（猜噪聲）和 score（指向高密度）。flow matching 用的是第三種——**velocity**。它和這兩者有什麼不同？下一篇 [Velocity 當成回歸目標](/personal_website/zh/notes/n2d-velocity-regression) 把生成寫成一個更直接的監督式回歸。
+
+## 參考文獻
+
+1. Song, Y., Ermon, S. *Generative Modeling by Estimating Gradients of the Data Distribution.* NeurIPS 2019.
+2. Vincent, P. *A Connection Between Score Matching and Denoising Autoencoders.* Neural Computation, 2011.
+3. Song, Y., et al. *Score-Based Generative Modeling through Stochastic Differential Equations.* ICLR 2021.

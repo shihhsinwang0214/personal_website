@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vector Field 互動 demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.5; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 560px; aspect-ratio: 1/1; height: auto; display: block; margin: 0 auto; border-radius: 10px; touch-action: none; }
+  .controls { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 200px; max-width: 56vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .readout { font-variant-numeric: tabular-nums; min-width: 3.2em; font-weight: 700; }
+  .observe { font-size: 0.82rem; line-height: 1.5; margin: 12px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：<b>向量場</b>告訴每個位置的粒子下一步往哪走。這裡的箭頭，是附近粒子「條件速度」的平均——它依<b>位置</b>與<b>時間 t</b> 而不同。</p>
+  <canvas id="cv" width="560" height="560" aria-label="向量場與粒子"></canvas>
+  <div class="controls">
+    <div class="row">
+      <label for="shape">目標分布</label>
+      <select id="shape">
+        <option value="two_gaussians">雙峰 Two gaussians</option>
+        <option value="ring">環形 Ring</option>
+        <option value="two_moons">雙月 Two moons</option>
+      </select>
+      <label><input type="checkbox" id="showParticles" checked /> 顯示粒子</label>
+    </div>
+    <div class="row">
+      <label for="t">時間 t</label>
+      <input id="t" type="range" min="0" max="1" step="0.005" value="0" />
+      <span id="tR" class="readout">0.00</span>
+    </div>
+    <div class="row">
+      <label for="strength">箭頭長度</label>
+      <input id="strength" type="range" min="0.3" max="1.8" step="0.05" value="1" />
+      <label for="count">粒子數</label>
+      <input id="count" type="range" min="150" max="900" step="50" value="500" />
+    </div>
+    <div class="row">
+      <button id="play">▶ 播放一次</button>
+      <button id="reset" class="ghost">重設</button>
+    </div>
+  </div>
+  <p class="observe">觀察：同一時刻，<b>不同位置</b>的箭頭方向不同；拖動 t，<b>同一位置</b>的箭頭也會變。粒子只是順著腳下的箭頭走——這就是「跟著場流動」。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var cv = document.getElementById('cv');
+  var dpi = NDFlow.hiDPICanvas(cv);
+  var ctx = dpi.ctx, size = { w: 560, h: 560 };
+  var shapeSel = document.getElementById('shape');
+  var tEl = document.getElementById('t'), tR = document.getElementById('tR');
+  var strEl = document.getElementById('strength');
+  var countEl = document.getElementById('count');
+  var showP = document.getElementById('showParticles');
+  var pal = NDFlow.palette();
+  var GRID = 13, H = 0.55; // kernel bandwidth in world units
+
+  var x0 = [], x1 = [], vel = [];
+  function rebuild() {
+    var M = parseInt(countEl.value, 10);
+    x0 = NDFlow.sampleNoise(M, 0.9);
+    x1 = NDFlow.sampleTarget(shapeSel.value, M);
+    vel = [];
+    for (var i = 0; i < M; i++) vel.push([x1[i][0] - x0[i][0], x1[i][1] - x0[i][1]]);
+  }
+  function cur(i, t) { return [(1 - t) * x0[i][0] + t * x1[i][0], (1 - t) * x0[i][1] + t * x1[i][1]]; }
+
+  // marginal velocity at world point (wx,wy): kernel-weighted avg of conditional vels
+  function fieldAt(wx, wy, t) {
+    var sw = 0, vx = 0, vy = 0, h2 = H * H;
+    for (var i = 0; i < x0.length; i++) {
+      var p = cur(i, t);
+      var d2 = (p[0] - wx) * (p[0] - wx) + (p[1] - wy) * (p[1] - wy);
+      var w = Math.exp(-d2 / h2);
+      sw += w; vx += w * vel[i][0]; vy += w * vel[i][1];
+    }
+    if (sw < 1e-6) return [0, 0];
+    return [vx / sw, vy / sw];
+  }
+
+  function draw() {
+    size = dpi.resize();
+    var t = parseFloat(tEl.value);
+    var strength = parseFloat(strEl.value);
+    var scale = Math.min(size.w, size.h) / 5.2;
+    var cx = size.w / 2, cy = size.h / 2;
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = pal.bg; rr(0, 0, size.w, size.h, 10); ctx.fill();
+
+    // arrow grid
+    var span = 4.4, step = span / GRID;
+    ctx.strokeStyle = pal.arrow; ctx.fillStyle = pal.arrow; ctx.lineWidth = 1.4;
+    for (var gx = 0; gx < GRID; gx++) {
+      for (var gy = 0; gy < GRID; gy++) {
+        var wx = -span / 2 + (gx + 0.5) * step;
+        var wy = -span / 2 + (gy + 0.5) * step;
+        var v = fieldAt(wx, wy, t);
+        var mag = Math.hypot(v[0], v[1]);
+        if (mag < 1e-3) continue;
+        var L = Math.min(mag, 1.6) * scale * 0.42 * strength;
+        var ux = v[0] / mag, uy = v[1] / mag;
+        var sx = cx + wx * scale, sy = cy - wy * scale;
+        var ex = sx + ux * L, ey = sy - uy * L;
+        ctx.globalAlpha = 0.25 + 0.5 * Math.min(1, mag);
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+        // arrowhead
+        var ah = 4;
+        var ang = Math.atan2(-(ey - sy), ex - sx);
+        ctx.beginPath();
+        ctx.moveTo(ex, ey);
+        ctx.lineTo(ex - ah * Math.cos(ang - 0.5), ey + ah * Math.sin(ang - 0.5));
+        ctx.lineTo(ex - ah * Math.cos(ang + 0.5), ey + ah * Math.sin(ang + 0.5));
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    if (showP.checked) {
+      ctx.fillStyle = NDFlow.lerpColor(pal.noise, pal.data, t);
+      ctx.globalAlpha = 0.6;
+      for (var i = 0; i < x0.length; i++) {
+        var p = cur(i, t);
+        ctx.beginPath(); ctx.arc(cx + p[0] * scale, cy - p[1] * scale, 1.8, 0, 6.2832); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+    tR.textContent = t.toFixed(2);
+  }
+  function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+
+  var raf = null;
+  function play() {
+    if (raf) cancelAnimationFrame(raf);
+    var start = performance.now(), dur = 3000, t0 = parseFloat(tEl.value);
+    if (t0 >= 0.999) t0 = 0;
+    function step(now) { var t = Math.min(1, t0 + (now - start) / dur); tEl.value = t; draw(); if (t < 1) raf = requestAnimationFrame(step); else raf = null; }
+    raf = requestAnimationFrame(step);
+  }
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+
+  shapeSel.onchange = function () { rebuild(); tEl.value = 0; draw(); };
+  countEl.oninput = function () { rebuild(); draw(); };
+  strEl.oninput = draw; showP.onchange = draw;
+  tEl.oninput = function () { if (raf) { cancelAnimationFrame(raf); raf = null; } draw(); };
+  document.getElementById('play').onclick = play;
+  document.getElementById('reset').onclick = function () { if (raf) cancelAnimationFrame(raf); raf = null; tEl.value = 0; draw(); };
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  rebuild(); applyTheme();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Euclidean 等變點雲</title>
+<script src="./_demo-common.js"></script>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：旋轉、平移一團地圖點雲。比較<b>pairwise distance / energy</b>的不變性與<b>force-like vectors</b>的等變性。</p>
+  <canvas id="cv" width="720" height="440" aria-label="旋轉平移的點雲與向量"></canvas>
+  <div class="controls">
+    <div class="row">
+      <label for="rot">旋轉</label>
+      <input id="rot" type="range" min="-180" max="180" step="1" value="35"><span id="rotR" class="readout">35°</span>
+      <label for="tx">平移 x</label>
+      <input id="tx" type="range" min="-90" max="90" step="1" value="25"><span id="txR" class="readout">25</span>
+    </div>
+    <div class="row">
+      <label><input id="bad" type="checkbox"> 錯誤地固定向量方向（invariant vector）</label>
+    </div>
+  </div>
+  <div class="metrics">
+    <div class="metric"><strong>distance d(A,B)</strong><span id="dist"></span></div>
+    <div class="metric"><strong>toy energy Σd²</strong><span id="energy"></span></div>
+    <div class="metric"><strong>vector angle</strong><span id="angle"></span></div>
+  </div>
+  <p class="observe">觀察：<b id="observe"></b></p>
+</div>
+<script>
+(function () {
+  var cv = document.getElementById('cv'), dpi = NDFlow.hiDPICanvas(cv), ctx = dpi.ctx, pal, size;
+  var rot = document.getElementById('rot'), tx = document.getElementById('tx'), bad = document.getElementById('bad');
+  var pts = [[-75,-25],[-20,58],[38,35],[78,-38],[-5,-55]];
+  var edges = [[0,1],[1,2],[2,3],[3,4],[4,0],[1,4]];
+  function trans(p, a, shift) {
+    var c = Math.cos(a), s = Math.sin(a);
+    return [p[0]*c-p[1]*s+shift,p[0]*s+p[1]*c];
+  }
+  function draw() {
+    size = dpi.resize(); var a = parseFloat(rot.value)*Math.PI/180, shift = parseFloat(tx.value);
+    ctx.clearRect(0,0,size.w,size.h); ctx.fillStyle=pal.bg; ctx.fillRect(0,0,size.w,size.h);
+    var cx=size.w/2, cy=size.h/2+5, scale=Math.min(1.45,size.w/480);
+    var moved=pts.map(function(p){return trans([p[0]*scale,p[1]*scale],a,shift);});
+    ctx.strokeStyle=pal.border; ctx.lineWidth=3;
+    edges.forEach(function(e){ctx.beginPath();ctx.moveTo(cx+moved[e[0]][0],cy-moved[e[0]][1]);ctx.lineTo(cx+moved[e[1]][0],cy-moved[e[1]][1]);ctx.stroke();});
+    moved.forEach(function(p,i){
+      var x=cx+p[0],y=cy-p[1], base=pts[i], vx=-base[0]*.28,vy=-base[1]*.28;
+      var vv=bad.checked?[vx,vy]:trans([vx,vy],a,0);
+      ctx.fillStyle=[pal.blue,pal.red,pal.green,pal.purple,pal.accent][i];
+      ctx.beginPath();ctx.arc(x,y,9,0,Math.PI*2);ctx.fill();
+      NDFlow.arrow(ctx,x,y,x+vv[0],y-vv[1],pal.ink,2);
+      ctx.fillStyle=pal.ink;ctx.font='700 11px system-ui';ctx.fillText(String.fromCharCode(65+i),x+11,y-8);
+    });
+    var d=Math.hypot(pts[0][0]-pts[1][0],pts[0][1]-pts[1][1]);
+    var energy=edges.reduce(function(sum,e){var dx=pts[e[0]][0]-pts[e[1]][0],dy=pts[e[0]][1]-pts[e[1]][1];return sum+dx*dx+dy*dy;},0);
+    document.getElementById('dist').textContent=d.toFixed(2)+'（固定）';
+    document.getElementById('energy').textContent=energy.toFixed(0)+'（固定）';
+    document.getElementById('angle').textContent=bad.checked?'固定在 world frame':rot.value+'° 一起旋轉';
+    document.getElementById('rotR').textContent=rot.value+'°';document.getElementById('txR').textContent=tx.value;
+    document.getElementById('observe').textContent=bad.checked
+      ? '把方向輸出做成 invariant 後，點雲轉了、向量卻留在舊座標系，幾何關係被破壞。'
+      : '距離與 energy 不動；coordinate 接受旋轉+平移；vector 只跟著旋轉。';
+  }
+  rot.oninput=draw;tx.oninput=draw;bad.onchange=draw;window.addEventListener('resize',draw);
+  NDFlow.onThemeChange(function(){pal=NDFlow.applyTheme(draw);});pal=NDFlow.applyTheme(draw);
+})();
+</script>
+</body>
+</html>

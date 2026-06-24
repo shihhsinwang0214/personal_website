@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>視覺化Truncation Error</title>
+    
+    <script>
+      MathJax = {
+        tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] }
+      };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex; flex-direction: column; align-items: center;
+            background-color: #f8f9fa; color: #333; margin: 0; padding: 20px;
+        }
+        .container {
+            background: white; padding: 20px; border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; max-width: 800px; width: 100%;
+        }
+        canvas {
+            background-color: #111; border-radius: 8px; margin-top: 15px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+            width: 100%; max-width: 700px;
+        }
+        .controls { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; align-items: center; width: 100%; }
+        .control-row { display: flex; align-items: center; gap: 15px; justify-content: center; flex-wrap: wrap; }
+        input[type="range"] { cursor: pointer; width: 300px; }
+        
+        .dashboard {
+            margin-top: 20px; padding: 15px; background: #e9ecef; border-radius: 8px;
+            display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; text-align: left;
+            font-family: monospace; font-size: 14px; width: 90%; margin-left: auto; margin-right: auto;
+        }
+        .dashboard div { background: white; padding: 8px; border-radius: 4px; border: 1px solid #ccc; }
+        .highlight-red { color: #c26e60; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+<h2>視覺化 Truncation Error</h2>
+<p>
+我們以一維函數 $x(t) = 2t^5$ 為例，<br>
+用歐拉方法（Euler discretization）一步一步近似它的演化過程。<br><br>
+
+👉 注意：每一步我們都用「直線」來近似真實曲線，
+對應顏色箭頭(曲線瞬時速度)與線段
+<br>
+因此會逐漸累積 <span class="highlight-red">誤差（truncation error）</span>。
+</p>
+    
+    <canvas id="simCanvas" width="700" height="400"></canvas>
+
+    <div class="dashboard">
+        <div><strong>步數 $N$:</strong> <span id="valN">3</span></div>
+        <div><strong>步長 $\Delta t$:</strong> <span id="valDt">0.333</span></div>
+        <div><strong>總誤差:</strong> <span id="valError" class="highlight-red">0.00</span></div>
+    </div>
+
+    <div class="controls">
+        <div class="control-row">
+            <span>步數 $N$ (3 到 10): </span>
+            <input type="range" id="stepSlider" min="3" max="10" step="1" value="5">
+        </div>
+    </div>
+</div>
+
+<script>  
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    const stepSlider = document.getElementById('stepSlider');
+    const valN = document.getElementById('valN');
+    const valDt = document.getElementById('valDt');
+    const valError = document.getElementById('valError');
+
+    const padding = 50;
+    const width = canvas.width;
+    const height = canvas.height;
+    
+    // 調整 Y 軸範圍以容納 2 * 1^5 = 2.0 的最高點
+    const minT = 0, maxT = 1.15;
+    const minX = -0.2, maxX = 2.5;
+
+        function reportHeight() {
+    const height = document.body.scrollHeight;
+    window.parent.postMessage({ iframeHeight: height }, '*');
+    }
+    
+    // 頁面載入時回報
+    window.addEventListener('load', reportHeight);
+    // 視窗大小改變時回報
+    window.addEventListener('resize', reportHeight);
+
+    function mapX(t) { return padding + (t - minT) / (maxT - minT) * (width - 2 * padding); }
+    function mapY(x) { return height - padding - (x - minX) / (maxX - minX) * (height - 2 * padding); }
+
+    // 更換為五次方曲線
+    function trueTrajectory(t) { return 2 * Math.pow(t, 5); }
+    function vectorField(t) { return 10 * Math.pow(t, 4); }
+
+    // 畫小箭頭的共用函數 (加入自然外框效果)
+    function drawArrow(context, fromx, fromy, tox, toy, color, lineWidth = 4) {
+        const headlen = 8; 
+        const dx = tox - fromx;
+        const dy = toy - fromy;
+        const angle = Math.atan2(dy, dx);
+        
+        // 建立箭頭的幾何路徑
+        const buildPath = () => {
+            context.beginPath();
+            context.moveTo(fromx, fromy);
+            context.lineTo(tox, toy);
+            context.lineTo(tox - headlen * Math.cos(angle - Math.PI / 6), toy - headlen * Math.sin(angle - Math.PI / 6));
+            context.moveTo(tox, toy);
+            context.lineTo(tox - headlen * Math.cos(angle + Math.PI / 6), toy - headlen * Math.sin(angle + Math.PI / 6));
+        };
+
+        // 讓線條的端點與轉角變得圓潤自然
+        context.lineCap = 'round';
+        context.lineJoin = 'round';
+
+        // 1. 先畫底層：較粗的深色外框
+        buildPath();
+        context.strokeStyle = '#111'; // 與畫布背景相同的深色
+        context.lineWidth = lineWidth + 3.5; // 加粗形成外框
+        context.stroke();
+
+        // 2. 再畫頂層：原本顏色的箭頭主體
+        buildPath();
+        context.strokeStyle = color;
+        context.lineWidth = lineWidth;
+        context.stroke();
+
+        // 恢復預設值
+        context.lineCap = 'butt';
+        context.lineJoin = 'miter';
+    }
+    
+
+    function draw() {
+        ctx.clearRect(0, 0, width, height);
+
+        // 1. 畫座標軸與終點線
+        ctx.strokeStyle = '#555'; ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(mapX(0), mapY(minX)); ctx.lineTo(mapX(0), mapY(maxX));
+        ctx.moveTo(mapX(minT), mapY(0)); ctx.lineTo(mapX(maxT), mapY(0));
+        ctx.stroke();
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'; ctx.setLineDash([5, 5]);
+        ctx.beginPath(); ctx.moveTo(mapX(1), mapY(minX)); ctx.lineTo(mapX(1), mapY(maxX)); ctx.stroke();
+        ctx.setLineDash([]);
+
+        // 2. 畫出真實完美的軌跡 (平滑白色曲線)
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'; ctx.lineWidth = 3;
+        for (let t = 0; t <= 1.0; t += 0.01) {
+            const x = trueTrajectory(t);
+            if (t === 0) ctx.moveTo(mapX(t), mapY(x));
+            else ctx.lineTo(mapX(t), mapY(x));
+        }
+        ctx.stroke();
+
+        const exactFinalX = trueTrajectory(1);
+        ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(mapX(1), mapY(exactFinalX), 6, 0, Math.PI * 2); ctx.fill();
+
+        // 3. 計算歐拉方法軌跡
+        const N = parseInt(stepSlider.value);
+        const dt = 1.0 / N;
+        let currentT = 0;
+        let currentX = 0; 
+        const eulerPoints = [{ t: currentT, x: currentX }];
+
+        for (let k = 0; k < N; k++) {
+            const v = vectorField(currentT);
+            currentX = currentX + v * dt;
+            currentT = currentT + dt;
+            eulerPoints.push({ t: currentT, x: currentX });
+        }
+
+        // 4. 畫出每一步的輔助線、小箭頭與歐拉折線
+        for (let k = 0; k < N; k++) {
+            const pStart = eulerPoints[k];
+            const pEnd = eulerPoints[k+1];
+            const t_k = pStart.t;
+            const true_x_k = trueTrajectory(t_k);
+            const v_k = vectorField(t_k);
+            
+            // 使用低飽和度色彩 (55% Saturation)
+            const hue = (k / N) * 280; 
+            const colorStr = `hsla(${hue}, 55%, 65%, 1)`;
+            const transparentColorStr = `hsla(${hue}, 55%, 65%, 0.4)`;
+
+            // A. 垂直虛線：連接當前時間的 Euler 點與真實曲線點
+            ctx.beginPath();
+            ctx.strokeStyle = transparentColorStr;
+            ctx.setLineDash([4, 4]);
+            ctx.lineWidth = 1.5;
+            ctx.moveTo(mapX(t_k), mapY(pStart.x));
+            ctx.lineTo(mapX(t_k), mapY(true_x_k));
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // B. 瞬時速度小箭頭：在真實曲線上畫出帶有外框的小巧切線向量
+            const arrow_dt = 0.04; 
+            drawArrow(ctx, 
+                mapX(t_k), mapY(true_x_k), 
+                mapX(t_k + arrow_dt), mapY(true_x_k + v_k * arrow_dt), 
+                colorStr,
+                4 // 設定箭頭本身線寬
+            );
+
+            // C. 歐拉折線：v_t * dt 的實際移動
+            ctx.beginPath();
+            ctx.strokeStyle = colorStr;
+            ctx.lineWidth = 3;
+            ctx.moveTo(mapX(pStart.t), mapY(pStart.x));
+            ctx.lineTo(mapX(pEnd.t), mapY(pEnd.x));
+            ctx.stroke();
+        }
+
+        // 5. 畫出 x_k 節點
+        eulerPoints.forEach((p, index) => {
+            const hue = index === N ? ((index-1) / N) * 280 : (index / N) * 280;
+            ctx.fillStyle = `hsl(${hue}, 55%, 65%)`;
+            ctx.strokeStyle = '#111'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(mapX(p.t), mapY(p.x), 6, 0, Math.PI * 2);
+            ctx.fill(); ctx.stroke();
+            
+            // 在真實曲線上標示對應的時間點 (白點)
+            if(index < N) {
+                ctx.fillStyle = '#fff';
+                ctx.beginPath(); ctx.arc(mapX(p.t), mapY(trueTrajectory(p.t)), 4, 0, Math.PI * 2);
+                ctx.fill(); ctx.stroke();
+            }
+        });
+
+        // 6. 畫出終點的誤差紅線 (Muted Red)
+        const finalEulerX = eulerPoints[N].x;
+        const error = Math.abs(finalEulerX - exactFinalX);
+        
+        ctx.beginPath();
+        ctx.strokeStyle = '#c26e60'; ctx.lineWidth = 3; ctx.setLineDash([4, 4]);
+        ctx.moveTo(mapX(1), mapY(exactFinalX)); ctx.lineTo(mapX(1), mapY(finalEulerX));
+        ctx.stroke(); ctx.setLineDash([]);
+
+        // 更新儀表板
+        valN.innerText = N;
+        valDt.innerText = dt.toFixed(3);
+        valError.innerText = error.toFixed(3);
+    }
+
+    stepSlider.addEventListener('input', draw);
+    draw();
+
+
+
+</script>
+
+</body>
+</html>

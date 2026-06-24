@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>獨立耦合傳輸視覺化</title>
+    
+    <script>
+      MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']]
+        }
+      };
+    </script>
+    <script id="MathJax-script" async
+      src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js">
+    </script>
+    
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f8f9fa; /* 淺灰色背景 */
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background: white; /* 白色卡片背景 */
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 800px;
+            width: 100%;        /* ← 加這行 */
+            box-sizing: border-box; /* ← 加這行 */
+        }
+        canvas {
+            background-color: #111;
+            border-radius: 8px;
+            margin-top: 15px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+            /* 改這裡 */
+            width: 100%;
+            max-width: 600px;
+            height: auto;
+            aspect-ratio: 1 / 1;
+        }
+        
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-top: 20px;
+            align-items: center;
+            width: 100%;
+        }
+        .control-row {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            width: 100%;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        /* 模板控制元件樣式 */
+        select, button, input[type="range"] {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        button {
+            background-color: #0056b3; /* 模板藍色按鈕 */
+            color: white;
+            border: none;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        button:hover { background-color: #004494; }
+        
+        /* 暫停按鈕的特殊樣式 */
+        button.btn-stop { background-color: #dc3545; }
+        button.btn-stop:hover { background-color: #a71d2a; }
+        
+        input[type="range"] { cursor: pointer; }
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #0056b3;
+        }
+        
+        #timeSlider { width: 300px; max-width: 80vw; } /* ← 加 max-width */
+        .label-text { font-weight: bold; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Linear Interpolation 視覺化</h2>
+    
+    <canvas id="simCanvas" width="600" height="600"></canvas>
+
+    <div class="controls">
+        <div class="control-row">
+            <div class="control-row" style="gap: 5px; width: auto;">
+                <input type="checkbox" id="showLines">
+                <label for="showLines" class="label-text">顯示隨機配對連線 (Independent Coupling)</label>
+            </div>
+            <button id="reshuffleBtn">重新隨機配對</button>
+        </div>
+
+        <div class="control-row">
+            <button id="btnForward">▶ 播放</button>
+            <button id="btnPause" class="btn-stop">⏸ 暫停</button>
+            <button id="btnBackward">◀ 反向</button>
+        </div>
+
+        <div class="control-row">
+            <span class="label-text">搬運進度 $t$:</span>
+            <input type="range" id="timeSlider" min="0" max="1" step="0.001" value="0">
+            <span id="timeDisplay" style="min-width: 40px; font-weight: bold;">0.00</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 獲取所有控制元件
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    const timeSlider = document.getElementById('timeSlider');
+    const timeDisplay = document.getElementById('timeDisplay');
+    const showLinesCheckbox = document.getElementById('showLines');
+    const reshuffleBtn = document.getElementById('reshuffleBtn');
+    
+    // 動畫控制按鈕
+    const btnForward = document.getElementById('btnForward');
+    const btnPause = document.getElementById('btnPause');
+    const btnBackward = document.getElementById('btnBackward');
+
+    // 核心資料邏輯
+    const numPoints = 300;
+    let sourcePoints = [];
+    let targetPoints = [];
+    let pairings = []; 
+
+    // 動畫狀態
+    let playDirection = 0; // 1: 正向, -1: 反向, 0: 暫停
+
+    // 固定比例和中心 (適應 600x600 畫布)
+    const scale = 40; 
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+
+    // 捷運站名稱與座標
+    const targetCenters = [
+        {x: 0, y: 4.2, name: "市政府捷運站"},
+        {x: -3.2, y: -3, name: "101捷運站"},
+        {x: 3.2, y: -3, name: "象山捷運站"}
+    ];
+
+    function randomGaussian(meanX, meanY, std) {
+        let u1 = Math.random();
+        let u2 = Math.random();
+        if (u1 === 0) u1 = 1e-7; 
+        let z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+        let z1 = Math.sqrt(-2.0 * Math.log(u1)) * Math.sin(2.0 * Math.PI * u2);
+        return {
+            x: meanX + z0 * std,
+            y: meanY + z1 * std
+        };
+    }
+
+    // 初始化資料集
+    function initData() {
+        sourcePoints = [];
+        targetPoints = [];
+        
+        // 1. 生成起點：台北101 (集中分布)
+        for (let i = 0; i < numPoints; i++) {
+            sourcePoints.push(randomGaussian(0, 0, 1.2));
+        }
+
+        // 2. 生成終點：三個捷運站 (混合分布)
+        for (let i = 0; i < numPoints; i++) {
+            let center = targetCenters[i % 3];
+            targetPoints.push(randomGaussian(center.x, center.y, 0.7));
+        }
+
+        createRandomPairing();
+        draw();
+    }
+
+    // 建立隨機配對
+    function createRandomPairing() {
+        pairings = [];
+        for (let i = 0; i < numPoints; i++) {
+            pairings.push(i);
+        }
+        for (let i = pairings.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [pairings[i], pairings[j]] = [pairings[j], pairings[i]];
+        }
+    }
+
+    // 座標轉換
+    function toScreen(mathX, mathY) {
+        return {
+            x: centerX + mathX * scale,
+            y: centerY - mathY * scale // Y 軸向下
+        };
+    }
+
+    // 繪製函數
+    function draw() {
+        const t = parseFloat(timeSlider.value);
+        timeDisplay.innerText = t.toFixed(2);
+        const showLines = showLinesCheckbox.checked;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // --- 0. 畫出淡淡的背景圖示與標籤 ---
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "bold 18px sans-serif";
+
+        const p101 = toScreen(0, 0);
+        ctx.fillStyle = "rgba(6, 182, 212, 0.25)"; 
+        ctx.fillText("", p101.x, p101.y - 65);
+
+        ctx.fillStyle = "rgba(234, 88, 12, 0.8)"; 
+        for(let i=0; i<3; i++) {
+            let pMrt = toScreen(targetCenters[i].x, targetCenters[i].y);
+            let offsetY = targetCenters[i].y > 0 ? 55 : -55; 
+            let offsetX = targetCenters[i].x > 0 ? 55 : -55; 
+            ctx.fillText(targetCenters[i].name, pMrt.x + 1.6* offsetX, pMrt.y - 1.8* offsetY);
+        }
+
+        // 1. 畫出混亂的毛線球連線
+        if (showLines) {
+            ctx.lineWidth = 1;
+            for (let i = 0; i < numPoints; i++) {
+                const p0 = toScreen(sourcePoints[i].x, sourcePoints[i].y);
+                const p1 = toScreen(targetPoints[pairings[i]].x, targetPoints[pairings[i]].y);
+                ctx.beginPath();
+                ctx.moveTo(p0.x, p0.y);
+                ctx.lineTo(p1.x, p1.y);
+                ctx.strokeStyle = 'rgba(234, 179, 8, 0.15)'; 
+                ctx.stroke();
+            }
+        }
+
+        // 2. 畫出起點和終點的底圖
+        for (let i = 0; i < numPoints; i++) {
+            const p0 = toScreen(sourcePoints[i].x, sourcePoints[i].y);
+            ctx.beginPath();
+            ctx.arc(p0.x, p0.y, 2.5, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(6, 182, 212, 0.3)'; 
+            ctx.fill();
+
+            const p1 = toScreen(targetPoints[i].x, targetPoints[i].y);
+            ctx.beginPath();
+            ctx.arc(p1.x, p1.y, 2.5, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(234, 88, 12, 0.3)'; 
+            ctx.fill();
+        }
+
+        // 3. 畫出正在移動的粒子 (X_t = (1-t)X_0 + tX_1)
+        for (let i = 0; i < numPoints; i++) {
+            const p0 = sourcePoints[i];
+            const p1 = targetPoints[pairings[i]];
+            
+            const currentX = (1 - t) * p0.x + t * p1.x;
+            const currentY = (1 - t) * p0.y + t * p1.y;
+            const pos = toScreen(currentX, currentY);
+
+            const r = Math.round((1 - t) * 6 + t * 234);
+            const g = Math.round((1 - t) * 182 + t * 88);
+            const b = Math.round((1 - t) * 212 + t * 12);
+
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, 3.5, 0, Math.PI * 2);
+            ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+            
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = `rgb(${r}, ${g}, ${b})`;
+            ctx.fill();
+            ctx.shadowBlur = 0; 
+        }
+    }
+
+    // --- 動畫循環邏輯 ---
+    function loop() {
+        if (playDirection !== 0) {
+            let t = parseFloat(timeSlider.value);
+            let dt = 0.005; // 播放速度
+            t += playDirection * dt;
+
+            if (t >= 1) { 
+                t = 1; 
+                playDirection = 0; // 播到底自動停止
+            } else if (t <= 0) { 
+                t = 0; 
+                playDirection = 0; 
+            }
+
+            timeSlider.value = t;
+            timeDisplay.innerText = t.toFixed(2);
+            draw();
+        }
+        requestAnimationFrame(loop);
+    }
+
+    // --- 事件監聽 ---
+    btnForward.addEventListener('click', () => playDirection = 1);
+    btnBackward.addEventListener('click', () => playDirection = -1);
+    btnPause.addEventListener('click', () => playDirection = 0);
+
+    timeSlider.addEventListener('input', (e) => {
+        playDirection = 0; // 手動拖曳時自動暫停
+        timeDisplay.innerText = parseFloat(e.target.value).toFixed(2);
+        draw();
+    });
+    
+    showLinesCheckbox.addEventListener('change', draw);
+    
+    reshuffleBtn.addEventListener('click', () => {
+        createRandomPairing();
+        // 重設時間並暫停動畫
+        playDirection = 0;
+        timeSlider.value = 0;
+        timeDisplay.innerText = "0.00";
+        draw();
+    });
+
+    // 啟動
+    initData();
+    loop(); // 啟動動畫循環
+</script>
+
+</body>
+</html>

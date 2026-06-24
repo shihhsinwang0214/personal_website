@@ -1,0 +1,196 @@
+---
+slug: "cnn-translation-equivariance-from-map-views"
+lang: "zh"
+title: "CNN 為什麼自然適合看地圖與影像？"
+category: "research-areas"
+group: "Invariance and Equivariance"
+status: "available"
+updated: 2026-06-23
+summary: "滑動同一張地圖，親眼看見 convolution 的 feature map 同步平移，而 global pooling 把位置收成不變的摘要。"
+demos:
+  - "notes/research_areas/invariance-and-equivariance/cnn-translation.html"
+references:
+  - label: "LeCun et al., Backpropagation Applied to Handwritten Zip Code Recognition (1989)"
+    href: "https://doi.org/10.1162/neco.1989.1.4.541"
+  - label: "Cohen & Welling, Group Equivariant Convolutional Networks (2016)"
+    href: "https://arxiv.org/abs/1602.07576"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# CNN 為什麼自然適合看地圖與影像？
+
+> 「Invariance and Equivariance」系列第 2 篇。上一篇用兩個手機視角分清楚語意不變與座標跟著變；這一篇把視角放到 pixel grid 上，看 CNN 的第一個 symmetry：translation equivariance。
+
+假設你在手機上滑動台北市地圖。台大總圖從畫面中央跑到左下角，羅斯福路的位置跟著移動，捷運站標記也換了 pixel 座標。可是你不會希望模型因此重新學一套「左下角版本的道路偵測器」。
+
+如果一個 filter 能在畫面中央認出道路邊界，它也應該能在畫面左下角認出同樣的道路邊界。這句話聽起來很樸素，卻是 CNN 最重要的 inductive bias。
+
+這篇只處理一個問題：
+
+> Convolution layer 給你的不是 classification invariance，而是 feature map 的 translation equivariance。真正的 invariance 通常是後面的 pooling 或 readout 逐步做出來的。
+
+如果把這兩件事混在一起，就會誤以為 CNN 中間層「忽略位置」。實際上它剛好相反：CNN 中間層很在乎位置，只是位置會用一致的方式跟著輸入平移。
+
+## 先把道路偵測器滑過整張圖
+
+一般 fully connected layer 對每個位置都有自己的參數。這就像你在地圖上每個街區都雇一個不同的人來辨識道路：台大附近的人只看台大附近，公館附近的人只看公館附近。這不只是浪費，也錯過了影像任務裡最重要的共同結構。
+
+Convolution 的想法比較像：同一個小偵測器沿著整張地圖滑動。它在每個位置看一個局部 patch，問同一個問題：
+
+- 這裡像不像道路邊界？
+- 這裡像不像路口？
+- 這裡有沒有建築物輪廓？
+- 這裡的紋理是不是水面、草地或屋頂？
+
+這個「同一個偵測器到處用」就是 weight sharing。它不只省參數，也把一個幾何假設寫進模型：局部 pattern 的意義不應取決於它出現在第幾個 pixel。
+
+下面的 toy demo 把輸入地圖平移，並把簡化的 edge feature 畫在旁邊。打開 global pool 後，空間位置被聚合成一個數值；這正好把 layer-level equivariance 和 classification-level invariance 分開。
+
+<iframe src="/personal_website/notes/research_areas/invariance-and-equivariance/cnn-translation.html" class="demo-frame" title="CNN 平移等變互動 demo" style="height: 700px; width: 100%; border: none;"></iframe>
+
+## 現在把滑動寫成公式
+
+先用離散 2D cross-correlation 寫出深度學習框架常稱作 convolution 的運算。影像是 $x:\mathbb{Z}^2\to\mathbb{R}$，filter 是 $\psi$：
+
+$$
+(x\star\psi)(u)=\sum_{k\in\mathbb{Z}^2}x(u+k)\psi(k).
+$$
+
+令 $T_a$ 表示把影像平移 $a$。對一個理想的 convolution layer，我們希望
+
+$$
+\mathrm{Conv}(T_a x)=T_a\mathrm{Conv}(x).
+$$
+
+意思是：先平移影像再做 convolution，和先做 convolution 再平移 feature map，結果應該一致。
+
+這是 **translation equivariance**。如果輸入裡的道路往左下角移，feature map 裡偵測到的道路也往左下角移。Feature 沒有消失，也沒有被平均掉；它只是被放到新的位置。
+
+用上一篇的記號，這裡的 $g$ 是平移 $T_a$，輸入上的作用是 $T_a x$，輸出 feature map 上的 representation 也是把 feature map 平移：
+
+$$
+F(T_a x)=T_aF(x).
+$$
+
+這正是 $F(g \cdot x)=\rho(g)F(x)$ 的最熟悉版本。
+
+這個交換關係可以直接從定義看出來。若 $(T_a x)(u)=x(u-a)$，則
+
+$$
+\begin{aligned}
+((T_a x)\star\psi)(u)
+&=\sum_k x(u+k-a)\psi(k)\\
+&=(x\star\psi)(u-a)\\
+&=(T_a(x\star\psi))(u).
+\end{aligned}
+$$
+
+左邊是「先平移、再做 filter」，右邊是「先做 filter、再平移 feature map」。兩條路到同一個結果，所以 convolution 與 translation commute。這是理想無限 grid 或相容邊界條件下的正式事實；有限影像的 caveat 留到後面。
+
+## Classification 和 segmentation 的差別
+
+現在回到手機地圖任務。
+
+如果任務是 classification：「這張手機畫面是否包含台大？」最後輸出是一個 scalar label。台大從中央移到左下角，答案仍然可以是 yes。這時最後輸出希望 invariant。
+
+如果任務是 segmentation：「哪些 pixel 是建築物？」輸出是一張 mask。台大建築物往左下角移，mask 也要往左下角移。這時輸出希望 equivariant。
+
+所以 CNN 不是天生只會分類。更準確的說法是：
+
+- convolutional feature maps 通常保留 spatial layout，因此對平移等變；
+- segmentation、detection、keypoint localization 需要這種 spatially aligned output；
+- classification head 常透過 pooling、flattening、global average pooling 或 attention readout，把 equivariant features 壓成比較 invariant 的全局表示。
+
+這也是為什麼同一個 backbone 可以接不同 head。前面學局部且帶位置的表示，後面由任務決定要保留位置，還是丟掉位置。
+
+## 從會跟著走，到最後不再看位置
+
+很多教材會說 pooling 讓 CNN 對平移更 robust。這句話方向大致對，但容易讓人誤會成「pooling 保證 exact invariance」。
+
+局部 max pooling 做的是在小範圍內取最大值。它可以讓 feature 對小幅度位移比較不敏感，但它不會對任意平移保證完全一樣。Global average pooling 更接近把整張 feature map 聚成一個全局 summary，因此常用在 classification readout。但如果你要的是 segmentation mask，過早 global pooling 會直接丟掉位置資訊。
+
+若 feature map 是 $F(x)(u)$，global sum pooling 可寫成
+
+$$
+r(x)=\sum_u F(x)(u).
+$$
+
+在平移只重新排列位置、且沒有邊界遺失的理想情況下，
+
+$$
+r(T_a x)=\sum_u F(x)(u-a)=\sum_u F(x)(u)=r(x).
+$$
+
+所以 equivariant feature 經過對位置的 symmetric global readout，可以得到 invariant output。這不是「convolution 自己突然不看位置」，而是最後一步明確把位置聚合掉。
+
+所以要分清楚三層：
+
+1. **Convolution layer**：理想上對平移 equivariant。
+2. **Local pooling / stride**：常帶來局部穩定性與降採樣，但可能破壞 exact equivariance。
+3. **Global readout**：可以產生 classification 所需的近似或設計上的 invariance。
+
+把這三層混成一句「CNN 平移不變」會漏掉最重要的結構。
+
+## 理想等式碰到有限畫面
+
+到目前為止，我們講的是乾淨的數學圖像。但實作 CNN 時，exact translation equivariance 很容易被一些看似無害的細節影響。
+
+**Boundary effects。** 地圖邊界外沒有資料。當 filter 滑到影像邊緣時，你要選擇 padding。Zero padding 會在邊界引入人工訊號：原本只是畫面外未知，卻被填成零。這會讓靠邊界的 feature 和中間不同。
+
+**Padding choice。** Valid convolution 不補邊，輸出會變小；same convolution 常補零，維持大小；circular padding 則假設影像左右或上下相接。不同 padding 對 symmetry 的假設不同。台北市地圖顯然不是左右相接的環面，所以 circular padding 只是數學上乾淨，不一定語意合理。
+
+**Stride。** Stride 大於 1 時，模型不是每個 pixel 都取樣。輸入平移一個 pixel，輸出可能因為取樣格點對不齊而不是簡單平移。這在分類也許可接受，在 dense prediction 或小物件定位就可能造成問題。
+
+**Pooling and downsampling。** Pooling 會把多個位置壓成一個位置。它提供某種局部 tolerance，但也會讓 exact equivariance 變成近似性質。要做 segmentation 時，常需要 decoder、skip connection 或 upsampling 把位置資訊補回來。
+
+這些 caveats 不是要否定 CNN，而是提醒：convolution 的 symmetry 是一個核心設計原理，但完整模型是否保留這個性質，要看整條 pipeline。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="Convolution layer 對平移的正確性質是什麼？"
+  options={[
+    { text: "平移輸入後，feature map 完全不變。", explain: "這是 invariance，但 convolution layer 通常不是這樣。道路移動時，feature 位置也應該移動。" },
+    { text: "平移輸入後，feature map 也用同樣方式平移。", correct: true, explain: "對。這是 translation equivariance。" },
+    { text: "平移輸入後，模型必須重新學一組 filter。", explain: "不需要。weight sharing 正是讓同一組 filter 在各位置共用。" },
+  ]}
+/>
+
+<Quiz
+  q="如果任務是建築物 segmentation，過早使用 global average pooling 可能有什麼問題？"
+  options={[
+    { text: "它可能把 mask 所需的位置資訊壓掉。", correct: true, explain: "對。Segmentation 需要輸出和輸入位置對齊；全局 readout 適合分類，但不適合過早用在 dense output。" },
+    { text: "它會讓 convolution 不再共享權重。", explain: "Pooling 不會改變前面 convolution 的 weight sharing；問題是位置資訊被聚合。" },
+    { text: "它會讓模型永遠無法學到任何語意。", explain: "太強了。Global pooling 在分類很有用，只是不適合需要 spatial alignment 的輸出。" },
+  ]}
+/>
+
+<Quiz
+  q="Stride 大於 1 的 convolution 是否一定保留對任意一個 pixel 平移的 exact equivariance？"
+  options={[
+    { text: "一定，因為它還是 convolution。", explain: "不一定。降採樣後的格點可能和一個 pixel 的平移對不齊，exact equivariance 會被破壞或變成只對某些平移成立。" },
+    { text: "不一定。Stride、pooling 和邊界處理都可能讓理想的等變性變成近似。", correct: true, explain: "對。Convolution 的核心性質仍重要，但完整模型的性質要看實作細節。" },
+    { text: "完全不可能保留任何等變性。", explain: "也太強。對符合 stride 格點的平移，或在特定設計下，仍可能保留某些等變結構。" },
+  ]}
+/>
+
+## 這怎麼接到論文？
+
+[LeCun et al. (1989)](https://doi.org/10.1162/neco.1989.1.4.541) 早期的 convolutional network work 把局部 receptive field、weight sharing 與影像識別任務連在一起；後來的 CNN 發展把這套設計變成電腦視覺的基本工具。這篇關心的不是歷史細節，而是其中的幾何含義：CNN 的 convolution layer 把平移 symmetry 寫進了架構。
+
+[Cohen & Welling (2016)](https://arxiv.org/abs/1602.07576) 的 Group Equivariant CNNs 則把這句話往前推一步：如果 convolution 可以對平移等變，那能不能對旋轉、反射等更大的 group 也等變？我們會在第 5 篇回到這條影像分支。
+
+實作上，讀 CNN 或 dense prediction 論文時，可以用三個問題快速定位：
+
+1. 哪些 layer 保留 spatial equivariance？
+2. 哪些 operation 開始丟掉位置資訊？
+3. 這個任務最後需要 classification invariance，還是 pixel-aligned equivariance？
+
+## 下一步：先把 pixel grid 拿掉
+
+在繼續處理旋轉前，下一篇先換一種資料表示：如果地圖不是 pixel grid，而是建築物、路口與 GPS samples 組成的一堆點，平移 feature map 不再是第一個問題；資料列的順序才是。接著讀 [如果地圖不是像素，而是一堆點？](/personal_website/zh/notes/sets-and-point-clouds-permutation-invariance)。
+
+## 參考文獻
+
+1. [LeCun, Y., Boser, B., Denker, J. S., Henderson, D., Howard, R. E., Hubbard, W., & Jackel, L. D. *Backpropagation Applied to Handwritten Zip Code Recognition.* Neural Computation, 1989.](https://doi.org/10.1162/neco.1989.1.4.541)
+2. [Cohen, T., & Welling, M. *Group Equivariant Convolutional Networks.* ICML, 2016.](https://arxiv.org/abs/1602.07576)

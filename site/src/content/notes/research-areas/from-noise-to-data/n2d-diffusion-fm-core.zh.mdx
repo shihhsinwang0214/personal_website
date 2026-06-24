@@ -1,0 +1,85 @@
+---
+slug: "n2d-diffusion-fm-core"
+lang: "zh"
+title: "Diffusion 與 Flow Matching 的共同核心"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-22
+summary: "diffusion 與 flow matching 是同一件事的不同參數化：同一條 probability path 上，你選擇 regress 哪一種局部訊號。"
+demos: []
+references:
+  - label: "Song et al., Score-Based Generative Modeling through SDEs (ICLR 2021)"
+    href: "https://arxiv.org/abs/2011.13456"
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
+    href: "https://arxiv.org/abs/2210.02747"
+  - label: "Kingma et al., Variational Diffusion Models (NeurIPS 2021)"
+    href: "https://arxiv.org/abs/2107.00630"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Diffusion 與 Flow Matching 的共同核心
+
+> 「From Noise to Data」系列第 11 篇。這是整組 notes 的中點——把走過的東西收成一張圖。
+
+學到這裡，你手上有三種「局部訊號」：去噪（猜 $\epsilon$）、score（指向高密度）、velocity（該往哪移動）。很多人會把它們配給三個不同的「方法家族」，覺得 diffusion、score-based、flow matching 是三個世界。這篇要主張一件更省力的事：**它們其實是同一件事的不同寫法。**
+
+## 換個角度：同一條路，三種問法
+
+回到第 5 篇的 probability path：一條把 $p_0$ 連到 $p_1$ 的分布之路。站在這條路上的某個 noisy sample，你可以問三個問題，而它們都在描述「同一個局部動態」：
+
+- **noise 語言**：這裡頭混進的噪聲是什麼？（去噪）
+- **score 語言**：往哪走，密度會變高？（score）
+- **velocity 語言**：此刻這個樣本該往哪流？（velocity）
+
+三個問題的答案，指的都是「如何從 noise 那端往 data 那端移動」。
+
+## 把圖像翻成數學
+
+在常見的仿射高斯路徑 $x_t = \alpha_t x_0 + \sigma_t \epsilon$ 上，這三個物件是彼此的**線性重參數化**——給定 schedule $(\alpha_t, \sigma_t)$，知道任一個就能換算其餘。最乾淨的一條我們在第 8 篇already看過：
+
+$$
+\underbrace{\nabla_x \log p_t(x)}_{\text{score}} = -\frac{\epsilon^\star(x,t)}{\sigma_t}.
+$$
+
+而速度場（生成所用的 probability flow ODE 的 drift）也能寫成 $x_0$-預測、$\epsilon$-預測或 score 的線性組合。換句話說，diffusion 與 flow matching 學的是**同一個底層動態**，差別只在：
+
+1. 用哪條 probability path（加噪 schedule vs 直線插值……）；
+2. 把哪一個訊號當回歸目標（$\epsilon$ / score / velocity）；
+3. 取樣時走 SDE 還是 ODE。
+
+> 不是「誰取代誰」，而是同一張地圖上，你選了不同的座標來標記方向。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="「Flow matching 取代了 diffusion」這個說法準確嗎？"
+  options={[
+    { text: "準確，flow matching 是更強的新方法，diffusion 已經過時。", explain: "把它當成單純的替代會錯過重點。兩者共用 probability path 與 conditional→marginal 訓練技巧。" },
+    { text: "更好的理解是：它們是生成動態的不同參數化；flow matching 常給出更直接的回歸與更直的路徑，但不是另起爐灶。", correct: true, explain: "正解。差別在 path、目標訊號、sampler 的選擇，不是兩個無關的世界。很多『新方法』其實是換座標。" },
+    { text: "兩者毫無關係，只是名字常被一起提。", explain: "關係非常深——同一條 path、可互換的訊號、同一個訓練恆等式。" },
+  ]}
+/>
+
+<Quiz
+  q="當你讀到一個新的生成模型『家族』，比較有產出的問法是？"
+  options={[
+    { text: "問它選了什麼 probability path、regress 哪個訊號、用什麼 sampler——多數差異都落在這三格。", correct: true, explain: "正解。把新方法拆進這三格，你常會發現它和已知方法只差一兩個選擇，而不是全新範式。" },
+    { text: "先記住它的名字和作者，細節以後再說。", explain: "名字幫不上理解；拆解設計選擇才能看穿它和舊方法的關係。" },
+    { text: "假設它和過去方法完全無關，從零開始學。", explain: "通常不必。共同核心讓你能用已知座標快速定位新方法。" },
+  ]}
+/>
+
+## 這怎麼接到論文？
+
+這張「同一條 path、不同訊號」的地圖，是近年大量統一性工作的骨架（score-based SDE 框架、stochastic interpolants、各種 diffusion ↔ flow 的橋接）。把它當成讀論文的索引：先定位 path、目標、sampler，再看它的新意。
+
+## 下一步
+
+我們說 diffusion「隨機」、flow matching「確定」，卻又說它們同源。這兩件事怎麼共存？答案藏在一條把 SDE 和 ODE 接起來的方程。下一篇 [Probability Flow ODE](/personal_website/zh/notes/n2d-probability-flow-ode) 給出 score 與 flow 之間最重要的那座橋。
+
+## 參考文獻
+
+1. Song, Y., et al. *Score-Based Generative Modeling through Stochastic Differential Equations.* ICLR 2021.
+2. Lipman, Y., et al. *Flow Matching for Generative Modeling.* ICLR 2023.
+3. Kingma, D. P., et al. *Variational Diffusion Models.* NeurIPS 2021.

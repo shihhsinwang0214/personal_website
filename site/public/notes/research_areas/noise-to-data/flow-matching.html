@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Flow Matching Velocity 互動 demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.5; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 560px; aspect-ratio: 1/1; height: auto; display: block; margin: 0 auto; border-radius: 10px; touch-action: none; }
+  .controls { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 200px; max-width: 56vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .readout { font-variant-numeric: tabular-nums; min-width: 3.2em; font-weight: 700; }
+  .observe { font-size: 0.82rem; line-height: 1.5; margin: 12px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：flow matching 學的是 <b>velocity</b>——「此刻這個樣本該往哪移動」。每個 noise 點配一個 data 點，沿直線插值，<b>速度就是 x₁ − x₀</b>。</p>
+  <canvas id="cv" width="560" height="560" aria-label="flow matching velocity"></canvas>
+  <div class="controls">
+    <div class="row">
+      <label for="shape">目標 p₁</label>
+      <select id="shape">
+        <option value="two_moons">雙月 Two moons</option>
+        <option value="two_gaussians">雙峰 Two gaussians</option>
+        <option value="ring">環形 Ring</option>
+      </select>
+      <label for="mode">路徑</label>
+      <select id="mode"><option value="straight">直線</option><option value="curved">彎曲</option></select>
+    </div>
+    <div class="row">
+      <label for="t">時間 t</label>
+      <input id="t" type="range" min="0" max="1" step="0.005" value="0.35" />
+      <span id="tR" class="readout">0.35</span>
+      <label><input type="checkbox" id="showPairs" checked /> 顯示配對與軌跡</label>
+    </div>
+    <div class="row">
+      <button id="play">▶ 播放一次</button>
+      <button id="reset" class="ghost">重設</button>
+    </div>
+  </div>
+  <p class="observe">觀察：每支箭頭是該樣本當下的速度 v(x,t)。沿直線時，每對的速度固定等於 x₁ − x₀；但把同一位置上所有經過的樣本平均起來，就得到模型要學的「邊際速度場」。velocity 不是只指向某一張圖，而是在分布層級推動整群。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var N = 900, HL = 26;
+  var cv = document.getElementById('cv');
+  var dpi = NDFlow.hiDPICanvas(cv);
+  var ctx = dpi.ctx, size = { w: 560, h: 560 };
+  var shapeSel = document.getElementById('shape'), modeSel = document.getElementById('mode');
+  var tEl = document.getElementById('t'), tR = document.getElementById('tR');
+  var showPairs = document.getElementById('showPairs');
+  var pal = NDFlow.palette();
+  var x0 = [], x1 = [], perp = [];
+
+  function rebuild() {
+    x0 = NDFlow.sampleNoise(N, 0.9); x1 = NDFlow.sampleTarget(shapeSel.value, N); perp = [];
+    for (var i = 0; i < N; i++) { var dx = x1[i][0]-x0[i][0], dy = x1[i][1]-x0[i][1], l = Math.hypot(dx,dy)||1; perp.push([-dy/l, dx/l]); }
+    draw();
+  }
+  function pos(i, t) {
+    var x = (1-t)*x0[i][0] + t*x1[i][0], y = (1-t)*x0[i][1] + t*x1[i][1];
+    if (modeSel.value === 'curved') { var b = Math.sin(Math.PI*t)*0.9; x += perp[i][0]*b; y += perp[i][1]*b; }
+    return [x, y];
+  }
+  function vel(i, t) {
+    var vx = x1[i][0]-x0[i][0], vy = x1[i][1]-x0[i][1];
+    if (modeSel.value === 'curved') { var d = Math.cos(Math.PI*t)*Math.PI*0.9; vx += perp[i][0]*d; vy += perp[i][1]*d; }
+    return [vx, vy];
+  }
+
+  function draw() {
+    size = dpi.resize();
+    var t = parseFloat(tEl.value);
+    var scale = Math.min(size.w, size.h)/5.2, cx = size.w/2, cy = size.h/2;
+    ctx.clearRect(0,0,size.w,size.h); ctx.fillStyle = pal.bg; ctx.fillRect(0,0,size.w,size.h);
+    // background cloud at x_t
+    ctx.fillStyle = NDFlow.lerpColor(pal.noise, pal.data, t); ctx.globalAlpha = 0.35;
+    for (var i = 0; i < N; i++) { var p = pos(i,t); ctx.beginPath(); ctx.arc(cx+p[0]*scale, cy-p[1]*scale, 1.6, 0, 6.2832); ctx.fill(); }
+    ctx.globalAlpha = 1;
+    if (showPairs.checked) {
+      for (var k = 0; k < HL; k++) {
+        var idx = Math.floor(k * N / HL);
+        // faint full path
+        ctx.strokeStyle = pal.grid; ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (var tt = 0; tt <= 1.0001; tt += 0.1) { var q = pos(idx, tt); var X = cx+q[0]*scale, Y = cy-q[1]*scale; if (tt===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y); }
+        ctx.stroke();
+        var p2 = pos(idx, t), v = vel(idx, t), m = Math.hypot(v[0],v[1])||1;
+        var px = cx+p2[0]*scale, py = cy-p2[1]*scale;
+        var L = Math.min(m, 2.2) * scale * 0.16;
+        var ex = px + v[0]/m*L, ey = py - v[1]/m*L;
+        ctx.strokeStyle = pal.accent; ctx.fillStyle = pal.accent; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(ex,ey); ctx.stroke();
+        var ang = Math.atan2(-(ey-py), ex-px);
+        ctx.beginPath(); ctx.moveTo(ex,ey);
+        ctx.lineTo(ex-5*Math.cos(ang-0.5), ey+5*Math.sin(ang-0.5));
+        ctx.lineTo(ex-5*Math.cos(ang+0.5), ey+5*Math.sin(ang+0.5));
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = pal.dark ? '#9ec5ff' : '#2a4ea3';
+        ctx.beginPath(); ctx.arc(px, py, 2.6, 0, 6.2832); ctx.fill();
+      }
+    }
+    tR.textContent = t.toFixed(2);
+  }
+
+  var raf = null;
+  function play() { if (raf) cancelAnimationFrame(raf); var s = performance.now(), d = 3000, t0 = parseFloat(tEl.value); if (t0>=0.999) t0=0;
+    function step(now){ var t=Math.min(1, t0+(now-s)/d); tEl.value=t; draw(); if(t<1) raf=requestAnimationFrame(step); else raf=null; } raf=requestAnimationFrame(step); }
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1':'0'; draw(); }
+  shapeSel.onchange = rebuild; modeSel.onchange = draw; showPairs.onchange = draw;
+  tEl.oninput = function(){ if(raf){cancelAnimationFrame(raf); raf=null;} draw(); };
+  document.getElementById('play').onclick = play;
+  document.getElementById('reset').onclick = function(){ if(raf) cancelAnimationFrame(raf); raf=null; tEl.value=0.35; draw(); };
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  rebuild(); applyTheme();
+})();
+</script>
+</body>
+</html>

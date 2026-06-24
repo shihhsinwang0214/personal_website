@@ -1,0 +1,222 @@
+---
+slug: "frontiers-of-equivariant-learning"
+lang: "zh"
+title: "對稱性不是免費午餐"
+category: "research-areas"
+group: "Invariance and Equivariance"
+status: "available"
+updated: 2026-06-23
+summary: "把對稱性從硬規則慢慢放鬆，看看資料效率、表達力與真實誤差之間為什麼沒有免費答案。"
+demos:
+  - "notes/research_areas/invariance-and-equivariance/symmetry-tradeoff.html"
+references:
+  - label: "Bronstein et al., Geometric Deep Learning: Grids, Groups, Graphs, Geodesics, and Gauges (2021)"
+    href: "https://arxiv.org/abs/2104.13478"
+  - label: "Cohen & Welling, Group Equivariant Convolutional Networks (2016)"
+    href: "https://arxiv.org/abs/1602.07576"
+  - label: "Maron et al., On the Universality of Invariant Networks (2019)"
+    href: "https://arxiv.org/abs/1901.09342"
+  - label: "Garcia Satorras, Hoogeboom & Welling, E(n) Equivariant Graph Neural Networks (2021)"
+    href: "https://arxiv.org/abs/2102.09844"
+  - label: "Han et al., Geometrically Equivariant Graph Neural Networks: A Survey (2022)"
+    href: "https://arxiv.org/abs/2202.07230"
+  - label: "Wang, Walters & Yu, Approximately Equivariant Networks for Imperfectly Symmetric Dynamics (2022)"
+    href: "https://arxiv.org/abs/2201.11969"
+  - label: "Puny et al., Frame Averaging for Invariant and Equivariant Network Design (2022)"
+    href: "https://arxiv.org/abs/2110.03336"
+  - label: "Kaba et al., Equivariance with Learned Canonicalization Functions (2023)"
+    href: "https://arxiv.org/abs/2211.06489"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# 對稱性不是免費午餐
+
+> 「Invariance and Equivariance」系列第 7 篇。前面幾篇說明 symmetry 為什麼有用；這一篇說明它為什麼也危險。
+
+到這裡，我們已經用同一個台北地圖例子走過 CNN、GNN、point cloud 和 Euclidean equivariant models。很容易得到一個太漂亮的結論：只要找到資料的 symmetry，把它寫進模型，事情就解決了。
+
+真實研究沒有這麼乾淨。對稱性是一種 inductive bias；bias 可以幫助泛化，也可能把正確答案壓掉。你如果知道手機地圖只是在平移，translation equivariance 很自然；你如果把導航方向做成 rotation invariant，模型就穩定地丟掉了答案。
+
+這篇把前六篇濃縮成一個研究判斷：
+
+> Symmetry 不是越多越好，而是要和任務的 input space、output space、觀測限制、資料誤差與計算成本一起判斷。
+
+下面六個問題，是讀 equivariant learning 論文時很實用的檢查表。
+
+## 先動手：把 symmetry constraint 從硬轉鬆
+
+下面的 toy demo 用一個「對稱強度」slider 比較三件事：constraint 越硬，對旋轉後輸入的一致性誤差越小；但當資料裡真的有 north-up 的方向訊號時，過硬 constraint 也可能增加 task error。曲線只是教學用 toy model，不是任何論文的實驗結果。
+
+<iframe src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-tradeoff.html" class="demo-frame" title="對稱性強度與任務誤差互動 demo" style="height: 690px; width: 100%; border: none;"></iframe>
+
+> 最重要的問題不是「能不能更 equivariant」，而是「這個 transformation 到底有多少是 nuisance，又有多少是 signal」。
+
+## 1. 當理想 group 遇到不完美資料
+
+數學裡的地圖很乾淨：把影像平移 $a$，得到 $T_a x$；把點雲旋轉 $R$，得到 $RX$。可是手機上的台北地圖不是理想連續物件。它有 pixel grid、裁切、解析度、文字標籤、UI 覆蓋、地圖投影、插值與 aliasing。
+
+所以即使真實城市有某種幾何規律，觀測到的資料也可能只近似滿足 symmetry。
+
+例如，把手機畫面旋轉 30 度後，地圖 app 重新 rasterize：道路線條變粗或變細，文字標籤可能重新排版，邊界外的區域可能被補上新資訊。這時要求模型 exact rotation equivariant，可能和實際資料 pipeline 不完全一致。
+
+研究上要問：
+
+- 哪個 symmetry 在理想世界 exact？
+- 哪個 symmetry 在資料中只 approximate？
+- 架構要 hard-code exact equivariance，還是用 regularization、augmentation、soft constraint 讓模型學近似穩定性？
+
+Exact constraint 乾淨、可證明、常能省資料；approximate constraint 更貼近真實資料，但理論與評估也更難。
+
+可以用 equivariance defect 粗略量化偏離程度。對 transformation $g$ 與輸入 $x$，定義
+
+$$
+\varepsilon(g,x)
+=\left\|F(g\cdot x)-\rho(g)F(x)\right\|.
+$$
+
+Exact equivariance 要求所有考慮中的 $(g,x)$ 都有 $\varepsilon(g,x)=0$；soft 或 approximate 方法則允許非零 defect，再由資料與 objective 決定容許多少。[Wang, Walters & Yu (2022)](https://arxiv.org/abs/2201.11969) 研究的正是不完美 symmetry 下，放鬆硬等變約束可能帶來的好處；這不表示 relaxed 方法總是更好，只表示「真實資料是否 exact」應被當成可檢驗假設。
+
+## 2. 最危險的是把答案平均掉
+
+最危險的不是模型不夠對稱，而是對錯東西做不變。
+
+如果任務是「這是不是台大附近」，旋轉手機後答案不變很合理。可是如果任務是「使用者應該往北走還是往南走」，方向就是答案的一部分。把方向做成 invariant，模型會變得穩定，但穩定地錯。
+
+再看分子。某些全局 property 對旋轉和平移不變；但 force、velocity、coordinate update 不能 invariant。把 force vector 壓成 rotation-invariant scalar，就是把物理任務需要的資訊刪掉。
+
+所以每次看到 invariant pooling、global readout、augmentation averaging，都要問：
+
+> 被平均掉的變化，真的是 nuisance variation，還是 task signal？
+
+<Quiz
+  q="什麼時候 rotation invariance 可能是錯的 inductive bias？"
+  options={[
+    { text: "只要資料是影像，rotation invariance 永遠正確。", explain: "不對。影像任務是否需要方向，取決於任務語意。" },
+    { text: "只要模型夠大，任何 invariance 都不會有問題。", explain: "不對。硬編碼的錯誤 symmetry 可能直接移除必要資訊。" },
+    { text: "當輸出本身依賴方向，例如導航方向、向量場、姿態估計。", correct: true, explain: "對。這些任務需要方向資訊；把它抹掉會傷害任務。" },
+  ]}
+/>
+
+## 3. 少學一批自由度，也可能少表示一批函數
+
+更嚴格的 symmetry constraint 常能降低樣本需求，因為模型不用從資料裡重新學「旋轉後其實是同一種東西」。但 constraint 也可能限制模型能表示的函數。
+
+Graph learning 是最清楚的例子之一。Permutation equivariance 是基本門檻，但 message passing GNN 仍可能分不出某些 graph。要提升 expressivity，可能需要 higher-order tensors、k-WL-inspired architectures、更多 pairwise/higher-order interactions，或更複雜的 equivariant layers。
+
+代價是計算成本。Higher-order representation 可能在節點數增加時變得昂貴；更完整的 steerable 或 tensor feature system 可能讓 implementation 和 memory 都變重。
+
+台北地圖例子也一樣。如果只要判斷一個局部 patch 是否在校園附近，太複雜的 equivariant machinery 可能不值得。如果要同時對每個路口預測流量、處理不同視角、保留方向與局部拓撲，簡單 pooling 可能又不夠。
+
+研究者常在三件事之間取捨：
+
+1. 是否 exact equivariant；
+2. 是否 expressive enough；
+3. 是否 computationally practical。
+
+保守地說，前沿工作不是單純追求「更對稱」，而是在找一個可訓練、可擴展、又不過度限制的平衡點。
+
+[Puny et al. (2022)](https://arxiv.org/abs/2110.03336) 的 frame averaging 提供另一種設計路線：不一定重寫 backbone 的每一層，而是對一個小型、資料相依的 frame 做 averaging，以取得 invariant/equivariant mapping。論文在其設定下討論 exactness、expressivity 與計算成本；實際是否划算仍取決於 group、frame 大小與 backbone。
+
+## 4. 漂亮等式會先撞上 grid 邊界
+
+第 2 篇已經看過：convolution 在理想無限 grid 上有漂亮的 translation equivariance，但真實影像有 boundary、padding、stride、pooling 和 interpolation。
+
+這個問題在所有幾何模型裡都會回來。
+
+手機地圖 crop 有邊界。你向右滑動後，左邊消失、右邊出現新區域；這不是單純把同一張完整影像平移。你旋轉畫面後，pixel grid 需要重採樣；細線、文字和小圖標可能不再完美對齊。
+
+Point cloud 也有 discretization。你看到的是有限 GPS samples，不是連續道路曲線；你掃描到的是 partial 3D point cloud，不是完整物體表面。Graph 也有邊界：道路網路被切在行政區或觀測範圍內，邊界外的道路被拿掉。
+
+所以讀 exact equivariance claim 時，要補問：
+
+- 它是在連續空間、離散 grid、有限 point set，還是裁切 graph 上成立？
+- Boundary 怎麼處理？
+- Interpolation 或 resampling 是否引入近似？
+- Downsampling 是否只保留某些 subgroup 的等變性？
+
+這些不是 implementation trivia；它們常常決定理論性質能不能在資料上接近成立。
+
+## 5. 兩支手機看到的甚至不是同一張完整圖
+
+前面多數公式都假設我們拿到完整物體，再對它做 transformation。但手機地圖的母例子一開始就不是這樣：兩個手機視角只重疊一部分。
+
+這比「旋轉同一張完整圖」更難。模型不只要處理 transformation，還要處理缺失、遮擋、裁切和局部對齊。
+
+例如兩個人各拿手機看台大附近，一個看到總圖和傅鐘，一個看到校門和公館站。兩個視角有重疊，但沒有完整覆蓋。若模型要把它們對齊，就需要判斷哪些局部結構是同一個地理物件，哪些只是看起來相似。
+
+這會通向 registration、matching、local equivariance、patch-based reasoning、scene consistency 等問題。很多真實任務中，輸入不是完整物體，而是 partial observation。
+
+**TODO（citation review）**：這一節仍需要作者指定要採用的 registration / partial-observation 主線，再補 primary references。目前只作概念性橋接，不宣稱特定方法的效果或 SOTA。
+
+## 6. 如果連 canonical frame 都不知道呢？
+
+有些 symmetry 很清楚：影像有平移，graph 有 node permutation，分子有 Euclidean transformations。可是有些資料的 symmetry 不容易事先寫出來。
+
+台北地圖裡也有模糊例子。行政區邊界、交通尖峰、使用者路線偏好、地圖標籤顯示規則，不一定形成乾淨的 group action。你可能知道「某些變化不該太影響答案」，但說不出完整的 $G$ 和 $\rho(g)$。
+
+這引出一個更開放的問題：
+
+> Symmetry 應該由人 hard-code，還是由模型從資料中 learn？
+
+這不是二選一。很多實際系統會在中間地帶：把確定的 symmetry 寫進架構，對不確定的部分用 augmentation、regularization 或 learned alignment 處理。[Kaba et al. (2023)](https://arxiv.org/abs/2211.06489) 研究 learned canonicalization：先學一個 canonical representative，再把一般 backbone 包裝成 equivariant/invariant 系統。這條路的吸引力是能重用現有模型；風險則是 canonicalization 本身可能不唯一、不連續，或在對稱樣本上產生 ambiguity。
+
+**TODO（scope）**：learned symmetry / latent group discovery 比 learned canonicalization 更廣。這篇不宣稱模型已能可靠發現未知 group，也不把兩者混成同一個已解問題。
+
+## 把六個問題收成一張表
+
+讀任何 equivariant learning 論文前，可以先填這張表：
+
+| 問題 | 要填的內容 |
+| --- | --- |
+| Input space 是什麼？ | image、set、point cloud、graph、geometric graph、field |
+| Transformation 是什麼？ | translation、rotation、reflection、permutation、partial view |
+| Output space 是什麼？ | label、mask、coordinate、vector、node feature、graph property |
+| 需要 invariance 還是 equivariance？ | 寫出 $f(g \cdot x)=f(x)$ 或 $F(g \cdot x)=\rho(g)F(x)$ |
+| Symmetry 是 exact 還是 approximate？ | 考慮 grid、boundary、noise、domain shift |
+| Constraint 可能傷害什麼？ | direction、chirality、orientation、local detail、expressivity |
+| 計算代價是什麼？ | memory、runtime、implementation complexity |
+
+這張表不是要取代數學，而是避免在看 layer formula 前就走錯方向。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="如果一個 symmetry 在理想數學物件上成立，是否代表它在真實資料 pipeline 中一定 exact 成立？"
+  options={[
+    { text: "一定。只要數學上成立，資料上也會完全成立。", explain: "不對。真實資料有 discretization、boundary、interpolation、noise、partial views 等問題。" },
+    { text: "不一定。真實觀測可能只近似滿足 symmetry。", correct: true, explain: "對。這就是 exact vs approximate symmetry 的核心。" },
+    { text: "完全不可能成立，所以 equivariant model 沒有用。", explain: "太強了。很多 symmetry 仍然是很有用的 inductive bias，只是要檢查近似與代價。" },
+  ]}
+/>
+
+<Quiz
+  q="對稱性作為 inductive bias，最大的風險之一是什麼？"
+  options={[
+    { text: "把任務真正需要的資訊當成 nuisance variation 丟掉。", correct: true, explain: "對。錯的 invariance 會讓模型穩定地忽略答案。" },
+    { text: "讓模型完全不能訓練。", explain: "不一定。許多 equivariant models 可以訓練；風險更細，是 bias 是否和任務相符。" },
+    { text: "讓所有模型都變成同一個架構。", explain: "不是。不同 symmetry、output space 和成本會導向不同設計。" },
+  ]}
+/>
+
+## 這篇刻意不宣稱什麼
+
+這篇不是說 equivariant models 已經解決泛化問題，也不是說所有 foundation model 都應該明確 hard-code group actions。比較穩健的說法是：symmetry 是理解模型架構與資料結構的一種強語言，但它本身也帶來選擇、限制與成本。
+
+對稱性不是答案本身；它是一個問問題的方法。問得對，模型可以少學很多不必要的東西。問錯了，模型會把答案一起丟掉。
+
+## 走到系列終點
+
+現在回頭看第一篇的兩支手機，問題已經不只是「label 不變、座標要轉」。你還會追問：crop 是否只部分重疊？旋轉是否真的 exact？文字標籤是否打破 symmetry？輸出是 scalar、vector，還是 per-node field？模型省下多少自由度，又失去多少表達力？
+
+目前這 7 篇形成一條完整 v1 路線：從手機地圖直覺出發，經過 CNN、sets、GNN、group convolution 與 $E(n)$-equivariant GNN，最後回到 symmetry selection 的研究判斷。真正開始讀論文時，先把那張 input / transformation / output / $\rho(g)$ 表填完；它通常比先挑架構更可靠。
+
+## 參考文獻
+
+1. [Bronstein, M. M., Bruna, J., Cohen, T., & Veličković, P. *Geometric Deep Learning: Grids, Groups, Graphs, Geodesics, and Gauges.* 2021.](https://arxiv.org/abs/2104.13478)
+2. [Cohen, T., & Welling, M. *Group Equivariant Convolutional Networks.* ICML, 2016.](https://arxiv.org/abs/1602.07576)
+3. [Maron, H., Fetaya, E., Segol, N., & Lipman, Y. *On the Universality of Invariant Networks.* ICML, 2019.](https://arxiv.org/abs/1901.09342)
+4. [Garcia Satorras, V., Hoogeboom, E., & Welling, M. *E(n) Equivariant Graph Neural Networks.* ICML, 2021.](https://arxiv.org/abs/2102.09844)
+5. [Han, J., Rong, Y., Xu, T., & Huang, W. *Geometrically Equivariant Graph Neural Networks: A Survey.* 2022.](https://arxiv.org/abs/2202.07230)
+6. [Wang, R., Walters, R., & Yu, R. *Approximately Equivariant Networks for Imperfectly Symmetric Dynamics.* ICML, 2022.](https://arxiv.org/abs/2201.11969)
+7. [Puny, O., et al. *Frame Averaging for Invariant and Equivariant Network Design.* ICLR, 2022.](https://arxiv.org/abs/2110.03336)
+8. [Kaba, S.-O., et al. *Equivariance with Learned Canonicalization Functions.* ICML, 2023.](https://arxiv.org/abs/2211.06489)

@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flow Matching 的生成</title>
+    
+    <script>
+      MathJax = {
+        tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] }
+      };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f8f9fa;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 800px;
+            width: 100%;
+        }
+        h2 { border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; margin-top: 0; }
+        .canvas-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            margin-top: 20px;
+        }
+        canvas {
+            background-color: #111;
+            border-radius: 8px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+            width: 600px;
+            height: 600px;
+            cursor: grab;
+        }
+        canvas:active { cursor: grabbing; }
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-top: 20px;
+            width: 100%;
+            max-width: 600px;
+        }
+        .control-row {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        input[type="range"] { width: 300px; accent-color: #0056b3; cursor: pointer; }
+        input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: #0056b3; }
+        select { padding: 6px 10px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; cursor: pointer; }
+        .label-text { font-weight: bold; font-size: 14px; }
+        button {
+            background-color: #0056b3;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: background 0.2s;
+        }
+        button:hover { background-color: #004494; }
+        button.btn-stop { background-color: #dc3545; }
+        button.btn-stop:hover { background-color: #a71d2a; }
+    </style>
+</head>
+
+   
+<body>
+
+<div class="container">
+<h2>隨人潮而動的（非線性）軌跡</h2>
+
+<p>
+先點擊「隨機抽取起點」來選擇一個初始位置 $x(0)$。
+</p>
+<p>
+<span style="color: #fef08a; background-color: #111; padding: 2px 4px; border-radius: 4px;">
+黃色箭頭</span>
+代表在當下位置與時間計算得到的平均瞬時速度 $v(x(t), t)$。
+</p>
+<p>
+接著，透過 Flow ODE $\frac{dx}{dt} = v(x(t), t)$，我們可以生成一條軌跡 $x(t)$，將起點 $x(0)$ 一步步搬運到 $x(1)$。
+你也可以自由拖曳起點，觀察不同初始位置所對應的軌跡變化！
+</p>
+        
+    <div class="canvas-container">
+        <canvas id="simCanvas" width="600" height="600"></canvas>
+        
+        <div class="controls">
+            <div class="control-row">
+                <span class="label-text">目標分佈:</span>
+                <select id="shapeSelect">
+                    <option value="mrt">捷運站 (3 Gaussians)</option>
+                    <option value="two_moons">雙月 (Two Moons)</option>
+                    <option value="swiss_roll">瑞士捲 (Swiss Roll)</option>
+                    <option value="grid">高斯網格 (Grid)</option>
+                    <option value="heart">愛心 (Heart)</option>
+                    <option value="ring">環形 (Ring)</option>
+                </select>
+
+                <span class="label-text" style="margin-left: 10px;">播放速度 $\Delta t$:</span>
+                <input type="range" id="speedSlider" min="0.001" max="0.02" step="0.001" value="0.005" style="width: 100px;">
+            </div>
+
+            <div class="control-row">
+                <button id="randomStartBtn">🎲 隨機抽取起點 $x(0)$</button>
+                <div style="display: flex; align-items: center; gap: 5px; margin-left: 15px;">
+                    <input type="checkbox" id="showLines">
+                    <label for="showLines" class="label-text">顯示 $X_t$ </label>
+                </div>
+                
+                <div style="display: flex; align-items: center; gap: 5px; margin-left: 10px;">
+                    <input type="checkbox" id="showVector" checked>
+                    <label for="showVector" class="label-text">顯示 $v(x,t)$</label>
+                </div>
+            </div>
+            
+            <div class="control-row">
+                <button id="btnForward">▶ 播放</button>
+                <button id="btnPause" class="btn-stop">⏸ 暫停</button>
+                <button id="btnBackward">◀ 反向</button>
+            </div>
+
+            <div class="control-row">
+                <span class="label-text">時間 $t$:</span>
+                <input type="range" id="timeSlider" min="0" max="0.999" step="0.001" value="0">
+                <span id="timeDisplay" style="min-width: 40px; font-weight: bold;">0.000</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    const timeSlider = document.getElementById('timeSlider');
+    const timeDisplay = document.getElementById('timeDisplay');
+    const showLinesCheckbox = document.getElementById('showLines');
+    const showVectorCheckbox = document.getElementById('showVector');
+    const randomStartBtn = document.getElementById('randomStartBtn');
+    const shapeSelect = document.getElementById('shapeSelect');
+    const speedSlider = document.getElementById('speedSlider');
+    
+    // 動畫控制按鈕
+    const btnForward = document.getElementById('btnForward');
+    const btnPause = document.getElementById('btnPause');
+    const btnBackward = document.getElementById('btnBackward');
+
+    // 資料與畫布設定
+    const numPoints = 300;
+    let sourcePoints = [];
+    let targetPoints = [];
+    let pairings = [];
+    let odePath = [];
+
+    const scale = 38; 
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const sigma = 1.2;
+
+    let obsPoint = { x: 0.5, y: 1.0 }; 
+    let isDragging = false;
+    let playDirection = 0; 
+
+    const targetCenters = [
+        {x: 0, y: 4.5, name: "市政府站"},
+        {x: -3.2, y: -3, name: "101站"},
+        {x: 3.2, y: -3, name: "象山站"}
+    ];
+
+    function randomGaussian(meanX, meanY, std) {
+        let u1 = Math.random(), u2 = Math.random();
+        if (u1 === 0) u1 = 1e-7; 
+        let z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+        let z1 = Math.sqrt(-2.0 * Math.log(u1)) * Math.sin(2.0 * Math.PI * u2);
+        return { x: meanX + z0 * std, y: meanY + z1 * std };
+    }
+
+    // 生成目標分佈
+    function generateTargetPoints(shape) {
+        targetPoints = [];
+        for (let i = 0; i < numPoints; i++) {
+            let tx = 0, ty = 0;
+            if (shape === 'mrt') {
+                let center = targetCenters[i % 3];
+                let pt = randomGaussian(center.x, center.y, 0.7);
+                tx = pt.x; ty = pt.y;
+            } else if (shape === 'two_moons') {
+                const isTopMoon = Math.random() > 0.5;
+                const angle = Math.random() * Math.PI;
+                if (isTopMoon) {
+                    tx = Math.cos(angle) - 0.5; ty = -Math.sin(angle) + 0.25;
+                } else {
+                    tx = 1.0 - Math.cos(angle) - 0.5; ty = Math.sin(angle) - 0.25;
+                }
+                tx = tx * 4 + randomGaussian(0,0, 0.2).x; 
+                ty = ty * 4 + randomGaussian(0,0, 0.2).y;
+            } else if (shape === 'swiss_roll') {
+                const t = 1.5 + Math.random() * (4 * Math.PI - 1.5);
+                tx = t * Math.cos(t) * 0.4 + randomGaussian(0,0, 0.2).x;
+                ty = t * Math.sin(t) * 0.4 + randomGaussian(0,0, 0.2).y;
+            } else if (shape === 'grid') {
+                const gx = Math.floor(Math.random() * 3) - 1; 
+                const gy = Math.floor(Math.random() * 3) - 1;
+                tx = gx * 3.5 + randomGaussian(0,0, 0.35).x;
+                ty = gy * 3.5 + randomGaussian(0,0, 0.35).y;
+            } else if (shape === 'heart') {
+                const t = Math.random() * Math.PI * 2;
+                tx = 16 * Math.pow(Math.sin(t), 3) * 0.28 + randomGaussian(0,0, 0.2).x;
+                ty = (13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t)) * 0.28 + randomGaussian(0,0, 0.2).y;
+            } else if (shape === 'ring') {
+                const angle = Math.random() * Math.PI * 2;
+                const r = 4.5 + randomGaussian(0,0, 0.4).x;
+                tx = r * Math.cos(angle); ty = r * Math.sin(angle);
+            }
+            targetPoints.push({x: tx, y: ty});
+        }
+    }
+
+    function initData() {
+        sourcePoints = [];
+        for (let i = 0; i < numPoints; i++) {
+            sourcePoints.push(randomGaussian(0, 0, sigma));
+            pairings.push(i);
+        }
+        
+        generateTargetPoints(shapeSelect.value);
+        
+        for (let i = pairings.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [pairings[i], pairings[j]] = [pairings[j], pairings[i]];
+        }
+        calculateODE();
+    }
+
+    function toScreen(mathX, mathY) { return { x: centerX + mathX * scale, y: centerY - mathY * scale }; }
+    function toMath(screenX, screenY) { return { x: (screenX - centerX) / scale, y: -(screenY - centerY) / scale }; }
+
+    function drawArrow(ctx, fromX, fromY, toX, toY, color, lineWidth, headlen = 10) {
+        const angle = Math.atan2(toY - fromY, toX - fromX);
+        ctx.beginPath();
+        ctx.moveTo(fromX, fromY);
+        ctx.lineTo(toX, toY);
+        ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
+        ctx.moveTo(toX, toY);
+        ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+        ctx.stroke();
+    }
+
+    function calculateODE() {
+        odePath = [];
+        const steps = 1000;
+        const dt = 1.0 / steps;
+        
+        let currentX = { x: obsPoint.x, y: obsPoint.y };
+        let t = 0;
+
+        for (let step = 0; step < steps; step++) {
+            let inv_t1 = 1.0 / (1.0 - t);
+            let inv_t1_sq = inv_t1 * inv_t1;
+            
+            let distances = targetPoints.map(tk => {
+                let dx = currentX.x - t * tk.x;
+                let dy = currentX.y - t * tk.y;
+                return (dx * dx + dy * dy);
+            });
+            
+            let minD = Math.min(...distances);
+            let weightSum = 0;
+            let expectedX1 = { x: 0, y: 0 };
+
+            for (let k = 0; k < numPoints; k++) {
+                let exponent = - (distances[k] - minD) * inv_t1_sq / (2 * sigma * sigma);
+                let w = Math.exp(exponent);
+                weightSum += w;
+                expectedX1.x += targetPoints[k].x * w;
+                expectedX1.y += targetPoints[k].y * w;
+            }
+
+            expectedX1.x /= weightSum;
+            expectedX1.y /= weightSum;
+
+            let vx = (expectedX1.x - currentX.x) * inv_t1;
+            let vy = (expectedX1.y - currentX.y) * inv_t1;
+
+            odePath.push({ x: currentX.x, y: currentX.y, t: t, vx: vx, vy: vy });
+
+            currentX.x += vx * dt;
+            currentX.y += vy * dt;
+            t += dt;
+        }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const currentTime = parseFloat(timeSlider.value);
+        const showLines = showLinesCheckbox.checked;
+        const showVector = showVectorCheckbox.checked;
+        const currentShape = shapeSelect.value;
+
+        // 背景標籤
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "bold 16px sans-serif";
+        
+        const pSource = toScreen(0, 0);
+        ctx.fillStyle = "rgba(6, 182, 212, 0.25)"; 
+        ctx.fillText(currentShape === 'mrt' ? "" : "", pSource.x, pSource.y - 50);
+
+        if (currentShape === 'mrt') {
+            ctx.fillStyle = "rgba(234, 88, 12, 0.25)"; 
+            for(let i=0; i<3; i++) {
+                let pMrt = toScreen(targetCenters[i].x, targetCenters[i].y);
+                let offsetY = targetCenters[i].y > 0 ? 40 : -40; 
+                let offsetX = targetCenters[i].x > 0 ? 45 : -45; 
+                ctx.fillText(targetCenters[i].name, pMrt.x + 1.4 * offsetX, pMrt.y - 1.5 * offsetY);
+            }
+        }
+
+        // 隨機配對直線
+        if (showLines) {
+            ctx.lineWidth = 1;
+            for (let i = 0; i < numPoints; i++) {
+                const p0 = toScreen(sourcePoints[i].x, sourcePoints[i].y);
+                const p1 = toScreen(targetPoints[pairings[i]].x, targetPoints[pairings[i]].y);
+                ctx.beginPath();
+                ctx.moveTo(p0.x, p0.y);
+                ctx.lineTo(p1.x, p1.y);
+                ctx.strokeStyle = 'rgba(234, 179, 8, 0.06)'; 
+                ctx.stroke();
+            }
+        }
+
+        // 起點與終點點陣
+        for (let i = 0; i < numPoints; i++) {
+            const p0 = toScreen(sourcePoints[i].x, sourcePoints[i].y);
+            ctx.beginPath(); ctx.arc(p0.x, p0.y, 2, 0, Math.PI*2);
+            ctx.fillStyle = 'rgba(6, 182, 212, 0.2)'; ctx.fill();
+
+            const p1 = toScreen(targetPoints[i].x, targetPoints[i].y);
+            ctx.beginPath(); ctx.arc(p1.x, p1.y, 2, 0, Math.PI*2);
+            ctx.fillStyle = 'rgba(234, 88, 12, 0.3)'; ctx.fill();
+        }
+
+        // Flow ODE 軌跡
+        if (odePath.length > 0) {
+            
+            // --- 繪製 x(1) 落點標示 ---
+            let endP = odePath[odePath.length - 1];
+            let endScreen = toScreen(endP.x, endP.y);
+            ctx.beginPath();
+            ctx.arc(endScreen.x, endScreen.y, 8, 0, Math.PI*2);
+            ctx.fillStyle = '#f97316'; // 亮橘色
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#f97316';
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#fff';
+            ctx.fillText("x(1)", endScreen.x, endScreen.y - 20);
+
+            // --- 繪製主軌跡 ---
+            ctx.beginPath();
+            let start = toScreen(odePath[0].x, odePath[0].y);
+            ctx.moveTo(start.x, start.y);
+            for (let i = 1; i < odePath.length; i++) {
+                let p = toScreen(odePath[i].x, odePath[i].y);
+                ctx.lineTo(p.x, p.y);
+            }
+            ctx.strokeStyle = '#22c55e';
+            ctx.lineWidth = 3;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#22c55e';
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            // --- 繪製移動中粒子 ---
+            let pathIndex = Math.floor(currentTime * 1000);
+            if (pathIndex >= odePath.length) pathIndex = odePath.length - 1;
+            let currentP = odePath[pathIndex];
+            let currentParticleScreen = toScreen(currentP.x, currentP.y);
+
+            // 速度箭頭 v(x,t) (受 Checkbox 控制)
+            if (showVector) {
+                let vMag = Math.hypot(currentP.vx, currentP.vy);
+                if (vMag > 0.001) {
+                    let maxVisualLength = 1.8; 
+                    let visualMag = Math.min(vMag * 0.25, maxVisualLength);
+                    let vxDraw = (currentP.vx / vMag) * visualMag;
+                    let vyDraw = (currentP.vy / vMag) * visualMag;
+                    let vEndScreen = toScreen(currentP.x + vxDraw, currentP.y + vyDraw);
+
+                    ctx.shadowBlur = 8;
+                    ctx.shadowColor = '#fef08a';
+                    drawArrow(ctx, currentParticleScreen.x, currentParticleScreen.y, vEndScreen.x, vEndScreen.y, '#fef08a', 3, 10);
+                    
+                    ctx.fillStyle = '#fef08a';
+                    ctx.font = 'bold 15px sans-serif';
+                    ctx.fillText("v(x(t),t)", vEndScreen.x - 30, vEndScreen.y);
+                    ctx.shadowBlur = 0;
+                }
+            }
+
+            // 粒子本體
+            ctx.beginPath();
+            ctx.arc(currentParticleScreen.x, currentParticleScreen.y, 6, 0, Math.PI * 2);
+            ctx.fillStyle = '#fff';
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#fff';
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            
+            ctx.beginPath();
+            ctx.arc(currentParticleScreen.x, currentParticleScreen.y, 10, 0, Math.PI * 2);
+            ctx.strokeStyle = '#22c55e';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        // 拖曳起點提示
+        let obsScreen = toScreen(obsPoint.x, obsPoint.y);
+        ctx.beginPath();
+        ctx.arc(obsScreen.x, obsScreen.y, 8, 0, Math.PI*2);
+        ctx.fillStyle = '#06b6d4'; 
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.fillText("x(0)", obsScreen.x, obsScreen.y + 20); // 移到下方避免跟準星重疊
+    }
+
+    // 動畫循環
+    function loop() {
+        if (playDirection !== 0) {
+            let t = parseFloat(timeSlider.value);
+            let dt = parseFloat(speedSlider.value); // 使用拉桿速度
+            t += playDirection * dt;
+
+            if (t >= 0.999) { 
+                t = 0.999; playDirection = 0; 
+            } else if (t <= 0) { 
+                t = 0; playDirection = 0; 
+            }
+
+            timeSlider.value = t;
+            timeDisplay.innerText = t.toFixed(3);
+            draw();
+        }
+        requestAnimationFrame(loop);
+    }
+
+    // 事件監聽
+    btnForward.addEventListener('click', () => playDirection = 1);
+    btnBackward.addEventListener('click', () => playDirection = -1);
+    btnPause.addEventListener('click', () => playDirection = 0);
+
+    timeSlider.addEventListener('input', (e) => {
+        playDirection = 0;
+        timeDisplay.innerText = parseFloat(e.target.value).toFixed(3);
+        draw();
+    });
+
+    showLinesCheckbox.addEventListener('change', draw);
+    showVectorCheckbox.addEventListener('change', draw); // 監聽顯示向量場開關
+
+    shapeSelect.addEventListener('change', () => {
+        generateTargetPoints(shapeSelect.value);
+        playDirection = 0;
+        timeSlider.value = 0;
+        timeDisplay.innerText = "0.000";
+        calculateODE();
+        draw();
+    });
+
+    randomStartBtn.addEventListener('click', () => {
+        const randomIdx = Math.floor(Math.random() * sourcePoints.length);
+        obsPoint.x = sourcePoints[randomIdx].x;
+        obsPoint.y = sourcePoints[randomIdx].y;
+        playDirection = 0;  // 改為不自動播放
+        timeSlider.value = 0; 
+        timeDisplay.innerText = "0.000";
+        calculateODE(); 
+        draw();
+    });
+
+    canvas.addEventListener('mousedown', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const obsScreen = toScreen(obsPoint.x, obsPoint.y);
+        if (Math.hypot(mouseX - obsScreen.x, mouseY - obsScreen.y) < 25) {
+            isDragging = true;
+            playDirection = 0; 
+            timeSlider.value = 0; 
+            timeDisplay.innerText = "0.000";
+        }
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        obsPoint = toMath(mouseX, mouseY);
+        calculateODE(); 
+        draw();
+    });
+
+    canvas.addEventListener('mouseup', () => isDragging = false);
+    canvas.addEventListener('mouseleave', () => isDragging = false);
+
+    initData();
+    loop(); 
+</script>
+
+</body>
+</html>

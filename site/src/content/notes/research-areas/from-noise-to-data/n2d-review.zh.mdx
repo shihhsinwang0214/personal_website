@@ -1,0 +1,132 @@
+---
+slug: "n2d-review"
+lang: "zh"
+title: "回顧測驗：用十個問題把整張地圖再走一遍"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-22
+summary: "整組 notes 的收尾自測——不是背誦，而是把 noise、score、velocity、path、OT 串起來的啟發式問題。答錯也沒關係，每題都附上把觀念接回去的說明。"
+demos: []
+references:
+  - label: "Song et al., Score-Based Generative Modeling through SDEs (ICLR 2021)"
+    href: "https://arxiv.org/abs/2011.13456"
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
+    href: "https://arxiv.org/abs/2210.02747"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# 回顧測驗：用十個問題把整張地圖再走一遍
+
+> 「From Noise to Data」系列第 18 篇，也是收尾。這一篇沒有新內容，全部是問題。
+
+前面十七篇給了你一張地圖。這篇想做的，不是要你背名詞，而是把那張地圖**接起來用**：每一題都跨越好幾篇，逼你在「直覺」和「研究語言」之間來回走一趟。答錯完全沒關係——每個選項底下都有說明，把觀念接回它該在的地方。慢慢做，把它當成一次愉快的驗收。
+
+## 一、把語言接起來
+
+<Quiz
+  q="你手上已經有一個訓練好、會「預測噪聲 ε」的模型。現在想要它的 score，卻不想重新訓練。可行嗎？"
+  options={[
+    { text: "不行，score 和去噪是兩套獨立的東西，得另外訓練一個 score 模型。", explain: "它們不是獨立的。回想第 8 篇的關鍵等式。" },
+    { text: "可行，但只能在 σ=1 時換算。", explain: "換算對所有噪聲程度都成立，不限 σ=1。" },
+    { text: "可行：score 就是 −ε/σₜ。去噪器和 score 模型本質是同一個物件，差一個已知比例。", correct: true, explain: "正解（第 8、11 篇）。∇log pₜ = −ε⋆/σₜ。看穿這點，你就知道 diffusion 和 score-based 不是兩個世界。" },
+  ]}
+/>
+
+<Quiz
+  q="如果要把整個系列濃縮成「模型在每個點到底學什麼」，最能抓住共同核心的說法是？"
+  options={[
+    { text: "它在學『此刻這個樣本，該往哪個方向移動，才能更接近資料分布』——noise、score、velocity 只是描述這個方向的三種語言。", correct: true, explain: "正解。這是整張地圖的主旋律（第 11、17 篇）：同一個局部動態，三種座標。" },
+    { text: "它在學如何把每一張訓練圖片壓縮起來、需要時再解壓。", explain: "那是記憶／壓縮的圖像；生成學的是分布結構，不是逐張還原。" },
+    { text: "它在學一個把圖片分類的決策邊界。", explain: "那是判別式模型。生成式關心的是分布本身與取樣（第 1 篇）。" },
+  ]}
+/>
+
+## 二、把隨機與確定接起來
+
+<Quiz
+  q="有人說：『diffusion 是隨機過程，所以它一定比 flow matching 那種確定性 ODE 更能覆蓋整個資料分布。』哪裡需要修正？"
+  options={[
+    { text: "沒什麼好修正的，隨機一定覆蓋得比較廣。", explain: "這正是要修正的直覺。隨機性不直接等於更好的分布覆蓋。" },
+    { text: "在 exact 場下，存在一條 probability flow ODE 與該 diffusion 的每個邊際 pₜ 都相等，確定 ODE 覆蓋一樣多；覆蓋由 base 分布與場決定、兩種 sampler 共用，沿路加噪只動耦合、不動邊際。", correct: true, explain: "正解（第 12 篇）。所以「隨機⟹靠探索覆蓋更多」在 exact 下被等號否證。補充：場若有誤差，SDE 用 Girsanov 給 KL 界、ODE 只給 W₂——那是噪聲的『誤差阻尼』(robustness)，不是探索，而且在 exact 極限會消失。" },
+    { text: "該修正的是 diffusion 其實是確定的、flow matching 才是隨機的。", explain: "方向反了。diffusion 前向是隨機 SDE，flow matching 的生成是確定 ODE。" },
+  ]}
+/>
+
+<Quiz
+  q="你已經訓練好一個 score 模型，想做『確定性、可調步數』的取樣。最直接的工具是？"
+  options={[
+    { text: "把 score 丟進 probability flow ODE：dx/dt = f − ½g²·∇log pₜ，用 ODE solver 積分。", correct: true, explain: "正解（第 12、13 篇）。score 直接組成 PF-ODE 的速度項，於是你能用 DDIM／DPM-Solver 這類確定性 sampler 控制步數。" },
+    { text: "只能做隨機的 Langevin 取樣，沒有確定性版本。", explain: "有確定性版本——那正是 probability flow ODE。" },
+    { text: "score 沒辦法拿來取樣，要先轉成 GAN。", explain: "完全不必。score 本身就能驅動取樣（Langevin 或 ODE）。" },
+  ]}
+/>
+
+## 三、把訓練的魔術接起來
+
+<Quiz
+  q="flow matching 訓練時，給模型的目標是 x₁−x₀（指向某一張特定資料）。為什麼最後不會學成『只會複製訓練圖』？"
+  options={[
+    { text: "因為訓練時加了正則化，禁止它記憶。", explain: "不需要靠正則化。原因更根本，藏在回歸的數學裡。" },
+    { text: "因為很多配對會經過同一點，L2 回歸的最佳解是這些速度的條件平均，剛好等於正確的邊際速度場——粗目標被『平均』磨對。", correct: true, explain: "正解（第 10 篇）。conditional → marginal：對可算的條件目標回歸，最佳解自動是 intractable 的邊際場。這也正是 denoising score matching 的同一招。" },
+    { text: "因為 x₁−x₀ 其實本來就等於邊際速度，不用平均。", explain: "單對的速度指向特定圖，和邊際場一般不同；是條件期望讓它對齊。" },
+  ]}
+/>
+
+<Quiz
+  q="為什麼幾乎所有方法都從『高斯』出發，而不是直接從一個『已經很接近資料』的分布出發，少走一點路？"
+  options={[
+    { text: "因為高斯生成的圖比較好看。", explain: "起點分布不決定畫質；它決定的是可取樣性與分析便利。" },
+    { text: "因為一個『接近資料』的分布，本身就需要你先知道資料分布長怎樣——但那正是我們要學的東西。高斯則好取樣、密度已知，又是加噪的自然終點。", correct: true, explain: "正解（第 2 篇）。base 分布必須能輕鬆取樣且性質已知；『接近資料的起點』是雞生蛋問題。" },
+    { text: "因為非高斯的起點在數學上不可能。", explain: "可以用別的 base（任何好取樣的分布都行）；高斯只是同時滿足好取樣、對稱、加噪終點，成了預設。" },
+  ]}
+/>
+
+## 四、把工程與幾何接起來
+
+<Quiz
+  q="你把取樣步數從 50 砍到 4，結果圖糊掉了。從這個系列學到的東西，最該先試的兩個方向是？"
+  options={[
+    { text: "重新蒐集更多訓練資料、把模型加大。", explain: "問題出在取樣時的離散化，不在資料或模型容量。" },
+    { text: "換更高階的 ODE solver（在同樣步數下壓低 truncation error），以及把路徑拉直（rectified flow）讓少步也夠準。", correct: true, explain: "正解（第 13、15 篇）。少步變糊＝離散化誤差放大；對策是更聰明的 solver 或更好走的路（甚至蒸餾成單步）。" },
+    { text: "把 noise 起點換成均勻分布。", explain: "換 base 分布不解決離散化誤差；關鍵在路徑與 solver。" },
+  ]}
+/>
+
+<Quiz
+  q="『把生成路徑拉直』（rectified flow）和 optimal transport，關係比較準確的描述是？"
+  options={[
+    { text: "拉直就是在解 optimal transport，兩者完全等價。", explain: "方向對但太強。拉直會降低傳輸成本、靠近 OT 風格的耦合，但一般不保證求得真正的 OT 解。" },
+    { text: "兩者毫無關係，只是剛好都和分布有關。", explain: "關係其實不淺：OT 的動態形式正是在 continuity equation 下找最省動能的流。" },
+    { text: "拉直讓邊際軌跡更直、傳輸成本更低，因此更靠近 OT 想要的『最省搬法』；但多數 flow matching 並不直接求 OT 解，OT 是衡量與設計的語言。", correct: true, explain: "正解（第 15、16 篇）。把 OT 當成『最省搬法』這把尺，rectified flow 是朝它靠近的一種手段，不是它本身。" },
+  ]}
+/>
+
+## 五、把概念的邊界接起來
+
+<Quiz
+  q="probability path 上的中間分布 pₜ，和『資料集裡的資料』最根本的不同是什麼？"
+  options={[
+    { text: "pₜ 解析度比較低。", explain: "不是解析度問題，是來源問題。" },
+    { text: "pₜ 是被『設計／定義』出來的過渡分布（由插值或加噪規則決定），不是被『觀測／蒐集』來的資料；它是為了讓生成可學而搭的過渡世界。", correct: true, explain: "正解（第 5 篇）。observed vs designed——這個分辨能擋掉『是不是要另外收集中間資料』的常見誤會。" },
+    { text: "pₜ 只存在於高斯的情況。", explain: "任何 noise→data 的設計都有中間分布 pₜ，不限高斯終點。" },
+  ]}
+/>
+
+<Quiz
+  q="一個 diffusion 模型生成的單張圖都很漂亮，但整體漏掉了某些類別、多樣性不足。用『生成模型在學分布』的視角，這最像什麼問題？"
+  options={[
+    { text: "模型沒覆蓋好整個資料分布（漏掉某些 mode），也就是分布層級沒學對——單張漂亮不等於分布對。", correct: true, explain: "正解（第 1 篇）。樣本品質只是其中一面；覆蓋率／多樣性是另一面。生成的目標是分布，不是單張。" },
+    { text: "模型一定是過擬合，把訓練圖背起來了。", explain: "過擬合是另一種失敗（太貼訓練集）；這裡描述的是覆蓋不足／mode dropping。" },
+    { text: "這代表模型其實學得很好，沒有問題。", explain: "漂亮但漏 mode 正是分布沒學全的徵兆，不能只看單張品質。" },
+  ]}
+/>
+
+## 走到這裡
+
+如果這十題你大多能想到「為什麼」，那你已經能把 noise、score、velocity、path、continuity、ODE、NFE、rectified flow、OT 串成一條線——這正是讀懂這些研究論文所需要的核心。哪幾題卡住，就回到對應的那篇再走一次；它們本來就是設計成可以隨時回頭的。接下來，挑一條你最好奇的分支，繼續往前走吧。
+
+## 參考文獻
+
+1. Song, Y., et al. *Score-Based Generative Modeling through Stochastic Differential Equations.* ICLR 2021.
+2. Lipman, Y., et al. *Flow Matching for Generative Modeling.* ICLR 2023.

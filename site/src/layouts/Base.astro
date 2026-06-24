@@ -1,0 +1,229 @@
+---
+import '../styles/global.css';
+import 'katex/dist/katex.min.css';
+import { ClientRouter } from 'astro:transitions';
+import { withBase } from '../lib/url';
+import { profile } from '../data/content';
+
+interface Props {
+  title: string;
+  description?: string;
+  active?: 'home' | 'publications' | 'experience' | 'notes' | 'about';
+  lang?: 'en' | 'zh';
+}
+
+const {
+  title,
+  description = 'Shih-Hsin Wang — academic profile, research, and notes.',
+  active = 'home',
+  lang = 'en',
+} = Astro.props;
+const canonicalUrl = Astro.url.href;
+const ogImageUrl = new URL(withBase(profile.photo), Astro.url).href;
+const notesFeedUrl = withBase('rss.xml');
+const newsFeedUrl = withBase('news.xml');
+
+const nav = [
+  { id: 'home', label: 'Home', href: withBase('') },
+  { id: 'notes', label: 'Writing', href: withBase('notes') },
+  { id: 'publications', label: 'Publications', href: withBase('publications') },
+  { id: 'experience', label: 'Experience', href: withBase('experience') },
+  { id: 'about', label: 'About', href: withBase('about') },
+  { id: 'cv', label: 'CV', href: withBase(profile.cv), external: true },
+];
+
+const year = new Date().getFullYear();
+---
+
+<!doctype html>
+<html lang={lang}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+    <title>{title}</title>
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="icon" href={withBase('favicon.svg')} type="image/svg+xml" />
+    <link rel="alternate" type="application/rss+xml" title="Shih-Hsin Wang notes RSS" href={notesFeedUrl} />
+    <link rel="alternate" type="application/rss+xml" title="Shih-Hsin Wang news RSS" href={newsFeedUrl} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:site_name" content={profile.name} />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageUrl} />
+
+    <script is:inline>
+      (function () {
+        try {
+          var t = localStorage.getItem('theme');
+          if (t !== 'light' && t !== 'dark') {
+            t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.dataset.theme = t;
+        } catch (e) {}
+      })();
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <ClientRouter />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="topbar-inner">
+        <a class="brand" href={withBase('')}>
+          <img class="brand-avatar" src={withBase(profile.photo)} alt="" />
+          <span class="brand-name">{profile.name} <span class="brand-zh">{profile.nameZh}</span></span>
+        </a>
+
+        <div class="nav-right">
+          <nav class="site-nav" id="site-nav" aria-label="Primary">
+            {
+              nav.map((item) => (
+                <a
+                  href={item.href}
+                  aria-current={item.id === active ? 'page' : undefined}
+                  target={item.external ? '_blank' : undefined}
+                  rel={item.external ? 'noopener' : undefined}
+                >
+                  {item.label}
+                </a>
+              ))
+            }
+          </nav>
+
+          <button class="theme-toggle" type="button" aria-label="Toggle dark mode" aria-pressed="false">
+            <svg class="icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19" />
+            </svg>
+            <svg class="icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+            </svg>
+          </button>
+
+          <button class="nav-toggle" type="button" aria-label="Menu" aria-controls="site-nav" aria-expanded="false">
+            <span class="nav-toggle-bar"></span>
+            <span class="nav-toggle-bar"></span>
+            <span class="nav-toggle-bar"></span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div class="nav-scrim"></div>
+
+    <div id="main" data-pagefind-body>
+      <slot />
+    </div>
+
+    <footer class="site-footer">
+      &copy; {profile.name} ({profile.nameZh}) // {year}
+    </footer>
+
+    <script>
+      function setStuck() {
+        const h = document.querySelector('.site-header');
+        if (h) h.classList.toggle('is-stuck', window.scrollY > 8);
+      }
+
+      function bindHeader() {
+        const navToggle = document.querySelector('.nav-toggle');
+        const nav = document.getElementById('site-nav');
+        const scrim = document.querySelector('.nav-scrim');
+        const themeToggle = document.querySelector('.theme-toggle');
+
+        if (themeToggle) {
+          const sync = () =>
+            themeToggle.setAttribute(
+              'aria-pressed',
+              document.documentElement.dataset.theme === 'dark' ? 'true' : 'false',
+            );
+          sync();
+          themeToggle.addEventListener('click', () => {
+            const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+            document.documentElement.dataset.theme = next;
+            try {
+              localStorage.setItem('theme', next);
+            } catch (e) {}
+            sync();
+          });
+        }
+
+        const close = () => {
+          document.body.classList.remove('nav-open');
+          if (navToggle) navToggle.setAttribute('aria-expanded', 'false');
+        };
+
+        if (navToggle && nav) {
+          navToggle.addEventListener('click', () => {
+            const isOpen = document.body.classList.toggle('nav-open');
+            navToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+            if (isOpen) {
+              const first = nav.querySelector('a, button');
+              if (first instanceof HTMLElement) first.focus();
+            }
+          });
+          if (scrim) scrim.addEventListener('click', close);
+          nav.addEventListener('click', (e) => {
+            if ((e.target as HTMLElement).closest('a')) close();
+          });
+          nav.addEventListener('keydown', (e) => {
+            if (e.key !== 'Tab' || !document.body.classList.contains('nav-open')) return;
+            const items = nav.querySelectorAll<HTMLElement>('a, button');
+            if (!items.length) return;
+            const first = items[0];
+            const last = items[items.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+              e.preventDefault();
+              last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+              e.preventDefault();
+              first.focus();
+            }
+          });
+        }
+      }
+
+      function setup() {
+        bindHeader();
+        setStuck();
+      }
+
+      if (!(window as any).__chromeGlobal) {
+        (window as any).__chromeGlobal = true;
+        window.addEventListener('scroll', setStuck, { passive: true });
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            document.body.classList.remove('nav-open');
+            const nt = document.querySelector('.nav-toggle');
+            if (nt) nt.setAttribute('aria-expanded', 'false');
+          }
+        });
+      }
+
+      document.addEventListener('astro:after-swap', () => {
+        document.body.classList.remove('nav-open');
+        try {
+          let t = localStorage.getItem('theme');
+          if (t !== 'light' && t !== 'dark') {
+            t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.dataset.theme = t;
+        } catch (e) {}
+      });
+      document.addEventListener('astro:page-load', setup);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,74 @@
+---
+slug: "n2d-rectified-flow"
+lang: "zh"
+title: "Rectified Flow：讓路徑變直是什麼意思？"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-22
+summary: "把彎曲的生成路徑拉直，讓少步、甚至單步取樣成為可能；它從 path design 自然長出來，和 flow matching 共用語言。"
+demos: []
+references:
+  - label: "Liu et al., Flow Straight and Fast: Rectified Flow (ICLR 2023)"
+    href: "https://arxiv.org/abs/2209.03003"
+  - label: "Liu et al., InstaFlow: One-Step Text-to-Image (2023)"
+    href: "https://arxiv.org/abs/2309.06380"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Rectified Flow：讓路徑變直是什麼意思？
+
+> 「From Noise to Data」系列第 15 篇。承接 path design：如果路可以設計，那就把它弄直。
+
+「rectified flow」這名字聽起來像又一個全新模型。但如果你讀完了前面，它其實是 path design 的一個很自然的念頭：**直線最好走。** 這篇就把這個念頭講清楚。
+
+## 換個角度：為什麼要直？
+
+回想第 13 篇：取樣是把 ODE 一小步一小步積分出來。路徑越彎，速度方向變化越劇烈，solver 就得切成很多小步才跟得上；路徑越接近直線，少數幾步、甚至一步，就能從 noise 走到 data。所以「拉直」不是美學，而是直接換來**少步取樣**。
+
+## 一個容易誤會的地方
+
+你可能會說：flow matching 不是已經用直線插值 $x_t=(1-t)x_0+t x_1$ 了嗎？那不就已經直了？這裡有個微妙之處：**單一配對**的插值是直線，但把所有配對平均出來的**邊際軌跡**通常是彎的——因為不同配對的直線會交叉，模型學到的場為了不打架，得繞。
+
+## 把畫面寫成數學
+
+rectified flow 的做法是「reflow」：先用現有的場跑一次 ODE，得到一組由模型自己決定的新配對 $(x_0, x_1^{\text{gen}})$；再用這組更「不交叉」的配對，重新對直線插值做回歸。重複這個過程，邊際軌跡會越來越直、傳輸成本越來越低：
+
+$$
+(x_0, x_1)\;\xrightarrow{\text{解 ODE}}\;(x_0, x_1^{\text{gen}})\;\xrightarrow{\text{重訓直線插值}}\;\text{更直的 flow}.
+$$
+
+直到流幾乎是直的——這時用一兩步 Euler 就能生成。InstaFlow 等工作正是沿這條路把文字生圖壓到接近單步。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="rectified flow 是和 flow matching 無關的另一個世界嗎？"
+  options={[
+    { text: "是，它是完全獨立的新範式。", explain: "不是。它就建立在 velocity field 與直線插值上，和 flow matching 共用同一套語言。" },
+    { text: "不是。它和 flow matching 共用 velocity 與 path 的語言，只是多了一個『把路徑拉直（reflow）』的步驟。", correct: true, explain: "正解。把它讀成 path design 的延伸：同樣學速度場，只是反覆重配對讓邊際軌跡變直。" },
+    { text: "算是，它其實在學 score 而不是 velocity。", explain: "它學的是 velocity（沿直線插值），不是 score。" },
+  ]}
+/>
+
+<Quiz
+  q="把生成路徑『拉直』，主要換來什麼好處？"
+  options={[
+    { text: "少步、甚至單步取樣：直線好積分，幾步 Euler 就能從 noise 走到 data，大幅降低 NFE。", correct: true, explain: "正解。這呼應第 13 篇——直路的 truncation error 小，少步也夠準，這是 rectified flow 的核心賣點。" },
+    { text: "讓模型參數變少。", explain: "拉直改變的是路徑與取樣步數，不是模型大小。" },
+    { text: "讓訓練資料需求變少。", explain: "好處在取樣效率（少步），不是資料量。" },
+  ]}
+/>
+
+## 這怎麼接到論文？
+
+rectified flow 常被用來研究快速 / 少步 / 單步生成，以及 diffusion、flow 類模型的統一觀點。它把「path design」「少步取樣」「蒸餾」這幾條線收在一起，是近年實用化生成的重要一支。
+
+## 下一步
+
+「拉直、讓傳輸成本最低」聽起來很像在問一個更根本的問題：把一個分布搬成另一個分布，**最省力的搬法是什麼**？這正是 optimal transport。下一篇 [Optimal Transport](/personal_website/zh/notes/n2d-optimal-transport) 給這套幾何語言一個入口。
+
+## 參考文獻
+
+1. Liu, X., Gong, C. *Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow.* ICLR 2023.
+2. Liu, X., et al. *InstaFlow: One Step is Enough for High-Quality Diffusion-Based Text-to-Image Generation.* 2023.

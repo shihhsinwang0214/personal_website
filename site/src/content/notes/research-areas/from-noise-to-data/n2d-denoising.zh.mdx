@@ -1,0 +1,86 @@
+---
+slug: "n2d-denoising"
+lang: "zh"
+title: "Denoising：生成可以被看成局部修復"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-22
+summary: "把 diffusion 理解成「在每個噪聲程度學會修復一點點」，並釐清 diffusion 與本系列相反的時間方向慣例。"
+demos: []
+references:
+  - label: "Ho, Jain & Abbeel, Denoising Diffusion Probabilistic Models (NeurIPS 2020)"
+    href: "https://arxiv.org/abs/2006.11239"
+  - label: "Sohl-Dickstein et al., Deep Unsupervised Learning using Nonequilibrium Thermodynamics (ICML 2015)"
+    href: "https://arxiv.org/abs/1503.03585"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Denoising：生成可以被看成局部修復
+
+> 「From Noise to Data」系列第 7 篇。前六篇給了統一的動態地圖；從這篇開始，我們看生成的**第一種局部訊號**：去噪。
+
+你大概聽過有人說「diffusion 就是去噪模型」。乍聽很怪：去噪不是把雜訊照修乾淨的影像處理嗎？它怎麼會「生成」出全新的圖？這篇就把這個轉折講清楚。
+
+## 去噪怎麼會等於生成？
+
+關鍵的轉念是這樣：如果一個模型在**每一種噪聲程度**下，都知道怎麼把資料往乾淨的方向修一點點，那我們就能從一團純噪聲出發，反覆做很多次小修正，一路修回一張清晰的樣本。生成，於是被拆解成一長串「局部修復」。
+
+## 先抓住這個畫面
+
+> 不必一步畫出整張圖。只要在每個模糊程度上，都能猜出「該往哪修一點」，把這些小修正串起來，純噪聲就會慢慢顯影成資料。
+
+## 把畫面寫成數學
+
+先定義「加噪」：對一筆乾淨資料 $x_0$，混入高斯噪聲
+
+$$
+x_t = \alpha_t\, x_0 + \sigma_t\, \epsilon, \qquad \epsilon \sim \mathcal{N}(0, I),
+$$
+
+其中 $\alpha_t, \sigma_t$ 是事先定好的 schedule（訊號逐漸變弱、噪聲逐漸變強）。模型 $\epsilon_\theta$ 的任務，是看著帶噪的 $x_t$ 與程度 $t$，**把混進去的噪聲猜回來**：
+
+$$
+\mathcal{L} = \mathbb{E}_{x_0,\, \epsilon,\, t}\Big[\, \big\| \epsilon_\theta(x_t, t) - \epsilon \big\|^2 \,\Big].
+$$
+
+這是一個乾淨的監督式回歸：輸入 $x_t$，標準答案是 $\epsilon$。猜到了噪聲，就等於知道該往哪個方向修。生成時反過來：從純噪聲開始，一步步用 $\epsilon_\theta$ 估計並移除一點噪聲，直到還原出樣本。
+
+## 一個一定要先講清楚的混淆點：時間方向
+
+這裡有個讓很多人讀論文時當機的慣例差異。**本系列**用 $t: 0 \to 1$，$t=0$ 是 noise、$t=1$ 是 data（沿著生成方向走）。但**多數 diffusion 論文**用相反方向：$t=0$ 是乾淨資料、$t=T$ 是純噪聲，「前向過程」隨 $t$ 增加而加噪，「反向過程」（生成）則是把 $t$ 從 $T$ 走回 $0$。
+
+<Quiz
+  q="在標準 diffusion 論文的慣例下，「生成新樣本」對應到時間怎麼走？"
+  options={[
+    { text: "沿 t 從 0 增加到 T，也就是不斷加噪。", explain: "那是前向（加噪）過程，把資料推成噪聲，不是生成。" },
+    { text: "把 t 從 T 走回 0，逐步去噪——這正是反向（生成）過程。", correct: true, explain: "對。論文裡 t=T 是純噪聲、t=0 是資料；生成是反著時間走、一步步去噪。和本系列 noise→data 是同一件事，只是 t 的方向相反。" },
+    { text: "時間不參與，模型一步直接輸出圖片。", explain: "diffusion 的精神正是「多步」；單步直出是另一類（distillation / 單步模型）要額外做的事。" },
+  ]}
+/>
+
+記住這件事，你之後對照公式就不會被 $t=0$ 到底是噪聲還是資料搞混。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="diffusion 的去噪訓練，和一般「把雜訊照片修乾淨」的影像去噪任務，最大的差別是什麼？"
+  options={[
+    { text: "沒差別，就是同一個影像修復任務。", explain: "目標不同。影像去噪只想還原那一張；這裡是要學整個資料分布的局部結構。" },
+    { text: "diffusion 只在很小的噪聲下訓練。", explain: "相反，它涵蓋從幾乎乾淨到幾乎純噪聲的所有程度，這樣才能從純噪聲一路修回來。" },
+    { text: "它要在所有噪聲程度上都學會修一點點，目的是逼近資料分布、能產生新樣本，而不是還原某一張。", correct: true, explain: "正解。跨所有 t 的去噪，等於在學資料分布附近的局部結構；串起來就能生成沒看過的新樣本。" },
+  ]}
+/>
+
+## 這怎麼接到論文？
+
+denoising 目標（預測 $\epsilon$）是 DDPM 一系的訓練主力，撐起了高品質的影像、音訊、影片與 3D 生成。它的形式極簡——一個 L2 回歸——卻能逼出驚人的樣本品質，也是 diffusion 好訓練、好擴展的原因之一。
+
+## 下一步
+
+「預測噪聲」其實偷偷連到一個更幾何的物件。如果你問「往哪修，資料才更可能？」那個方向，就是 **score**。下一篇 [Score Function：資料分布的局部方向感](/personal_website/zh/notes/n2d-score-function) 會說明 score 是什麼，並用 Tweedie 公式揭穿一件事：去噪和 score，根本是同一件事換個寫法。
+
+## 參考文獻
+
+1. Ho, J., Jain, A., Abbeel, P. *Denoising Diffusion Probabilistic Models.* NeurIPS 2020.
+2. Sohl-Dickstein, J., et al. *Deep Unsupervised Learning using Nonequilibrium Thermodynamics.* ICML 2015.

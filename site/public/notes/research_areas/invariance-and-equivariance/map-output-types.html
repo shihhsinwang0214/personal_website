@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>地圖視角與輸出型態</title>
+<script src="./_demo-common.js"></script>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：轉動同一個台北地圖 crop，分清<b>語意 label 的 invariance</b>與 coordinate、mask、vector、node output 的<b>equivariance</b>。</p>
+  <canvas id="cv" width="720" height="450" aria-label="原始與變換後的地圖視角"></canvas>
+  <div class="controls">
+    <div class="row">
+      <label for="kind">輸出型態</label>
+      <select id="kind">
+        <option value="label">地點 label</option>
+        <option value="coordinate">建築 coordinate</option>
+        <option value="mask">建築 mask</option>
+        <option value="vector">道路 direction</option>
+        <option value="nodes">node / point order</option>
+      </select>
+      <button id="shuffle" type="button">重排 nodes</button>
+    </div>
+    <div class="row">
+      <label for="rot">旋轉</label>
+      <input id="rot" type="range" min="-90" max="90" step="1" value="25">
+      <span id="rotR" class="readout">25°</span>
+      <label for="tx">水平平移</label>
+      <input id="tx" type="range" min="-70" max="70" step="1" value="28">
+      <span id="txR" class="readout">28</span>
+    </div>
+  </div>
+  <div class="metrics">
+    <div class="metric"><strong>原始輸出</strong><span id="before"></span></div>
+    <div class="metric"><strong>變換後輸出</strong><span id="after"></span></div>
+  </div>
+  <p class="observe">觀察這個不變量 / 共變量：<b id="observe"></b></p>
+</div>
+<script>
+(function () {
+  var cv = document.getElementById('cv');
+  var dpi = NDFlow.hiDPICanvas(cv), ctx = dpi.ctx, size, pal;
+  var rot = document.getElementById('rot'), tx = document.getElementById('tx');
+  var kind = document.getElementById('kind'), order = [0, 1, 2, 3];
+  var landmarks = [
+    { x: -58, y: -28, name: '總圖' },
+    { x: 48, y: -18, name: '校門' },
+    { x: 18, y: 48, name: '捷運' },
+    { x: -18, y: 8, name: '路口' }
+  ];
+
+  function transform(p, angle, shift) {
+    var c = Math.cos(angle), s = Math.sin(angle);
+    return [p.x * c - p.y * s + shift, p.x * s + p.y * c];
+  }
+  function mapScene(cx, cy, angle, shift, transformed) {
+    ctx.save();
+    ctx.translate(cx + shift, cy);
+    ctx.rotate(angle);
+    ctx.strokeStyle = pal.grid; ctx.lineWidth = 1;
+    for (var g = -90; g <= 90; g += 30) {
+      ctx.beginPath(); ctx.moveTo(-110, g); ctx.lineTo(110, g); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(g, -90); ctx.lineTo(g, 90); ctx.stroke();
+    }
+    ctx.strokeStyle = pal.blue; ctx.lineWidth = 12;
+    ctx.beginPath(); ctx.moveTo(-110, 35); ctx.lineTo(110, -28); ctx.stroke();
+    ctx.strokeStyle = pal.accent; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(-70, -90); ctx.lineTo(45, 90); ctx.stroke();
+    ctx.fillStyle = pal.green;
+    ctx.fillRect(-76, -43, 36, 30);
+    ctx.fillStyle = pal.purple;
+    ctx.fillRect(35, -32, 29, 28);
+    for (var i = 0; i < landmarks.length; i++) {
+      var lm = landmarks[i];
+      ctx.fillStyle = pal.ink;
+      ctx.beginPath(); ctx.arc(lm.x, lm.y, 4.5, 0, Math.PI * 2); ctx.fill();
+      if (kind.value === 'nodes') {
+        ctx.font = '700 12px system-ui';
+        ctx.fillStyle = pal.accent;
+        ctx.fillText(String(order[i] + 1), lm.x + 7, lm.y - 6);
+      }
+    }
+    if (kind.value === 'mask') {
+      ctx.fillStyle = pal.red; ctx.globalAlpha = 0.32;
+      ctx.fillRect(-76, -43, 36, 30);
+      ctx.globalAlpha = 1;
+    }
+    if (kind.value === 'coordinate') {
+      ctx.strokeStyle = pal.red; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(-58, -28, 10, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (kind.value === 'vector') {
+      NDFlow.arrow(ctx, -5, 5, 55, -12, pal.red, 3);
+    }
+    ctx.restore();
+    ctx.fillStyle = pal.muted; ctx.font = '700 12px system-ui';
+    ctx.fillText(transformed ? '變換後視角' : '原始視角', cx - 48, cy - 112);
+  }
+  function draw() {
+    size = dpi.resize();
+    var angle = parseFloat(rot.value) * Math.PI / 180;
+    var shift = parseFloat(tx.value);
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, size.w, size.h);
+    var y = size.h / 2 + 12, left = size.w * .27, right = size.w * .73;
+    mapScene(left, y, 0, 0, false);
+    mapScene(right, y, angle, shift * .45, true);
+    ctx.strokeStyle = pal.border; ctx.beginPath(); ctx.moveTo(size.w / 2, 22); ctx.lineTo(size.w / 2, size.h - 18); ctx.stroke();
+    updateText(angle, shift);
+  }
+  function updateText(angle, shift) {
+    var p = transform(landmarks[0], angle, shift);
+    var before = '', after = '', obs = '';
+    if (kind.value === 'label') {
+      before = '台大附近'; after = '台大附近'; obs = '語意 label 保持固定；像素改變不等於地點改變。';
+    } else if (kind.value === 'coordinate') {
+      before = '總圖 (-58, -28)'; after = '總圖 (' + p[0].toFixed(0) + ', ' + p[1].toFixed(0) + ')'; obs = '座標依同一個旋轉與平移一起改變。';
+    } else if (kind.value === 'mask') {
+      before = 'mask 與建築對齊'; after = 'mask 仍與旋轉後建築對齊'; obs = 'mask 的形狀與位置共同變換。';
+    } else if (kind.value === 'vector') {
+      before = '道路方向 0°'; after = '道路方向 ' + Math.round(angle * 180 / Math.PI) + '°'; obs = '方向向量跟著座標系旋轉，但不因平移改變。';
+    } else {
+      before = '[1, 2, 3, 4]'; after = '[' + order.map(function (x) { return x + 1; }).join(', ') + ']'; obs = '重排資料列時，逐點輸出用同一個 permutation 重排。';
+    }
+    document.getElementById('before').textContent = before;
+    document.getElementById('after').textContent = after;
+    document.getElementById('observe').textContent = obs;
+    document.getElementById('rotR').textContent = rot.value + '°';
+    document.getElementById('txR').textContent = tx.value;
+  }
+  document.getElementById('shuffle').onclick = function () {
+    order = order.slice().sort(function () { return Math.random() - .5; });
+    kind.value = 'nodes'; draw();
+  };
+  rot.oninput = draw; tx.oninput = draw; kind.onchange = draw;
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(function () { pal = NDFlow.applyTheme(draw); });
+  pal = NDFlow.applyTheme(draw);
+})();
+</script>
+</body>
+</html>

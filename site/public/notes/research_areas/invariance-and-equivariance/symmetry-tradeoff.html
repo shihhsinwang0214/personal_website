@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>對稱性強度與任務誤差</title>
+<script src="./_demo-common.js"></script>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：調整 hard-coded symmetry 的強度，觀察<b>equivariance defect</b>與<b>task error</b>的 toy tradeoff。這不是論文實驗結果。</p>
+  <canvas id="cv" width="720" height="420" aria-label="對稱性強度與兩種誤差曲線"></canvas>
+  <div class="controls">
+    <div class="row">
+      <label for="strength">symmetry constraint</label>
+      <input id="strength" type="range" min="0" max="1" step=".01" value=".72"><span id="strengthR" class="readout">0.72</span>
+      <label for="breaks">資料中的 symmetry breaking</label>
+      <input id="breaks" type="range" min="0" max="1" step=".01" value=".35"><span id="breaksR" class="readout">0.35</span>
+    </div>
+  </div>
+  <div class="metrics">
+    <div class="metric"><strong>equivariance defect</strong><span id="defect"></span></div>
+    <div class="metric"><strong>toy task error</strong><span id="error"></span></div>
+    <div class="metric"><strong>interpretation</strong><span id="mode"></span></div>
+  </div>
+  <p class="observe">觀察這個 tradeoff：<b>constraint 越硬，等變誤差越小；但資料若真的打破 symmetry，task error 可能回升。</b></p>
+</div>
+<script>
+(function(){
+  var cv=document.getElementById('cv'),dpi=NDFlow.hiDPICanvas(cv),ctx=dpi.ctx,pal,size;
+  var strength=document.getElementById('strength'),breaks=document.getElementById('breaks');
+  function defect(s){return .82*Math.pow(1-s,1.5)+.03;}
+  function error(s,b){var target=1-b*.78;return .12+Math.pow(s-target,2)*(.75+b*.7)+.12*(1-s);}
+  function draw(){
+    size=dpi.resize();var s=parseFloat(strength.value),b=parseFloat(breaks.value);
+    ctx.clearRect(0,0,size.w,size.h);ctx.fillStyle=pal.bg;ctx.fillRect(0,0,size.w,size.h);
+    var m={l:56,r:22,t:30,b:48},w=size.w-m.l-m.r,h=size.h-m.t-m.b;
+    ctx.strokeStyle=pal.border;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(m.l,m.t);ctx.lineTo(m.l,m.t+h);ctx.lineTo(m.l+w,m.t+h);ctx.stroke();
+    ctx.fillStyle=pal.muted;ctx.font='11px system-ui';ctx.fillText('error',12,m.t+8);ctx.fillText('soft',m.l,m.t+h+28);ctx.fillText('hard',m.l+w-24,m.t+h+28);
+    function curve(fn,color){
+      ctx.strokeStyle=color;ctx.lineWidth=3;ctx.beginPath();
+      for(var i=0;i<=100;i++){var x=i/100,y=Math.min(1,fn(x));var px=m.l+x*w,py=m.t+(1-y)*h;if(i===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);}ctx.stroke();
+    }
+    curve(defect,pal.blue);curve(function(x){return error(x,b);},pal.red);
+    var d=defect(s),e=error(s,b),px=m.l+s*w;
+    ctx.setLineDash([5,5]);ctx.strokeStyle=pal.accent;ctx.beginPath();ctx.moveTo(px,m.t);ctx.lineTo(px,m.t+h);ctx.stroke();ctx.setLineDash([]);
+    [[d,pal.blue],[e,pal.red]].forEach(function(v){ctx.fillStyle=v[1];ctx.beginPath();ctx.arc(px,m.t+(1-v[0])*h,6,0,Math.PI*2);ctx.fill();});
+    ctx.fillStyle=pal.blue;ctx.fillText('equivariance defect',m.l+10,m.t+15);ctx.fillStyle=pal.red;ctx.fillText('toy task error',m.l+145,m.t+15);
+    document.getElementById('defect').textContent=d.toFixed(3);document.getElementById('error').textContent=e.toFixed(3);
+    document.getElementById('strengthR').textContent=s.toFixed(2);document.getElementById('breaksR').textContent=b.toFixed(2);
+    document.getElementById('mode').textContent=b<.2?'資料接近 exact symmetry':b>.65?'方向訊號明顯，硬 constraint 風險較高':'approximate symmetry，需要驗證';
+  }
+  strength.oninput=draw;breaks.oninput=draw;window.addEventListener('resize',draw);
+  NDFlow.onThemeChange(function(){pal=NDFlow.applyTheme(draw);});pal=NDFlow.applyTheme(draw);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+---
+slug: "n2d-three-languages"
+lang: "zh"
+title: "三種語言：Noise、Score、Velocity"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-22
+summary: "收束整張地圖：noise、score、velocity 是描述同一件事的三種語言，附彼此的換算關係與三條可深入的研究分支。"
+demos: []
+references:
+  - label: "Song et al., Score-Based Generative Modeling through SDEs (ICLR 2021)"
+    href: "https://arxiv.org/abs/2011.13456"
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
+    href: "https://arxiv.org/abs/2210.02747"
+  - label: "Albergo, Boffi & Vanden-Eijnden, Stochastic Interpolants (2023)"
+    href: "https://arxiv.org/abs/2303.08797"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# 三種語言：Noise、Score、Velocity
+
+> 「From Noise to Data」系列第 17 篇，也是收尾。把整張地圖摺好，放進口袋。
+
+走到這裡，你看過去噪、score、velocity、probability path、continuity equation、ODE、path design、rectified flow、optimal transport。資訊不少。這最後一篇不加新東西，只做一件事：把它們收成一句話、一張表、和三個可以繼續走的方向。
+
+## 一句話
+
+> 現代生成模型反覆在做同一件事——把 noise 變成 data；它只是用三種不同的語言，描述「此刻該往哪移動」。
+
+## 同一個樣本，三個提問
+
+面對同一個 noisy sample $x_t$：
+
+- **noise 語言**問：要移除哪一部分噪聲？→ $\epsilon_\theta(x_t, t) \approx \epsilon$
+- **score 語言**問：往哪走密度更高？→ $s_\theta(x_t, t) \approx \nabla_x \log p_t(x)$
+- **velocity 語言**問：此刻該往哪流？→ $v_\theta(x_t, t) \approx v_t(x)$
+
+三個問題都在描述「從簡單分布回到資料分布」的局部方向。在仿射高斯路徑 $x_t=\alpha_t x_0+\sigma_t\epsilon$ 上，它們是彼此的線性換算——最乾淨的一條是
+
+$$
+\nabla_x \log p_t(x) = -\frac{\epsilon^\star(x,t)}{\sigma_t},
+$$
+
+而 velocity 又能寫成 $\epsilon$-預測 / $x_0$-預測 / score 的線性組合。知道一個，就知道全部。**它們不是三個模型家族，是同一個動態的三種座標。**
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="noise、score、velocity 這三種語言，描述的是不同的東西，還是同一件事？"
+  options={[
+    { text: "同一件事的三種寫法：在給定的 probability path 上，它們彼此可線性換算，都在說『該往哪移動』。", correct: true, explain: "正解。這就是整個系列的主旋律——換語言，不換內容。看穿這點，diffusion 與 flow matching 就連成一張圖。" },
+    { text: "三個彼此無關的訓練目標，剛好都用在生成。", explain: "它們在固定 path 下可互相換算，不是無關。" },
+    { text: "三個不同的神經網路架構。", explain: "它們是回歸的『目標物件』，不是架構；同一個網路可以輸出任一種參數化。" },
+  ]}
+/>
+
+<Quiz
+  q="帶著這張地圖去讀一篇新的生成模型論文，最該避免的反應是？"
+  options={[
+    { text: "問它選了什麼 path。", explain: "這正是該問的好問題之一，不是要避免的。" },
+    { text: "問它把哪個訊號當回歸目標、用什麼 sampler。", explain: "這也是該問的；幫你快速定位新方法。" },
+    { text: "預設它是一個全新的範式，和過去方法毫無關係，從零開始重學。", correct: true, explain: "正解。多數『新方法』是在換 path、換目標訊號、換 sampler。先用這三格定位，再看真正的新意，會省力得多。" },
+  ]}
+/>
+
+## 三條可以繼續走的分支
+
+這張地圖是入口，不是終點。從這裡可以往三個方向深入：
+
+1. **diffusion / score-based modeling**：SDE 框架、noise schedule（EDM）、ODE samplers、guidance。
+2. **flow matching / rectified flow**：conditional flow matching、OT-CFM、拉直與少步 / 單步生成、蒸餾。
+3. **optimal transport / Schrödinger bridge**：Wasserstein 幾何、動態 OT、把擴散與最優傳輸接起來的橋接模型。
+
+讀這些題目時，隨時可以回到這張地圖：先問 path、訊號、sampler，再看它離 OT 最優有多遠。
+
+## 你已經走完一條橋
+
+如果你能在腦中想像一群點從圓形雲團流成月牙、能說出「向量場是給整個空間的導航規則」、能解釋為什麼用 $x_1-x_0$ 這種粗目標卻學得到對的場——那你已經不只是「看過科普」，而是握住了讀懂這些論文所需的核心直覺與語言。剩下的，就是挑一條分支，繼續走下去。
+
+想先驗收一下自己吸收了多少嗎？最後附上一篇全是問題的 [回顧測驗](/personal_website/zh/notes/n2d-review)，用十個跨篇的問題，把整張地圖再走一遍。
+
+## 參考文獻
+
+1. Song, Y., et al. *Score-Based Generative Modeling through Stochastic Differential Equations.* ICLR 2021.
+2. Lipman, Y., et al. *Flow Matching fo

@@ -1,0 +1,175 @@
+---
+slug: "gnn-permutation-equivariance-road-networks"
+lang: "zh"
+title: "地圖其實也是一張 graph"
+category: "research-areas"
+group: "Invariance and Equivariance"
+status: "available"
+updated: 2026-06-23
+summary: "把路口重新編號，看看 node prediction 如何跟著節點搬家，而整張道路網路的 readout 保持不變。"
+demos:
+  - "notes/research_areas/invariance-and-equivariance/gnn-relabeling.html"
+references:
+  - label: "Bronstein et al., Geometric Deep Learning: Grids, Groups, Graphs, Geodesics, and Gauges (2021)"
+    href: "https://arxiv.org/abs/2104.13478"
+  - label: "Gilmer et al., Neural Message Passing for Quantum Chemistry (2017)"
+    href: "https://arxiv.org/abs/1704.01212"
+  - label: "Xu et al., How Powerful are Graph Neural Networks? (2018)"
+    href: "https://arxiv.org/abs/1810.00826"
+  - label: "Maron et al., Invariant and Equivariant Graph Networks (2018)"
+    href: "https://arxiv.org/abs/1812.09902"
+  - label: "Keriven & Peyré, Universal Invariant and Equivariant Graph Neural Networks (2019)"
+    href: "https://arxiv.org/abs/1905.04943"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# 地圖其實也是一張 graph
+
+> 「Invariance and Equivariance」系列第 4 篇。地圖可以是影像，也可以是點集合；如果點之間有道路連線，它就變成 graph。
+
+把台北市地圖簡化成道路網路。路口是 nodes，道路是 edges。台大正門口附近的路口可以在資料檔裡叫 node 1，也可以叫 node 57；捷運公館站旁的路口可以叫 node 2，也可以叫 node 104。
+
+這些編號不是城市的一部分。它們只是檔案格式。
+
+這篇只處理一個 consistency requirement：
+
+> Node 名字可以換，但 graph 的關係不能亂。模型要對重新命名 nodes 保持一致，否則它學到的是資料表順序，不是道路網路。
+
+這裡的 consistency 有兩種版本：graph-level answer 要 invariant；node-level answer 要 equivariant。
+
+## 先把三個路口換一套編號
+
+假設我們有三個路口：
+
+- node 1：台大正門口；
+- node 2：公館站出口；
+- node 3：羅斯福路和新生南路附近的某個路口。
+
+道路連接可以寫成 adjacency matrix $A$，node features 可以寫成 $H$。例如 $H$ 裡可能有每個路口的經緯度、道路類型、歷史車流量。
+
+現在我們只是改檔案編號：把 node 1 和 node 3 對調。城市沒有變，但矩陣的 row 和 column 會變。若用 permutation matrix $P$ 表示這個重排，新的 graph representation 是
+
+$$
+A' = P A P^\top,\qquad H'=P H.
+$$
+
+這不是新的道路網路，只是同一張道路網路的另一種命名方式。
+
+如果模型因為這個重命名而改變 graph-level 判斷，它就在偷看 node ID。如果 node-level output 沒有跟著同樣重排，它就把預測配錯路口。
+
+下面的 demo 只做一件事：按下「重新編號」，讓同一張 graph 換一個 row order。觀察彩色 node prediction 仍黏在同一個真實路口上，只是表格位置改了；graph-level readout 則完全不動。
+
+<iframe src="/personal_website/notes/research_areas/invariance-and-equivariance/gnn-relabeling.html" class="demo-frame" title="GNN 節點重新編號互動 demo" style="height: 700px; width: 100%; border: none;"></iframe>
+
+## Graph-level answer：invariance
+
+如果任務是判斷一張道路網路是否包含某種校園區域結構，輸出是一個 graph-level label。這時 node relabeling 不應改變答案：
+
+$$
+f(PAP^\top,PH)=f(A,H).
+$$
+
+這和 set classification 很像：輸出是整體摘要，所以應該 invariant。
+
+例如「這張 road graph 是否包含一個校園周邊常見的高密度路口區？」不應該因為你把台大正門叫 node 1 還是 node 57 而改變。
+
+## Node-level answer：equivariance
+
+但很多 GNN 任務不是 graph classification，而是 node prediction。例如：
+
+- 預測每個路口的車流量；
+- 標出每個路口是否可能壅塞；
+- 預測每個建築或站點在網路中的重要性；
+- 給每個分子原子預測局部性質。
+
+這時輸出是一組和 node 對齊的 predictions。若重新排列 node 的順序，輸出也應該用同樣方式重新排列：
+
+$$
+F(PAP^\top,PH)=P F(A,H).
+$$
+
+這是 **permutation equivariance**。
+
+請注意，它不表示每個數值永遠留在原本 row。相反地，它表示「台大正門口那個路口」的預測要跟著它的新 row 移動。模型的答案應該綁在地理節點上，而不是綁在資料表第幾列上。
+
+## 鄰居沒有第一個，所以訊息也不能偷看順序
+
+Message passing 的直覺是：每個 node 從鄰居收集訊息，更新自己的 feature。
+
+依照 [Gilmer et al. (2017)](https://arxiv.org/abs/1704.01212) 統整的 message-passing 語言，一層可以寫成
+
+$$
+h_i'
+=\gamma\left(
+h_i,\;
+\bigoplus_{j\in\mathcal{N}(i)}
+\psi(h_i,h_j,e_{ij})
+\right).
+$$
+
+這裡 $\mathcal{N}(i)$ 是 node $i$ 的鄰居集合，$e_{ij}$ 是 edge feature，$\psi$ 產生一則 message，$\bigoplus$ 是 sum、mean、max 等不依賴鄰居順序的 aggregation，$\gamma$ 再把聚合結果與原 feature 合併。
+
+關鍵在 aggregate。鄰居沒有天然順序，所以 aggregation 必須不依賴排列。只要每個 node 用同一套更新規則，且鄰居 aggregation 是 permutation-invariant，整層 node update 就會對 node relabeling 保持 permutation equivariant。
+
+換句話說，GNN 不是只是「在 graph 上跑神經網路」。它的 layer 設計本身就在尊重 graph 的資料格式：node 名字可以換，但 adjacency relationship 不能亂。
+
+## 名字換得一致，不代表什麼 graph 都看得懂
+
+這裡很容易出現一個錯誤結論：既然 GNN 對 node relabeling equivariant，那它是不是就理解 graph 了？
+
+不是。
+
+Permutation equivariance 是 consistency requirement。它保證同一張 graph 換個 node 命名時，模型輸出同步換名。它沒有保證模型能分辨所有不同 graph，也沒有保證它能捕捉任意高階結構。
+
+給一個直覺例子：假設所有 nodes 的初始 feature 都一樣，且每個 node 的 degree 都一樣。Message passing 每一輪看到的都是「我的鄰居們也長得一樣」。像 6-cycle 和兩個 disjoint triangles 這類例子，在某些 message passing / 1-WL 觀點下會非常難分辨，因為每個 node 的局部顏色更新歷史都一樣。這不是因為模型不 equivariant，而是因為它的 aggregation 與局部更新方式表達力有限。
+
+[Xu et al. (2019)](https://arxiv.org/abs/1810.00826) 用 Weisfeiler-Lehman graph isomorphism test 的語言分析一大類 neighborhood-aggregation GNN 的 expressive power。保守地說，這類 message-passing 架構的辨識能力可由 1-WL 的觀點理解；特定模型可能更弱，而要超過這個局部聚合框架通常需要改變表示或互動階數。這條線的重點是：**尊重 symmetry 是必要條件，但不是萬能條件。**
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="GNN 對 node relabeling equivariant，是否代表它能分辨所有不同 graph？"
+  options={[
+    { text: "是。只要 equivariant，就有完整 graph 理解能力。", explain: "不對。Equivariance 是一致性要求，不等於表達力保證。" },
+    { text: "不是。它只保證重新命名 nodes 時輸出同步改變；能分辨多少 graph 還取決於架構表達力。", correct: true, explain: "對。這正是 GNN expressivity 研究要處理的問題。" },
+    { text: "不是，因為 GNN 完全不使用 graph 結構。", explain: "一般 message passing GNN 當然使用 graph 結構；問題在於使用方式的表達力有限。" },
+  ]}
+/>
+
+<Quiz
+  q="如果把台大正門口那個 node 從 row 1 改成 row 57，而任務是預測每個路口的車流量，輸出應該如何變？"
+  options={[
+    { text: "row 1 的預測永遠留在 row 1。", explain: "不對。預測應該跟著真實路口移動，而不是跟著舊 row index。" },
+    { text: "所有 node 預測都應該被平均成一個 graph-level label。", explain: "那會把 node prediction 變成 graph classification，任務不同。" },
+    { text: "台大正門口那個預測應該跟著它的新 row 一起移到 row 57。", correct: true, explain: "對。這就是 node-level permutation equivariance。" },
+  ]}
+/>
+
+<Quiz
+  q="Message passing 裡的鄰居 aggregation 為什麼通常要用 sum、mean、max 這類不看順序的操作？"
+  options={[
+    { text: "因為鄰居集合沒有天然順序，aggregation 不應依賴資料表排列。", correct: true, explain: "對。這是維持 node relabeling equivariance 的關鍵之一。" },
+    { text: "因為 graph 沒有任何結構。", explain: "不對。Graph 有 adjacency 結構；沒有的是鄰居的任意排序語意。" },
+    { text: "因為這樣就能保證分辨所有 non-isomorphic graphs。", explain: "不對。這是 consistency requirement，不是完整 expressivity guarantee。" },
+  ]}
+/>
+
+## 這怎麼接到研究？
+
+Message passing neural networks 提供了理解許多 GNN 的共同語言。它把 graph learning 寫成 node 之間反覆傳遞與聚合訊息的過程，並自然尊重 node relabeling。
+
+但 GNN 研究很快就超過「是否 equivariant」這個基本門檻，進入 expressivity 問題：這類架構能表示哪些 invariant/equivariant functions？它和 Weisfeiler-Lehman test 的關係是什麼？Higher-order GNNs 為什麼可能更強，但也更貴？
+
+Maron et al. 與 Keriven & Peyré 等工作把 invariant/equivariant graph networks 和 universality 放在一起討論。這些結果比本篇需要的數學更深，但它們提醒我們：symmetry constraint 和 function approximation ability 是兩件要同時看的事。
+
+## 下一步：回到旋轉的手機畫面
+
+我們已經看過 pixel grid、unordered set 與 road graph。下一篇先回到影像分支，補上 CNN 尚未處理的旋轉：當道路從水平轉成垂直，feature 不只移位置，還可能在 orientation channels 間搬動。接著讀 [手機轉了，模型該不該跟著轉？](/personal_website/zh/notes/rotation-and-group-equivariant-cnns)。
+
+## 參考文獻
+
+1. [Bronstein, M. M., Bruna, J., Cohen, T., & Veličković, P. *Geometric Deep Learning: Grids, Groups, Graphs, Geodesics, and Gauges.* 2021.](https://arxiv.org/abs/2104.13478)
+2. [Gilmer, J., et al. *Neural Message Passing for Quantum Chemistry.* ICML, 2017.](https://arxiv.org/abs/1704.01212)
+3. [Xu, K., Hu, W., Leskovec, J., & Jegelka, S. *How Powerful are Graph Neural Networks?* ICLR, 2019.](https://arxiv.org/abs/1810.00826)
+4. [Maron, H., Ben-Hamu, H., Shamir, N., & Lipman, Y. *Invariant and Equivariant Graph Networks.* ICLR, 2019.](https://arxiv.org/abs/1812.09902)
+5. [Keriven, N., & Peyré, G. *Universal Invariant and Equivariant Graph Neural Networks.* NeurIPS, 2019.](https://arxiv.org/abs/1905.04943)

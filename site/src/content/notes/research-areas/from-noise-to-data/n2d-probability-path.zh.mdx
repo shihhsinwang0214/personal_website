@@ -1,0 +1,89 @@
+---
+slug: "n2d-probability-path"
+lang: "zh"
+title: "Probability Path：分布之間可以有一條路"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-21
+summary: "生成不只關心起點與終點，還關心中間那一整條分布的演化 p_t——像兩張照片之間的那段影片。"
+demos:
+  - "notes/research_areas/noise-to-data/probability-path.html"
+references:
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
+  - label: "Albergo & Vanden-Eijnden, Building Normalizing Flows with Stochastic Interpolants (ICLR 2023)"
+  - label: "Ho, Jain & Abbeel, Denoising Diffusion Probabilistic Models (NeurIPS 2020)"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Probability Path：分布之間可以有一條路
+
+> 「From Noise to Data」系列第 5 篇。把鏡頭從個別粒子拉高到整條分布的演化。
+
+第一次讀 diffusion 或 flow matching 的公式時，常會在某一行卡住：式子裡突然冒出一個帶下標的 $p_t$，而且 $t$ 還是連續的——也就是說，這不是一個分布，而是**一整族**分布。你可能會想：這些中間的分布是哪來的？是真有一批「半噪聲半資料」的樣本嗎？
+
+## 公式裡突然多出一整族分布
+
+$p_t$ 不是憑空出現的記號。它是一條**機率路徑（probability path）**——把 noise 分布平滑連到 data 分布的「分布之路」。看懂它，後面很多公式就不再像魔術。
+
+## 最重要的圖像
+
+> 起點和終點像兩張照片；probability path 關心的是中間那段**影片**怎麼拍。
+
+$p_0$（noise）和 $p_1$（data）是頭尾兩幀；$p_t$ 就是影片中間的每一幀。生成模型在乎的，不只是頭尾長怎樣，而是這支影片的每一格怎麼從圓形點雲漸變成資料的形狀。
+
+## 先在 2D 裡看看
+
+把一團圓形高斯點雲變成月牙形，中間可以有無數種拍法：可以平滑均勻地推過去，可以先擠成一條線再展開，也可以繞遠路。每一種拍法，對應一串不同的中間幀 $p_t$。
+
+下面的 demo 讓你看見這支影片：拖 $t$，看密度形狀如何從高斯漸變到目標；切換不同插值方式，看**同樣的頭尾**可以拍出**不同的中間**。
+
+<iframe src="/personal_website/notes/research_areas/noise-to-data/probability-path.html" class="demo-frame" title="Probability Path 互動 demo" style="height: 760px; width: 100%; border: none;"></iframe>
+
+如果你已經注意到「兩端不變、中間會變」，那你已經摸到後面 [Path Design](/personal_website/zh/notes/n2d-path-design) 和 [Rectified Flow](/personal_website/zh/notes/n2d-rectified-flow) 的門把了——它們做的，正是挑一條更好拍的影片。
+
+## 把圖像翻成數學
+
+一條 probability path 是一族以 $t$ 參數化的機率分布
+
+$$
+\{ p_t \}_{t \in [0,1]}, \qquad p_0 = p_{\text{noise}}, \quad p_1 = p_{\text{data}},
+$$
+
+要求它對 $t$ 夠平滑地變化。它和上一篇的向量場是配對的：若粒子照 $\frac{dx}{dt}=v_t(x)$ 移動、起點分布是 $p_0$，那粒子在時刻 $t$ 的分布就是某個確定的 $p_t$。「向量場 $v_t$」生成「機率路徑 $p_t$」——這個對應正是下一篇 continuity equation 要寫下的。
+
+flow matching 常見的設計，是先指定一條「條件路徑」再混合。例如給定一筆資料 $x_1$，把它和噪聲 $x_0$ 用直線相連：
+
+$$
+x_t = (1-t)\, x_0 + t\, x_1, \qquad x_0 \sim \mathcal{N}(0,I),
+$$
+
+對所有 $(x_0, x_1)$ 取平均，就得到一條邊際的 probability path $p_t$。diffusion 則用加噪定義路徑：$x_t = \alpha_t x_0 + \sigma_t \epsilon$ 給出的 $p_t$，是資料分布被逐漸抹平、最後趨近高斯的那條路。兩者是不同的 $p_t$ 設計，但都是同一個概念。
+
+## 讀到這裡，先別急著這樣想
+
+最容易誤會的一點是：把 $p_t$ 當成資料集裡真的存在的「中間資料」。先用一題確認：
+
+<Quiz
+  q="中間那些分布 p_t，對應到資料集裡真實存在的「半噪聲半資料」樣本嗎？"
+  options={[
+    { text: "是。訓練時會另外收集一批中間狀態的真實資料。", explain: "不會。中間幀是被定義／生成出來的，不是另一批被觀測的資料。" },
+    { text: "看情況，有些資料集會附中間狀態。", explain: "不是資料集的問題；p_t 在概念上就是被設計／定義出來的，不是被觀測來的。" },
+    { text: "不是。p_t 是我們為了讓生成變得可學，刻意設計出來的一段過渡過程。", correct: true, explain: "正解。沒有人去收集「一半月牙、一半高斯」的資料；p_t 是由理論或加噪規則定義出來的分布演化——一個我們設計出來的過渡世界。" },
+  ]}
+/>
+
+<Quiz
+  q="固定了起點 p₀ 和終點 p₁ 之後，中間的 probability path 是唯一被決定的嗎？"
+  options={[
+    { text: "是，兩端定了，中間那段影片就只有一種拍法。", explain: "正好相反。同樣的頭尾可以拍出很多不同的中間。" },
+    { text: "不是。連接同樣兩端的路徑有無限多條，每條對應不同的速度場——這正是 path design 與 rectified flow 的空間。", correct: true, explain: "正解。這個自由度不是 bug 而是 feature：選一條更好學、更好取樣的路，是後面好幾篇的主題。" },
+    { text: "只有當 p₁ 是高斯時才唯一。", explain: "和 p₁ 是不是高斯無關；任何兩端之間都有無限多條路徑。" },
+  ]}
+/>
+
+換句話說：$p_t$ 不是自然界裡本來就有的一批中間資料，而是我們為了讓生成變得可學，刻意設計出來的一段過渡過程。它也**不必是確定性流動**——diffusion 的前向過程是隨機的（SDE），但它在每個 $t$ 仍定義了一個邊際 $p_t$；同一條 $p_t$，可由隨機 SDE 或確定 ODE 實現（這是 [probability flow ODE](/personal_website/zh/notes/n2d-probability-flow-ode) 的核心）。
+
+## 為什麼研究者在乎？
+
+probability path 是 diffusion 與 flow matching 的共同骨架。diffusion 用「加噪 schedule」隱含地定義一條路；flow matching 則常**先明確指定**一條路（直線、optimal-transport 路徑……），再去學讓樣本沿這條路移動的速度場。noise schedule、rectified flow、Schrödinger bridge 等研究，本質上都在問同一個問題：**哪一條分布路徑

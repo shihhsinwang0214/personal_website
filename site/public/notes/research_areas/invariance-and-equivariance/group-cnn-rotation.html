@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Group CNN 旋轉等變</title>
+<script src="./_demo-common.js"></script>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：把地圖旋轉 90° 的倍數。比較單一水平 filter 與四個<b>orientation channels</b>；後者應循環重排，而不是假裝不變。</p>
+  <canvas id="cv" width="720" height="430" aria-label="旋轉道路與 orientation channels"></canvas>
+  <div class="controls">
+    <div class="row">
+      <label for="rot">旋轉角度</label>
+      <select id="rot"><option value="0">0°</option><option value="1">90°</option><option value="2">180°</option><option value="3">270°</option></select>
+      <label><input id="average" type="checkbox"> test-time average（classification）</label>
+    </div>
+  </div>
+  <div class="metrics">
+    <div class="metric"><strong>vanilla horizontal filter</strong><span id="vanilla"></span></div>
+    <div class="metric"><strong>group feature peak</strong><span id="peak"></span></div>
+  </div>
+  <p class="observe">觀察：<b id="observe"></b></p>
+</div>
+<script>
+(function () {
+  var cv = document.getElementById('cv'), dpi = NDFlow.hiDPICanvas(cv), ctx = dpi.ctx, pal, size;
+  var rot = document.getElementById('rot'), average = document.getElementById('average');
+  var labels = ['0°', '90°', '180°', '270°'];
+  function draw() {
+    size = dpi.resize(); var r = parseInt(rot.value, 10);
+    ctx.clearRect(0, 0, size.w, size.h); ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, size.w, size.h);
+    var split = size.w * .48, cx = split * .5, cy = size.h * .55;
+    ctx.fillStyle = pal.panel; NDFlow.roundRect(ctx, 14, 15, split - 26, size.h - 30, 9); ctx.fill(); ctx.strokeStyle = pal.border; ctx.stroke();
+    ctx.fillStyle = pal.muted; ctx.font = '700 12px system-ui'; ctx.fillText('旋轉後的地圖 pattern', 25, 37);
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(r * Math.PI / 2);
+    ctx.strokeStyle = pal.blue; ctx.lineWidth = 18; ctx.beginPath(); ctx.moveTo(-95, 0); ctx.lineTo(95, 0); ctx.stroke();
+    ctx.strokeStyle = pal.accent; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(-30, -82); ctx.lineTo(30, 82); ctx.stroke();
+    ctx.fillStyle = pal.green; ctx.fillRect(-24, -24, 48, 48); ctx.restore();
+    var x0 = split + 32, y0 = 68, barW = size.w - x0 - 28, barH = 44;
+    ctx.fillStyle = pal.muted; ctx.fillText('p4 orientation channels', x0, 37);
+    var values = [0.94, 0.18, 0.62, 0.25];
+    for (var i = 0; i < 4; i++) {
+      var value = values[(i - r + 4) % 4], y = y0 + i * 72;
+      ctx.fillStyle = pal.muted; ctx.fillText(labels[i], x0, y + 15);
+      ctx.fillStyle = pal.grid; NDFlow.roundRect(ctx, x0 + 42, y, barW - 42, barH, 6); ctx.fill();
+      ctx.fillStyle = i === r ? pal.accent : pal.blue;
+      NDFlow.roundRect(ctx, x0 + 42, y, (barW - 42) * value, barH, 6); ctx.fill();
+      ctx.fillStyle = pal.panel; ctx.font = '700 11px system-ui'; ctx.fillText(value.toFixed(2), x0 + 50, y + 27);
+    }
+    var vanilla = average.checked ? .50 : Math.abs(Math.cos(r * Math.PI / 2)).toFixed(2);
+    document.getElementById('vanilla').textContent = average.checked ? '0.50（四方向平均）' : vanilla;
+    document.getElementById('peak').textContent = labels[r] + ' channel';
+    document.getElementById('observe').textContent = average.checked
+      ? 'averaging 可讓最後分類較不看方向，但不保留 structured orientation feature。'
+      : '輸入每轉 90°，group feature 的 channel index 同步循環：這是 equivariance。';
+  }
+  rot.onchange = draw; average.onchange = draw;
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(function () { pal = NDFlow.applyTheme(draw); });
+  pal = NDFlow.applyTheme(draw);
+})();
+</script>
+</body>
+</html>

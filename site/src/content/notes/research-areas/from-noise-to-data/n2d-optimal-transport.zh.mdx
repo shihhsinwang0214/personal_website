@@ -1,0 +1,77 @@
+---
+slug: "n2d-optimal-transport"
+lang: "zh"
+title: "Optimal Transport：分布搬運的幾何語言"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-22
+summary: "如果生成是把分布搬過去，OT 問的是「怎麼搬最省」；說明它出現在哪、又沒宣稱什麼，以及它如何接回 continuity equation。"
+demos: []
+references:
+  - label: "Peyré & Cuturi, Computational Optimal Transport (2019)"
+    href: "https://arxiv.org/abs/1803.00567"
+  - label: "Benamou & Brenier, A computational fluid mechanics solution to the Monge–Kantorovich problem (2000)"
+  - label: "Tong et al., Conditional Flow Matching / OT-CFM (2023)"
+    href: "https://arxiv.org/abs/2302.00482"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Optimal Transport：分布搬運的幾何語言
+
+> 「From Noise to Data」系列第 16 篇。一個常被提起、卻容易被神化的詞。
+
+讀生成模型久了，總會撞到 transport、Wasserstein、OT 這些字。它們聽起來很高級，常讓人以為背後藏著一套必須先精通的重型理論。這篇要做的相反：把 OT 的**直覺**講清楚，並老實說明它在生成裡宣稱了什麼、又沒宣稱什麼。
+
+## 換個角度：把一堆沙搬成另一個形狀
+
+想像左邊有一堆沙，你要把它搬成右邊指定的形狀。每一鏟沙從哪搬到哪、搬多遠，都有成本。**optimal transport 問的就是：總成本最低的搬法是什麼？** 我們整個系列都在「把 noise 分布搬成 data 分布」，所以 OT 是個很自然會冒出來的語言——它正是在量「搬運」這件事的幾何。
+
+## 把畫面寫成數學
+
+給兩個分布 $\mu, \nu$，OT 找一個把質量從 $\mu$ 搬到 $\nu$ 的方案，使總成本最小。兩種寫法：
+
+- **Monge（找一個搬運函數）**：$\displaystyle \inf_{T:\, T_\#\mu = \nu} \int c\big(x, T(x)\big)\, d\mu(x)$。
+- **Kantorovich（找一個搬運計畫）**：$\displaystyle \inf_{\pi \in \Pi(\mu,\nu)} \int c(x, y)\, d\pi(x, y)$，其中 $\Pi(\mu,\nu)$ 是邊際為 $\mu, \nu$ 的所有耦合。
+
+取成本 $c(x,y) = \|x-y\|^2$，最小值（開根號）就是 **Wasserstein-2 距離** $W_2(\mu,\nu)$——一個衡量「兩個分布差多遠」的幾何尺。它還有一個動態寫法（Benamou–Brenier），把 OT 變成「在 continuity equation 約束下，找最省動能的流」：
+
+$$
+W_2^2(\mu,\nu) = \inf_{(p_t,\, v_t)} \int_0^1 \!\! \int p_t(x)\, \|v_t(x)\|^2\, dx\, dt,
+$$
+
+約束就是第 6 篇那條 $\partial_t p_t + \nabla\cdot(p_t v_t) = 0$。看到了嗎——OT 的動態形式，正好接回我們一路用的 probability path 與 continuity equation。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="既然 flow matching 也在把 noise 分布搬成 data 分布，那它是不是就在解 optimal transport？"
+  options={[
+    { text: "是，flow matching 永遠求出 OT 解。", explain: "不一定。一般的（獨立配對）flow matching 學到的場，不保證是 OT 最省方案；路徑可能交叉、不最優。" },
+    { text: "算是，只要用直線插值就等於 OT。", explain: "直線插值是『conditional OT path』，但邊際上不等於真正的 OT 耦合；除非特別設計（如 OT-CFM）。" },
+    { text: "不一定。OT 是描述『最省搬法』的幾何語言；多數 flow matching 並不直接求 OT 解，只有特別設計（如 OT-CFM、rectified flow 的拉直）才更靠近它。", correct: true, explain: "正解。把 OT 當成衡量與設計的語言，而不是每個方法的內建目標——這個分寸很重要。" },
+  ]}
+/>
+
+<Quiz
+  q="下面哪個說法最準確地描述 optimal transport？"
+  options={[
+    { text: "任何把一個分布變成另一個分布的方法都叫 optimal transport。", explain: "不是。『transport』有很多種；OT 特指在某個成本下『總成本最小』的那種。" },
+    { text: "它在所有把 μ 搬成 ν 的方案中，挑出總搬運成本最低的那一個，並由此定義 Wasserstein 距離。", correct: true, explain: "正解。重點在『optimal』——最省。它給的不只是一個搬法，還是一把衡量分布距離的幾何尺。" },
+    { text: "它是一種神經網路架構。", explain: "OT 是數學框架，不是特定架構；可以用各種方法去逼近它。" },
+  ]}
+/>
+
+## 這怎麼接到論文？
+
+OT 連到 Wasserstein 距離、generative modeling、distribution alignment、domain adaptation、Schrödinger bridge，以及 flow 的路徑設計（OT-CFM 直接用 minibatch OT 配對來逼近更直的路）。把它當成一套**衡量與設計**的語言：它告訴你「最省的搬法長什麼樣」，幫你判斷一個方法離最優有多遠——但不是每個方法都在直接求它。
+
+## 下一步
+
+我們已經把整條路走完了：從 noise 到 data、粒子、向量場、機率路徑、三種訊號、統一、ODE、路徑與 OT。最後一篇 [三種語言：Noise、Score、Velocity](/personal_website/zh/notes/n2d-three-languages) 把這一切收成一張可隨身帶走的地圖，並指出三條可以繼續深入的研究分支。
+
+## 參考文獻
+
+1. Peyré, G., Cuturi, M. *Computational Optimal Transport.* 2019.
+2. Benamou, J.-D., Brenier, Y. *A computational fluid mechanics solution to the Monge–Kantorovich mass transfer problem.* Numerische Mathematik, 2000.
+3. Tong, A., et al. *Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport (OT-CFM).* 2023.

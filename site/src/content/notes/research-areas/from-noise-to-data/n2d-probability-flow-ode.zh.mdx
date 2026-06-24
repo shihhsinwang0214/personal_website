@@ -1,0 +1,113 @@
+---
+slug: "n2d-probability-flow-ode"
+lang: "zh"
+title: "Probability Flow ODE：Score 和 Flow 的橋"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-22
+summary: "某些隨機 diffusion 過程，對應到一條給出相同邊際分布的確定性 ODE；並澄清『隨機⟹覆蓋更多』的誤解，以及場有誤差時 KL vs Wasserstein 的不對稱。"
+demos: []
+references:
+  - label: "Song et al., Score-Based Generative Modeling through SDEs (ICLR 2021)"
+    href: "https://arxiv.org/abs/2011.13456"
+  - label: "Maoutsa et al., Interacting Particle Solutions of Fokker–Planck Equations (2020)"
+    href: "https://arxiv.org/abs/2006.00702"
+  - label: "Albergo, Boffi & Vanden-Eijnden, Stochastic Interpolants: A Unifying Framework (2023)"
+    href: "https://arxiv.org/abs/2303.08797"
+  - label: "Chen et al., Sampling is as Easy as Learning the Score (ICLR 2023)"
+    href: "https://arxiv.org/abs/2209.11215"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Probability Flow ODE：Score 和 Flow 的橋
+
+> 「From Noise to Data」系列第 12 篇。把「隨機的 diffusion」和「確定的 flow」接在一起。
+
+我們一路說 diffusion 是隨機的（每一步都抖一下），flow matching 是確定的（沿著一條光滑軌跡）。那它們怎麼可能是同一件事的不同寫法？這篇給出那個讓兩者握手的方程。
+
+## 換個角度：抖動的路 vs 平滑的路
+
+想像同一群粒子有兩種走法。一種帶隨機抖動，像醉漢走路；另一種沿著一支確定的箭頭平滑前進。**單一粒子**的路徑當然不同。但神奇的是：只要箭頭調得對，這兩種走法在**每一個時間點的整體分布**可以一模一樣。我們在乎的往往是分布（$p_t$），不是某顆粒子的具體軌跡——這就留下了把隨機換成確定的空間。
+
+## 把圖像翻成數學
+
+一個 diffusion 前向過程通常寫成 SDE：
+
+$$
+dx = f(x, t)\, dt + g(t)\, dW_t,
+$$
+
+其中 $dW_t$ 是隨機項。Song 等人證明，存在一條**確定性**的常微分方程，在每個 $t$ 給出與上面 SDE **相同的邊際分布** $p_t$：
+
+$$
+\frac{dx}{dt} = f(x, t) - \frac{1}{2} g(t)^2\, \nabla_x \log p_t(x).
+$$
+
+這就是 **probability flow ODE**。注意右邊那一項——它正是 score $\nabla_x \log p_t(x)$。所以 score 不只是 diffusion 的訓練目標，它還**直接組成了確定性流動的速度場**。這條方程，就是 score 語言和 velocity 語言握手的地方：學到了 score，你就能把隨機的 diffusion 改寫成一條可以用 ODE solver 快速求解的確定流。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="probability flow ODE 和原本的 SDE，保證一致的是哪一件事？"
+  options={[
+    { text: "每一顆粒子的具體軌跡都一樣。", explain: "正好相反。單一粒子的路徑不同（一個抖、一個滑）；ODE 不重現個別軌跡。" },
+    { text: "終點 x₁ 的值對每顆粒子都相同。", explain: "個別終點不必相同；保證的是分布層級，不是逐顆對應。" },
+    { text: "每個時間點的『邊際分布 p_t』相同。", correct: true, explain: "正解。兩者在分布層級一致；因為生成常只在乎分布，這就允許用確定的 ODE 取代隨機的 SDE。" },
+  ]}
+/>
+
+<Quiz
+  q="存在 ODE 版本，是不是代表『diffusion 其實本來就沒有隨機性』？"
+  options={[
+    { text: "是，隨機性是多餘的，可以無視。", explain: "言過其實。SDE 本身確實是隨機的；隨機性在訓練與某些取樣品質上仍有作用。" },
+    { text: "不是。SDE 確實隨機；只是在『邊際分布』這個層級，可以找到一條給出相同 p_t 的確定流。", correct: true, explain: "正解。ODE 不是說原過程沒隨機，而是說我們能在分布層級用確定流複製它的時間邊際。" },
+    { text: "不是，ODE 和 SDE 給的分布其實不同。", explain: "在理想情況下它們的邊際分布相同；這正是 probability flow ODE 的結論。" },
+  ]}
+/>
+
+## 那，「隨機所以覆蓋更多」呢？
+
+這裡要擋下一個很黏的直覺：「diffusion 是隨機過程，所以它靠『探索』覆蓋的資料分布，比確定性 ODE 更廣。」聽起來合理，但它和我們剛剛證的東西正面打架——**在 exact score 下，SDE 與 PF-ODE 的每個邊際 $p_t$ 逐點相等**。如果隨機真能「覆蓋更多」，那確定版本就該覆蓋更少；可是數學保證差距是零。一個會在「模型完全正確時」消失的優勢，不可能是在覆蓋更多真分布。
+
+關鍵是分清楚兩種隨機：
+
+- **起點的隨機** $x_0\sim\mathcal{N}(0,I)$：決定你抽到哪顆種子。
+- **沿路的隨機** $g(t)\,dW_t$：讓單一軌跡更抖。
+
+被「覆蓋」的目標是終點的**邊際** $p_1$，而它由「base 分布 $p_0$ ＋ 場」決定——**這兩樣 ODE 和 SDE 共用**。沿路加噪只改變「哪顆 $x_0$ 對到哪個 $x_1$」這個**耦合（coupling）**，不動任何一個邊際。
+
+> 一句話：**覆蓋的熵全部來自起點那一抽；沿途注入再多噪聲，也不會多覆蓋目標一寸。** 確定流把 $\mathcal{N}(0,I)$ 整個推成 $p_\text{data}$（幾乎處處滿覆蓋）；跨種子的整體早就鋪滿所有 mode——所以確定性 $\neq$ mode collapse（後者是 GAN 的訓練失敗，不是 sampler 確定性的後果）。
+
+<Quiz
+  q="「diffusion 是隨機的，所以靠探索覆蓋的資料分布比確定 ODE 更廣」——這句話的問題在哪？"
+  options={[
+    { text: "在 exact 場下兩者每個邊際 p_t 都相等，確定 ODE 覆蓋一樣多；被覆蓋的是終點邊際，由 base 分布與場決定，沿路加噪只動耦合、不動邊際。", correct: true, explain: "正解。覆蓋的熵來自起點 x_0 那一抽，ODE 與 SDE 共用；沿路隨機只是換哪顆種子對到哪個資料點。" },
+    { text: "沒問題，隨機本來就會探索到更多 mode。", explain: "exact 場下邊際逐點相等，沒有「更多」可探索；這個所謂優勢在模型正確時就消失，不可能是在覆蓋真分布。" },
+    { text: "問題在於確定性 ODE 根本到不了資料分布。", explain: "到得了。PF-ODE 把 p_0 推成 p_1（同樣的邊際）；確定性 ≠ 漏掉分布。" },
+  ]}
+/>
+
+## 深一層：exact 相同 ≠ approximate 相同（KL vs $W_2$）
+
+> 給想再往前一步的人的小框，可跳過。
+
+上面「邊際逐點相等」有個前提：**場是 exact 的**。一旦換成**學到的、有誤差的**場，SDE 和 ODE 就不再對稱了：
+
+- **SDE**：用 Girsanov 定理，可把生成分布與真實分布的 **KL** 界成漂移誤差的 L2——不斷注入的噪聲有收縮性，讓 sampler「自我修正、遺忘誤差」。
+- **ODE**：沒有這層收縮，誤差沿軌跡累積，你自然得到的是傳輸型的 **$W_2$（Wasserstein）** 界。
+
+而 KL 比 $W_2$ 強（KL 控 TV，$W_2$ 是弱拓樸的傳輸度量）。所以「場不準時，diffusion 更穩地貼合分布」是真的——但原因是**誤差阻尼（robustness）**，不是探索；而且這個優勢在 exact 極限會消失。換句話說，stochastic interpolants 那條線把「要注入多少噪聲」也變成一個**設計變數**（見 [Path Design](/personal_website/zh/notes/n2d-path-design)）：噪聲多一點換穩健、少一點換確定與速度，是個 tradeoff，不是誰永遠贏。
+
+## 這怎麼接到論文？
+
+probability flow ODE 是理解 diffusion 的 ODE samplers（DDIM、DPM-Solver 之類）、score-based modeling 與 flow matching 三者關係的核心。它讓「用少數幾步、確定性地」取樣成為可能，也是把 diffusion 和 flow 放進同一張比較表的關鍵。
+
+## 下一步
+
+既然取樣就是去解這條 ODE（或 SDE），那「解得多準、要走幾步」就變成實打實的工程問題。下一篇 [取樣即解微分方程](/personal_website/zh/notes/n2d-sampling-as-integration) 談離散化、步數與 NFE——以及為什麼「少步生成」是這麼熱門的題目。
+
+## 參考文獻
+
+1. Song, Y., et al. *Score-Based Generative Modeling through Stochastic Differential Equations.* ICLR 2021.
+2. Maoutsa, D., et al. *Interacting Particle Solutions of Fokker–Planck Equations through Gradient–Log–Density Estimation.* Entropy, 2020.

@@ -1,0 +1,85 @@
+---
+slug: "n2d-continuity-equation"
+lang: "zh"
+title: "Continuity Equation：分布如何流動？"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-21
+summary: "連接微觀（粒子怎麼移動）與宏觀（密度怎麼變化）的橋。它說的其實很樸素：流進來比較多，這裡就變密。可跳讀。"
+demos: []
+references:
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
+  - label: "Villani, Optimal Transport: Old and New (2009), Ch. 4"
+  - label: "Santambrogio, Optimal Transport for Applied Mathematicians (2015)"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Continuity Equation：分布如何流動？
+
+> 「From Noise to Data」系列第 6 篇。**這是系列裡第一篇偏硬的數學。** 第一次讀可以只看「先記這一句」和「走廊裡的人」，把推導留到回頭再補——後面的篇章不會卡在這條方程上。
+
+前面我們建立了兩個層次：個別**粒子怎麼移動**（向量場 $v_t$）和整群**分布怎麼變化**（機率路徑 $p_t$），還一直說「$v_t$ 生成 $p_t$」。但你大概會想追問：密度怎麼會「自己」變？粒子在動，密度的數字憑什麼跟著漲跌？這篇就補上那座橋。
+
+## 先別被符號嚇到
+
+你不一定要第一次就完全推懂這條方程；但知道它在說什麼，會讓後面的 flow matching 不再像魔法。它的全部內容，其實只是一句很樸素的話，我們先把那句話講清楚，再看符號。
+
+## 先記這一句
+
+> 這條方程看起來硬，但它說的其實是一件很樸素的事：**東西流進來比較多，這裡就變密；流出去比較多，這裡就變稀。**
+
+## 用一個小例子看見它：走廊裡的人
+
+想像一條窄窄的走廊，很多人沿著走廊往前移動。你盯著走廊中的一小段：
+
+- 如果**進來的人比出去的人多**，這一段就變擠；
+- 如果**出去的人比進來的人多**，這一段就變空。
+
+就這麼直覺。現在把「人」換成粒子、把「擁擠程度」換成密度、把「人流的快慢」換成速度場——你就得到了 continuity equation。它沒有比走廊裡的人更神秘。
+
+## 把圖像翻成數學
+
+設粒子滿足 $\dfrac{dx}{dt} = v_t(x)$，在時刻 $t$ 的密度為 $p_t(x)$。定義機率流量（probability current）$J_t(x) = p_t(x)\, v_t(x)$（對應「走廊某處的人流」）。質量守恆寫成
+
+$$
+\partial_t\, p_t(x) + \nabla \cdot \big( p_t(x)\, v_t(x) \big) = 0.
+$$
+
+其中 $\nabla \cdot$ 是散度，在 $\mathbb{R}^n$ 上 $\nabla \cdot J = \sum_{i} \partial_{x_i} J_i$，量度該點是淨流出（正）還是淨流入（負）。直觀讀法就是那句樸素的話：
+
+$$
+\underbrace{\partial_t p_t}_{\text{密度怎麼變}} = -\underbrace{\nabla \cdot (p_t v_t)}_{\text{淨流出}\,\to\,\text{變稀}}.
+$$
+
+它為什麼重要？給定一條 probability path $p_t$，凡是能「生成」這條路的向量場 $v_t$，都必須滿足這條方程。反過來，flow matching 訓練的合理性正建立於此：存在一個（在適當意義下唯一的）邊際向量場 $v_t$，與目標路徑 $p_t$ 相容；我們的神經網路就是去逼近它。沒有 continuity equation，「學速度場就能搬動分布」只是口號。
+
+> 補充：把右邊再加一項擴散 $\frac{1}{2}\nabla\cdot(g^2 \nabla p_t)$，它就升級成 **Fokker–Planck 方程**，描述帶隨機擾動（SDE）的粒子其密度如何演化。這條線索會在 [probability flow ODE](/personal_website/zh/notes/n2d-probability-flow-ode) 把 diffusion 的隨機性和確定流動接起來。
+
+## 讀到這裡，先別急著這樣想
+
+關於這條方程，最常見的誤會是把它當成「某個模型額外加的假設」。先用一題確認：
+
+<Quiz
+  q="continuity equation 是 flow matching 為了能訓練而額外假設出來的條件嗎？"
+  options={[
+    { text: "是。它是一條我們為了方便而強加的正則化項。", explain: "它不是可加可不加的項；它就是「總機率守恆」翻成微分方程。" },
+    { text: "不是。它是質量守恆的必然結果——只要粒子數不增不減、各自連續移動，密度就一定滿足它。", correct: true, explain: "對。它是恆等式，不是建模選擇。走廊裡的人不會憑空出現或消失，所以「擠/空」完全由人流決定。" },
+    { text: "它只在無散度（不可壓縮）的速度場下才成立。", explain: "一般情況都成立。無散度只是特例；通則裡 ∇·(p v) 還含 p(∇·v) 那一項。" },
+  ]}
+/>
+
+<Quiz
+  q="走廊某一小段裡的人變多了（密度上升），最準確的解讀是？"
+  options={[
+    { text: "那一段『淨流入』——人從別處走進來聚集，總人數始終守恆，沒有人憑空出現。", correct: true, explain: "正解。密度上升不是『製造』粒子，而是流進來的比流出去的多。這正是 ∂ₜp = −∇·(pv) 的意思。" },
+    { text: "那一段『製造』出了新的人。", explain: "沒有製造。連續方程的前提就是總量守恆——變多只能靠流入。" },
+    { text: "要先知道速度場有沒有散度才能判斷。", explain: "不需要。無論速度場性質如何，密度上升一律來自淨流入；散度只是描述流入/流出的工具。" },
+  ]}
+/>
+
+還有一個小陷阱：「密度上升」不代表「粒子在那裡被製造出來」——它只是**淨流入**，粒子從別處搬過來聚集，總量始終守恆（走廊裡的人變多，是因為走進來，不是憑空長出來）。
+
+## 為什麼研究者在乎？
+
+continuity equation 是 flow matching 理論的地基：它保證「向量場 ↔ 機率路徑」的對應良好定義，讓「回歸一個速度場」這個訓練目標真的能把 $p_0$ 搬到 $p_1$。它也是 optimal transport 動態形式（Benamou–Brenier 公式）的約束條件，並在加上擴散項後成為 Fokker–Planck 方程，連起 score-based diffusion 與確定性流動。你不需要每次都重推

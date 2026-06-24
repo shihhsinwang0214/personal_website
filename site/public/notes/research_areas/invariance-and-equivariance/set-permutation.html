@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>集合排列不變性</title>
+<script src="./_demo-common.js"></script>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：按下 shuffle，只改資料列順序。比較<b>DeepSets-style sum readout</b>與故意偷看 row index 的 readout。</p>
+  <canvas id="cv" width="720" height="420" aria-label="同一組點的不同排列"></canvas>
+  <div class="controls">
+    <div class="row">
+      <button id="shuffle" type="button">Shuffle points</button>
+      <button id="reset" type="button">恢復順序</button>
+      <label><input id="labels" type="checkbox"> 顯示 per-point labels</label>
+    </div>
+  </div>
+  <div class="metrics">
+    <div class="metric"><strong>sum-pooled readout</strong><span id="sum"></span></div>
+    <div class="metric"><strong>order-sensitive readout</strong><span id="ordered"></span></div>
+    <div class="metric"><strong>current row order</strong><span id="order"></span></div>
+  </div>
+  <p class="observe">觀察這個不變量：<b>sum 不因 permutation 改變；逐點 label 則跟自己的點一起換 row。</b></p>
+</div>
+<script>
+(function () {
+  var cv = document.getElementById('cv'), dpi = NDFlow.hiDPICanvas(cv), ctx = dpi.ctx, pal, size;
+  var pts = [
+    { id: 'A', x: -.78, y: .25, v: 1.2, label: '建築' },
+    { id: 'B', x: -.22, y: -.48, v: .7, label: '道路' },
+    { id: 'C', x: .35, y: .55, v: 1.6, label: '捷運' },
+    { id: 'D', x: .76, y: -.12, v: .9, label: '路口' },
+    { id: 'E', x: .05, y: .05, v: 1.1, label: '校門' }
+  ];
+  var order = pts.slice();
+  function shuffle() {
+    for (var i = order.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1)), tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+    }
+    draw();
+  }
+  function draw() {
+    size = dpi.resize();
+    ctx.clearRect(0, 0, size.w, size.h); ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, size.w, size.h);
+    var split = size.w * .56;
+    ctx.strokeStyle = pal.border; ctx.beginPath(); ctx.moveTo(split, 18); ctx.lineTo(split, size.h - 18); ctx.stroke();
+    ctx.fillStyle = pal.muted; ctx.font = '700 12px system-ui'; ctx.fillText('幾何位置（沒有 row order）', 18, 27); ctx.fillText('資料表 row', split + 16, 27);
+    var scale = Math.min(split * .38, size.h * .34), cx = split * .48, cy = size.h * .55;
+    for (var p = 0; p < pts.length; p++) {
+      var pt = pts[p], x = cx + pt.x * scale, y = cy - pt.y * scale;
+      ctx.fillStyle = [pal.blue, pal.red, pal.green, pal.purple, pal.accent][p];
+      ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = pal.panel; ctx.font = '700 11px system-ui'; ctx.textAlign = 'center'; ctx.fillText(pt.id, x, y + 4); ctx.textAlign = 'left';
+      if (document.getElementById('labels').checked) {
+        ctx.fillStyle = pal.ink; ctx.font = '12px system-ui'; ctx.fillText(pt.label, x + 15, y + 4);
+      }
+    }
+    var rowH = Math.min(48, (size.h - 55) / order.length);
+    for (var i = 0; i < order.length; i++) {
+      var item = order[i], yy = 42 + i * rowH;
+      ctx.fillStyle = pal.panel; NDFlow.roundRect(ctx, split + 14, yy, size.w - split - 28, rowH - 7, 6); ctx.fill();
+      ctx.strokeStyle = pal.border; ctx.stroke();
+      ctx.fillStyle = pal.muted; ctx.font = '700 11px system-ui'; ctx.fillText(String(i + 1), split + 24, yy + 21);
+      ctx.fillStyle = pal.ink; ctx.font = '700 12px system-ui'; ctx.fillText(item.id + '  value=' + item.v.toFixed(1), split + 48, yy + 21);
+      if (document.getElementById('labels').checked) ctx.fillText('→ ' + item.label, split + 150, yy + 21);
+    }
+    var sum = pts.reduce(function (a, b) { return a + b.v; }, 0);
+    var ordered = order.reduce(function (a, b, i) { return a + b.v * (i + 1); }, 0);
+    document.getElementById('sum').textContent = sum.toFixed(2) + '（固定）';
+    document.getElementById('ordered').textContent = ordered.toFixed(2) + '（會變）';
+    document.getElementById('order').textContent = order.map(function (x) { return x.id; }).join(' → ');
+  }
+  document.getElementById('shuffle').onclick = shuffle;
+  document.getElementById('reset').onclick = function () { order = pts.slice(); draw(); };
+  document.getElementById('labels').onchange = draw;
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(function () { pal = NDFlow.applyTheme(draw); });
+  pal = NDFlow.applyTheme(draw);
+})();
+</script>
+</body>
+</html>

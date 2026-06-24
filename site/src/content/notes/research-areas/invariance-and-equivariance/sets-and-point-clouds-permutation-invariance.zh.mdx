@@ -1,0 +1,208 @@
+---
+slug: "sets-and-point-clouds-permutation-invariance"
+lang: "zh"
+title: "如果地圖不是像素，而是一堆點？"
+category: "research-areas"
+group: "Invariance and Equivariance"
+status: "available"
+updated: 2026-06-23
+summary: "把地圖改成一袋沒有固定順序的點，看看 shuffle 為什麼不能改變集合答案，卻必須同步重排逐點輸出。"
+demos:
+  - "notes/research_areas/invariance-and-equivariance/set-permutation.html"
+references:
+  - label: "Zaheer et al., Deep Sets (2017)"
+    href: "https://arxiv.org/abs/1703.06114"
+  - label: "Qi et al., PointNet: Deep Learning on Point Sets for 3D Classification and Segmentation (2017)"
+    href: "https://arxiv.org/abs/1612.00593"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# 如果地圖不是像素，而是一堆點？
+
+> 「Invariance and Equivariance」系列第 3 篇。前兩篇把台北地圖當成影像；這一篇把地圖改寫成建築物中心、路口、GPS samples 形成的點集合。
+
+一張地圖不一定要存在 pixel grid 裡。你也可以只記錄一批點：台大總圖的位置、校門的位置、每個路口的位置、捷運站的位置、GPS 軌跡上的 sample。
+
+這時第一個困惑不是「影像平移後 feature map 怎麼動」，而是更樸素的問題：
+
+> 這些點在資料表中的順序，真的是地圖的一部分嗎？
+
+答案通常是沒有。台大總圖放在第一列或第十列，地理對象沒有改變。可是很多機器學習模型天生吃的是向量或矩陣，一不小心就會把 row order 當成語意。
+
+這篇只抓住一個分界：
+
+> 集合任務要先分清楚：輸出是整組集合的一個摘要，還是每個點各自需要一個輸出？前者要 permutation invariant，後者要 permutation equivariant。
+
+## 把地標卡片洗牌
+
+假設我們把地圖寫成一組點
+
+$$
+X=\{x_1,x_2,\dots,x_n\},
+$$
+
+其中 $x_i$ 可能包含座標、類型、地標名稱 embedding 或局部特徵。資料檔一定要用某個順序存它們，但集合本身沒有第一個元素。
+
+如果 $\pi$ 是任意 permutation，重新排序後的輸入
+
+$$
+\{x_{\pi(1)},x_{\pi(2)},\dots,x_{\pi(n)}\}
+$$
+
+代表同一組地標。若任務是「這組點是不是台大附近的地標集合？」答案應該不變：
+
+$$
+f(\{x_{\pi(1)},\dots,x_{\pi(n)}\})=f(\{x_1,\dots,x_n\}).
+$$
+
+用 permutation matrix $P$ 寫，也可以說：
+
+$$
+f(P \cdot X)=f(X).
+$$
+
+這是 **permutation invariance**。
+
+下面的 demo 讓同一組地標點反覆洗牌。左邊的 sum-pooled readout 不動；右邊故意把第幾列當成訊號的 order-sensitive readout 會改變。切到 per-point labels，再看每個 label 如何跟著對應點一起換 row。
+
+<iframe src="/personal_website/notes/research_areas/invariance-and-equivariance/set-permutation.html" class="demo-frame" title="集合排列不變性互動 demo" style="height: 720px; width: 100%; border: none;"></iframe>
+
+> 先抓住這個畫面：**集合答案不追著 row 跑；逐點答案要追著自己的點跑。**
+
+## Deep Sets 把洗牌不變寫進公式
+
+Deep Sets 給了一個非常乾淨的形式：
+
+$$
+f(X)=\rho\left(\sum_{i=1}^n \phi(x_i)\right).
+$$
+
+每個點先用同一個 $\phi$ 轉成 feature，再用 sum 聚合，最後用 $\rho$ 得到整組集合的輸出。Sum 不在乎順序，所以整個函數 naturally permutation invariant。
+
+[Zaheer et al. (2017)](https://arxiv.org/abs/1703.06114) 在其設定與條件下證明，permutation-invariant set function 可以用這類「逐點轉換、對稱聚合、最後 readout」的形式表示或逼近。這裡的重點不是把所有技術條件藏掉，而是看見結構：順序資訊必須在 aggregation 時被消除，而 $\phi$ 與 $\rho$ 可以由可學函數表示。
+
+這個形式的直覺很像點名：你不在乎誰先報到，只在乎最後有哪些人到場。對 set-level classification 或 regression，這非常合理。
+
+但它也透露一個限制：如果所有點都先各自處理，最後只靠一個全局 pooling，模型要捕捉細緻的局部關係或高階互動就會比較辛苦。兩個建築物之間的相對位置、一段 GPS 軌跡的局部轉折、幾個路口構成的特殊幾何，未必容易只靠單點 feature 加總看出來。
+
+## 但 segmentation 不能把點都揉成一顆
+
+現在換任務。不是問整組點是不是台大附近，而是要為每個點預測 label：
+
+- 每個地標點是不是建築物？
+- 每個 GPS sample 是否落在道路上？
+- 每個點屬於哪個區域或物件部件？
+
+這時輸出不是一個全局 scalar，而是一串 per-point predictions：
+
+$$
+F(X)=(y_1,y_2,\dots,y_n).
+$$
+
+如果我們把輸入點重新排序，輸出也應該用同樣方式重新排序：
+
+$$
+F(P \cdot X)=P \cdot F(X).
+$$
+
+這是 **permutation equivariance**。它不是說每個點的 label 都不變地放在原本 row；它說第 $i$ 個輸入點搬到第 $j$ 列時，對應的輸出也要搬到第 $j$ 列。
+
+這個分界很重要：
+
+- set classification：整體答案不看 row order，因此 invariant；
+- point segmentation：每個點有自己的答案，因此 equivariant；
+- set-to-set prediction：輸出仍然跟點對齊，也需要 equivariant。
+
+最簡單的 permutation-equivariant linear layer，也能直接看出這個結構。令每列 $x_i$ 是一個點的 feature，可以寫成
+
+$$
+y_i=A x_i+B\sum_{j=1}^n x_j.
+$$
+
+第一項只處理點自己；第二項是所有點共享的 symmetric summary。若輸入用 permutation matrix $P$ 重排，逐列輸出也會用同一個 $P$ 重排，因此 $F(PX)=PF(X)$。這個式子不是所有 set network 的完整答案，但它把「自己的資訊 + 不看順序的全局資訊」畫得很清楚。
+
+## PointNet 怎麼把全局與逐點接起來
+
+PointNet 的重要性在於它直接吃 unordered point sets，而不是先把點雲 voxelize 成 3D grid，或投影成多張影像。這和我們的地圖點集合非常接近：點本身沒有天然順序，但每個點有座標與特徵。
+
+對 classification，[PointNet](https://arxiv.org/abs/1612.00593) 的核心節奏是：
+
+1. 每個點用共享的 pointwise network 轉成 feature；
+2. 用 symmetric aggregation，例如 max pooling，得到全局 feature；
+3. 用全局 feature 做整體分類。
+
+Max pooling 或 sum pooling 的角色，是把任意順序的點壓成同一個全局表示。只要 aggregation symmetric，輸出就不會依賴點的排列。
+
+對 segmentation，PointNet 不能只留下全局 feature。它會把每個點的 local feature 和全局 feature 結合，再對每個點輸出 label。這樣做的直覺是：判斷一個點是不是建築物邊界，既需要看這個點自己的局部訊息，也需要知道整組點雲的全局 context。
+
+## 洗牌之外，整團點還會旋轉
+
+Permutation symmetry 只是第一層。Point cloud 的每個點還有幾何座標。
+
+如果整組地標點被平移或旋轉，地理關係沒有消失。台大總圖和校門的距離沒變，路口之間的相對結構也還在。這引出第二層 symmetry：Euclidean symmetry。
+
+所以 point cloud 常同時牽涉兩種問題：
+
+1. **資料格式的 symmetry**：點的順序不重要。
+2. **空間幾何的 symmetry**：整組點旋轉、平移、反射後，任務輸出應如何變？
+
+PointNet 主要先處理第一個問題。第二個問題，也就是 Euclidean invariance/equivariance，會在第 6 篇變成主角。
+
+## 對稱聚合很乾淨，但不是免費午餐
+
+用 symmetric aggregation 很乾淨，但它不是免費午餐。只靠全局 sum 或 max pooling，模型可能比較難捕捉局部 relation 與 higher-order interaction。
+
+想像兩組地標點：它們包含相似的點類型和座標範圍，但一組形成連續道路，一組是散亂點。單點 feature 加總可能看起來差不多，但局部連接關係完全不同。
+
+這就是為什麼後續會出現 PointNet++、graph-based point cloud models、attention-based set models，以及下一篇的 GNN。它們都在處理同一個壓力：既要尊重 permutation symmetry，又要更好地建模點與點之間的關係。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="如果把同一組地標點重新排序，point cloud classification 的輸出應該如何變？"
+  options={[
+    { text: "應該跟著排序改變。", explain: "如果是 set-level classification，輸出沒有 node index，因此不該跟排序改變。" },
+    { text: "應該只在點很多時才不變。", explain: "和點數多少無關。只要輸入代表集合，順序就不應該帶語意。" },
+    { text: "應該完全不變。", correct: true, explain: "對。點的順序不是地理事實，只是資料表格式；set-level classification 應該 permutation invariant。" },
+  ]}
+/>
+
+<Quiz
+  q="如果任務是替每個點輸出一個 label，重新排序輸入點後，輸出應該如何變？"
+  options={[
+    { text: "整串輸出應該完全一樣地留在原本 row。", explain: "不對。若輸入點的 row 被重排，對應的 per-point output 也要重排。" },
+    { text: "輸出也應該用同一個 permutation 重排。", correct: true, explain: "對。這是 per-point prediction 的 permutation equivariance。" },
+    { text: "所有點的 label 都應該被平均成一個值。", explain: "那會把 per-point task 變成 set-level summary，丟掉任務要求的對齊關係。" },
+  ]}
+/>
+
+<Quiz
+  q="PointNet 使用 symmetric aggregation 主要是在解決哪個問題？"
+  options={[
+    { text: "讓模型不依賴點的輸入順序。", correct: true, explain: "對。Sum/max 這類 aggregation 不在乎排列，因此適合 unordered point sets。" },
+    { text: "保證模型自動對所有 3D 旋轉 exact equivariant。", explain: "不是。Permutation symmetry 和 Euclidean rotation symmetry 是不同問題。" },
+    { text: "讓每個點彼此之間的高階互動都被完整表示。", explain: "不一定。Simple global pooling 反而可能難以捕捉局部 relation 或 higher-order interaction。" },
+  ]}
+/>
+
+## 這怎麼接到研究？
+
+Deep Sets 是理解 permutation-invariant functions 的經典入口。它把「集合沒有順序」這件事變成一個可學函數形式：pointwise transform 加 symmetric aggregation。
+
+PointNet 則把這個想法帶到 3D point cloud，強調 point cloud 是 unordered point set，並同時處理 classification 和 segmentation。它的簡潔性讓人很容易看見 permutation invariance/equivariance 的骨架，也讓後續方法更清楚知道自己要補什麼：局部結構、階層關係、圖連接、attention 或更強的幾何 equivariance。
+
+讀 point cloud 論文時，可以先問：
+
+1. 它如何避免依賴 point order？
+2. 它是做 set-level output，還是 per-point output？
+3. 它是否處理旋轉、平移等 Euclidean symmetry？
+4. 它如何捕捉 local relation，而不只是一個全局 pooling？
+
+## 下一步
+
+點之間如果有道路連接、鄰近關係、分子鍵結，就不只是集合，而是 graph。下一篇把台北地圖改成道路網路：路口是 nodes，道路是 edges。這時 permutation symmetry 仍然存在，但輸出也可能要對每個 node 做預測。
+
+## 參考文獻
+
+1. [Zaheer, M., et al. *Deep Sets.* NeurIPS, 2017.](https://arxiv.org/abs/1703.06114)
+2. [Qi, C. R., Su, H., Mo, K., & Guibas, L. J. *PointNet: Deep Learning on Point Sets for 3D Classification and Segmentation.* CVPR, 2017.](https://arxiv.org/abs/1612.00593)

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Noise → Data 互動 demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px;
+    font-family: 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif;
+    background: transparent; color: #1f2733;
+  }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card {
+    max-width: 640px; margin: 0 auto; padding: 18px;
+    border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6;
+  }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.5; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; }
+  body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas {
+    width: 100%; max-width: 560px; aspect-ratio: 1 / 1; height: auto;
+    display: block; margin: 0 auto; border-radius: 10px; touch-action: none;
+  }
+  .controls { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select, input[type=range] { font: inherit; }
+  select {
+    padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8;
+    background: #fff; color: inherit;
+  }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 220px; max-width: 60vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button {
+    padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer;
+    font-weight: 700; background: #2a4ea3; color: #fff;
+  }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .readout { font-variant-numeric: tabular-nums; min-width: 3.2em; text-align: left; font-weight: 700; }
+  .observe { font-size: 0.82rem; line-height: 1.5; margin: 12px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .ends { display: flex; justify-content: space-between; font-size: 0.75rem; color: #646c78; max-width: 560px; margin: 6px auto 0; }
+  body[data-dark="1"] .ends { color: #9a988f; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：生成是一場<b>分布的搬運</b>，不是憑空產生資料。拖動時間 <b>t</b>，看同一團高斯雜訊被搬成不同的目標分布。</p>
+  <canvas id="cv" width="560" height="560" aria-label="Noise to data 粒子動畫"></canvas>
+  <div class="ends"><span>t = 0 · p₀ = 高斯雜訊</span><span>t = 1 · p₁ = 資料</span></div>
+  <div class="controls">
+    <div class="row">
+      <label for="shape">目標分布</label>
+      <select id="shape">
+        <option value="two_moons">雙月 Two moons</option>
+        <option value="two_gaussians">雙峰 Two gaussians</option>
+        <option value="ring">環形 Ring</option>
+        <option value="swiss_roll">瑞士捲 Swiss roll</option>
+      </select>
+      <label for="path">路徑</label>
+      <select id="path">
+        <option value="straight">直線</option>
+        <option value="curved">彎曲</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="noise">雜訊強度</label>
+      <input id="noise" type="range" min="0.4" max="1.4" step="0.05" value="0.9" />
+      <span id="noiseR" class="readout">0.90</span>
+    </div>
+    <div class="row">
+      <label for="t">時間 t</label>
+      <input id="t" type="range" min="0" max="1" step="0.005" value="0" />
+      <span id="tR" class="readout">0.00</span>
+    </div>
+    <div class="row">
+      <button id="play">▶ 播放一次</button>
+      <button id="reset" class="ghost">重設</button>
+    </div>
+  </div>
+  <p class="observe">觀察：無論你怎麼換目標形狀，<b>起點永遠是同一團對稱高斯</b>。變的只有「怎麼搬」，不是「從哪開始」。彎曲路徑顯示——同樣的起點與終點，中間可以走不同的路。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var N = 1400;
+  var cv = document.getElementById('cv');
+  var dpi = NDFlow.hiDPICanvas(cv);
+  var ctx = dpi.ctx, size = { w: 560, h: 560 };
+  var shapeSel = document.getElementById('shape');
+  var pathSel = document.getElementById('path');
+  var noiseEl = document.getElementById('noise');
+  var tEl = document.getElementById('t');
+  var tR = document.getElementById('tR');
+  var noiseR = document.getElementById('noiseR');
+  var pal = NDFlow.palette();
+
+  var x0 = [], x1 = [], perp = [];
+  function rebuild() {
+    var s = parseFloat(noiseEl.value);
+    x0 = NDFlow.sampleNoise(N, s);
+    x1 = NDFlow.sampleTarget(shapeSel.value, N);
+    perp = [];
+    for (var i = 0; i < N; i++) {
+      var dx = x1[i][0] - x0[i][0], dy = x1[i][1] - x0[i][1];
+      var len = Math.hypot(dx, dy) || 1;
+      perp.push([-dy / len, dx / len]); // unit perpendicular for curved path
+    }
+  }
+
+  function pos(i, t) {
+    var ax = x0[i][0], ay = x0[i][1], bx = x1[i][0], by = x1[i][1];
+    var x = (1 - t) * ax + t * bx;
+    var y = (1 - t) * ay + t * by;
+    if (pathSel.value === 'curved') {
+      var bump = Math.sin(Math.PI * t) * 0.9;
+      x += perp[i][0] * bump;
+      y += perp[i][1] * bump;
+    }
+    return [x, y];
+  }
+
+  function draw() {
+    size = dpi.resize();
+    var t = parseFloat(tEl.value);
+    var scale = Math.min(size.w, size.h) / 5.2;
+    var cx = size.w / 2, cy = size.h / 2;
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = pal.bg;
+    roundRect(ctx, 0, 0, size.w, size.h, 10); ctx.fill();
+    var col = NDFlow.lerpColor(pal.noise, pal.data, t);
+    ctx.fillStyle = col;
+    ctx.globalAlpha = 0.55;
+    for (var i = 0; i < N; i++) {
+      var p = pos(i, t);
+      var sx = cx + p[0] * scale, sy = cy - p[1] * scale;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 1.7, 0, 6.2832);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    tR.textContent = t.toFixed(2);
+  }
+
+  function roundRect(c, x, y, w, h, r) {
+    c.beginPath();
+    c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r); c.closePath();
+  }
+
+  // one-pass animation (respects reduced-motion: user-initiated, no looping)
+  var raf = null;
+  function play() {
+    if (raf) { cancelAnimationFrame(raf); raf = null; }
+    var start = performance.now();
+    var dur = 2600;
+    var t0 = parseFloat(tEl.value);
+    if (t0 >= 0.999) t0 = 0;
+    function step(now) {
+      var t = Math.min(1, t0 + (now - start) / dur);
+      tEl.value = t; draw();
+      if (t < 1) raf = requestAnimationFrame(step); else raf = null;
+    }
+    raf = requestAnimationFrame(step);
+  }
+
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+
+  shapeSel.onchange = function () { rebuild(); tEl.value = 0; draw(); };
+  pathSel.onchange = draw;
+  noiseEl.oninput = function () { noiseR.textContent = parseFloat(noiseEl.value).toFixed(2); rebuild(); draw(); };
+  tEl.oninput = function () { if (raf) { cancelAnimationFrame(raf); raf = null; } draw(); };
+  document.getElementById('play').onclick = play;
+  document.getElementById('reset').onclick = function () { if (raf) cancelAnimationFrame(raf); raf = null; tEl.value = 0; draw(); };
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+
+  rebuild(); applyTheme();
+})();
+</script>
+</body>
+</html>

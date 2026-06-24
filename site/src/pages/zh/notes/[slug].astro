@@ -1,0 +1,19 @@
+---
+import { getCollection } from 'astro:content';
+import NoteArticle from '../../../components/NoteArticle.astro';
+import { isListedNote } from '../../../lib/notes';
+
+export async function getStaticPaths() {
+  const allNotes = await getCollection('notes');
+  return allNotes
+    .filter((entry) => entry.data.lang === 'zh' && isListedNote(entry))
+    .map((entry) => ({
+      params: { slug: entry.data.slug },
+      props: { entry, allNotes },
+    }));
+}
+
+const { entry, allNotes } = Astro.props;
+---
+
+<NoteArticle entry={entry} allNotes={allNotes} lang="zh" />

@@ -1,0 +1,105 @@
+---
+slug: "n2d-vector-field"
+lang: "zh"
+title: "Vector Field：每個點該往哪裡走？"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-21
+summary: "從 Lagrangian（跟著一顆粒子）切到 Eulerian（每個位置擺一支箭頭）。Vector field 就是 flow matching 要學的對象。"
+demos:
+  - "notes/research_areas/noise-to-data/vector-field.html"
+references:
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
+  - label: "Chen et al., Neural Ordinary Differential Equations (NeurIPS 2018)"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Vector Field：每個點該往哪裡走？
+
+> 「From Noise to Data」系列第 4 篇。上一篇跟著一顆粒子走（Lagrangian）；這一篇換成站在空間裡看整個場（Eulerian）。
+
+想像你打開一張圖，上面每個格點旁邊都畫著一支小箭頭：有的往左、有的往右、有的指向某個聚集中心。這正是 flow matching 論文給你的東西——它不會列出「每顆粒子的軌跡」，而是給你一個函數 $v_t(x)$，叫它 vector field（向量場），然後說「模型就是要學這個」。
+
+## 從「一條路」到「一張地圖」
+
+上一篇我們追蹤的是單顆粒子的軌跡 $x_t$。但一張軌跡只描述了一顆粒子的旅程；論文要的是能套用到**任何**起點的規則。所以這篇換個視角：與其記一條路，不如畫一張「每個位置都標好方向」的地圖。
+
+把這兩種視角並排：
+
+- **Lagrangian（上一篇）**：跟著一顆粒子，記錄它的旅程 $x_t$。
+- **Eulerian（這一篇）**：站著不動，看空間每點的箭頭 $v_t(x)$，不在乎是哪顆粒子經過。
+
+同一個流動，既能說成「這顆粒子怎麼走」，也能說成「每個位置的箭頭指向哪」。Vector field 是後者。
+
+## 先抓住這個畫面
+
+> 在空間每個位置都釘一支箭頭，告訴「剛好經過這裡」的粒子下一步往哪走。
+
+丟一顆粒子進去：它看自己**當下所在位置**的箭頭，走一小步；到了新位置，再看**那裡**的箭頭，再走一小步……如此重複，粒子就被箭頭場導引出一條軌跡。
+
+## 用一個小例子看見它
+
+下面的 demo 把場和粒子畫在一起：拖時間 $t$ 看箭頭如何隨時間改變，調粒子數量與箭頭長度，觀察粒子如何順著箭頭被搬成資料形狀。
+
+<iframe src="/personal_website/notes/research_areas/noise-to-data/vector-field.html" class="demo-frame" title="Vector Field 互動 demo" style="height: 780px; width: 100%; border: none;"></iframe>
+
+請特別注意一件事：**箭頭依「位置」與「時間」而不同**。同一時刻，不同位置的粒子速度不一樣；同一位置，不同時刻的箭頭也會變。場不是單一的全域方向。
+
+## 把圖像翻成數學
+
+一個時間相依的向量場是一個函數
+
+$$
+v_t : \mathbb{R}^n \to \mathbb{R}^n, \qquad (t, x) \mapsto v_t(x).
+$$
+
+它透過 ODE 定義樣本的動態：
+
+$$
+\frac{d x}{d t} = v_t(x), \qquad x(0) = x_0 \sim p_0.
+$$
+
+把「對所有起點同時做這件事」寫成一個映射 $\phi_t$（flow map），它滿足
+
+$$
+\frac{d}{dt}\phi_t(x_0) = v_t\big(\phi_t(x_0)\big), \qquad \phi_0(x_0) = x_0,
+$$
+
+我們要的生成器就是 $x_1 = \phi_1(x_0)$。Lagrangian 與 Eulerian 的關係就藏在這裡：粒子軌跡 $x_t = \phi_t(x_0)$ 是「解」，向量場 $v_t$ 是「方程」。給場能解出軌跡；給一族軌跡也能反推出場。
+
+## 為什麼場比軌跡更有用
+
+這裡值得停一下，因為它是這篇的核心記憶點：
+
+> vector field 比單條軌跡更有用，是因為它不是只告訴一顆粒子怎麼走，而是給**整個空間一套導航規則**。
+
+學會這套規則，任何起點的粒子——包括你下次新抽的 noise——都能照著它流到資料分布。這也是為什麼模型要學的是**場**：場是個可學的函數，一個神經網路 $v_\theta(x, t)$ 就能表示它。
+
+## 幾個容易想歪的地方
+
+最關鍵的一個誤解，先用一題擋下來：
+
+<Quiz
+  q="一個訓練好的 vector field，它在某個點的箭頭會直直指向某一張訓練圖片嗎？"
+  options={[
+    { text: "會，每個箭頭都精準指向最近的一張訓練圖片。", explain: "若真的這樣，粒子會直撲訓練點、退化成記憶訓練集。場的任務是搬動整個分布，不是對齊到單點。" },
+    { text: "不會。它要在分布層級把整群粒子推對位置，單一箭頭不必、也不該指向某張特定資料。", correct: true, explain: "對。好的場讓整群粒子的分布從 p0 走到 p1；盯著單支箭頭看，方向常常不直觀。這個誤解我們在 velocity 那篇會正式拆解。" },
+    { text: "會，整個場其實是一個固定的全域方向。", explain: "不是。場依位置 x 與時間 t 而變，像天氣圖上的風場——每個地點、每個時刻都不同。" },
+  ]}
+/>
+
+<Quiz
+  q="為什麼模型學的是整個『向量場』，而不是某一條軌跡？"
+  options={[
+    { text: "因為軌跡比較難畫出來。", explain: "難不難畫不是重點；關鍵是涵蓋範圍。" },
+    { text: "因為向量場的參數一定比較少。", explain: "參數量不是理由；理由是適用範圍——場對任何起點都管用。" },
+    { text: "因為場是給整個空間的導航規則：任何起點（包括你下次新抽的 noise）都能照它流到資料分布；單一軌跡只描述一顆粒子。", correct: true, explain: "正解。這就是「場比軌跡更有用」的核心——一套規則，無限多顆粒子共用。" },
+  ]}
+/>
+
+順帶兩個小提醒：vector field **不是全域單一方向**（它依 $x$ 也依 $t$）；而且它和上一篇的粒子**不是兩回事**——場是規則，軌跡是照規則跑出來的結果。
+
+## 這怎麼接到論文？
+
+學習向量場 $v_\theta(x, t)$ 正是 **flow matching** 的核心；continuous normalizing flow（CNF）和 rectified flow 也都建立在同一個動

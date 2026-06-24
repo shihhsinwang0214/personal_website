@@ -1,0 +1,91 @@
+---
+slug: "n2d-velocity-regression"
+lang: "zh"
+title: "Velocity 當成回歸目標：Flow Matching 在學什麼"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-22
+summary: "flow matching 把生成變成「對速度做回歸」；釐清 velocity 與 score、denoising 的差別，並用 demo 看見速度場。"
+demos:
+  - "notes/research_areas/noise-to-data/flow-matching.html"
+references:
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
+    href: "https://arxiv.org/abs/2210.02747"
+  - label: "Liu et al., Flow Straight and Fast: Rectified Flow (ICLR 2023)"
+    href: "https://arxiv.org/abs/2209.03003"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Velocity 當成回歸目標：Flow Matching 在學什麼
+
+> 「From Noise to Data」系列第 9 篇。第三種局部訊號登場——而且它讓生成變得格外乾淨。
+
+前兩篇的局部訊號分別是「猜噪聲」和「指向高密度」。flow matching 用的是第三種：直接問**這個樣本此刻該往哪移動、移多快**。聽起來和第 4 篇的向量場一模一樣——沒錯，這一篇就是把那個場變成一個可以**回歸**出來的訓練目標。
+
+## 換個角度：把生成變成一道回歸題
+
+回想第 3、4 篇：生成 = 解 ODE $\frac{dx}{dt} = v_t(x)$。所以只要學會速度場 $v_t$，生成就解決了。flow matching 的聰明之處，是給出一個讓 $v_t$ **有標準答案**的設計，於是訓練就退化成最樸素的監督式回歸。
+
+## 先抓住這個畫面
+
+取一個 noise 點 $x_0$ 和一個 data 點 $x_1$，用直線把它們連起來。那麼在這條線上任一時刻，樣本「該往哪走」幾乎不用想——就是朝著終點，速度固定。
+
+下面的 demo 把這件事畫出來：每個樣本沿直線從 noise 走向 data，箭頭就是它當下的速度；拖時間 $t$、切直線/彎曲，看速度場如何隨之改變。
+
+<iframe src="/personal_website/notes/research_areas/noise-to-data/flow-matching.html" class="demo-frame" title="Flow Matching Velocity 互動 demo" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 把畫面寫成數學
+
+最常見的直線插值（也叫 conditional OT path）：
+
+$$
+x_t = (1 - t)\, x_0 + t\, x_1, \qquad x_0 \sim \mathcal{N}(0, I),\; x_1 \sim p_{\text{data}}.
+$$
+
+對這條直線微分，速度是個常數：
+
+$$
+u_t = \frac{d x_t}{d t} = x_1 - x_0.
+$$
+
+模型 $v_\theta$ 就回歸這個速度：
+
+$$
+\mathcal{L} = \mathbb{E}_{x_0,\, x_1,\, t}\Big[\, \big\| v_\theta(x_t, t) - (x_1 - x_0) \big\|^2 \,\Big].
+$$
+
+生成時解 ODE：從 $x_0 \sim \mathcal{N}(0,I)$ 出發，$\frac{dx}{dt} = v_\theta(x, t)$ 積分到 $t = 1$。**整個訓練就是一道 L2 回歸題**——這正是 flow matching 直觀又好用的地方。和 score / denoising 比，velocity 的回歸目標是一個「位移」，不是噪聲、也不是密度梯度；但它們其實彼此可換算（第 11 篇會把這條線接起來）。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="模型在某點學到的 velocity，是直直指向某一張特定的訓練圖片 x₁ 嗎？"
+  options={[
+    { text: "是，每個點的速度都精準瞄準它配到的那張 x₁。", explain: "那是「單一配對」的條件速度 x₁−x₀。但很多不同的 (x₀,x₁) 會經過同一個位置，模型看到的是它們的平均。" },
+    { text: "不是。經過同一位置的眾多配對速度被平均成一個邊際速度場，它在分布層級推動整群，不對齊單一圖片。", correct: true, explain: "正解。這正是 demo 裡『每對速度固定、但整體場是平均』要傳達的。下一篇會證明這個平均剛好是對的目標。" },
+    { text: "不是，velocity 其實不指向終點，而是隨機抖動。", explain: "ODE 版本是確定性的，沒有抖動；它確實朝資料分布移動，只是不對齊單一點。" },
+  ]}
+/>
+
+<Quiz
+  q="在直線插值的 flow matching 裡，訓練時的「標準答案」（回歸目標）是什麼？"
+  options={[
+    { text: "混進去的噪聲 ε。", explain: "那是 diffusion 去噪的目標。flow matching 回歸的是位移速度，不是噪聲（雖然兩者可換算）。" },
+    { text: "資料的 log 密度 ∇ log p。", explain: "那是 score。velocity 不是密度梯度，雖然在特定 path 下能互相換算。" },
+    { text: "位移速度 x₁ − x₀。", correct: true, explain: "正解。沿直線，速度是常數 x₁−x₀；模型對它做 L2 回歸，生成時再把學到的速度場積分出來。" },
+  ]}
+/>
+
+## 這怎麼接到論文？
+
+flow matching 把生成轉成 supervised velocity regression，訓練穩定、好擴展，而且和 diffusion 共用同一套 probability-path 語言。rectified flow 則在這個基礎上進一步「把路徑拉直」，追求少步甚至單步取樣。
+
+## 下一步
+
+demo 裡你大概已經注意到一個弔詭：每對的目標速度 $x_1 - x_0$ 明明指向某一張圖，平均起來卻變成「對的」場。為什麼用這麼粗的條件目標，能學到真正的邊際向量場？下一篇 [Conditional → Marginal](/personal_website/zh/notes/n2d-conditional-to-marginal) 揭開這個整個系列最關鍵的訓練技巧。
+
+## 參考文獻
+
+1. Lipman, Y., et al. *Flow Matching for Generative Modeling.* ICLR 2023.
+2. Liu, X., et al. *Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow.* ICLR 2023.

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Score Field 互動 demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.5; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 560px; aspect-ratio: 1/1; height: auto; display: block; margin: 0 auto; border-radius: 10px; cursor: crosshair; touch-action: none; }
+  .controls { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 220px; max-width: 60vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  .readout { font-variant-numeric: tabular-nums; min-width: 3.2em; font-weight: 700; }
+  .observe { font-size: 0.82rem; line-height: 1.5; margin: 12px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：<b>score = ∇ log p(x)</b> 指向「密度變高」的方向。把滑鼠移到圖上任一點，看那裡的 score 箭頭；調高 <b>噪聲程度</b>，看分布被抹平、score 變得更平滑。</p>
+  <canvas id="cv" width="560" height="560" aria-label="score 向量場"></canvas>
+  <div class="controls">
+    <div class="row">
+      <label for="shape">資料分布</label>
+      <select id="shape">
+        <option value="two_gaussians">雙峰 Two gaussians</option>
+        <option value="ring">環形 Ring</option>
+        <option value="two_moons">雙月 Two moons</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="sigma">噪聲程度 σ</label>
+      <input id="sigma" type="range" min="0.12" max="0.9" step="0.02" value="0.3" />
+      <span id="sigmaR" class="readout">0.30</span>
+    </div>
+  </div>
+  <p class="observe">觀察：箭頭總是指向附近密度更高的地方（資料聚集處）。σ 小時，score 在每個 mode 附近很「尖」、各指各的；σ 大時，分布被抹平，score 變得平滑、整體指向中心。這正是 diffusion 在不同噪聲程度看到的 score。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var cv = document.getElementById('cv');
+  var dpi = NDFlow.hiDPICanvas(cv);
+  var ctx = dpi.ctx, size = { w: 560, h: 560 };
+  var shapeSel = document.getElementById('shape');
+  var sigEl = document.getElementById('sigma'), sigR = document.getElementById('sigmaR');
+  var pal = NDFlow.palette();
+  var GRID = 16, SPAN = 4.6;
+  var centers = [], mouse = null;
+
+  function rebuild() { centers = NDFlow.sampleTarget(shapeSel.value, 140); draw(); }
+
+  // score of a Gaussian mixture with equal weights and isotropic sigma:
+  // s(x) = sum_i w_i (mu_i - x)/sigma^2,  w_i = N(x;mu_i)/sum_j N(x;mu_j)
+  function score(x, y, s) {
+    var s2 = s * s, n = centers.length, maxlg = -1e9, lg = new Float64Array(n);
+    for (var i = 0; i < n; i++) {
+      var dx = x - centers[i][0], dy = y - centers[i][1];
+      lg[i] = -(dx * dx + dy * dy) / (2 * s2);
+      if (lg[i] > maxlg) maxlg = lg[i];
+    }
+    var sw = 0, sx = 0, sy = 0;
+    for (var j = 0; j < n; j++) {
+      var w = Math.exp(lg[j] - maxlg); sw += w;
+      sx += w * (centers[j][0] - x); sy += w * (centers[j][1] - y);
+    }
+    if (sw < 1e-12) return [0, 0];
+    return [sx / sw / s2, sy / sw / s2];
+  }
+
+  function draw() {
+    size = dpi.resize();
+    var s = parseFloat(sigEl.value);
+    var scale = Math.min(size.w, size.h) / SPAN, cx = size.w / 2, cy = size.h / 2;
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, size.w, size.h);
+    // faint data points
+    ctx.fillStyle = NDFlow.lerpColor(pal.data, pal.noise, 0.15);
+    ctx.globalAlpha = 0.5;
+    for (var c = 0; c < centers.length; c++) {
+      ctx.beginPath(); ctx.arc(cx + centers[c][0] * scale, cy - centers[c][1] * scale, 2, 0, 6.2832); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // score field
+    ctx.strokeStyle = pal.arrow; ctx.fillStyle = pal.arrow; ctx.lineWidth = 1.3;
+    var step = SPAN / GRID;
+    for (var gx = 0; gx < GRID; gx++) for (var gy = 0; gy < GRID; gy++) {
+      var wx = -SPAN / 2 + (gx + 0.5) * step, wy = -SPAN / 2 + (gy + 0.5) * step;
+      var v = score(wx, wy, s), mag = Math.hypot(v[0], v[1]);
+      if (mag < 1e-3) continue;
+      var L = Math.min(mag * s, 1.1) * scale * 0.34;
+      var ux = v[0] / mag, uy = v[1] / mag;
+      var sx = cx + wx * scale, sy = cy - wy * scale, ex = sx + ux * L, ey = sy - uy * L;
+      ctx.globalAlpha = 0.25 + 0.5 * Math.min(1, mag * s);
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+      var ang = Math.atan2(-(ey - sy), ex - sx);
+      ctx.beginPath(); ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - 4 * Math.cos(ang - 0.5), ey + 4 * Math.sin(ang - 0.5));
+      ctx.lineTo(ex - 4 * Math.cos(ang + 0.5), ey + 4 * Math.sin(ang + 0.5));
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // probe at mouse
+    if (mouse) {
+      var v2 = score(mouse[0], mouse[1], s), m2 = Math.hypot(v2[0], v2[1]);
+      var px = cx + mouse[0] * scale, py = cy - mouse[1] * scale;
+      ctx.fillStyle = pal.accent;
+      ctx.beginPath(); ctx.arc(px, py, 5, 0, 6.2832); ctx.fill();
+      if (m2 > 1e-3) {
+        var L2 = Math.min(m2 * s, 1.4) * scale * 0.5;
+        var ex2 = px + v2[0] / m2 * L2, ey2 = py - v2[1] / m2 * L2;
+        ctx.strokeStyle = pal.accent; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(ex2, ey2); ctx.stroke();
+      }
+    }
+    sigR.textContent = s.toFixed(2);
+  }
+
+  function toWorld(ev) {
+    var r = cv.getBoundingClientRect();
+    var scale = Math.min(r.width, r.height) / SPAN;
+    var clientX = ev.touches ? ev.touches[0].clientX : ev.clientX;
+    var clientY = ev.touches ? ev.touches[0].clientY : ev.clientY;
+    return [(clientX - r.left - r.width / 2) / scale, -(clientY - r.top - r.height / 2) / scale];
+  }
+  cv.addEventListener('mousemove', function (e) { mouse = toWorld(e); draw(); });
+  cv.addEventListener('mouseleave', function () { mouse = null; draw(); });
+  cv.addEventListener('touchmove', function (e) { e.preventDefault(); mouse = toWorld(e); draw(); }, { passive: false });
+
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  shapeSel.onchange = rebuild;
+  sigEl.oninput = draw;
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  rebuild(); applyTheme();
+})();
+</script>
+</body>
+</html>

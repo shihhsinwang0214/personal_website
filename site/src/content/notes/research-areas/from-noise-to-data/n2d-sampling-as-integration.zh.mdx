@@ -1,0 +1,85 @@
+---
+slug: "n2d-sampling-as-integration"
+lang: "zh"
+title: "取樣即解微分方程：離散化、步數與 NFE"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-22
+summary: "生成就是數值積分一條 ODE/SDE；步數、離散化誤差與 NFE 是一等公民，也是少步生成研究的起點。"
+demos:
+  - "notes/research_areas/flow-matching/story-truncation-error-zh.html"
+references:
+  - label: "Song et al., Denoising Diffusion Implicit Models / DDIM (ICLR 2021)"
+    href: "https://arxiv.org/abs/2010.02502"
+  - label: "Lu et al., DPM-Solver (NeurIPS 2022)"
+    href: "https://arxiv.org/abs/2206.00927"
+  - label: "Song et al., Consistency Models (ICML 2023)"
+    href: "https://arxiv.org/abs/2303.01469"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# 取樣即解微分方程：離散化、步數與 NFE
+
+> 「From Noise to Data」系列第 13 篇。把抽象的「解 ODE」變成你真的會在意的工程數字。
+
+到這裡，「生成」已經有了一個乾淨的定義：從 $x_0 \sim \mathcal{N}(0,I)$ 出發，沿著學到的速度場把 ODE 積分到 $t=1$。但電腦不會「連續積分」——它只能一小步一小步地走。這一篇就看這件事帶來的代價，以及為什麼它催生了一整類研究。
+
+## 換個角度：生成是「一步一步走完一條積分」
+
+理想的 ODE 是「每一瞬間都重新看方向」。實作上我們把時間切成幾段，每段只看一次方向、然後直直走一小段：
+
+$$
+x_{k+1} = x_k + \Delta t \cdot v_\theta(x_k, t_k).
+$$
+
+這就是 Euler 法。每呼叫一次 $v_\theta$，叫做一次 **function evaluation**；走幾步，就大致呼叫幾次。生成的速度與成本，幾乎就由這個次數決定。
+
+## 先記這一句
+
+> 取樣品質和取樣速度，往往是同一枚硬幣的兩面：步數多，路徑跟得準但慢；步數少，快但會偏。研究的目標，是用更少步走得更準。
+
+每呼叫一次網路就是一次 **NFE（number of function evaluations）**。一張高品質 diffusion 圖可能要幾十到上千 NFE——這就是它「慢」的根源。下面這個（沿用自 Flow Matching 系列的）demo，讓你直接看見步數變少時，離散化造成的偏移如何放大：
+
+<iframe src="/personal_website/notes/research_areas/flow-matching/story-truncation-error-zh.html" class="demo-frame" title="Truncation error demo" style="height: 960px; width: 100%; border: none;"></iframe>
+
+## 把畫面寫成數學
+
+用有限步近似連續積分，必然產生誤差，稱為 **truncation error**。Euler 法每步的局部誤差約為 $\mathcal{O}(\Delta t^2)$，整段累積約 $\mathcal{O}(\Delta t)$；想更準，可以用高階 solver（Heun、Runge–Kutta、DPM-Solver 等），用同樣的步數換更小的誤差。研究的兩條主線因此很清楚：
+
+1. **更聰明的 solver**：在固定 NFE 下把誤差壓低（DDIM、DPM-Solver……）。
+2. **更好走的路 / 蒸餾**：把模型本身改造成「少步甚至一步就夠」（rectified flow、consistency models、各種 distillation）。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="為什麼研究者那麼在意把 NFE（函式評估次數）降下來？"
+  options={[
+    { text: "因為每次評估都要跑一遍神經網路；NFE 幾乎決定了生成的時間與成本，少步＝更快更便宜。", correct: true, explain: "正解。一張圖要幾十到上千 NFE 時，降到個位數是巨大的加速，這也是少步生成、蒸餾、consistency 等題目的動機。" },
+    { text: "因為 NFE 太高會讓模型過擬合。", explain: "NFE 是取樣階段的成本，和訓練過擬合無關。" },
+    { text: "因為 NFE 只影響檔案大小。", explain: "它影響的是取樣的計算量與延遲，不是輸出檔案大小。" },
+  ]}
+/>
+
+<Quiz
+  q="把取樣步數從 100 步砍到 5 步，最直接的風險是什麼？"
+  options={[
+    { text: "模型權重會改變。", explain: "權重不變；改變的是取樣時如何離散化那條 ODE。" },
+    { text: "離散化誤差（truncation error）變大，數值軌跡會偏離真正的連續解，樣本品質下降。", correct: true, explain: "正解。步長變大，每步直線近似的誤差累積得更明顯——除非換更高階 solver 或把路徑改得更好走。" },
+    { text: "完全沒有風險，步數可以任意砍。", explain: "一般不行。除非搭配更好的 solver、更直的路徑或蒸餾，硬砍步數會掉品質。" },
+  ]}
+/>
+
+## 這怎麼接到論文？
+
+「取樣 = 解微分方程」這個視角，把 DDIM、DPM-Solver 這類快速 sampler，和 rectified flow、consistency models 這類少步模型，放進同一個問題裡：**如何用更少的 NFE 得到更好的樣本？** 這也是 diffusion / flow 走向實用、即時生成的主戰場。
+
+## 下一步
+
+solver 是「給定一條路、怎麼走得快」。但還有更前面的一個槓桿：**路本身**能不能設計得更好走？下一篇 [Path Design](/personal_website/zh/notes/n2d-path-design) 說明為什麼路徑的選擇，會直接改變這道積分的難度。
+
+## 參考文獻
+
+1. Song, J., Meng, C., Ermon, S. *Denoising Diffusion Implicit Models.* ICLR 2021.
+2. Lu, C., et al. *DPM-Solver.* NeurIPS 2022.
+3. Song, Y., et al. *Consistency Models.* ICML 2023.

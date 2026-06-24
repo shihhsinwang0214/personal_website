@@ -1,0 +1,105 @@
+---
+slug: "n2d-why-gaussian"
+lang: "zh"
+title: "為什麼從 Gaussian Noise 開始？"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-21
+summary: "noise 不是工程習慣，而是一個好取樣、好分析、好被逐步轉換的起點；高斯還剛好是加噪過程的自然終點。"
+demos:
+  - "notes/research_areas/noise-to-data/noise-to-data.html"
+references:
+  - label: "Ho, Jain & Abbeel, Denoising Diffusion Probabilistic Models (NeurIPS 2020)"
+  - label: "Song et al., Score-Based Generative Modeling through SDEs (ICLR 2021)"
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# 為什麼從 Gaussian Noise 開始？
+
+> 「From Noise to Data」系列第 2 篇。上一篇我們說生成是「學一個分布並從中取樣」。這一篇處理一個你大概早就在心裡嘀咕的問題。
+
+生成模型最迷人的地方之一，是它不是從一張草圖、一段大綱開始，而是從一團**看起來什麼都沒有的 noise** 開始。你大概看過那種動畫：一開始是電視雪花般的雜訊，幾秒後浮現出一張清晰的臉。第一次看到時，很自然會想：那團雜訊到底是必要的，還是只是個花俏的開場？
+
+## noise 只是工程習慣嗎？
+
+幾乎每張 diffusion / flow matching 的示意圖，都從一團高斯雜訊起步。於是很容易冒出兩個疑問：為什麼起點要是「隨機」的東西？而且為什麼偏偏是**高斯**，不是均勻分布或別的？
+
+把這兩個問題拆開來看，答案其實很乾淨：我們需要的是一個**base distribution（基底分布）**——一個容易製造、性質單純、又方便一步步改造的起點。高斯，正好同時滿足這幾件事。
+
+## 先記這一句
+
+> Gaussian noise 是一團容易製造、方向上對稱、數學上好處理的隨機性；生成模型學的，是怎麼把這團隨機性慢慢捏成資料。
+
+把它想成一塊**黏土**：黏土本身沒有形狀，但成品的形狀不是無中生有，而是模型這雙手捏出來的。
+
+## 先在 2D 裡看看
+
+在平面上從 $\mathcal{N}(0, I)$ 取樣，會得到一團以原點為中心、各方向都差不多的圓形點雲。它沒有任何結構：沒有月牙、沒有螺旋、沒有分叢。
+
+你的資料分布則可能是月牙形、螺旋形或好幾叢。生成要做的，就是學一種搬運方式，把這團毫無結構的圓形點雲，重新排成資料的形狀。
+
+下面的 demo 讓你直接動手：拖時間 $t$，看一團高斯點雲被搬成不同目標；換不同形狀、調不同 noise 強度，感受「起點固定、終點任你換」。
+
+<iframe src="/personal_website/notes/research_areas/noise-to-data/noise-to-data.html" class="demo-frame" title="Noise to Data 互動 demo" style="height: 760px; width: 100%; border: none;"></iframe>
+
+如果你已經能在腦中想像那團圓形點雲慢慢扭成月牙——恭喜，你其實已經抓到 flow-based 生成模型一半的直覺了。剩下的篇章，多半是在把「怎麼搬」講清楚、講嚴謹。
+
+## 把畫面寫成數學
+
+起點是一個固定、已知的 base 分布，最常見的選擇是標準高斯：
+
+$$
+z \sim p_0 = \mathcal{N}(0, I).
+$$
+
+生成可以看成學一個轉換 $T_\theta$，把 base 分布推送（push-forward）成資料分布：
+
+$$
+x = T_\theta(z), \qquad (T_\theta)_\# p_0 \approx p_{\text{data}}.
+$$
+
+記號 $(T_\theta)_\# p_0$ 讀作「$p_0$ 經過 $T_\theta$ 推送後得到的分布」：把每個 $z$ 丟進 $T_\theta$，得到的 $x$ 形成的分布。後面會看到，這個 $T_\theta$ 不一定是「一步到位」的函數——它更常是沿著一條連續軌跡，一點一點累積出來的。
+
+## 那，為什麼偏偏是高斯？
+
+不是因為高斯在哲學上「最中立」，而是因為它在數學上同時佔了好幾個便宜：
+
+- **好取樣、密度有封閉式**：$\mathcal{N}(0,I)$ 一行程式就能抽樣，密度 $p_0(z) \propto e^{-\|z\|^2/2}$ 有封閉解，計算和微分都乾淨。
+- **各向同性**：標準高斯在所有方向上都一樣，不預設任何方向，把「該往哪裡長出結構」整個交給模型去學。
+- **是加噪過程的自然終點**：如果你對任何資料 $x_0$ 不斷加高斯噪聲，分布最後會趨近高斯。diffusion 的前向過程正是這樣定義的
+
+$$
+x_t = \alpha_t\, x_0 + \sigma_t\, \epsilon, \qquad \epsilon \sim \mathcal{N}(0, I),
+$$
+
+當噪聲蓋過訊號，$x_t$ 的分布就趨近 $\mathcal{N}(0, I)$。所以「從高斯出發做生成」，其實是「把加噪過程倒著走」——高斯是這條路另一端最自然的錨點。
+
+## 幾個容易想歪的地方
+
+第一個最常見：覺得 noise「沒有資訊、所以模型在亂生」。恰好相反——noise 提供的是**隨機性的來源**（讓每次生成都不同），資訊全部來自模型學到的轉換。先用下面這題檢查一下這個直覺：
+
+<Quiz
+  q="在「從 noise 到 data」的框架裡，那團高斯 noise 主要扮演什麼角色？"
+  options={[
+    { text: "因為它本身沒有資訊，模型只能隨機亂生，所以結果才會亂。", explain: "這是最常見的誤會。輸出之所以有結構，是因為學到的轉換有資訊；noise 只負責隨機性。" },
+    { text: "隨機性的原料：提供起點與多樣性，結構由模型的轉換捏出來。", correct: true, explain: "正是如此。noise 像黏土，模型像那雙手；同一個模型每次抽不同的 noise，就生出不同但合理的樣本。" },
+    { text: "它已經偷偷編碼了目標圖片，模型只是把它解碼出來。", explain: "沒有。單一 noise 樣本不對應某張特定資料；是整個轉換把 noise 分布塑形成資料分布。" },
+  ]}
+/>
+
+<Quiz
+  q="高斯之所以成為預設的起點，比較完整的理由是？"
+  options={[
+    { text: "因為只有高斯能被神經網路處理。", explain: "神經網路不挑起點分布；可處理性不是高斯獨有的。" },
+    { text: "因為高斯是唯一『沒有資訊』的分布。", explain: "『沒有資訊』不是嚴格性質；重點是它的數學便利與對稱，不是哲學上的中立。" },
+    { text: "因為它好取樣、各向同性、密度有封閉式，而且還是『資料不斷加噪』會收斂到的自然終點。", correct: true, explain: "正解。前三點讓計算乾淨，最後一點讓『從高斯生成』等於『把加噪過程倒著走』——高斯是那條路的天然錨點。" },
+  ]}
+/>
+
+另外兩個也值得先擋下來：**起點不一定是「一步到位」的生成器 $x = G(z)$**——那只是其中一種做法（GAN、normalizing flow 走這條路），本系列要鋪陳的是「讓樣本沿一條連續路徑慢慢移動」的主流觀點。還有，**非高斯並非不可**——原則上任何好取樣的分布都能當 base，高斯只是同時滿足好取樣、各向同性、又是加噪終點，所以成了預設值。
+
+## 這接到哪些方法？
+
+現代生成模型幾乎都從一個簡單 base 分布出發，差別只在**怎麼把它變成資料分布**：一次轉換（VAE、GAN）、逐步去噪（diffusion）、連續流動（continuous normalizing flow、flow matching）、或沿速度場移動�

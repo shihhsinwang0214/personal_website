@@ -1,0 +1,68 @@
+---
+slug: "n2d-path-design"
+lang: "zh"
+title: "Path Design：為什麼路徑本身會影響生成？"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-22
+summary: "不同的 noise→data 路徑，讓模型學到不同難度的任務、取樣走不同步數。路徑不是工程細節，而是設計變數。"
+demos:
+  - "notes/research_areas/noise-to-data/probability-path.html"
+references:
+  - label: "Karras et al., Elucidating the Design Space of Diffusion Models / EDM (NeurIPS 2022)"
+    href: "https://arxiv.org/abs/2206.00364"
+  - label: "Albergo & Vanden-Eijnden, Stochastic Interpolants (ICLR 2023)"
+    href: "https://arxiv.org/abs/2209.15571"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Path Design：為什麼路徑本身會影響生成？
+
+> 「From Noise to Data」系列第 14 篇。一個容易被當成「細節」、其實是關鍵槓桿的東西。
+
+到這裡你可能會想：只要起點是 noise、終點是 data，中間那條 probability path 怎麼走，應該無所謂吧？反正最後都到。這篇要說服你：**中間怎麼走，會直接改變這件事的難度。**
+
+## 換個角度：同樣的山頂，不同的山路
+
+從山腳到山頂，可以走平緩好走的之字路，也可以走陡峭曲折的近路。終點一樣，但你走得多累、要停幾次喝水，差很多。生成模型的 probability path 也是如此：兩端 $p_0$、$p_1$ 固定，中間的走法卻有無限多種，而每一種都對應到一個**難度不同的學習與取樣任務**。
+
+下面的 demo 已經讓你看過這件事——同樣的頭尾，切換插值方式，中間的密度演化完全不同：
+
+<iframe src="/personal_website/notes/research_areas/noise-to-data/probability-path.html" class="demo-frame" title="Probability Path 互動 demo" style="height: 760px; width: 100%; border: none;"></iframe>
+
+## 把畫面寫成數學
+
+給定 $p_0, p_1$，可以有許多不同的 $\{p_t\}_{t\in[0,1]}$，每一條對應一個不同的速度場 $v_t$：
+
+$$
+p_0, p_1 \;\longrightarrow\; \{p_t\} \;\longrightarrow\; v_t.
+$$
+
+而 $v_t$ 的形狀，會影響三件很實際的事：ODE 的**stiffness**（陡不陡、好不好積分）、取樣需要的**步數**、以及訓練的**穩定性**。路徑彎、速度變化劇烈，solver 就得走很多小步；路徑直、速度溫和，少數幾步就夠。所以 noise schedule（$\alpha_t, \sigma_t$ 怎麼定）不是隨手選的旋鈕，而是在挑「模型每個時間點要面對的局部問題」。
+
+## 一個容易想歪的地方
+
+<Quiz
+  q="既然起點是 noise、終點是 data 都固定了，中間的路徑只是無關緊要的工程細節嗎？"
+  options={[
+    { text: "是，反正最後都到 data，中間怎麼走不影響什麼。", explain: "終點相同不代表代價相同。不同路徑給出不同的 v_t，直接改變積分難度與步數。" },
+    { text: "算是，路徑只影響畫面好不好看。", explain: "它影響的是實打實的訓練穩定性、stiffness 與取樣步數，不只是視覺。" },
+    { text: "不是。路徑改變每個時間點要學的局部問題，也改變 ODE 的 stiffness、需要的步數與訓練穩定性。", correct: true, explain: "正解。這正是 noise schedule、rectified flow、OT 路徑等研究的著力點——把路設計得更好學、更好取樣。" },
+  ]}
+/>
+
+## 這怎麼接到論文？
+
+一旦你接受「路徑是設計變數」，很多研究就有了共同問句：**什麼樣的分布路徑更容易學、更容易取樣？** noise schedule 調參（如 EDM）、rectified flow 的拉直、optimal-transport 路徑、Schrödinger bridge，全都可以讀成這個問題的不同答案。
+
+而且「路徑」不只是幾何形狀——stochastic interpolants 把「**沿路要注入多少噪聲**」（取樣走 SDE 還是 ODE、噪聲強度 $\gamma_t$）也納進同一個設計空間。多一點噪聲換取樣的穩健性、少一點換確定性與速度，這正是 [Probability Flow ODE](/personal_website/zh/notes/n2d-probability-flow-ode) 末尾 KL vs $W_2$ 那個 tradeoff。
+
+## 下一步
+
+如果路徑可以設計，一個最自然的念頭是：能不能把路徑弄**直**？直線最好積分、最少步。下一篇 [Rectified Flow](/personal_website/zh/notes/n2d-rectified-flow) 就把這個念頭講清楚。
+
+## 參考文獻
+
+1. Karras, T., et al. *Elucidating the Design Space of Diffusion-Based Generative Models (EDM).* NeurIPS 2022.
+2. Albergo, M. S., Vanden-Eijnden, E. *Stochastic Interpolants.* ICLR 2023.

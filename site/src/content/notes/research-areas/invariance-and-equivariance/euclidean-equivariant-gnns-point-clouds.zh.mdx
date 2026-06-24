@@ -1,0 +1,272 @@
+---
+slug: "euclidean-equivariant-gnns-point-clouds"
+lang: "zh"
+title: "Point Clouds 需要兩種對稱性"
+category: "research-areas"
+group: "Invariance and Equivariance"
+status: "available"
+updated: 2026-06-23
+summary: "旋轉、平移同一團地圖點雲，分清距離與能量為何不變，以及座標、速度與力為何必須一起轉。"
+demos:
+  - "notes/research_areas/invariance-and-equivariance/euclidean-point-cloud.html"
+references:
+  - label: "Thomas et al., Tensor Field Networks (2018)"
+    href: "https://arxiv.org/abs/1802.08219"
+  - label: "Fuchs et al., SE(3)-Transformers (2020)"
+    href: "https://arxiv.org/abs/2006.10503"
+  - label: "Gasteiger et al., Directional Message Passing for Molecular Graphs (2020)"
+    href: "https://arxiv.org/abs/2003.03123"
+  - label: "Garcia Satorras, Hoogeboom & Welling, E(n) Equivariant Graph Neural Networks (2021)"
+    href: "https://arxiv.org/abs/2102.09844"
+  - label: "Han et al., Geometrically Equivariant Graph Neural Networks: A Survey (2022)"
+    href: "https://arxiv.org/abs/2202.07230"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Point Clouds 需要兩種對稱性
+
+> 「Invariance and Equivariance」系列第 6 篇。Graph 的 node 可以重新命名；point cloud、分子和物理系統還會在空間中旋轉、平移。這一篇把 permutation symmetry 和 Euclidean symmetry 放在同一張圖裡。
+
+前一篇的道路網路只關心誰和誰相連。現在把座標加回來：每個路口有 $(x,y)$，每個建築物中心有位置，每個分子原子有 3D coordinate，每個粒子有速度和力。
+
+資料突然變得更麻煩了。你不只要處理 node 的任意命名，還要處理整個物體在空間裡被平移、旋轉、甚至反射。
+
+這篇只處理一個核心分工：
+
+> 幾何 graph 裡有兩種不同的「不該改變」：點的順序不該改變物體，座標系的選擇也不該改變物理或幾何語意。但座標、速度、力這類輸出又必須跟著座標系一起變。
+
+所以我們不能只說「模型要 invariant」。有些量真的要 invariant，例如分子能量、形狀類別、距離；有些量必須 equivariant，例如座標更新、force、velocity、normal vector。
+
+## 先把「換編號」和「換座標系」拆開
+
+第一種是 **permutation symmetry**。點或原子的輸入順序不應該改變物體本身。你把台大總圖這個點放在資料表第一列或第十列，地圖沒有變；你把分子中的原子重排編號，分子也沒有變。
+
+第二種是 **Euclidean symmetry**。整個物體被平移、旋轉或反射後，內部幾何關係不應消失。台大總圖和校門的距離沒變；水分子裡 O-H bond length 沒變；兩個粒子之間的相對位置會跟著旋轉，但距離不變。
+
+Point cloud / geometric graph 常同時需要處理：
+
+$$
+\text{permutation symmetry}+\text{Euclidean symmetry}.
+$$
+
+這就是為什麼只懂一般 GNN 還不夠。一般 GNN 知道 node relabeling；geometric GNN 還要知道座標系變換。
+
+下面的 demo 把同一團地圖點雲旋轉、平移。距離與 toy energy 保持不變；每個點上的方向向量跟著旋轉；座標則同時承受旋轉和平移。先用眼睛確認這三種反應，再看 group 名字。
+
+<iframe src="/personal_website/notes/research_areas/invariance-and-equivariance/euclidean-point-cloud.html" class="demo-frame" title="Euclidean 等變點雲互動 demo" style="height: 730px; width: 100%; border: none;"></iframe>
+
+如果你已經能說出「energy 不動、force 要轉、coordinate 還要加上 translation」，那你已經抓到 geometric GNN 最重要的 output-type 判斷。
+
+## 三個 group 名字各自保留什麼？
+
+這些符號常一起出現，但它們問的是不同 transformation family。
+
+**$O(n)$** 是 $n$ 維空間裡保持長度的線性變換，包括旋轉和反射。它不包含平移，因為它固定原點。若 $Q\in O(n)$，則
+
+$$
+\|Qx-Qy\|=\|x-y\|.
+$$
+
+**$SE(3)$** 是 3D 空間中的 rigid motion：平移加 proper rotation，不包含反射。機器人姿態、3D 物體 pose、相機座標常用這個語言。元素可以寫成
+
+$$
+x \mapsto R x + t,\qquad R\in SO(3).
+$$
+
+**$E(n)$** 是 $n$ 維 Euclidean group：平移加 $O(n)$，因此包含旋轉、反射和平移。元素可以寫成
+
+$$
+x \mapsto Qx+t,\qquad Q\in O(n).
+$$
+
+任務要哪一個 group，不是符號喜好，而是語意選擇。若 mirror reflection 不應改變任務，例如某些距離型分子 property，$E(3)$ 可能合理。若 chirality 很重要，反射可能不該被視為 symmetry，這時要更小心。這類 domain-specific 判斷不能靠架構名稱自動決定。
+
+把這三者放在同一行會更清楚：
+
+$$
+O(n)=\{Q:Q^\top Q=I\},\qquad
+E(n)=O(n)\ltimes\mathbb{R}^n,\qquad
+SE(3)=SO(3)\ltimes\mathbb{R}^3.
+$$
+
+符號 $\ltimes$ 表示旋轉/反射與平移組成 semidirect product。這篇不推 group theory；只要記得 $E(n)$ 允許 reflection，$SE(3)$ 不允許 reflection，而且後者固定在三維。
+
+## 原點搬家時，哪些量真的會變？
+
+先看平移。把整張台北地圖點雲向右移 100 個單位，或把一個分子座標全部加上同一個向量 $t$，物體本身沒有變。絕對原點通常只是座標系選擇。
+
+若模型預測的是全局 scalar property，例如形狀類別或分子能量，平移後應該 invariant：
+
+$$
+f(X+t)=f(X).
+$$
+
+若模型預測的是每個點的新座標，平移後輸出也應該平移：
+
+$$
+F(X+t)=F(X)+t.
+$$
+
+若模型預測的是速度或力，平移整個系統通常不改變向量本身，因為方向和大小不依賴原點：
+
+$$
+V(X+t)=V(X).
+$$
+
+這裡可以看到：同樣是 translation，不同 output space 的 $\rho(g)$ 也不同。座標輸出跟著加 $t$；force output 不跟著加 $t$，但會在旋轉時跟著旋轉。
+
+## 轉動整團點：距離留下，方向跟著走
+
+旋轉更容易混淆。
+
+如果任務只需要距離，旋轉不會改變距離：
+
+$$
+\|Rx_i-Rx_j\|=\|x_i-x_j\|.
+$$
+
+所以很多 geometric model 會用 pairwise distance 作為 message 的輸入。距離是 rotation invariant，這讓 scalar messages 很穩定。
+
+但如果任務要預測方向，距離就不夠了。從台大總圖指向校門的方向，手機一轉，方向也要轉；分子中某個原子的 force vector，整個分子旋轉後，force 也要旋轉。
+
+對 vector output $v_i$，合理要求是
+
+$$
+V(RX)=R V(X).
+$$
+
+這就是 rotation equivariance。把 force、velocity、coordinate update 做成 rotation invariant，等於說「不管分子怎麼轉，力永遠指向原本世界座標的同一個方向」，這通常是錯的。
+
+## 別把 scalar 和 vector 放進同一個抽屜
+
+Geometric GNN 裡最重要的區分之一，是 scalar features 和 vector features。
+
+**Scalar feature** 像原子種類、路口類型、是否為建築物、局部密度。旋轉座標時，它的數值不該旋轉。
+
+**Vector feature** 像位移、速度、力、道路方向、法向量。旋轉座標時，它的方向要一起旋轉。
+
+有些模型只維護 scalar node features，並用相對座標方向來更新 coordinates。EGNN 大致走這條路線。有些模型維護更豐富的 vector 或 tensor features，例如 Tensor Field Networks、SE(3)-Transformer 等，會更明確處理不同 feature type 的 transformation law。
+
+這裡不需要一次學完 representation theory；先記住一件事就夠：
+
+> Scalar 可以不變，vector 不能假裝不變。
+
+## 用不變量決定大小，用相對向量承載方向
+
+現在看一個簡化的 message passing。
+
+若 node $i$ 和 node $j$ 有座標 $x_i,x_j$，一個 rotation-invariant scalar message 可以依賴距離：
+
+$$
+m_{ij}=\phi_m(h_i,h_j,\|x_i-x_j\|^2,e_{ij}).
+$$
+
+因為 $\|x_i-x_j\|^2$ 對旋轉和平移不變，所以 $m_{ij}$ 可以保持 scalar。
+
+但如果我們要更新座標或預測方向，只靠 scalar message 不夠。需要把 scalar 權重乘上相對方向：
+
+$$
+\Delta x_i=\sum_{j\neq i}(x_i-x_j)\,\phi_x(m_{ij}).
+$$
+
+這個式子的直覺是：每個鄰居 $j$ 對 $i$ 施加一個沿著相對方向的更新，更新大小由 invariant scalar 決定。若整個系統旋轉，$(x_i-x_j)$ 會旋轉，scalar 權重不變，因此 $\Delta x_i$ 也會旋轉。
+
+這就是許多 Euclidean equivariant model 的基本設計精神：用 invariant quantities 決定大小，用 equivariant geometric quantities 承載方向。
+
+把 transformation $x_i'=Qx_i+t$ 代進更新式，就能直接驗證方向：
+
+$$
+x_i'-x_j'=Q(x_i-x_j),
+$$
+
+而距離不變，所以 scalar coefficient $\phi_x(m_{ij})$ 不變。因此
+
+$$
+\Delta x_i'
+=\sum_j Q(x_i-x_j)\phi_x(m_{ij})
+=Q\Delta x_i.
+$$
+
+如果新座標寫成 $x_i^{\mathrm{new}}=x_i+\Delta x_i$，那麼 transformation 之後
+
+$$
+(x_i')^{\mathrm{new}}
+=Qx_i+t+Q\Delta x_i
+=Qx_i^{\mathrm{new}}+t.
+$$
+
+這就是座標更新的 $E(n)$-equivariance。注意 translation $t$ 在相對位移裡抵消，rotation/reflection $Q$ 則被相對向量帶到輸出。
+
+## EGNN：先看懂論文入口，不一次吞完整推導
+
+[Garcia Satorras, Hoogeboom & Welling (2021)](https://arxiv.org/abs/2102.09844) 提出的 EGNN，目標是在 graph message passing 中同時處理 rotations、translations、reflections 和 permutations。它的一個吸引人之處，是不需要在中間層維護高階 irreducible representations，也能得到一類 $E(n)$-equivariant 更新。
+
+非常粗略地看，EGNN 每層做三件事：
+
+1. 用 node features、edge features 與 pairwise distances 形成 scalar messages；
+2. 用 messages 更新 scalar node features；
+3. 用 relative coordinate vectors 乘上 scalar coefficients 來更新 coordinates。
+
+這樣做能保證：如果輸入座標先經過 $x_i\mapsto Qx_i+t$，輸出的座標更新也會一致地跟著 $Q$ 和 $t$ 變；同時，node relabeling 也會讓 node outputs 同步重排。
+
+這裡先不推導完整 proof。對讀論文來說，先抓住兩個關鍵就好：
+
+- distance-based scalar messages 幫助保持 rotation/reflection invariance；
+- coordinate updates 使用 relative vectors，讓方向性輸出保持 equivariance。
+
+## 地圖幫你看座標系，分子幫你看向量輸出
+
+台北地圖點雲讓我們看見 coordinate frame 的任意性。你可以用台北車站當原點，也可以用台大正門當原點；你可以 north-up，也可以把手機旋轉。地點關係不應因座標系改變而失效。
+
+分子例子讓我們看見 vector output 的必要性。分子的能量通常不該因整體旋轉和平移而改變；但每個原子的 force 是方向量，旋轉分子後 force 也要旋轉。若模型把 force 當成 invariant scalar，它會失去物理意義。
+
+兩個例子不要混成一團：地圖常關心人類座標、方向與局部視角；分子常關心物理 symmetry、能量與 force。但它們共享同一個數學問題：哪些量只依賴相對幾何，哪些量應該跟座標系一起變？
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="如果模型預測的是分子中每個原子的受力方向，旋轉整個分子後，輸出應該如何變？"
+  options={[
+    { text: "受力方向應該保持原本座標數值不變。", explain: "不對。座標系中的方向向量應該跟著整個分子旋轉。" },
+    { text: "受力方向也應該跟著旋轉。", correct: true, explain: "對。這是向量輸出的 Euclidean equivariance。" },
+    { text: "受力方向應該被平均成 scalar。", explain: "那會丟掉任務需要的方向資訊。" },
+  ]}
+/>
+
+<Quiz
+  q="用 pairwise distance 作為 message input，主要提供了什麼性質？"
+  options={[
+    { text: "距離對旋轉和平移不變，所以適合形成 scalar messages。", correct: true, explain: "對。距離可以決定互動大小或相似度，但它本身不提供方向。" },
+    { text: "距離會跟著旋轉成一個向量。", explain: "不對。距離是 scalar，旋轉後數值不變。" },
+    { text: "距離 alone 一定足以預測所有方向性輸出。", explain: "不一定。方向性輸出通常還需要 relative vectors 或其他 equivariant quantities。" },
+  ]}
+/>
+
+<Quiz
+  q="E(n) 和 SE(3) 的差異，哪個說法比較準？"
+  options={[
+    { text: "兩者完全相同，只是名字不同。", explain: "不對。E(n) 和 SE(3) 包含的 transformations 不同。" },
+    { text: "SE(3) 只處理 permutation，不處理幾何。", explain: "不對。SE(3) 是 3D rigid motions 的 group，和 node permutation 是不同 symmetry。" },
+    { text: "E(n) 包含平移與 O(n)；SE(3) 是 3D 平移加 proper rotations，通常不包含反射。", correct: true, explain: "對。反射是否是任務 symmetry，要看 domain；不能自動假設。" },
+  ]}
+/>
+
+## 這怎麼接到研究？
+
+E(n)/SE(3)-equivariant models 出現在分子建模、蛋白質結構、物理 simulation、3D scene understanding、robotics 等領域。它們的價值不只是「看起來更幾何」，而是把物理與幾何中已知的 symmetry 寫進模型。
+
+[Tensor Field Networks](https://arxiv.org/abs/1802.08219) 更明確處理 scalar、vector 與更高階 tensor feature；SE(3)-Transformer 延伸到 equivariant attention；DimeNet 強調 molecular graph 中 directional information 的重要性；EGNN 則提供了一個相對簡潔的入口，展示如何用 distance-based messages 和 relative coordinate updates 得到 $E(n)$-equivariance。這裡只把 irreducible representations 當成論文入口，不在本篇展開球諧函數與 tensor products。
+
+但代價也真實存在：更強的 equivariance 可能帶來更複雜的 representation、更高計算成本、更難實作的數值細節，或不符合任務的錯誤 symmetry。這會自然接到最後一篇：對稱性不是免費午餐。
+
+## 下一步
+
+最後一篇不再介紹單一架構，而是問研究中真正棘手的問題：什麼時候 symmetry 應該被 hard-code？什麼時候它只是近似成立？如果我們根本不知道正確的 group，模型該怎麼辦？
+
+## 參考文獻
+
+1. [Thomas, N., et al. *Tensor Field Networks: Rotation- and Translation-Equivariant Neural Networks for 3D Point Clouds.* 2018.](https://arxiv.org/abs/1802.08219)
+2. [Fuchs, F. B., et al. *SE(3)-Transformers: 3D Roto-Translation Equivariant Attention Networks.* NeurIPS, 2020.](https://arxiv.org/abs/2006.10503)
+3. [Gasteiger, J., Groß, J., & Günnemann, S. *Directional Message Passing for Molecular Graphs.* ICLR, 2020.](https://arxiv.org/abs/2003.03123)
+4. [Garcia Satorras, V., Hoogeboom, E., & Welling, M. *E(n) Equivariant Graph Neural Networks.* ICML, 2021.](https://arxiv.org/abs/2102.09844)
+5. [Han, J., Rong, Y., Xu, T., & Huang, W. *Geometrically Equivariant Graph Neural Networks: A Survey.* 2022.](https://arxiv.org/abs/2202.07230)

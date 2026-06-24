@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flow Matching 軌跡視覺化</title>
+    
+    <script>
+      MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']]
+        }
+      };
+    </script>
+    <script id="MathJax-script" async
+      src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js">
+    </script>
+    
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f8f9fa;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        
+        .container {
+            background: white;
+            width: 100%;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 800px;
+            box-sizing: border-box;
+        }
+        canvas {
+            background-color: #111; border-radius: 8px; margin-top: 15px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
+            width: 100%; /* 寬度隨螢幕縮放 */
+            max-width: 600px; /* 最大不超過原始尺寸 */
+            height: auto; /* 高度等比例縮放 */
+            aspect-ratio: 1 / 1; /* 強制保持正方形 */
+            cursor: grab;
+            display: block;
+            margin: 0 auto;
+        }
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-top: 20px;
+            align-items: center;
+            width: 100%;
+        }
+        .control-row {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            width: 100%;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        select, button, input[type="range"] {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        button {
+            background-color: #0056b3;
+            color: white;
+            border: none;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        button:hover { background-color: #004494; }
+        button.btn-stop { background-color: #dc3545; }
+        button.btn-stop:hover { background-color: #a71d2a; }
+        input[type="range"] { cursor: pointer; }
+        #timeSlider { width: 300px; }
+        #stepSlider { width: 150px; }
+        .label-text { font-weight: bold; font-size: 14px; }
+        /* 手機版文字微調 */
+        @media (max-width: 480px) {
+            h2 { font-size: 1.2rem; }
+            p { font-size: 0.9rem; text-align: left;}
+        }
+    </style>
+</head>
+
+    
+<body>
+
+<div class="container">
+    <h2>軌跡 $x(t)$ 視覺化</h2>
+    <p>隨著時間推進，這些點的分布從代表「隨機沙堆」的冷色分布，逐漸變成代表「精緻沙堡」的暖色分布。</p>
+    
+    <canvas id="simCanvas" width="600" height="600"></canvas>
+
+    <div class="controls">
+        <div class="control-row">
+            <label class="label-text">目標形狀 (數據分佈):</label>
+            <select id="shapeSelect">
+                <option value="two_moons">雙月 (Two Moons)</option>
+                <option value="swiss_roll">瑞士捲 (Swiss Roll)</option>
+                <option value="grid">高斯網格 (Gaussian Grid)</option>
+                <option value="heart">愛心 (Heart)</option>
+                <option value="ring">環形 (Ring)</option>
+            </select>
+        </div>
+
+        <div class="control-row">
+            <button id="btnForward">▶ 正向傳輸 (降噪)</button>
+            <button id="btnPause" class="btn-stop">⏸ 暫停</button>
+            <button id="btnBackward">◀ 反向傳輸 (加噪)</button>
+        </div>
+        
+        <div class="control-row">
+            <span class="label-text">時間步長 ($\Delta t$):</span>
+            <input type="range" id="stepSlider" min="0.01" max="0.05" step="0.001" value="0.02">
+            <span id="stepDisplay">0.02</span>
+        </div>
+
+        <div class="control-row">
+            <span class="label-text">當前時間 $t$:</span>
+            <input type="range" id="timeSlider" min="0" max="1" step="0.001" value="0">
+            <span id="timeDisplay" style="min-width: 40px;">0.00</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    const timeSlider = document.getElementById('timeSlider');
+    const timeDisplay = document.getElementById('timeDisplay');
+    const stepSlider = document.getElementById('stepSlider');
+    const stepDisplay = document.getElementById('stepDisplay');
+    const shapeSelect = document.getElementById('shapeSelect');
+    
+    const btnForward = document.getElementById('btnForward');
+    const btnBackward = document.getElementById('btnBackward');
+    const btnPause = document.getElementById('btnPause');
+
+    const numParticles = 1500;
+    const particles = [];
+    const scale = 150; 
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+
+    function randn() {
+        let u = 0, v = 0;
+        while(u === 0) u = Math.random(); 
+        while(v === 0) v = Math.random();
+        return Math.sqrt(-0.6 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    }
+
+    function initParticles() {
+        particles.length = 0;
+        const shape = shapeSelect.value;
+        
+        for (let i = 0; i < numParticles; i++) {
+            const noiseX = randn();
+            const noiseY = randn();
+            let targetX = 0, targetY = 0;
+
+            if (shape === 'two_moons') {
+                const isTopMoon = Math.random() > 0.5;
+                const angle = Math.random() * Math.PI;
+                if (isTopMoon) {
+                    targetX = Math.cos(angle) - 0.5; targetY = -Math.sin(angle) + 0.25;
+                } else {
+                    targetX = 1.0 - Math.cos(angle) - 0.5; targetY = Math.sin(angle) - 0.25;
+                }
+                targetX += randn() * 0.05; targetY += randn() * 0.05;
+                targetX *= 1.5; targetY *= 1.5;
+            } else if (shape === 'swiss_roll') {
+                const t = 1.5 + Math.random() * (4 * Math.PI - 1.5);
+                targetX = t * Math.cos(t) * 0.1 + randn() * 0.05;
+                targetY = t * Math.sin(t) * 0.1 + randn() * 0.05;
+            } else if (shape === 'grid') {
+                const gx = Math.floor(Math.random() * 5) - 2;
+                const gy = Math.floor(Math.random() * 5) - 2;
+                targetX = gx * 0.6 + randn() * 0.05; targetY = gy * 0.6 + randn() * 0.05;
+            } else if (shape === 'heart') {
+                const t = Math.random() * Math.PI * 2;
+                targetX = 16 * Math.pow(Math.sin(t), 3) * 0.08 + randn() * 0.02;
+                targetY = -(13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t)) * 0.08 + randn() * 0.02;
+            } else if (shape === 'ring') {
+                const angle = Math.random() * Math.PI * 2;
+                const r = 1.2 + randn() * 0.1;
+                targetX = r * Math.cos(angle); targetY = r * Math.sin(angle);
+            }
+
+            particles.push({ x0: noiseX, y0: noiseY, x1: targetX, y1: targetY });
+        }
+        draw();
+    }
+
+    function draw() {
+        const t = parseFloat(timeSlider.value);
+        timeDisplay.innerText = t.toFixed(2);
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // 顏色插值邏輯：冷藍色 (Noise) -> 暖橘色 (Data)
+        const r = Math.floor((1 - t) * 70 + t * 255);
+        const g = Math.floor((1 - t) * 150 + t * 120);
+        const b = Math.floor((1 - t) * 255 + t * 50);
+        const alpha = 0.5 + t * 0.3; // 稍微增加目標狀態的透明度
+
+        particles.forEach(p => {
+            const currentX = (1 - t) * p.x0 + t * p.x1;
+            const currentY = (1 - t) * p.y0 + t * p.y1;
+            
+            const drawX = centerX + currentX * scale;
+            const drawY = centerY + currentY * scale;
+
+            ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+            ctx.beginPath();
+            ctx.arc(drawX, drawY, 2, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+
+    let animationId = null;
+    let direction = 0; 
+
+    function loop() {
+        if (direction !== 0) {
+            let t = parseFloat(timeSlider.value);
+            let dt = parseFloat(stepSlider.value);
+            
+            t += direction * dt;
+            
+            if (t >= 1) { t = 1; direction = 0; } 
+            else if (t <= 0) { t = 0; direction = 0; }
+            
+            timeSlider.value = t;
+            draw();
+        }
+        animationId = setTimeout(() => requestAnimationFrame(loop), 40); 
+    }
+
+    btnForward.addEventListener('click', () => { direction = 1; });
+    btnBackward.addEventListener('click', () => { direction = -1; });
+    btnPause.addEventListener('click', () => { direction = 0; });
+    stepSlider.addEventListener('input', () => { stepDisplay.innerText = stepSlider.value; });
+    timeSlider.addEventListener('input', () => { direction = 0; draw(); });
+    
+    // ===== 修改這裡：當下拉選單改變時，將時間軸歸零並暫停動畫 =====
+    shapeSelect.addEventListener('change', () => {
+        direction = 0;           // 暫停播放
+        timeSlider.value = 0;    // 時間軸歸零
+        timeDisplay.innerText = "0.00"; 
+        initParticles();         // 重新生成點陣 (這會自動呼叫 draw() 繪出藍色起點)
+    });
+
+    initParticles();
+    loop(); 
+</script>
+
+</body>
+</html>

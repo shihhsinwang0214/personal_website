@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>起點與終點分布對比</title>
+    
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f8f9fa; /* 淺灰色背景 */
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background: white; /* 白色卡片背景 */
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 900px;
+            width: 100%;
+        }
+        .text-content {
+            text-align: left;
+            margin-bottom: 25px;
+            line-height: 1.6;
+        }
+        .text-content h2 {
+            margin-top: 0;
+            color: #1a1a1a;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 10px;
+        }
+        .highlight-box {
+            background-color: #f0fdf4;
+            border-left: 4px solid #22c55e;
+            padding: 10px 15px;
+            margin: 15px 0;
+            border-radius: 0 6px 6px 0;
+        }
+        /* 畫布排版 */
+        .canvas-wrapper {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: center;
+            align-items: flex-start;
+        }
+        .canvas-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #fdfdfd;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #eaeaea;
+        }
+        .canvas-item h3 {
+            margin: 0 0 10px 0;
+            font-size: 1.1rem;
+            color: #333;
+        }
+        canvas {
+            background-color: #111; /* 保持深色以突顯發光點 */
+            border-radius: 8px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+            width: 350px;
+            height: 350px;
+        }
+    </style>
+</head>
+
+
+
+<body>
+
+<div class="container">
+
+    
+    <div class="canvas-wrapper">
+        <div class="canvas-item">
+            <h3> Source Distribution：跨年人潮</h3>
+            <canvas id="sourceCanvas" width="350" height="350"></canvas>
+        </div>
+        
+        <div class="canvas-item">
+            <h3> Target Distribution：散場人潮</h3>
+            <canvas id="targetCanvas" width="350" height="350"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 獲取畫布
+    const sourceCanvas = document.getElementById('sourceCanvas');
+    const sourceCtx = sourceCanvas.getContext('2d');
+    const targetCanvas = document.getElementById('targetCanvas');
+    const targetCtx = targetCanvas.getContext('2d');
+
+    const numPoints = 500; // 點的數量稍微增多，讓分布看起來更飽滿
+    const scale = 20; // 適應 350x350 畫布的縮放比例
+    const centerX = sourceCanvas.width / 2;
+    const centerY = sourceCanvas.height / 2;
+
+    // 捷運站座標 (稍微縮小比例以適應新畫布)
+    const targetCenters = [
+        {x: 0, y: 4.0, name: "市政府站"},
+        {x: -3.5, y: -2.5, name: "101站"},
+        {x: 3.5, y: -2.5, name: "象山站"}
+    ];
+
+    // Box-Muller transform 生成常態分佈
+    function randomGaussian(meanX, meanY, std) {
+        let u1 = Math.random();
+        let u2 = Math.random();
+        if (u1 === 0) u1 = 1e-7; 
+        let z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+        let z1 = Math.sqrt(-2.0 * Math.log(u1)) * Math.sin(2.0 * Math.PI * u2);
+        return { x: meanX + z0 * std, y: meanY + z1 * std };
+    }
+
+    // 數學座標轉 Canvas 座標
+    function toScreen(mathX, mathY) {
+        return {
+            x: centerX + mathX * scale,
+            y: centerY - mathY * scale
+        };
+    }
+
+    function drawDistributions() {
+        // 清空畫布
+        sourceCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+        targetCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+
+        // --- 繪製起點 (Source) 背景文字 ---
+        sourceCtx.textAlign = "center";
+        sourceCtx.textBaseline = "middle";
+        sourceCtx.font = "bold 18px sans-serif";
+        const p101 = toScreen(0, 0);
+        sourceCtx.fillStyle = "rgba(6, 182, 212, 0.25)"; 
+        sourceCtx.fillText("", p101.x, p101.y - 60);
+
+        // --- 繪製終點 (Target) 背景文字 ---
+        targetCtx.textAlign = "center";
+        targetCtx.textBaseline = "middle";
+        targetCtx.font = "bold 16px sans-serif";
+        targetCtx.fillStyle = "rgba(234, 88, 12, 0.8)"; 
+        for(let i=0; i<3; i++) {
+            let pMrt = toScreen(targetCenters[i].x, targetCenters[i].y);
+            let offsetY = targetCenters[i].y > 0 ? 45 : -45; 
+            let offsetX = targetCenters[i].x > 0 ? 45 : -45; 
+            targetCtx.fillText(targetCenters[i].name, pMrt.x + 1.2*offsetX, pMrt.y - 1.1*offsetY);
+        }
+
+        // --- 產生並繪製點陣 ---
+        for (let i = 0; i < numPoints; i++) {
+            // 1. 起點：集中在中心的青色點
+            let sPoint = randomGaussian(0, 0, 1.5);
+            let sPos = toScreen(sPoint.x, sPoint.y);
+            
+            sourceCtx.beginPath();
+            sourceCtx.arc(sPos.x, sPos.y, 2.0, 0, Math.PI * 2);
+            sourceCtx.fillStyle = 'rgba(6, 182, 212, 0.6)'; // 青色
+            sourceCtx.shadowBlur = 4;
+            sourceCtx.shadowColor = 'rgba(6, 182, 212, 0.8)';
+            sourceCtx.fill();
+            sourceCtx.shadowBlur = 0;
+
+            // 2. 終點：分散在三個站的橘色點
+            let center = targetCenters[i % 3];
+            let tPoint = randomGaussian(center.x, center.y, 0.8);
+            let tPos = toScreen(tPoint.x, tPoint.y);
+            
+            targetCtx.beginPath();
+            targetCtx.arc(tPos.x, tPos.y, 2.0, 0, Math.PI * 2);
+            targetCtx.fillStyle = 'rgba(234, 88, 12, 0.6)'; // 橘色
+            targetCtx.shadowBlur = 4;
+            targetCtx.shadowColor = 'rgba(234, 88, 12, 0.8)';
+            targetCtx.fill();
+            targetCtx.shadowBlur = 0;
+        }
+    }
+
+    // 啟動繪製
+    drawDistributions();
+</script>
+
+</body>
+</html>

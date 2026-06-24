@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Probability Path 互動 demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.5; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 560px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  #marg { aspect-ratio: 5/1; margin-top: 6px; }
+  #heat { aspect-ratio: 1/1; }
+  .controls { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 240px; max-width: 62vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .readout { font-variant-numeric: tabular-nums; min-width: 3.2em; font-weight: 700; }
+  .observe { font-size: 0.82rem; line-height: 1.5; margin: 12px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .cap { text-align: center; font-size: 0.72rem; color: #646c78; margin: 4px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：probability path 不只有起點和終點，而是<b>一整條分布的演化 p<sub>t</sub></b>。同樣的兩端，不同的走法會給出不同的中間分布。</p>
+  <canvas id="heat" width="560" height="560" aria-label="p_t 的二維密度"></canvas>
+  <p class="cap">上：p<sub>t</sub> 的二維密度（越亮越密）</p>
+  <canvas id="marg" width="560" height="112" aria-label="p_t 的一維邊際"></canvas>
+  <p class="cap">下：投影到 x 軸的一維邊際分布</p>
+  <div class="controls">
+    <div class="row">
+      <label for="shape">目標 p₁</label>
+      <select id="shape">
+        <option value="two_gaussians">雙峰 Two gaussians</option>
+        <option value="ring">環形 Ring</option>
+        <option value="two_moons">雙月 Two moons</option>
+      </select>
+      <label for="mode">插值方式</label>
+      <select id="mode">
+        <option value="straight">直線（flow matching）</option>
+        <option value="diffusion">加噪式（diffusion）</option>
+        <option value="curved">彎曲</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="t">時間 t</label>
+      <input id="t" type="range" min="0" max="1" step="0.005" value="0" />
+      <span id="tR" class="readout">0.00</span>
+    </div>
+    <div class="row">
+      <button id="play">▶ 播放一次</button>
+      <button id="reset" class="ghost">重設</button>
+    </div>
+  </div>
+  <p class="observe">觀察：兩端 p₀、p₁ 固定，但<b>中間的密度形狀隨插值方式改變</b>。「加噪式」讓分布在中段仍然瀰漫、晚一點才聚焦；直線則均勻地把質量推過去。路徑本身是可以設計的。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var N = 5000, B = 56, MB = 80;
+  var heat = document.getElementById('heat'), marg = document.getElementById('marg');
+  var hd = NDFlow.hiDPICanvas(heat), md = NDFlow.hiDPICanvas(marg);
+  var shapeSel = document.getElementById('shape'), modeSel = document.getElementById('mode');
+  var tEl = document.getElementById('t'), tR = document.getElementById('tR');
+  var pal = NDFlow.palette();
+  var x0 = [], x1 = [], perp = [];
+
+  function rebuild() {
+    x0 = NDFlow.sampleNoise(N, 0.9);
+    x1 = NDFlow.sampleTarget(shapeSel.value, N);
+    perp = [];
+    for (var i = 0; i < N; i++) {
+      var dx = x1[i][0] - x0[i][0], dy = x1[i][1] - x0[i][1], l = Math.hypot(dx, dy) || 1;
+      perp.push([-dy / l, dx / l]);
+    }
+  }
+  function pos(i, t) {
+    var mode = modeSel.value, ax = x0[i][0], ay = x0[i][1], bx = x1[i][0], by = x1[i][1], x, y;
+    if (mode === 'diffusion') {
+      var a = t, s = Math.sqrt(Math.max(0, 1 - t * t)); // signal grows linearly, noise fades slowly
+      x = a * bx + s * ax; y = a * by + s * ay;
+    } else {
+      x = (1 - t) * ax + t * bx; y = (1 - t) * ay + t * by;
+      if (mode === 'curved') { var b = Math.sin(Math.PI * t) * 0.9; x += perp[i][0] * b; y += perp[i][1] * b; }
+    }
+    return [x, y];
+  }
+
+  function draw() {
+    var hs = hd.resize(), ms = md.resize();
+    var t = parseFloat(tEl.value);
+    var span = 5.2, scale = Math.min(hs.w, hs.h) / span, cx = hs.w / 2, cy = hs.h / 2;
+    var ctx = hd.ctx;
+    ctx.clearRect(0, 0, hs.w, hs.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, hs.w, hs.h);
+
+    // 2D binning
+    var bins = new Float32Array(B * B), mbins = new Float32Array(MB), maxb = 0, maxm = 0;
+    var lo = -span / 2, cell = span / B;
+    for (var i = 0; i < N; i++) {
+      var p = pos(i, t);
+      var bx = Math.floor((p[0] - lo) / cell), by = Math.floor((p[1] - lo) / cell);
+      if (bx >= 0 && bx < B && by >= 0 && by < B) { var k = by * B + bx; bins[k]++; if (bins[k] > maxb) maxb = bins[k]; }
+      var mb = Math.floor((p[0] - lo) / (span / MB));
+      if (mb >= 0 && mb < MB) { mbins[mb]++; if (mbins[mb] > maxm) maxm = mbins[mb]; }
+    }
+    // draw heat
+    var col = NDFlow.lerpColor(pal.noise, pal.data, t);
+    var m = col.match(/\d+/g);
+    for (var gy = 0; gy < B; gy++) {
+      for (var gx = 0; gx < B; gx++) {
+        var c = bins[gy * B + gx]; if (c <= 0) continue;
+        var a = Math.pow(c / maxb, 0.55);
+        ctx.fillStyle = 'rgba(' + m[0] + ',' + m[1] + ',' + m[2] + ',' + (0.06 + 0.94 * a) + ')';
+        var sx = cx + (lo + gx * cell) * scale, sy = cy - (lo + (gy + 1) * cell) * scale;
+        ctx.fillRect(sx, sy, cell * scale + 1, cell * scale + 1);
+      }
+    }
+    // marginal
+    var mc = md.ctx; mc.clearRect(0, 0, ms.w, ms.h); mc.fillStyle = pal.bg; mc.fillRect(0, 0, ms.w, ms.h);
+    mc.fillStyle = col;
+    var bw = ms.w / MB;
+    for (var j = 0; j < MB; j++) {
+      var h = maxm > 0 ? (mbins[j] / maxm) * (ms.h - 6) : 0;
+      mc.fillRect(j * bw, ms.h - h, bw + 0.5, h);
+    }
+    tR.textContent = t.toFixed(2);
+  }
+
+  var raf = null;
+  function play() {
+    if (raf) cancelAnimationFrame(raf);
+    var start = performance.now(), dur = 3200, t0 = parseFloat(tEl.value);
+    if (t0 >= 0.999) t0 = 0;
+    function step(now) { var t = Math.min(1, t0 + (now - start) / dur); tEl.value = t; draw(); if (t < 1) raf = requestAnimationFrame(step); else raf = null; }
+    raf = requestAnimationFrame(step);
+  }
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+
+  shapeSel.onchange = function () { rebuild(); tEl.value = 0; draw(); };
+  modeSel.onchange = draw;
+  tEl.oninput = function () { if (raf) { cancelAnimationFrame(raf); raf = null; } draw(); };
+  document.getElementById('play').onclick = play;
+  document.getElementById('reset').onclick = function () { if (raf) cancelAnimationFrame(raf); raf = null; tEl.value = 0; draw(); };
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  rebuild(); applyTheme();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,156 @@
+---
+import { withBase } from '../lib/url';
+
+const pagefindSrc = withBase('pagefind/pagefind.js');
+const fallbackSearchSrc = withBase('search-index.json');
+const basePath = import.meta.env.BASE_URL;
+---
+
+<section class="search-panel" aria-labelledby="notes-search-title" data-pagefind-ignore>
+  <div class="search-panel-head">
+    <h2 id="notes-search-title">Search</h2>
+    <p id="notes-search-help">Search the static site index.</p>
+  </div>
+  <form class="search-form" role="search">
+    <label class="visually-hidden" for="notes-search-input">Search writing</label>
+    <input
+      id="notes-search-input"
+      type="search"
+      autocomplete="off"
+      placeholder="Search writing"
+      aria-describedby="notes-search-help notes-search-status"
+    />
+  </form>
+  <p class="search-status" id="notes-search-status" role="status" aria-live="polite"></p>
+  <ol class="search-results" id="notes-search-results"></ol>
+</section>
+
+<script is:inline define:vars={{ pagefindSrc, fallbackSearchSrc, basePath }}>
+  (() => {
+    let pagefind;
+    let fallbackIndex;
+    let requestId = 0;
+
+    function routeWithBase(url) {
+      if (!url) return basePath;
+      if (/^https?:\/\//.test(url)) return url;
+      if (url.startsWith(basePath)) return url;
+      return basePath.replace(/\/$/, '') + '/' + url.replace(/^\//, '');
+    }
+
+    function clear(results, status) {
+      results.replaceChildren();
+      status.textContent = '';
+    }
+
+    function renderResults(results, status, items) {
+      results.replaceChildren();
+      if (!items.length) {
+        status.textContent = 'No results';
+        return;
+      }
+      status.textContent = `${items.length} result${items.length === 1 ? '' : 's'}`;
+      for (const item of items) {
+        const li = document.createElement('li');
+        const a = document.createElement('a');
+        const p = document.createElement('p');
+        a.href = routeWithBase(item.url);
+        a.textContent = item.title || item.meta?.title || item.url;
+        if (item.excerptHtml) {
+          p.innerHTML = item.excerptHtml;
+        } else {
+          p.textContent = item.excerpt || '';
+        }
+        li.append(a, p);
+        results.append(li);
+      }
+    }
+
+    function normalize(text) {
+      return String(text || '').toLocaleLowerCase();
+    }
+
+    async function getFallbackIndex() {
+      if (fallbackIndex) return fallbackIndex;
+      const response = await fetch(fallbackSearchSrc, { credentials: 'same-origin' });
+      if (!response.ok) throw new Error('Fallback search index unavailable');
+      fallbackIndex = await response.json();
+      return fallbackIndex;
+    }
+
+    async function searchFallback(query) {
+      const terms = normalize(query).split(/\s+/).filter(Boolean);
+      const index = await getFallbackIndex();
+      return index
+        .map((item) => {
+          const title = normalize(item.title);
+          const text = normalize(item.text);
+          if (!terms.every((term) => text.includes(term))) return null;
+          const titleScore = terms.reduce((score, term) => score + (title.includes(term) ? 4 : 0), 0);
+          const textScore = terms.reduce((score, term) => score + (text.includes(term) ? 1 : 0), 0);
+          return { ...item, score: titleScore + textScore };
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8);
+    }
+
+    async function searchPagefind(query) {
+      pagefind = pagefind || (await import(pagefindSrc));
+      const response = await pagefind.search(query);
+      const data = await Promise.all(response.results.slice(0, 8).map((result) => result.data()));
+      return data.map((item) => ({
+        url: item.url,
+        title: item.meta?.title || item.url,
+        excerptHtml: item.excerpt || '',
+      }));
+    }
+
+    function bindSearch() {
+      const input = document.getElementById('notes-search-input');
+      const results = document.getElementById('notes-search-results');
+      const status = document.getElementById('notes-search-status');
+      if (!input || !results || !status || input.dataset.searchBound) return;
+      input.dataset.searchBound = 'true';
+
+      let timer;
+      const runSearch = () => {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(async () => {
+          const query = input.value.trim();
+          const current = ++requestId;
+          if (!query) {
+            clear(results, status);
+            return;
+          }
+          status.textContent = 'Searching';
+          try {
+            let data;
+            try {
+              data = await searchPagefind(query);
+            } catch (pagefindError) {
+              data = await searchFallback(query);
+            }
+            if (current === requestId) renderResults(results, status, data);
+          } catch (error) {
+            if (current === requestId) {
+              results.replaceChildren();
+              status.textContent = 'Search index unavailable';
+            }
+          }
+        }, 180);
+      };
+
+      input.addEventListener('input', runSearch);
+
+      const initialQuery = new URLSearchParams(window.location.search).get('q');
+      if (initialQuery && !input.value) {
+        input.value = initialQuery;
+        runSearch();
+      }
+    }
+
+    document.addEventListener('astro:page-load', bindSearch);
+    bindSearch();
+  })();
+</script>

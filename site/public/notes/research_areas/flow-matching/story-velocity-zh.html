@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flow ODE 軌跡與速度場 $v(x,t)$</title>
+    
+    <script>
+      MathJax = {
+        tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] }
+      };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex; flex-direction: column; align-items: center;
+            background-color: #f8f9fa; color: #333; margin: 0; padding: 20px;
+        }
+        .container {
+            background: white; padding: 20px; border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; max-width: 800px;
+        }
+        canvas {
+            background-color: #111; border-radius: 8px; margin-top: 15px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
+        }
+        .controls { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; align-items: center; width: 100%; }
+        .control-row { display: flex; align-items: center; gap: 15px; justify-content: center; flex-wrap: wrap; }
+        select, button, input[type="range"] { padding: 8px 12px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; cursor: pointer; }
+        button { background-color: #0056b3; color: white; border: none; font-weight: bold; transition: background 0.2s; }
+        button:hover { background-color: #004494; }
+        button.btn-stop { background-color: #dc3545; }
+        button.btn-stop:hover { background-color: #a71d2a; }
+        
+        .dashboard {
+            margin-top: 20px; padding: 15px; background: #e9ecef; border-radius: 8px;
+            display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left;
+            font-family: monospace; font-size: 14px; width: 90%;
+        }
+        .dashboard div { background: white; padding: 8px; border-radius: 4px; border: 1px solid #ccc; }
+        .highlight { color: #00ffcc; font-weight: bold; background: #222; padding: 2px 6px; border-radius: 4px; }
+        .neon-red { color: #ff6666; font-weight: bold; background: #222; padding: 2px 6px; border-radius: 4px; text-shadow: 0 0 5px #ff3333; }
+    </style>
+</head>
+
+
+    
+<body>
+
+<div class="container">
+    <h2>Flow ODE 軌跡與速度場 $v(x,t)$ 視覺化</h2>
+    <p> <span class="highlight">螢光青色軌跡</span> 代表神經網路學習到的 Flow ODE 平滑路徑。<br> 
+     <span class="neon-red">紅色霓虹箭頭</span> 代表其軌跡在 $t$ 時刻的瞬時速度 $v(x(t),t)$。<br> 
+    (背景暗沉的粒子群則是 Source 與 Target 的分佈機率，用以提供軌跡引力)</p>
+    
+    <canvas id="simCanvas" width="600" height="600"></canvas>
+
+    <div class="dashboard">
+        <div><strong>起點 x(0):</strong> <span id="valX0">0.00, 0.00</span></div>
+        <div><strong>終點 x(1):</strong> <span id="valX1">0.00, 0.00</span></div>
+        <div><strong>當前 x(t):</strong> <span id="valXt">0.00, 0.00</span></div>
+        <div><strong>速度 v(x,t):</strong> <span id="valVt" style="color:#d9534f; font-weight:bold;">0.00, 0.00</span></div>
+    </div>
+
+    <div class="controls">
+        <div class="control-row">
+            <label>目標形狀:</label>
+            <select id="shapeSelect">
+                <option value="two_moons">雙月 (Two Moons)</option>
+                <option value="swiss_roll">瑞士捲 (Swiss Roll)</option>
+                <option value="heart">愛心 (Heart)</option>
+            </select>
+        </div>
+        <div class="control-row">
+            <button id="btnForward">▶ 正向傳輸 (生成)</button>
+            <button id="btnPause" class="btn-stop">⏸ 暫停</button>
+            <button id="btnBackward">◀ 反向傳輸 (加噪)</button>
+        </div>
+        <div class="control-row">
+            <span>當前時間 $t$:</span>
+            <input type="range" id="timeSlider" min="0" max="1" step="0.001" value="0" style="width: 300px;">
+            <span id="timeDisplay" style="min-width: 40px;">0.00</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    const timeSlider = document.getElementById('timeSlider');
+    const timeDisplay = document.getElementById('timeDisplay');
+    const shapeSelect = document.getElementById('shapeSelect');
+    
+    const valX0 = document.getElementById('valX0');
+    const valX1 = document.getElementById('valX1');
+    const valXt = document.getElementById('valXt');
+    const valVt = document.getElementById('valVt');
+
+    const numParticles = 1000;
+    const particles = [];
+    const scale = 100; 
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const fixedDt = 0.015;
+    const amplitude = 0.3; 
+
+    function randn() {
+        let u = 0, v = 0;
+        while(u === 0) u = Math.random(); 
+        while(v === 0) v = Math.random();
+        return Math.sqrt(-0.6 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    }
+
+    function initParticles() {
+        particles.length = 0;
+        const shape = shapeSelect.value;
+        
+        for (let i = 0; i < numParticles; i++) {
+            const noiseX = randn();
+            const noiseY = randn();
+            let targetX = 0, targetY = 0;
+
+            if (shape === 'two_moons') {
+                const isTopMoon = Math.random() > 0.5;
+                const angle = Math.random() * Math.PI;
+                if (isTopMoon) {
+                    targetX = Math.cos(angle) - 0.5; targetY = -Math.sin(angle) + 0.25;
+                } else {
+                    targetX = 1.0 - Math.cos(angle) - 0.5; targetY = Math.sin(angle) - 0.25;
+                }
+                targetX += randn() * 0.05; targetY += randn() * 0.05;
+                targetX *= 1.5; targetY *= 1.5;
+            } else if (shape === 'swiss_roll') {
+                const t_roll = 1.5 + Math.random() * (4 * Math.PI - 1.5);
+                targetX = t_roll * Math.cos(t_roll) * 0.1 + randn() * 0.05;
+                targetY = t_roll * Math.sin(t_roll) * 0.1 + randn() * 0.05;
+            } else if (shape === 'heart') {
+                const t_heart = Math.random() * Math.PI * 2;
+                targetX = 16 * Math.pow(Math.sin(t_heart), 3) * 0.08 + randn() * 0.02;
+                targetY = -(13 * Math.cos(t_heart) - 5 * Math.cos(2*t_heart) - 2 * Math.cos(3*t_heart) - Math.cos(4*t_heart)) * 0.08 + randn() * 0.02;
+            }
+            particles.push({ x0: noiseX, y0: noiseY, x1: targetX, y1: targetY });
+        }
+        draw();
+    }
+
+    function drawArrow(context, fromx, fromy, tox, toy) {
+        const headlen = 8; 
+        const dx = tox - fromx;
+        const dy = toy - fromy;
+        const angle = Math.atan2(dy, dx);
+        
+        context.beginPath();
+        context.moveTo(fromx, fromy);
+        context.lineTo(tox, toy);
+        context.lineTo(tox - headlen * Math.cos(angle - Math.PI / 6), toy - headlen * Math.sin(angle - Math.PI / 6));
+        context.moveTo(tox, toy);
+        context.lineTo(tox - headlen * Math.cos(angle + Math.PI / 6), toy - headlen * Math.sin(angle + Math.PI / 6));
+        context.strokeStyle = '#ff3333';
+        context.lineWidth = 3;
+        context.stroke();
+    }
+
+    function draw() {
+        const t = parseFloat(timeSlider.value);
+        timeDisplay.innerText = t.toFixed(2);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // --- 視覺優化：把背景的分佈顏色壓暗、降低透明度 ---
+        const r_col = Math.floor((1 - t) * 40 + t * 180);
+        const g_col = Math.floor((1 - t) * 100 + t * 80);
+        const b_col = Math.floor((1 - t) * 180 + t * 40);
+        const alpha = 0.2;
+
+        const s = 3 * t * t - 2 * t * t * t;
+        const ds_dt = 6 * t * (1 - t);
+
+        particles.forEach((p, index) => {
+            const dx = p.x1 - p.x0;
+            const dy = p.y1 - p.y0;
+            
+            const perpX = -dy;
+            const perpY = dx;
+            const arcFactor = amplitude * Math.sin(Math.PI * t); 
+            
+            const currentX = (1 - s) * p.x0 + s * p.x1 + perpX * arcFactor;
+            const currentY = (1 - s) * p.y0 + s * p.y1 + perpY * arcFactor;
+            
+            const drawX = centerX + currentX * scale;
+            const drawY = centerY + currentY * scale;
+
+            if (index === 0) {
+                // --- 繪製完整軌跡線 (高亮螢光青色) ---
+                ctx.beginPath();
+                ctx.strokeStyle = '#00ffcc';
+                ctx.lineWidth = 3.5;
+                ctx.shadowBlur = 4;
+                ctx.shadowColor = '#00ffcc';
+                ctx.setLineDash([]); 
+                
+                for(let step = 0; step <= 1.0; step += 0.02) {
+                    const step_s = 3 * step * step - 2 * step * step * step;
+                    const sArc = amplitude * Math.sin(Math.PI * step);
+                    const pathX = centerX + ((1 - step_s) * p.x0 + step_s * p.x1 + perpX * sArc) * scale;
+                    const pathY = centerY + ((1 - step_s) * p.y0 + step_s * p.y1 + perpY * sArc) * scale;
+                    if(step === 0) ctx.moveTo(pathX, pathY);
+                    else ctx.lineTo(pathX, pathY);
+                }
+                ctx.stroke();
+                ctx.shadowBlur = 0; 
+
+                // --- 速度計算 ---
+                const vx = ds_dt * dx + perpX * amplitude * Math.PI * Math.cos(Math.PI * t);
+                const vy = ds_dt * dy + perpY * amplitude * Math.PI * Math.cos(Math.PI * t);
+                
+                valX0.innerText = `${p.x0.toFixed(2)}, ${p.y0.toFixed(2)}`;
+                valX1.innerText = `${p.x1.toFixed(2)}, ${p.y1.toFixed(2)}`;
+                valXt.innerText = `${currentX.toFixed(2)}, ${currentY.toFixed(2)}`;
+                valVt.innerText = `${vx.toFixed(2)}, ${vy.toFixed(2)}`;
+
+                // --- 繪製移動中的粒子 (高亮白色) ---
+                ctx.fillStyle = '#ffffff';
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(drawX, drawY, 6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                
+                // --- 畫出速度霓虹箭頭與發光文字標籤 ---
+                const mag = Math.hypot(vx, vy);
+                if (mag > 0.001) {
+                    const visualScale = Math.log1p(mag * 2.0) * 15; 
+                    const drawVx = (vx / mag) * visualScale;
+                    const drawVy = (vy / mag) * visualScale;
+                    const endX = drawX + drawVx;
+                    const endY = drawY + drawVy;
+                    
+                    // 1. 給箭頭本體加上紅色光暈
+                    ctx.shadowColor = '#ff3333';
+                    ctx.shadowBlur = 12;
+                    drawArrow(ctx, drawX, drawY, endX, endY);
+                    ctx.shadowBlur = 0;
+
+                    // 2. 畫上帶有霓虹光暈的 v(x(t), t) 文字
+                    ctx.fillStyle = '#ffb3b3'; // 字體稍微偏白/粉，讓發光的中心看起來更亮
+                    ctx.font = 'bold 16px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'bottom';
+                    
+                    const textOffsetX = (vx / mag) * 18; // 稍微往外推遠一點
+                    const textOffsetY = (vy / mag) * 18;
+                    
+                    ctx.shadowColor = '#ff0000'; // 強烈的鮮紅色光暈
+                    ctx.shadowBlur = 15;
+                    
+                    // 畫兩次讓發光的中心更扎實（Canvas 霓虹燈常用技巧）
+                    ctx.fillText('v(x(t), t)', endX + textOffsetX, endY + textOffsetY);
+                    ctx.fillText('v(x(t), t)', endX + textOffsetX, endY + textOffsetY);
+                    
+                    ctx.shadowBlur = 0; // 畫完文字後重置陰影
+                }
+
+            } else {
+                // --- 繪製背景暗沉分佈 ---
+                ctx.fillStyle = `rgba(${r_col}, ${g_col}, ${b_col}, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(drawX, drawY, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        });
+    }
+
+    let animationId = null;
+    let direction = 0; 
+
+    function loop() {
+        if (direction !== 0) {
+            let t = parseFloat(timeSlider.value);
+            t += direction * fixedDt;
+            if (t >= 1) { t = 1; direction = 0; } 
+            else if (t <= 0) { t = 0; direction = 0; }
+            timeSlider.value = t;
+            draw();
+        }
+        animationId = setTimeout(() => requestAnimationFrame(loop), 30); 
+    }
+
+    document.getElementById('btnForward').addEventListener('click', () => { direction = 1; });
+    document.getElementById('btnBackward').addEventListener('click', () => { direction = -1; });
+    document.getElementById('btnPause').addEventListener('click', () => { direction = 0; });
+    timeSlider.addEventListener('input', () => { direction = 0; draw(); });
+    
+    shapeSelect.addEventListener('change', () => {
+        direction = 0;           
+        timeSlider.value = 0;    
+        timeDisplay.innerText = "0.00";
+        initParticles();         
+    });
+
+    initParticles();
+    loop(); 
+</script>
+
+</body>
+</html>

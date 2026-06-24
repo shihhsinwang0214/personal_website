@@ -1,0 +1,80 @@
+---
+slug: "n2d-conditional-to-marginal"
+lang: "zh"
+title: "Conditional → Marginal：為什麼能用簡單目標學到真正的場"
+category: "research-areas"
+group: "From Noise to Data"
+status: "available"
+updated: 2026-06-22
+summary: "為什麼能用「指向單一資料點」的簡單條件目標，學到真正的邊際向量場——整個訓練技巧的關鍵，也統一了 flow matching 與 denoising score matching。"
+demos: []
+references:
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
+    href: "https://arxiv.org/abs/2210.02747"
+  - label: "Vincent, A Connection Between Score Matching and Denoising Autoencoders (2011)"
+    href: "https://www.iro.umontreal.ca/~vincentp/Publications/smdae_techreport.pdf"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Conditional → Marginal：為什麼能用簡單目標學到真正的場
+
+> 「From Noise to Data」系列第 10 篇。如果整個系列只能記一個技巧，就是這一個。
+
+上一篇結尾留了一個弔詭：訓練時我們給模型的目標是 $x_1 - x_0$——一個直直指向某張特定圖片的速度。可是我們真正想要的「邊際速度場」，明明不該對齊任何單一圖片。**用這麼粗的目標，怎麼可能學到對的場？** 這篇就解開它。
+
+## 先說結論：平均，會把粗目標磨成對的場
+
+直覺是這樣：很多不同的配對 $(x_0, x_1)$ 會在時刻 $t$ 剛好經過**同一個位置** $x$。每一對都喊著「往我的終點走」，方向各不相同。模型沒辦法同時滿足所有人，於是它做的最佳折衷，就是去學這些速度的**平均**——而這個平均，恰好就是我們要的邊際速度場。
+
+## 為什麼平均剛好是對的？一行統計
+
+關鍵是一個你早就會的事實：在 L2 回歸裡，最佳預測就是**條件期望**。
+
+把目標寫成條件速度 $u_t(x \mid x_1)$（給定終點 $x_1$ 時，這條路在 $x$ 的速度）。flow matching 的損失是
+
+$$
+\mathcal{L} = \mathbb{E}_{x_1,\, x_t}\Big[\, \big\| v_\theta(x_t, t) - u_t(x_t \mid x_1) \big\|^2 \,\Big].
+$$
+
+固定一個位置 $x$，能讓平方誤差最小的 $v_\theta(x,t)$，就是目標在該點的條件平均：
+
+$$
+v_\theta^\star(x, t) = \mathbb{E}\big[\, u_t(x_t \mid x_1) \mid x_t = x \,\big] = v_t(x).
+$$
+
+右邊正是邊際速度場 $v_t$。所以——**對「簡單、可算的條件目標」做回歸，最佳解自動是「複雜、算不出來的邊際場」。** 我們從頭到尾沒有、也不需要把 $v_t(x)$ 寫出來。Lipman 等人證明了更強的版本：這個 conditional 損失對參數 $\theta$ 的梯度，和那個 intractable 的 marginal 損失完全一樣，所以拿它來訓練，方向永遠對。
+
+> 這就是為什麼 flow matching 能訓練：你以為在學一堆「指向單張圖」的粗目標，數學卻保證你學到的是整條 probability path 上正確的邊際場。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="用「每對的條件速度 x₁−x₀」當回歸目標，為什麼最後會得到正確的邊際速度場？"
+  options={[
+    { text: "因為 L2 回歸的最佳解是條件期望；把經過同一點的眾多條件速度平均起來，剛好等於邊際速度場。", correct: true, explain: "正解。模型無法同時滿足所有配對，最小平方誤差的折衷就是條件平均——而那正是我們要的場。粗目標被『平均』磨成對的場。" },
+    { text: "因為每對的 x₁−x₀ 本來就等於邊際速度，平均不改變它。", explain: "不對。單對的速度指向某張特定圖，和邊際場一般不同；是平均（條件期望）讓它對齊。" },
+    { text: "因為訓練時我們其實有先算出邊際場再當標籤。", explain: "完全沒有。邊際場 intractable、算不出來；整個技巧的重點正是不需要它。" },
+  ]}
+/>
+
+<Quiz
+  q="diffusion 的 denoising score matching，和這裡的 conditional flow matching，是兩套不同的把戲嗎？"
+  options={[
+    { text: "是，一個學噪聲、一個學速度，毫無關係。" , explain: "目標物件不同，但用的數學技巧是同一個：對可算的條件目標做回歸。" },
+    { text: "算半個，只是剛好都用神經網路。", explain: "關係比這深得多——它們共用同一個 conditional→marginal 的恆等式。" },
+    { text: "本質相同。去噪是對「給定 x₀ 的噪聲 ε」做回歸，最佳解 E[ε|x_t] 就給出 score；和 flow matching 一樣是 conditional → marginal。", correct: true, explain: "正解。Vincent (2011) 的 denoising score matching 正是這個技巧的另一個實例。看穿這點，diffusion 和 flow matching 就連成一張圖了。" },
+  ]}
+/>
+
+## 這怎麼接到論文？
+
+conditional flow matching（CFM）和 denoising score matching（DSM）都是這個技巧的實例，也是現代生成模型「能用簡單回歸訓練複雜分布」的共同祕密。讀任何 flow / diffusion 變體時，你都可以問：它選了什麼條件路徑、條件目標是什麼？剩下的，conditional → marginal 都幫你保證好了。
+
+## 下一步
+
+既然 denoising、score、velocity 在訓練技巧上是同一招，那它們在更高層是不是同一件事的不同寫法？下一篇 [Diffusion 與 Flow Matching 的共同核心](/personal_website/zh/notes/n2d-diffusion-fm-core) 把這三種訊號放回同一條 probability path 上，作為整組 notes 的中點總結。
+
+## 參考文獻
+
+1. Lipman, Y., et al. *Flow Matching for Generative Modeling.* ICLR 2023.
+2. Vincent, P. *A Connection Between Score Matching and Denoising Autoencoders.* Neural Computation, 2011.

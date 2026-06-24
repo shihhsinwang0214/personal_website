@@ -1,0 +1,205 @@
+---
+import { render } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import type { Lang, NoteEntry } from '../lib/notes';
+import {
+  categoryLabels,
+  findNote,
+  formatNoteDate,
+  noteRoute,
+  notesIndexRoute,
+  researchAreaLabelForNote,
+  siblingNotes,
+  statusLabels,
+} from '../lib/notes';
+import { withBase } from '../lib/url';
+
+interface Props {
+  entry: NoteEntry;
+  allNotes: NoteEntry[];
+  lang: Lang;
+}
+
+const { entry, allNotes, lang } = Astro.props;
+const { Content, headings } = await render(entry);
+const { previous, next } = siblingNotes(allNotes, entry);
+const otherLang = lang === 'zh' ? 'en' : 'zh';
+const alternate = findNote(allNotes, entry.data.slug, otherLang);
+const researchAreaLabel = researchAreaLabelForNote(entry, lang);
+const tocHeadings = headings.filter((heading) => heading.depth > 1 && heading.depth <= 3);
+const description =
+  entry.data.status === 'missing'
+    ? 'This translation is explicitly marked missing and has not been generated.'
+    : entry.data.summary;
+
+// Reading time, computed at build (zh by characters, en by words)
+const rawBody = (entry.body ?? '').trim();
+const cjkCount = (rawBody.match(/[㐀-鿿]/g) || []).length;
+const wordCount = (rawBody.replace(/[㐀-鿿]/g, ' ').match(/[A-Za-z0-9]+/g) || []).length;
+const readingMinutes = Math.max(1, Math.round(cjkCount / 330 + wordCount / 220));
+const showReadingTime = entry.data.status !== 'missing';
+const readingTimeLabel = lang === 'zh' ? `${readingMinutes} 分鐘閱讀` : `${readingMinutes} min read`;
+---
+
+<Base title={`${entry.data.title} — Notes`} description={description} active="notes" lang={lang}>
+  <div class="reading-progress" aria-hidden="true"><span></span></div>
+  <button class="back-to-top" type="button" aria-label={lang === 'zh' ? '回到頂部' : 'Back to top'}>
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 19V5M5 12l7-7 7 7" />
+    </svg>
+  </button>
+  <main class="note-layout" id="note-main">
+    <article class="note-article">
+      <header class="note-header">
+        <a class="back-link" href={withBase(notesIndexRoute(lang))}>
+          {lang === 'zh' ? '← 返回筆記' : '← Back to notes'}
+        </a>
+        <p class="note-meta">
+          {categoryLabels[entry.data.category][lang]}
+          {researchAreaLabel ? ` / ${researchAreaLabel}` : ''}
+          {' / '}
+          {entry.data.group} / {formatNoteDate(entry.data.updated, lang)}
+        </p>
+        <h1>{entry.data.title}</h1>
+        <div class="note-header-actions">
+          <span class={`status-badge status-${entry.data.status}`}>
+            {statusLabels[entry.data.status][lang]}
+          </span>
+          {showReadingTime && <span class="reading-time">{readingTimeLabel}</span>}
+          {
+            alternate && (
+              <a href={withBase(noteRoute(alternate.data.slug, otherLang))}>
+                {otherLang === 'zh' ? '中文' : 'EN'}
+              </a>
+            )
+          }
+        </div>
+        {
+          entry.data.status === 'missing' && (
+            <div class="content-status-note">
+              {lang === 'zh'
+                ? '此版本標記為缺少翻譯。這是 content agent 的待辦事項；維護流程未自動產生翻譯。'
+                : 'This version is marked as a missing translation. This is a content-agent task; no translation has been generated.'}
+            </div>
+          )
+        }
+      </header>
+
+      <div class="note-grid">
+        <aside class="note-toc" aria-label="Table of contents">
+          <strong>{lang === 'zh' ? '目錄' : 'Contents'}</strong>
+          {
+            tocHeadings.length > 0 ? (
+              <ol>
+                {tocHeadings.map((heading) => (
+                  <li class={`toc-depth-${heading.depth}`}>
+                    <a href={`#${heading.slug}`}>{heading.text}</a>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p>{lang === 'zh' ? '此頁沒有章節目錄。' : 'No section headings on this page.'}</p>
+            )
+          }
+        </aside>
+
+        <div class="note-body markdown-body">
+          <Content />
+        </div>
+      </div>
+
+      <nav class="note-prev-next" aria-label="Previous and next notes">
+        {
+          previous ? (
+            <a href={withBase(noteRoute(previous.data.slug, lang))}>
+              <span>{lang === 'zh' ? '上一篇' : 'Previous'}</span>
+              {previous.data.title}
+            </a>
+          ) : (
+            <span />
+          )
+        }
+        {
+          next ? (
+            <a href={withBase(noteRoute(next.data.slug, lang))}>
+              <span>{lang === 'zh' ? '下一篇' : 'Next'}</span>
+              {next.data.title}
+            </a>
+          ) : (
+            <span />
+          )
+        }
+      </nav>
+    </article>
+  </main>
+
+  <script>
+    function initNote() {
+      const progress = document.querySelector('.reading-progress > span') as HTMLElement | null;
+      const backTop = document.querySelector('.back-to-top') as HTMLElement | null;
+      const body = document.querySelector('.note-body') as HTMLElement | null;
+      const tocLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('.note-toc a[href^="#"]'));
+
+      const onScroll = () => {
+        const doc = document.documentElement;
+        const max = doc.scrollHeight - doc.clientHeight;
+        const ratio = max > 0 ? Math.min(1, doc.scrollTop / max) : 0;
+        if (progress) progress.style.width = ratio * 100 + '%';
+        if (backTop) backTop.classList.toggle('is-visible', doc.scrollTop > 600);
+      };
+      if ((window as any).__noteScroll) window.removeEventListener('scroll', (window as any).__noteScroll);
+      (window as any).__noteScroll = onScroll;
+      window.addEventListener('scroll', onScroll, { passive: true });
+      onScroll();
+
+      if (backTop) {
+        backTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+      }
+
+      if (body) {
+        body.querySelectorAll<HTMLElement>('h2[id], h3[id]').forEach((h) => {
+          if (h.querySelector('.heading-anchor')) return;
+          const a = document.createElement('a');
+          a.className = 'heading-anchor';
+          a.href = '#' + h.id;
+          a.setAttribute('aria-label', 'Copy link to this section');
+          a.textContent = '#';
+          a.addEventListener('click', (e) => {
+            e.preventDefault();
+            history.replaceState(null, '', '#' + h.id);
+            const url = location.origin + location.pathname + '#' + h.id;
+            if (navigator.clipboard) navigator.clipboard.writeText(url).catch(() => {});
+          });
+          h.appendChild(a);
+        });
+      }
+
+      const map = new Map<string, HTMLAnchorElement>();
+      tocLinks.forEach((l) => {
+        const href = l.getAttribute('href');
+        if (href) map.set(decodeURIComponent(href.slice(1)), l);
+      });
+      const targets = body ? Array.from(body.querySelectorAll<HTMLElement>('h2[id], h3[id]')) : [];
+      const prev = (window as any).__noteSpy;
+      if (prev && prev.disconnect) prev.disconnect();
+      if (targets.length && map.size) {
+        const obs = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((en) => {
+              if (!en.isIntersecting) return;
+              const link = map.get((en.target as HTMLElement).id);
+              if (!link) return;
+              tocLinks.forEach((l) => l.classList.remove('is-active'));
+              link.classList.add('is-active');
+            });
+          },
+          { rootMargin: '-88px 0px -70% 0px', threshold: 0 },
+        );
+        targets.forEach((t) => obs.observe(t));
+        (window as any).__noteSpy = obs;
+      }
+    }
+
+    document.addEventListener('astro:page-load', initNote);
+  </script>
+</Base>

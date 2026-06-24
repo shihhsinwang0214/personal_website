@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CNN 平移等變</title>
+<script src="./_demo-common.js"></script>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：平移輸入地圖時，局部 edge feature 應以<b>同一個位移</b>移動；global pooling 才把位置收成 invariant readout。</p>
+  <canvas id="cv" width="720" height="430" aria-label="輸入影像與平移後的 feature map"></canvas>
+  <div class="controls">
+    <div class="row">
+      <label for="shift">水平位移</label>
+      <input id="shift" type="range" min="-85" max="85" step="1" value="35">
+      <span id="shiftR" class="readout">35 px</span>
+      <label><input id="pool" type="checkbox"> global pool</label>
+    </div>
+    <div class="row">
+      <label for="stride">取樣 stride</label>
+      <select id="stride"><option value="1">1（完整格點）</option><option value="2">2（降採樣）</option></select>
+    </div>
+  </div>
+  <div class="metrics">
+    <div class="metric"><strong>feature peak</strong><span id="peak"></span></div>
+    <div class="metric"><strong>global readout</strong><span id="score"></span></div>
+  </div>
+  <p class="observe">觀察：<b id="observe"></b></p>
+</div>
+<script>
+(function () {
+  var cv = document.getElementById('cv'), dpi = NDFlow.hiDPICanvas(cv), ctx = dpi.ctx;
+  var shift = document.getElementById('shift'), pool = document.getElementById('pool');
+  var stride = document.getElementById('stride'), pal, size;
+  function panel(x, y, w, h, title) {
+    ctx.fillStyle = pal.panel; NDFlow.roundRect(ctx, x, y, w, h, 9); ctx.fill();
+    ctx.strokeStyle = pal.border; ctx.stroke();
+    ctx.fillStyle = pal.muted; ctx.font = '700 12px system-ui'; ctx.fillText(title, x + 10, y + 19);
+  }
+  function drawMap(cx, cy, dx, feature) {
+    ctx.save(); ctx.translate(cx + dx, cy);
+    ctx.strokeStyle = feature ? pal.red : pal.blue;
+    ctx.lineWidth = feature ? 8 : 13;
+    ctx.beginPath(); ctx.moveTo(-62, 38); ctx.lineTo(60, -34); ctx.stroke();
+    if (!feature) {
+      ctx.strokeStyle = pal.accent; ctx.lineWidth = 7;
+      ctx.beginPath(); ctx.moveTo(-42, -55); ctx.lineTo(30, 58); ctx.stroke();
+      ctx.fillStyle = pal.green; ctx.fillRect(-22, -15, 30, 25);
+    }
+    ctx.restore();
+  }
+  function draw() {
+    size = dpi.resize();
+    var s = parseFloat(shift.value), st = parseInt(stride.value, 10);
+    var sampled = Math.round(s / st) * st;
+    ctx.clearRect(0, 0, size.w, size.h); ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, size.w, size.h);
+    var gap = 12, w = (size.w - gap * 3) / 2, h = size.h - 30;
+    panel(gap, 15, w, h, 'input x');
+    panel(gap * 2 + w, 15, w, h, pool.checked ? 'global pooled output' : 'feature map F(x)');
+    drawMap(gap + w / 2, 15 + h / 2 + 8, s * .65, false);
+    if (pool.checked) {
+      ctx.fillStyle = pal.accent; ctx.font = '700 38px system-ui'; ctx.textAlign = 'center';
+      ctx.fillText('0.82', gap * 2 + w + w / 2, 15 + h / 2 + 15); ctx.textAlign = 'left';
+    } else {
+      drawMap(gap * 2 + w + w / 2, 15 + h / 2 + 8, sampled * .65, true);
+      for (var gx = gap * 2 + w + 18; gx < size.w - 18; gx += 20 * st) {
+        ctx.strokeStyle = pal.grid; ctx.beginPath(); ctx.moveTo(gx, 42); ctx.lineTo(gx, size.h - 24); ctx.stroke();
+      }
+    }
+    document.getElementById('peak').textContent = pool.checked ? '位置已聚合' : 'x = ' + sampled + ' px';
+    document.getElementById('score').textContent = '0.82（理想上固定）';
+    document.getElementById('shiftR').textContent = s + ' px';
+    document.getElementById('observe').textContent = pool.checked
+      ? 'equivariant feature 經 symmetric global readout 後，位置被消除。'
+      : st === 1
+        ? '輸入道路移多少，feature peak 就移多少：F(Tᵥx)=TᵥF(x)。'
+        : 'stride 2 只在較粗格點取樣；奇數 pixel 位移會被量化，exact equivariance 可能失真。';
+  }
+  shift.oninput = draw; pool.onchange = draw; stride.onchange = draw;
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(function () { pal = NDFlow.applyTheme(draw); });
+  pal = NDFlow.applyTheme(draw);
+})();
+</script>
+</body>
+</html>

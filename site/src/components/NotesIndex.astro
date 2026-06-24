@@ -1,0 +1,120 @@
+---
+import type { Lang, NoteEntry } from '../lib/notes';
+import {
+  categoryLabels,
+  formatNoteDate,
+  groupNotes,
+  latestNoteDate,
+  notesIndexRoute,
+  noteRoute,
+  researchAreaLabels,
+  statusLabels,
+} from '../lib/notes';
+import { withBase } from '../lib/url';
+import SearchPanel from './SearchPanel.astro';
+
+interface Props {
+  lang: Lang;
+  notes: NoteEntry[];
+}
+
+const { lang, notes } = Astro.props;
+const otherLang = lang === 'zh' ? 'en' : 'zh';
+const grouped = groupNotes(notes);
+---
+
+<section class="notes-index">
+  <div class="notes-index-header">
+    <div>
+      <h1>{lang === 'zh' ? 'Notes & Guides' : 'Notes & Guides'}</h1>
+      <p>
+        {
+          lang === 'zh'
+            ? '研究筆記、技術說明與學術技能指南。'
+            : 'Research notes, technical guides, and academic skill resources.'
+        }
+      </p>
+    </div>
+    <a class="language-toggle" href={withBase(notesIndexRoute(otherLang))}>
+      {otherLang === 'zh' ? '中文' : 'EN'}
+    </a>
+  </div>
+
+  <SearchPanel />
+
+  {
+    grouped.map((categoryGroup) => (
+      <section class="note-category">
+        <h3>{categoryLabels[categoryGroup.category][lang]}</h3>
+        {categoryGroup.areas.map((areaGroup) => (
+          <section class="note-area">
+            {areaGroup.area && (
+              <div class="note-area-heading">
+                <span>{researchAreaLabels[areaGroup.area][lang]}</span>
+              </div>
+            )}
+        {areaGroup.groups.map(({ group, notes: groupEntries }) => {
+          const latest = latestNoteDate(groupEntries);
+          return (
+          <details class="note-group">
+            <summary class="disclosure-summary note-group-summary">
+              <span class="disclosure-copy">
+                <span class="disclosure-label">{group}</span>
+                <span class="disclosure-meta">
+                  {groupEntries.length} · Updated {latest ? formatNoteDate(latest, lang) : ''}
+                </span>
+              </span>
+              <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+                <path d="M7 4.5 12.5 10 7 15.5" />
+              </svg>
+            </summary>
+            <div class="disclosure-content note-group-content">
+              <div class="note-list-cards">
+              {groupEntries.map((note) => {
+                const isMissing = note.data.status === 'missing';
+                const isFallbackLang = note.data.lang !== lang;
+                const targetLang = isMissing ? otherLang : note.data.lang;
+                const targetName = targetLang === 'zh' ? '中文' : 'English';
+                const href = isMissing
+                  ? noteRoute(note.data.slug, otherLang)
+                  : noteRoute(note.data.slug, note.data.lang);
+                return (
+                  <a class="note-list-card" href={withBase(href)}>
+                    <div class="note-card-topline">
+                      <span>{formatNoteDate(note.data.updated, lang)}</span>
+                      {isMissing || isFallbackLang ? (
+                        <span class="status-badge status-alt">
+                          {lang === 'zh' ? `可讀 ${targetName}` : `Available in ${targetName}`}
+                        </span>
+                      ) : (
+                        <span class={`status-badge status-${note.data.status}`}>
+                          {statusLabels[note.data.status][lang]}
+                        </span>
+                      )}
+                    </div>
+                    <strong>{note.data.title}</strong>
+                    <p>
+                      {isMissing || isFallbackLang ? (
+                        <span class="alt-hint">
+                          {lang === 'zh'
+                            ? `此語言版本尚未完成 — 前往 ${targetName} 版 →`
+                            : `Not in this language yet — read it in ${targetName} →`}
+                        </span>
+                      ) : (
+                        note.data.summary
+                      )}
+                    </p>
+                  </a>
+                );
+              })}
+              </div>
+            </div>
+          </details>
+          );
+        })}
+          </section>
+        ))}
+      </section>
+    ))
+  }
+</section>

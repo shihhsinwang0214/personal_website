@@ -1,0 +1,207 @@
+---
+slug: "map-view-invariance-equivariance"
+lang: "zh"
+title: "同一個台大，不同的手機視角：不變性與等變性的第一個圖像"
+category: "research-areas"
+group: "Invariance and Equivariance"
+status: "available"
+updated: 2026-06-23
+summary: "轉動同一張台北地圖，看看哪些答案應保持不變、哪些座標與方向必須一起移動。"
+demos:
+  - "notes/research_areas/invariance-and-equivariance/map-output-types.html"
+references:
+  - label: "Bronstein et al., Geometric Deep Learning: Grids, Groups, Graphs, Geodesics, and Gauges (2021)"
+    href: "https://arxiv.org/abs/2104.13478"
+  - label: "Cohen & Welling, Group Equivariant Convolutional Networks (2016)"
+    href: "https://arxiv.org/abs/1602.07576"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# 同一個台大，不同的手機視角：不變性與等變性的第一個圖像
+
+> 這是「Invariance and Equivariance」系列的第 1 篇。整個系列會用同一個台北市地圖的母例子，把 CNN、GNN、point cloud 與幾何深度學習裡反覆出現的 symmetry 語言接起來。
+
+你站在台北市某個路口，打開手機地圖。畫面上有台大、羅斯福路、新生南路、捷運站、建築物輪廓與道路方向。接著你把手機稍微平移、旋轉，畫面裡的像素座標全變了：台大總圖從中央跑到左下角，羅斯福路不再水平，某些街區被裁掉，另一些街區出現了。
+
+可是你心裡知道一件事：你看的仍然是同一塊城市。
+
+一個自然的問題是：
+
+> 輸入變了，不代表所有答案都應該變；但也不代表所有答案都應該保持一樣。真正要判斷的是：這個任務的輸出住在哪一種空間裡？
+
+如果任務是「這是不是台大附近？」答案可以不變。如果任務是「台大總圖在畫面中的座標在哪裡？」答案必須跟著手機視角改變。如果任務是畫出建築物 mask、道路方向、每個路口的車流量，輸出的變化規則又各自不同。
+
+這篇的目標不是背兩個公式，而是學會看到一個任務時，先問：**我到底要保留語意，還是保留幾何關係？**
+
+## 先看同一塊城市怎麼移動
+
+先把畫面想得很小。假設大地圖是固定的，但手機螢幕只看到一個局部 crop。第一個 crop 是正常朝北的台大周邊；第二個 crop 稍微往東南移，並逆時針旋轉了一點。兩張畫面重疊，但不完全一樣。
+
+對人來說，這不難理解。你不會因為手機轉了 30 度，就把台大誤認成另一個地點。可是如果我要你指出「總圖在畫面座標中的位置」，你一定會重新看座標，因為座標系已經跟著手機轉了。
+
+所以同一個 transformation 會對不同輸出產生不同要求：
+
+| 任務 | 輸出型態 | 視角變換後的合理反應 |
+| --- | --- | --- |
+| 判斷是否在台大附近 | scalar label | 不變 |
+| 回傳總圖中心點 | coordinate | 座標跟著平移/旋轉 |
+| 畫出建築物區域 | mask | mask 跟著影像平移/旋轉 |
+| 預測道路方向或導航箭頭 | vector / direction | 向量方向跟著旋轉 |
+| 預測每個路口的壅塞程度 | node / point output | node 順序改變時，輸出同樣重排 |
+
+這張表比公式更重要。公式只是把表裡的判斷壓成數學語言。
+
+下面的 demo 把同一個地圖 crop 平移、旋轉，再切換五種輸出。先不要追公式，只看右側答案：label 留在原地；coordinate、mask、vector 與 node order 各自照自己的規則改變。
+
+<iframe src="/personal_website/notes/research_areas/invariance-and-equivariance/map-output-types.html" class="demo-frame" title="地圖視角與輸出型態互動 demo" style="height: 720px; width: 100%; border: none;"></iframe>
+
+> 先記這一句：**invariance 保留答案；equivariance 保留輸入與輸出之間的幾何關係。**
+
+如果你已經能說出「地點 label 不變、畫面座標要跟著轉」，你其實已經抓到 equivariance 一半的直覺了。後面的 CNN、GNN 與 point cloud，只是在不同資料結構上把這句話寫得更精確。
+
+## 先把五個詞放到對的位置
+
+我們只需要五個詞，就能讀懂這個系列大部分的句子。
+
+第一，**input space** $\mathcal{X}$：所有可能輸入的空間。手機地圖影像、點雲、graph、分子座標，都可以是不同的 input space。
+
+第二，**output space** $\mathcal{Y}$：模型答案所在的空間。它可能是一個分類 label、一張 mask、一組座標、一串 node features，或一個向量場。
+
+第三，**transformation** $g$：你對輸入做的變換，例如平移、旋轉、反射、node relabeling。很多 transformations 可以組成一個 group $G$，但這篇先不需要抽象群論。
+
+第四，**group action** $g \cdot x$：變換 $g$ 作用在輸入 $x$ 上的結果。手機地圖被旋轉，就是 $g \cdot x$。
+
+第五，**representation** $\rho(g)$：同一個變換在輸出空間上應該如何作用。影像旋轉時，mask 要旋轉；座標要乘上旋轉矩陣再加平移；node features 要照同一個 permutation 重排。這些都是不同的 $\rho(g)$。
+
+Representation 不是任意指定的一張表。它要保留 group 的組合方式：
+
+$$
+\rho(gh)=\rho(g)\rho(h),\qquad \rho(e)=I.
+$$
+
+也就是說，先做 $h$ 再做 $g$，輸出空間上的作用也必須照同樣順序組合；$e$ 是「什麼都不做」的 identity transformation，$I$ 是輸出空間上的 identity map。
+
+最容易出錯的地方是：輸入上的 $g$ 和輸出上的 $\rho(g)$ 不一定長得一樣。輸入是一張影像，輸出可能是一個 label；輸入是一個 graph，輸出可能是一組 node predictions；輸入是一個 3D 分子，輸出可能是每個原子的 force vector。
+
+這也是為什麼公式右邊寫 $\rho(g)$，而不是直接再寫一個 $g$：兩者描述同一個 transformation，卻作用在不同空間，型態甚至維度都可能不同。
+
+## Invariance：答案不該在乎視角
+
+如果任務是地點辨識，模型是一個函數
+
+$$
+f:\mathcal{X}\to\mathcal{Y},
+$$
+
+其中 $\mathcal{Y}$ 可能只是幾個類別：台大、公館、師大、信義區。當手機視角平移或旋轉，只要看到的是同一個地理語意，答案就不應改變：
+
+$$
+f(g \cdot x)=f(x).
+$$
+
+這叫 **invariance**。
+
+它不是說輸入沒有變；輸入當然變了。它說的是：**這個任務的答案不應該使用那部分變化。**
+
+地點分類、物體分類、set-level summary、graph-level property 常常需要這種輸出。你把一組地標點重新排序，或把一個分子整體旋轉，全局類別通常不該改變。
+
+## Equivariance：答案要用正確方式一起變
+
+現在換一個任務：請模型輸出總圖在手機畫面中的座標。這時如果你把手機畫面向右移，座標也該向右移；如果你把手機旋轉，座標也該在新的畫面座標系裡旋轉。
+
+這種模型可以寫成
+
+$$
+F:\mathcal{X}\to\mathcal{Y},
+$$
+
+但我們不再要求輸出一樣，而是要求
+
+$$
+F(g \cdot x)=\rho(g)F(x).
+$$
+
+這叫 **equivariance**。
+
+等式右邊的 $\rho(g)$ 是重點。它告訴我們「輸出應該怎麼跟著動」。如果輸出是 mask，$\rho(g)$ 就是把 mask 用同樣方式轉過去；如果輸出是向量方向，$\rho(g)$ 就是旋轉向量；如果輸出是 node features，$\rho(g)$ 就是重排 node 的順序。
+
+所以 equivariance 不是「輸出變就好」。它要求輸出以**可預期、和任務一致**的方式變。
+
+## 五種輸出，五種判斷
+
+把台北地圖母例子拆成五個小任務，會更清楚。
+
+**Scalar label。** 問「這是不是台大附近？」或「這張 patch 是否包含校園？」答案是 label。旋轉手機不會把台大變成不是台大，所以這類輸出通常希望 invariant。
+
+**Coordinate output。** 問「總圖中心點在畫面中的座標是多少？」答案住在手機畫面座標系裡。畫面一轉，座標也要轉。這是 equivariant。
+
+**Mask output。** 問「哪些像素是建築物？」輸出是一張和輸入對齊的 segmentation mask。輸入平移，mask 要平移；輸入旋轉，mask 要旋轉。這也是 equivariant。
+
+**Vector or direction output。** 問「道路方向、導航箭頭、風場、速度場是什麼？」如果輸入座標系旋轉，方向向量也應旋轉。把向量輸出做成 invariant 會直接抹掉任務需要的方向資訊。
+
+**Node or point output。** 如果把地圖改成路口 graph 或地標 point cloud，資料表中的點順序不是地理事實。若輸出是每個路口的預測，重新排列 node 後，輸出也要同樣重新排列。這是 permutation equivariance。
+
+這五種例子會在後面反覆出現：CNN 處理 mask 和 feature map；point cloud 處理 unordered points；GNN 處理 node relabeling；E(n)-equivariant model 處理座標、速度與力。
+
+## 拿到新任務時，先走這五步
+
+遇到新任務時，可以先不要問「要不要用 equivariant model」。先照這個流程走：
+
+1. **列出輸入會遇到的 transformation。** 是平移、旋轉、反射、縮放、node relabeling，還是部分視角的裁切？
+2. **問這些 transformation 是否真的不改變任務語意。** 如果地圖永遠 north-up，rotation symmetry 可能不是必要假設；如果顯微影像沒有固定方向，rotation symmetry 可能很重要。
+3. **看輸出是全局摘要還是結構化物件。** 全局 label 常需要 invariance；座標、mask、向量、per-node output 常需要 equivariance。
+4. **寫下輸出空間上的 $\rho(g)$。** 如果你說不出 $\rho(g)$，通常表示還沒真正理解這個任務要求的幾何。
+5. **檢查錯誤 symmetry 的代價。** 把方向做成 invariant，可能讓導航模型永遠答不出方向；把不該 hard-code 的 symmetry 寫死，也可能壓掉真實訊號。
+
+這個流程比背誦架構名稱更穩。架構會變，任務判斷會留下來。
+
+## 讀到這裡，先別急著把兩者排高低
+
+<Quiz
+  q="如果兩個手機視角都看到台灣大學附近，但第二個視角被旋轉和平移了，下面哪個說法最準？"
+  options={[
+    { text: "所有輸出都應該完全一樣，因為它們看的是同一個地方。", explain: "不對。地點 label 可以一樣，但座標、mask、方向場通常必須跟著畫面變。" },
+    { text: "所有輸出都應該完全不同，因為像素座標改變了。", explain: "也不對。語意答案可能保持不變；不是所有任務都關心座標。" },
+    { text: "語意判斷可以 invariant；座標、mask、向量等結構化輸出通常應該 equivariant。", correct: true, explain: "對。重點不是輸入有沒有變，而是任務要求輸出如何回應這個變化。" },
+  ]}
+/>
+
+<Quiz
+  q="看到公式 F(g · x)=ρ(g)F(x) 時，最應該先問哪件事？"
+  options={[
+    { text: "ρ(g) 在輸出空間上到底代表什麼動作。", correct: true, explain: "對。Equivariance 的核心不是符號，而是輸出應該如何跟著輸入變。" },
+    { text: "g 是不是一定要是旋轉。", explain: "不是。g 可以是平移、旋轉、反射、permutation，甚至其他任務中的 transformation。" },
+    { text: "F(g · x) 是否永遠等於 F(x)。", explain: "那是 invariance 的形式；equivariance 通常允許輸出改變，但要求它按 ρ(g) 改變。" },
+  ]}
+/>
+
+<Quiz
+  q="Equivariance 是不是比 invariance 更強，所以永遠比較好？"
+  options={[
+    { text: "是。只要能做 equivariant，就不需要 invariant。", explain: "不是。分類、全局判斷、集合摘要等任務常常真正需要 invariant output。" },
+    { text: "不是。它們對應不同任務：有些答案應該不變，有些答案應該跟著輸入變。", correct: true, explain: "正解。問題不是誰比較高級，而是哪一種輸出結構符合任務。" },
+    { text: "是。Invariance 只是 equivariance 的錯誤版本。", explain: "不對。Invariance 是許多任務的正確要求，例如地點分類或物體類別辨識。" },
+  ]}
+/>
+
+## 這張判斷表怎麼接到研究？
+
+讀一篇 equivariant neural network 論文時，先不要急著看 layer 公式。先問四件事：
+
+1. 它假設輸入資料有哪些 transformations？
+2. 它的輸出是 scalar label、coordinate、mask、vector field、set output，還是 node feature？
+3. 它的 $\rho(g)$ 是什麼？
+4. 它把哪個 symmetry 寫進架構，哪個留給資料、augmentation 或訓練去學？
+
+Bronstein et al. 的 Geometric Deep Learning survey 把這種想法放在更大的框架裡：許多成功架構其實都在利用資料中的幾何結構與 symmetry。CNN 利用 grid 上的平移結構，GNN 利用 graph 的 permutation 結構，E(n)-equivariant GNN 利用歐氏空間中的旋轉和平移結構。
+
+但這篇也要先設下保守界線：symmetry 是 inductive bias，不是免費真理。下一篇開始我們會一個架構一個架構看，從最熟悉的 CNN 開始。
+
+## 下一步：把地圖放回 pixel grid
+
+下一篇把地圖視角放到 pixel grid 上看。你會看到 CNN 的 convolution 為什麼不是單純的省參數技巧，而是在保證一件很自然的事：如果畫面平移，偵測到的道路、建築邊界與 feature map 也應該一起平移。
+
+## 參考文獻
+
+1. [Bronstein, M. M., Bruna, J., Cohen, T., & Veličković, P. *Geometric Deep Learning: Grids, Groups, Graphs, Geodesics, and Gauges.* 2021.](https://arxiv.org/abs/2104.13478)
+2. [Cohen, T., & Welling, M. *Group Equivariant Convolutional Networks.* ICML, 2016.](https://arxiv.org/abs/1602.07576)
