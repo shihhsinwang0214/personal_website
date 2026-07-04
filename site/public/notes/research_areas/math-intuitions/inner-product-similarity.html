@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Inner Product and Cosine Similarity Demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif;
+    background: transparent;
+    color: #202631;
+  }
+  body[data-dark="1"] { color: #ece9e2; }
+  .card {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 18px;
+    border-radius: 8px;
+    background: #fbfaf7;
+    border: 1px solid #ded8cf;
+  }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #30323a; }
+  .goal { margin: 0 0 12px; font-size: 0.92rem; line-height: 1.55; }
+  .goal b { color: #1f6f78; }
+  body[data-dark="1"] .goal b { color: #e1b45c; }
+  canvas {
+    width: 100%;
+    max-width: 720px;
+    aspect-ratio: 1 / 0.58;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+    border-radius: 8px;
+  }
+  .controls { display: grid; gap: 12px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 12px; }
+  label { font-size: 0.84rem; font-weight: 800; }
+  input[type=range] { width: 230px; max-width: 62vw; accent-color: #1f6f78; }
+  body[data-dark="1"] input[type=range] { accent-color: #e1b45c; }
+  .readout {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
+    gap: 8px;
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric { padding: 8px 10px; border-radius: 8px; background: rgba(31,111,120,0.08); }
+  body[data-dark="1"] .metric { background: rgba(225,180,92,0.12); }
+  .metric span { display: block; color: #667078; font-size: 0.72rem; margin-bottom: 2px; }
+  body[data-dark="1"] .metric span { color: #a8a69f; }
+  .observe { margin: 12px 0 0; color: #667078; font-size: 0.83rem; line-height: 1.55; }
+  body[data-dark="1"] .observe { color: #a8a69f; }
+  @media (max-width: 560px) {
+    body { padding: 10px; }
+    .card { padding: 12px; }
+    .readout { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal"><b>拖這個 → 看那個：</b>轉動第二個 vector，看 inner product 和 cosine similarity 如何從正、到零、再到負。</p>
+  <canvas id="cv" width="720" height="418" aria-label="rotate a vector to see inner product and cosine similarity"></canvas>
+  <div class="controls">
+    <div class="row">
+      <label for="angle">angle</label>
+      <input id="angle" type="range" min="0" max="180" step="1" value="40" />
+      <label for="len">第二個 vector 長度</label>
+      <input id="len" type="range" min="0.45" max="2.2" step="0.01" value="1.35" />
+    </div>
+    <div class="readout">
+      <div class="metric"><span>angle</span><strong id="angleR">40°</strong></div>
+      <div class="metric"><span>inner product</span><strong id="dotR">1.03</strong></div>
+      <div class="metric"><span>cosine similarity</span><strong id="cosR">0.77</strong></div>
+    </div>
+  </div>
+  <p class="observe">調長度會改變 inner product；但只要角度不變，cosine similarity 不會變，因為長度已經被除掉。</p>
+</div>
+
+<script src="../noise-to-data/_demo-common.js"></script>
+<script>
+(function () {
+  var cv = document.getElementById('cv');
+  var dpi = NDFlow.hiDPICanvas(cv);
+  var ctx = dpi.ctx;
+  var angleEl = document.getElementById('angle');
+  var lenEl = document.getElementById('len');
+  var angleR = document.getElementById('angleR');
+  var dotR = document.getElementById('dotR');
+  var cosR = document.getElementById('cosR');
+  var pal = NDFlow.palette();
+
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function arrow(x0, y0, x1, y1, color, width) {
+    var a = Math.atan2(y1 - y0, x1 - x0);
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - 12 * Math.cos(a - 0.45), y1 - 12 * Math.sin(a - 0.45));
+    ctx.lineTo(x1 - 12 * Math.cos(a + 0.45), y1 - 12 * Math.sin(a + 0.45));
+    ctx.closePath();
+    ctx.fill();
+  }
+  function drawGauge(x, y, w, h, value) {
+    var t = (value + 1) / 2;
+    ctx.fillStyle = pal.dark ? '#15161a' : '#ffffff';
+    rr(x, y, w, h, 8);
+    ctx.fill();
+    ctx.fillStyle = pal.dark ? 'rgba(225,180,92,0.26)' : 'rgba(31,111,120,0.22)';
+    rr(x + 12, y + 26, (w - 24) * t, 16, 8);
+    ctx.fill();
+    ctx.strokeStyle = pal.grid;
+    ctx.strokeRect(x + 12, y + 26, w - 24, 16);
+    ctx.fillStyle = pal.ink;
+    ctx.font = '800 13px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('cosine scale', x + 12, y + 18);
+    ctx.font = '700 11px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('-1', x + 12, y + 58);
+    ctx.fillText('0', x + w / 2 - 3, y + 58);
+    ctx.fillText('1', x + w - 20, y + 58);
+  }
+  function draw() {
+    var size = dpi.resize();
+    pal = NDFlow.palette();
+    var deg = parseFloat(angleEl.value);
+    var theta = deg * Math.PI / 180;
+    var len = parseFloat(lenEl.value);
+    var cos = Math.cos(theta);
+    var dot = len * cos;
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = pal.dark ? '#111318' : '#f8f6f0';
+    rr(0, 0, size.w, size.h, 8);
+    ctx.fill();
+
+    var leftW = size.w * 0.64;
+    var cx = leftW * 0.52;
+    var cy = size.h * 0.55;
+    var scale = Math.min(leftW, size.h) * 0.26;
+    ctx.strokeStyle = pal.grid;
+    ctx.lineWidth = 1;
+    for (var i = -3; i <= 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(cx + i * scale / 2, 28);
+      ctx.lineTo(cx + i * scale / 2, size.h - 28);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(24, cy + i * scale / 2);
+      ctx.lineTo(leftW - 20, cy + i * scale / 2);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = pal.muted;
+    ctx.beginPath();
+    ctx.moveTo(24, cy);
+    ctx.lineTo(leftW - 20, cy);
+    ctx.moveTo(cx, 28);
+    ctx.lineTo(cx, size.h - 28);
+    ctx.stroke();
+
+    var ax = cx + scale * 1.45;
+    var ay = cy;
+    var bx = cx + scale * len * Math.cos(theta);
+    var by = cy - scale * len * Math.sin(theta);
+    ctx.strokeStyle = pal.dark ? 'rgba(225,180,92,0.34)' : 'rgba(31,111,120,0.22)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 42, -theta, 0, theta > 0);
+    ctx.stroke();
+    arrow(cx, cy, ax, ay, pal.dark ? '#e1b45c' : '#1f6f78', 3);
+    arrow(cx, cy, bx, by, pal.dark ? '#78aaff' : '#2a4ea3', 3);
+
+    ctx.fillStyle = pal.ink;
+    ctx.font = '800 13px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('x', ax + 8, ay + 4);
+    ctx.fillText('y', bx + 8, by - 8);
+    ctx.font = '700 12px Segoe UI, system-ui, sans-serif';
+    ctx.fillText(deg + '°', cx + 48, cy - 10);
+    drawGauge(size.w * 0.68, size.h * 0.28, size.w * 0.27, 78, cos);
+
+    angleR.textContent = deg.toFixed(0) + '°';
+    dotR.textContent = dot.toFixed(2);
+    cosR.textContent = cos.toFixed(2);
+  }
+  function applyTheme() {
+    pal = NDFlow.palette();
+    document.body.dataset.dark = pal.dark ? '1' : '0';
+    draw();
+  }
+  angleEl.oninput = draw;
+  lenEl.oninput = draw;
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  applyTheme();
+})();
+</script>
+</body>
+</html>

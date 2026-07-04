@@ -1,0 +1,79 @@
+---
+slug: "math-expectation-and-averages"
+lang: "zh"
+title: "Expectation：很多次之後的平均"
+category: "courses"
+group: "Lecture 6 · Probability & Estimation"
+status: "available"
+updated: 2026-06-26
+summary: "expectation 不是下一次一定會抽到的值，而是重複很多次後 sample average 想靠近的中心。"
+demos:
+  - "notes/research_areas/math-intuitions/running-average.html"
+references: []
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Expectation：很多次之後的平均
+
+> Math Intuitions 第 3 篇。這篇只想讓你**認得** expectation，知道它和 sample average 的關係；正式的 convergence theorem 留到更高階的 probability 課。
+
+你不知道一顆偏骰子平均會丟出多少點。最自然的做法不是猜，而是一直丟：丟 10 次先算平均，丟 100 次再算，丟 1000 次再算。前幾次平均值可能亂跳，但次數變多後，通常會往某個穩定的數字靠近。
+
+那個長期想靠近的中心，就是 expectation。
+
+## 先抓住這句
+
+> **expectation 是 distribution 的長期平均；sample average 是我們用有限 sample 去估它的方法。**
+
+一次 sample 可能很極端，所以不要把 expectation 想成「下一次會發生的結果」。它更像是一個長跑後的中心位置。
+
+## 讓平均值一路跑給你看
+
+下面的 demo 每按一次就多抽一些 sample，藍線是目前的 running mean，虛線是真正的 expectation。換不同 rule，看前期抖動和後期穩定的差別。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/math-intuitions/running-average.html" class="demo-frame" title="Expectation running average demo" style="height: 700px; width: 100%; border: none;"></iframe>
+
+你會看到一件很實用的事：sample average 不是每一步都更接近 expectation，但 sample 數變多時，它通常比較不容易被某一次極端 sample 拉走。
+
+## 最小的數學
+
+如果 random variable $X$ 只會取有限個 value，例如 $x_1,\ldots,x_m$，而每個 value 的 probability 是 $P(X=x_i)$，那 expectation 定義為
+
+$$
+\mathbb E[X]=\sum_{i=1}^m x_i\,P(X=x_i).
+$$
+
+這行公式其實就是加權平均：常出現的 value 權重比較大，少出現的 value 權重比較小。
+
+如果我們不知道整個 distribution，但可以抽 $N$ 個 sample：
+
+$$
+x^{(1)},x^{(2)},\ldots,x^{(N)},
+$$
+
+就可以用 sample average 估 expectation：
+
+$$
+\widehat\mu_N=\frac{1}{N}\sum_{i=1}^N x^{(i)}.
+$$
+
+這個估計常被叫做 **Monte Carlo** estimate：意思是用 random sample 的平均來估一個想算的量。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="expectation 最容易被誤解成什麼？"
+  options={[
+    { text: "重複很多次後，sample average 想靠近的長期平均。", correct: true, explain: "正解。expectation 是 distribution 的中心，不是單次 sample 的保證。" },
+    { text: "下一次一定會抽到的值。", explain: "不對。偏骰子的 expectation 可以是 4.15，但你永遠不會丟出 4.15 點。" },
+    { text: "sample 裡出現最多次的值。", explain: "那比較接近 mode，不是 expectation。expectation 會把 value 的大小也算進去。" },
+  ]}
+/>
+
+## 你之後會在哪裡遇到它？
+
+L3 的 DDPM loss、L4 的 score matching、L6 的 flow matching 都會寫成 expectation：我們不是只看一筆 training sample，而是看很多 time、noise、data sample 下的平均表現。帶著這篇的直覺回到 L1 的 [生成就是把 distribution 搬過去](/personal_website/zh/notes/dfc-principles-transport-map)，你會比較容易看懂為什麼訓練目標總是長得像「對很多 sample 取平均」。
+
+## 參考文獻
+
+本篇只使用 standard probability definitions，沒有引用特定 research result。

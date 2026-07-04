@@ -1,0 +1,161 @@
+---
+slug: "dfc-principles-course-map"
+lang: "zh"
+title: "一張地圖讀完整門課"
+category: "research-areas"
+group: "Diffusion & Flow Models"
+status: "available"
+updated: 2026-06-26
+summary: "把每個方法先放到 path、target、sampler、guidance、evaluation 五個位置，後面的公式就有了座標。"
+demos:
+  - "notes/research_areas/diffusion-flow-course/principles-course-map.html"
+references:
+  - label: "Sohl-Dickstein et al., Deep Unsupervised Learning using Nonequilibrium Thermodynamics (ICML 2015)"
+    href: "https://arxiv.org/abs/1503.03585"
+  - label: "Ho, Jain & Abbeel, Denoising Diffusion Probabilistic Models (NeurIPS 2020)"
+    href: "https://arxiv.org/abs/2006.11239"
+  - label: "Song et al., Score-Based Generative Modeling through Stochastic Differential Equations (ICLR 2021)"
+    href: "https://arxiv.org/abs/2011.13456"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# 一張地圖讀完整門課
+
+> Diffusion & Flow Models 第 1 講，第 3 篇。這篇不再多發明一個名詞，而是給你一個讀論文時可以反覆拿出來用的座標系。
+
+你很快會遇到一堆看似不同的名字：DDPM、score-based SDE、DDIM、flow matching、rectified flow、consistency models、classifier-free guidance。初學時最累的地方，不是每個方法都很難，而是它們看起來像各自開了一套語言。這門課的做法是反過來：先畫一張地圖，再把方法放上去。
+
+## 先把論文放到地圖上
+
+> 讀一個 diffusion / flow 方法時，先問五件事：它選了什麼 path、學什麼 target、用什麼 sampler、如何做 guidance、最後用什麼 evaluation 判斷成敗。
+
+這五個問題不會替你讀完論文，但會讓你知道該把力氣花在哪裡。
+
+## 用互動地圖看五個位置
+
+下面的 demo 不是演算法，而是一張索引卡。切換「讀圖角度」，看同一個生成流程中哪幾個位置被點亮。後面每一講都會回來更新這張圖。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-flow-course/principles-course-map.html" class="demo-frame" title="Diffusion and flow course map demo" style="height: 690px; width: 100%; border: none;"></iframe>
+
+如果你讀一篇新論文時能先把它放進這張圖，很多名詞就會停止互相打架。
+
+## 五個物件，一套記號
+
+我們把一個生成方法粗略拆成五個物件。第一個是 probability path：
+
+$$
+(p_t)_{t\in[0,1]},\qquad p_0=\mathcal N(0,I_d),\quad p_1\approx p_{\mathrm{data}}.
+$$
+
+第二個是模型學的局部訊號。它可能是 noise predictor $\epsilon_\theta(x_t,t)$、score $s_\theta(x_t,t)\approx\nabla_x\log p_t(x_t)$、velocity $v_\theta(x_t,t)$，或 denoiser $\hat x_{\theta}(x_t,t)$。很多訓練目標可以寫成加權平方回歸的樣子：
+
+$$
+\min_\theta\;
+\mathbb E\left[
+w(t)\left\|F_\theta(X_t,t,c)-A_t(X_t,Y,c)\right\|^2
+\right].
+$$
+
+這裡 $F_\theta$ 是模型輸出，$A_t$ 是可計算的訓練 target，$Y$ 表示生成 $X_t$ 時保留下來的輔助變數，例如乾淨資料、噪聲、或 flow matching 的端點配對；$c$ 是條件資訊，可以不存在。第 3、4、6 講會分別把 DDPM、score matching、flow matching 的 $A_t$ 寫清楚。
+
+第三個是 sampler。學到局部訊號後，生成要從 $p_0$ 走到 $p_1$。確定性 ODE 取樣可以抽象寫成
+
+$$
+\frac{dX_t}{dt}=\hat v_\theta(X_t,t),
+\qquad X_0\sim p_0,
+$$
+
+再用數值方法離散化。隨機 sampler 則加入 Brownian motion：
+
+$$
+dX_t=b_\theta(X_t,t)\,dt+g(t)\,dW_t.
+$$
+
+第四個是 guidance。若有條件 $c$，Bayes rule 給出一個基本分解：
+
+$$
+\nabla_x\log p_t(x\mid c)
+=
+\nabla_x\log p_t(x)+\nabla_x\log p(c\mid x_t=x),
+$$
+
+因為 $\log p(c)$ 對 $x$ 是常數。這告訴你：條件控制本質上是在改變局部方向，而不是在最後一步重新排序圖片。實際的 classifier guidance 和 classifier-free guidance 會在第 9 講推。
+
+第五個是 evaluation。生成後得到一個模型分布 $\hat p_1$，我們要問的是 $\hat p_1$ 和 $p_{\mathrm{data}}$ 的關係，而不只是某幾張樣本好不好看。likelihood、sample quality、coverage、precision/recall 會在第 12 講分開處理。
+
+## 統一語言：SDE、ODE、interpolant
+
+這門課會一直在三種描述之間切換。
+
+第一種是 SDE：
+
+$$
+dX_t=b_t(X_t)\,dt+g(t)\,dW_t.
+$$
+
+在足夠平滑、密度為正、score 存在的條件下，Song 等人的 score-based SDE 框架會給出與它共享邊際分布的 probability-flow ODE：
+
+$$
+\frac{dX_t}{dt}
+=
+b_t(X_t)-\frac{1}{2}g(t)^2\nabla_x\log p_t(X_t).
+$$
+
+這條式子現在先當地圖上的橋；第 5 講會推它。
+
+第二種是純 ODE / velocity field：
+
+$$
+\frac{dX_t}{dt}=v_t(X_t).
+$$
+
+flow matching 會直接學這個 $v_t$。第三種是 interpolant：
+
+$$
+X_t=I_t(X_0,X_1,Z),
+$$
+
+其中 $X_0\sim p_0$、$X_1\sim p_{\mathrm{data}}$，$Z$ 是額外噪聲。stochastic interpolants 會把 diffusion 和 flow matching 放進這個更大的盒子裡。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="看到一個新的 diffusion 或 flow 論文時，最有用的第一個動作是？"
+  options={[
+    { text: "先背它的新縮寫，因為每篇方法通常互不相干。", explain: "縮寫會很多，但大多數方法仍能放回 path、target、sampler、guidance、evaluation 這些位置。" },
+    { text: "先判斷它主要改了 path、training target、sampler、guidance 還是 evaluation。", correct: true, explain: "正解。先定位，才知道它是在改訓練、改路徑、改取樣，還是改控制與評估。" },
+    { text: "先看 demo 圖漂亮不漂亮，漂亮就代表方法比較好。", explain: "單張樣本只能提供部分訊號。分布是否覆蓋、likelihood、速度、穩定性都可能不同。" },
+  ]}
+/>
+
+<Quiz
+  q="guidance 在這張地圖裡比較像什麼？"
+  options={[
+    { text: "生成結束後，把不符合條件的樣本刪掉。", explain: "有些 rejection 方法可以這樣做，但 diffusion guidance 的核心通常是在取樣過程中改變局部方向。" },
+    { text: "把 base distribution 換成另一個完全不同的 distribution。", explain: "通常不需要換 base。條件資訊主要進入 score、velocity 或 denoiser，影響中途怎麼走。" },
+    { text: "在每個 noisy state 上改變局部 score 或 velocity，讓軌跡往條件 c 支持的區域偏。", correct: true, explain: "正解。Bayes rule 已經暗示了這件事：條件項會加到局部方向上。" },
+  ]}
+/>
+
+<Quiz
+  q="為什麼 evaluation 不能只看幾張最漂亮的 sample？"
+  options={[
+    { text: "因為生成模型學的是整個分布；漂亮樣本可能仍然漏 mode、缺多樣性或 likelihood 很差。", correct: true, explain: "正解。單張品質和分布覆蓋不是同一個量，這正是第 12 講會拆開的主題。" },
+    { text: "因為好看的 sample 通常都是假的，不能相信。", explain: "這太強，也不準確。好看樣本是真實訊號之一，只是不足以代表整個分布。" },
+    { text: "因為 diffusion 模型不能用任何定量指標。", explain: "可以用許多指標，只是每個指標都有盲點，需要知道它衡量什麼。" },
+  ]}
+/>
+
+## 這怎麼接到研究？
+
+Sohl-Dickstein 等人的工作主要讓「path」和「reverse process」成為可訓練的生成方法。Ho、Jain 與 Abbeel 的 DDPM 把 training target 和 sampler 做成了簡潔的工程配方。Song 等人的 SDE 框架則把 path、target、sampler 三者連成一個連續時間語言，讓我們能比較隨機 SDE、確定性 ODE、score 和 denoiser。這門課後面的每篇論文，都會先用這張地圖定位，再進入它真正的技術貢獻。
+
+## 下一步
+
+下一講會進入 forward / reverse SDE，補上 Fokker-Planck 與 Anderson reverse-time SDE。若你想先暖身，可以回到既有系列的 [Continuity Equation：分布如何流動？](/personal_website/zh/notes/n2d-continuity-equation)，因為 L2 會在它右邊加上 diffusion term。
+
+## 參考文獻
+
+1. Sohl-Dickstein, J., Weiss, E. A., Maheswaranathan, N., Ganguli, S. [*Deep Unsupervised Learning using Nonequilibrium Thermodynamics.*](https://arxiv.org/abs/1503.03585) ICML 2015.
+2. Ho, J., Jain, A., Abbeel, P. [*Denoising Diffusion Probabilistic Models.*](https://arxiv.org/abs/2006.11239) NeurIPS 2020.
+3. Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Ermon, S., Poole, B. [*Score-Based Generative Modeling through Stochastic Differential Equations.*](https://arxiv.org/abs/2011.13456) ICLR 2021.

@@ -1,0 +1,34 @@
+---
+import Base from '../../layouts/Base.astro';
+import HomeView from '../../components/HomeView.astro';
+import { withBase } from '../../lib/url';
+import { profile, research } from '../../data/content';
+
+const personJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Person',
+  name: profile.name,
+  alternateName: profile.nameZh,
+  email: `mailto:${profile.contact.email}`,
+  affiliation: { '@type': 'CollegeOrUniversity', name: 'National Taiwan University' },
+  url: Astro.site ? new URL(withBase('zh'), Astro.site).href : undefined,
+  sameAs: [profile.contact.scholar, profile.contact.github, profile.contact.linkedin],
+  knowsAbout: research.map((r) => r.name),
+};
+
+const alternates = [
+  { lang: 'en' as const, path: '' },
+  { lang: 'zh' as const, path: 'zh' },
+];
+---
+
+<Base
+  title="王士欣 Shih-Hsin Wang"
+  active="home"
+  lang="zh"
+  jsonLd={personJsonLd}
+  alternates={alternates}
+  langToggleHref={withBase('')}
+>
+  <HomeView lang="zh" />
+</Base>

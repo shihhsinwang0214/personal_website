@@ -1,0 +1,85 @@
+---
+slug: "math-density-vs-probability"
+lang: "zh"
+title: "Probability Density：高度不是 Probability"
+category: "courses"
+group: "Lecture 6 · Probability & Estimation"
+status: "available"
+updated: 2026-06-26
+summary: "直方圖越畫越細會變成曲線；曲線的高度叫 probability density，面積才是 probability。"
+demos:
+  - "notes/research_areas/math-intuitions/histogram-density.html"
+references: []
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Probability Density：高度不是 Probability
+
+> Math Intuitions 第 2 篇。這篇只想讓你**認得** probability density，知道 continuous value 時為什麼「曲線下面的面積」才是 probability；嚴格 measure theory 不在這裡處理。
+
+如果你把一班學生的身高畫成 histogram，每一根柱子代表一段區間：160 到 165 cm 有幾個人，165 到 170 cm 有幾個人。現在把區間切得更細，柱子會變多、變窄。切到很細時，你心裡會想像出一條平滑曲線。
+
+那條曲線看起來像 probability，但它的高度本身不是 probability。
+
+## 先記這個畫面
+
+> **probability density 是曲線高度；一段區間下面的面積，才是 probability。**
+
+這個區分很重要。Continuous random variable 幾乎不會「剛好等於 170.000000 cm」。我們真正會問的是：它落在 168 到 172 cm 之間的 probability 是多少？
+
+## 把 histogram 推到曲線
+
+下面的 demo 用一條固定的 probability density curve 和一批 sample 畫 histogram。拖動 bins，看柱子變細；拖動區間，觀察區間下面的面積怎麼變。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/math-intuitions/histogram-density.html" class="demo-frame" title="Histogram to probability density demo" style="height: 720px; width: 100%; border: none;"></iframe>
+
+如果 bins 變細時你看到柱子高度改變，不要緊張。Histogram 的每根柱子其實在估計 density；真正要對應 probability 的，是那段寬度乘上高度，也就是 area。
+
+## 現在寫成公式
+
+假設 continuous random variable $X$ 有 probability density $p(x)$。這個 function 必須滿足兩件事：
+
+$$
+p(x)\ge 0,
+$$
+
+以及
+
+$$
+\int_{-\infty}^{\infty} p(x)\,dx=1.
+$$
+
+第一行說 density 不會是負的。第二行說整條曲線下面的 total area 是 1，因為 sample 總會落在某個地方。
+
+對一段區間 $[a,b]$，probability 是
+
+$$
+P(a\le X\le b)=\int_a^b p(x)\,dx.
+$$
+
+這就是「面積才是 probability」的公式版本。單點 probability 在 continuous case 通常是
+
+$$
+P(X=a)=0.
+$$
+
+這不是說 $a$ 不可能出現，而是說單點沒有寬度，面積是 0。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="對 continuous random variable 來說，曲線 p(x) 的高度代表什麼？"
+  options={[
+    { text: "X 剛好等於 x 的 probability。", explain: "這是最常見的誤會。Continuous case 裡單點 probability 通常是 0。" },
+    { text: "抽到 x 之前模型的 confidence，沒有單位。", explain: "density 不是一般口語的 confidence；它是要和寬度相乘或積分的高度。" },
+    { text: "probability density；要對一段區間積分後，才得到 probability。", correct: true, explain: "正解。高度本身不是 probability，區間下面的 area 才是 probability。" },
+  ]}
+/>
+
+## 你之後會在哪裡遇到它？
+
+L1 會說 $p_0=\mathcal N(0,I)$ 和 $p_1\approx p_{\mathrm{data}}$，這裡的 $p$ 通常就是 probability density 或它的高維版本。L4 談 score 時，$\nabla\log p_t(x)$ 也會直接用到 density。下一篇 [Expectation：很多次之後的平均](/personal_website/zh/notes/math-expectation-and-averages) 會問：如果我們不知道整條 distribution，能不能靠 sample average 抓住一個代表值？
+
+## 參考文獻
+
+本篇只使用 standard probability definitions，沒有引用特定 research result。

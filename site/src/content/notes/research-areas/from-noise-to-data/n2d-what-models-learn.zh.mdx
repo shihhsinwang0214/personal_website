@@ -5,7 +5,7 @@ title: "生成模型其實在學什麼？"
 category: "research-areas"
 group: "From Noise to Data"
 status: "available"
-updated: 2026-06-22
+updated: 2026-06-27
 summary: "從 two moons 的最小例子出發，說明生成模型學的是資料分布，而不是記憶訓練樣本，並銜接 noise → data、score 與 velocity 的後續研究語言。"
 demos: []
 references:
@@ -26,17 +26,13 @@ import Quiz from '../../components/Quiz.astro';
 
 # 生成模型其實在學什麼？
 
-> 這是「From Noise to Data」系列的第 1 篇。整個系列的目標，是用一張統一的地圖（noise → data、粒子、向量場、機率路徑、score、velocity）帶你從直覺走到能讀懂研究論文的數學語言。
+> 承接 [導論](/personal_website/zh/notes/n2d-overview)。導論說生成模型學的是「分布」而不是背樣本；這一篇把這句話講精確——分布到底指什麼、它和判別式模型差在哪，以及讀任何生成論文都能用的三個問題。
 
 你打開一個生成模型，輸入一句話，幾秒後螢幕上出現一張你從沒見過、卻意外合理的圖。它不是從你的資料庫裡撈出來的，但又確實「像」那類資料。這時很自然會冒出一個問題——它到底是從哪裡「知道」該長這樣的？
 
-## 先問一個看似簡單的問題：模型到底學到了什麼？
+## 「學分布」到底是什麼意思？
 
-很多人第一次接觸生成模型，會把它理解成「一個會產生圖片的程式」。這印象不算錯，但它擋住了真正重要的問題。如果你以為它在「把訓練圖片背起來再吐出來」，那後面所有關於 diffusion、score-based models、flow matching 的數學都會顯得莫名其妙——因為這些方法真正想回答的，不是「怎麼背一張圖」，而是：
-
-> 如果真實資料背後有一個複雜的機率分布，我們能不能學到足夠的結構，讓自己產生新的、合理的樣本？
-
-這篇要把生成模型重新定位：它學的不是某幾個樣本，而是一個**機率分布**。
+導論已經給了畫面：data 是空間裡一團點，模型要學的是這團點的**密度**——哪裡濃、哪裡淡。但「學分布」這個說法，第一次認真看時還是很容易和「把訓練圖背起來再吐出來」混在一起。如果模型只是背圖，後面 diffusion、score、flow matching 的數學都會顯得莫名其妙；它們真正想回答的是——**能不能學到足夠的結構，自己產生新的、合理的樣本？**
 
 ## 先記這一句
 
@@ -112,6 +108,15 @@ VAE、GAN、normalizing flow、diffusion、score-based models、flow matching—
 
 ## 下一步
 
-既然目標是「逼近一個複雜分布並從中取樣」，下一個自然的問題是：我們要從哪裡開始造樣本？為什麼現代方法常從一團 Gaussian noise 出發——這只是工程習慣，還是它在數學上有特別好的性質？
+我們已經把目標立好了：學一個分布、並從中取樣。但「取樣」這件事具體是怎麼發生的？下一篇 [跟著一顆粒子走](/personal_website/zh/notes/n2d-samples-as-particles) 把每個樣本看成空間裡一顆會移動的點，讓「生成」變成一個看得見的動態畫面——這也是整個系列共用的心像。
 
-下一篇 [為什麼從 Gaussian Noise 開始？](/personal_website/zh/notes/n2d-why-gaussian) 會說明：noise 不是隨便選的起點，而是一個容易取樣、容易分析、容易被逐步轉換的�
+（你可能會問：那為什麼起點偏偏挑一團 Gaussian noise？這個問題的完整答案牽涉比較深的數學，收在 [Diffusion & Flow Models 課程](/personal_website/zh/notes/dfc-principles-course-map)。）
+
+## 參考文獻
+
+1. Kingma, D. P., Welling, M. *Auto-Encoding Variational Bayes.* 2013.
+2. Goodfellow, I., et al. *Generative Adversarial Nets.* NeurIPS 2014.
+3. Rezende, D. J., Mohamed, S. *Variational Inference with Normalizing Flows.* 2015.
+4. Ho, J., Jain, A., Abbeel, P. *Denoising Diffusion Probabilistic Models.* NeurIPS 2020.
+5. Song, Y., et al. *Score-Based Generative Modeling through Stochastic Differential Equations.* ICLR 2021.
+6. Lipman, Y., et al. *Flow Matching for Generative Modeling.* ICLR 2023.

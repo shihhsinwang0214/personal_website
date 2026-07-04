@@ -3,9 +3,9 @@ slug: "n2d-optimal-transport"
 lang: "en"
 title: "Optimal Transport: The Geometry of Moving Distributions"
 category: "research-areas"
-group: "From Noise to Data"
+group: "Diffusion & Flow Models"
 status: "missing"
-updated: 2026-06-21
+updated: 2026-06-28
 summary: "English translation in progress; content-agent task."
 demos: []
 references: []

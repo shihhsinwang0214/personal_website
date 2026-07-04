@@ -1,0 +1,107 @@
+---
+slug: "math-eigenvectors-and-eigenvalues"
+lang: "zh"
+title: "Eigenvector and Eigenvalue：找出不被轉走的方向"
+category: "courses"
+group: "Lecture 2 · Eigen, SVD & PCA"
+status: "available"
+updated: 2026-06-30
+summary: "一個變形通常會把方向轉歪，但 eigenvector 是那些只被拉長或壓短、方向仍然穩定的箭頭。"
+demos:
+  - "notes/research_areas/math-intuitions/eigenvectors.html"
+references: []
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Eigenvector and Eigenvalue：找出不被轉走的方向
+
+一個變形會把大多數方向轉歪，但有些方向很特別：它們只是被拉長、壓短，仍然指著同一條線。
+
+如果你想理解一個變形最穩定、最核心的方向，該怎麼把這些「沒被轉走」的方向找出來？又為什麼後面做資料壓縮、找主要方向時會一直遇到它？
+
+## 不被轉歪的方向
+
+我們需要的工具叫 **eigenvector** 和 **eigenvalue**。白話說，eigenvector 是「被 matrix 作用後仍留在同一條方向線上」的 vector；eigenvalue 是它被拉長或反向的倍數。
+
+畫面很簡單：拿一支箭頭丟進變形裡。大部分箭頭會被轉到新方向；但如果某支箭頭只沿著原本方向變長、變短、或反向，它就是 eigenvector。
+
+這件事值得在乎，因為它把一個複雜動作拆成幾條穩定方向。後面的 PCA、SVD、spectral clustering，都是在問不同版本的「哪些方向最重要」。
+
+## 轉動矩陣，找亮起來的方向
+
+下面的 demo 讓你調一個 2-D matrix。當它有 real eigenvector 時，畫面會把不被轉歪的方向亮出來；如果你把它調成接近旋轉，可能會看到「沒有 real eigenvector」的提醒。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/math-intuitions/eigenvectors.html" class="demo-frame" title="Eigenvectors and eigenvalues demo" style="height: 680px; width: 100%; border: none;"></iframe>
+
+拖 matrix 的四個數字，看普通方向怎麼被轉歪，再看亮起來的方向為什麼特別。
+
+## 把穩定方向寫成 Av = λv
+
+如果 $A$ 是 matrix，非零 vector $v$ 被 $A$ 作用後只變成自己的倍數，我們寫
+
+$$
+Av=\lambda v.
+$$
+
+這裡 $v$ 是 eigenvector，$\lambda$ 是 eigenvalue。用一個例子檢查：
+
+$$
+A=
+\begin{bmatrix}
+2 & 0\\
+0 & 3
+\end{bmatrix},
+\qquad
+v=
+\begin{bmatrix}
+1\\
+0
+\end{bmatrix}.
+$$
+
+直接算：
+
+$$
+Av=
+\begin{bmatrix}
+2\\
+0
+\end{bmatrix}
+=2v.
+$$
+
+所以 $v$ 是 eigenvector，對應的 eigenvalue 是 $2$。同一個 matrix 對 $e_2=(0,1)$ 會給 $Ae_2=3e_2$，所以 $e_2$ 也是 eigenvector，eigenvalue 是 $3$。
+
+把式子移到同一邊，也得到之後常見的形式：
+
+$$
+Av=\lambda v
+\quad\Longleftrightarrow\quad
+(A-\lambda I)v=0.
+$$
+
+這是在說：找 eigenvector，就是找哪些非零方向會被 $A-\lambda I$ 壓到 0。
+
+## 旋轉矩陣帶來的提醒
+
+<Quiz
+  q="每一個 2-D real matrix 都一定有 real eigenvector 嗎？"
+  options={[
+    { text: "一定有，因為每個變形都會有一個不動的方向。", explain: "這個直覺來自拉伸和剪斜，但純旋轉可以把每個 real 方向都轉走。" },
+    { text: "只有 diagonal matrix 才有。", explain: "不只 diagonal matrix。很多非 diagonal matrix 也有 real eigenvector，例如剪斜或對稱矩陣。" },
+    { text: "不一定；純旋轉九十度就沒有 real eigenvector。", correct: true, explain: "正解。九十度旋轉會把每條 real 方向都轉到另一條方向，沒有非零 real vector 只被縮放。" },
+  ]}
+/>
+
+> **`深一層`：symmetric matrix 為什麼特別？**
+> 對 real symmetric matrix，spectral theorem 說：它的 eigenvalues 都是 real，而且可以找到一組互相垂直的 eigenvectors。這是 PCA 和 covariance 幾何能乾淨工作的原因之一。另一個常見物件是 **quadratic form**，也就是 $x^\top A x$；如果對所有 $x$ 都有 $x^\top A x\ge 0$，就說 $A$ 是 positive semidefinite。covariance matrix 可寫成平均的外積，Gram matrix 可寫成 inner products，Hessian 在局部最小值附近也常是 positive semidefinite；這些都解釋了為什麼「方向上的能量或曲率」常常不會是負的。這些事後面會分別在 PCA、kernel、optimization 裡再遇到。
+
+## 穩定方向為什麼值得找
+
+開頭問的是：變形裡那些沒被轉走的方向要怎麼找？答案就是解 $Av=\lambda v$。eigenvector 給方向，eigenvalue 給那個方向上的拉伸倍數。
+
+下一篇會處理更現實的資料表：如果資料不是方形動作，而是 samples × features 的長方形表，還能不能找主要方向？那就是 [SVD：任何矩陣都能拆成旋轉、拉伸、旋轉](/personal_website/zh/notes/math-svd)。
+
+## 參考文獻
+
+本篇使用 standard linear algebra 的 eigenvector、eigenvalue、spectral theorem 與 positive semidefinite 定義；未引用特定 research result。

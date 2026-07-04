@@ -68,6 +68,44 @@
 - 樣本/粒子 $x_t$；速度場 $v_t(x)$；條件速度 $u_t$；score $s_t(x)=\nabla_x\log p_t(x)$。
 - 加噪 $x_t=\alpha_t x_0+\sigma_t\epsilon$。**注意**：diffusion 論文常用相反時間方向（$t=0$ 資料、$t=T$ 噪聲）；遇到時明確提醒。
 
+## 數學專有名詞用英文（重要）
+
+數學的 technical term 一律用**英文**，鑲在中文句子裡；不要翻成中文術語。例如：
+
+- 寫「假設這個 vector field 是 smooth 且 time-dependent 的」，**不要**寫「假設這個向量場是光滑的、時間相依的」。
+- 一個 term 在一篇 note 裡**第一次出現**時，給一句**白話**解釋（不是中文術語對照），之後就直接用英文。例：「這裡假設 $f$ 是 bounded 的（值不會跑到無限大）。」
+
+常見對照（用右欄的英文）：
+
+| 不要寫 | 要寫 | 不要寫 | 要寫 |
+|---|---|---|---|
+| 有界 | bounded | 光滑 | smooth |
+| 時間相依 | time-dependent | 連續 | continuous |
+| 可微 | differentiable | 梯度 | gradient |
+| 散度 | divergence | 期望(值) | expectation |
+| 條件期望 | conditional expectation | 變異數 | variance |
+| 機率密度 | probability density | 分布 | distribution |
+| 邊際 / 聯合 / 條件 | marginal / joint / conditional | 收斂 | convergence |
+| 線性 | linear | 凸 | convex |
+| 單調 | monotone | 向量場 | vector field |
+| 範數 | norm | 內積 | inner product |
+| 雅可比 | Jacobian | 支撐 | support |
+| 漂移 / 擴散 | drift / diffusion | 隨機過程 | stochastic process |
+
+一般白話（不是 technical term）仍用中文，例如「往哪走」「越來越密」「搬運」這些不要硬翻成英文。判準：它在數學課本裡是不是一個有定義的名詞？是 → 用英文；只是日常描述 → 用中文。
+
+## 節奏：一次只引入一個物件（重要）
+
+讀起來太快、一段塞太多新物件，是最常見的失敗。對齊 From Noise to Data 的漸進感：
+
+1. **一篇 note 只正式引入一個新物件**（一個 definition / 一條公式 / 一個 term）。需要第二個,通常該拆成下一篇。
+2. **問題先行**：先讓讀者感到「我為什麼需要這個東西」，再給它。每個物件都從一個卡住的具體情境長出來，而不是憑空宣布定義。
+3. **先畫面、後符號**：先用生活化或幾何 picture 建立直覺，符號只在 picture 站穩之後才出現；出現時逐一拆解每個記號的意思。
+4. **寧可多拆幾篇短 note**，也不要一篇硬塞完一整個 lecture。課程的一個 lecture → 通常 3–5 篇(甚至更多)短 note,每篇一個 idea。
+5. 介紹完一個物件,用一句話**回扣它解決了開頭那個問題**,再交棒到下一篇。
+
+> 自我檢查:如果一篇 note 在三段內出現三個以上第一次見到的 term/公式,它幾乎一定太快了——拆開。
+
 ## 中繼資料（frontmatter）
 
 每篇 `.mdx` 開頭一定要有合法 frontmatter（否則 content collection 會建置失敗）：

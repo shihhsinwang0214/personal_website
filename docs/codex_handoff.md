@@ -408,3 +408,360 @@ live and correct.
 
 Remove the old root shell files and the `legacy/` backup once the new site is confirmed
 live and correct.
+
+---
+
+## Maintenance task — Pagefind: flow-matching notes are missing from site search
+
+Filed by the content agent (2026-06-27). Infrastructure / search-indexing issue — owned
+by the maintenance agent per AGENT.md. The note bodies are correct; do NOT touch content.
+
+Symptom: the latest build's Pagefind log reads `Found 99 files ... Indexed 71 pages` —
+28 rendered HTML pages carry no `data-pagefind-body` and are silently excluded from
+search. Two of them are real, published zh articles, so those notes are unsearchable.
+
+```
+You are working in the LOCAL clone of github.com/shihhsinwang0214/personal_website.
+Local-only: do not push or deploy (the owner approves deploys separately). Follow
+AGENT.md. Hard rules: do not change content, copy, or note bodies; no new facts or
+translations; do not break any URLs, the bilingual (zh+en) system, the demos,
+View-Transitions theme persistence, or existing Pagefind behaviour; keep withBase();
+mobile-first; AA contrast in both themes.
+
+Bug: Pagefind indexes fewer pages than the build renders — "Found 99 files ...
+Indexed 71 pages". 28 HTML pages lack `data-pagefind-body` and are excluded.
+
+Diagnosis already done by the content agent (trust, but verify):
+- 24 of the 28 are EXPECTED exclusions and must stay excluded: the standalone
+  interactive demo HTML pages under notes/research_areas/{noise-to-data,flow-matching,
+  invariance-and-equivariance,math-intuitions,diffusion-flow-course}/*.html, plus the
+  notes.html listing page.
+- The other 4 are real Astro-rendered NOTE routes that should be searchable but are not:
+    dist/zh/notes/flow-matching-flow-ode/index.html   (zh, status available — real content; BUG)
+    dist/zh/notes/flow-matching-training/index.html   (zh, status available — real content; BUG)
+    dist/notes/flow-matching-flow-ode/index.html       (en, status missing — coming-soon)
+    dist/notes/flow-matching-training/index.html       (en, status missing — coming-soon)
+- Key comparison: the From-Noise-to-Data notes ARE indexed (e.g.
+  dist/zh/notes/n2d-denoising/index.html), and even the n2d EN "Content Coming Soon"
+  stubs are indexed. So the n2d render path emits `data-pagefind-body` and the
+  flow-matching render path does not.
+
+Likely root cause (confirm, don't assume): the Series B flow-matching notes
+(slugs flow-matching-flow-ode, flow-matching-training; sources
+notes/research_areas/flow-matching/story-zh.md and training-zh.md) are `.md` and were
+migrated in Increment 2, before the n2d `.mdx` notes existed. They may render through a
+different layout/wrapper, or `data-pagefind-body` may be applied conditionally
+(e.g. only on .mdx, or only for certain groups/status).
+
+Do this:
+1. Find where `data-pagefind-body` is emitted (search src/ — likely the note article
+   template / NoteArticle.astro) and trace exactly why the flow-matching note route
+   omits it while the n2d route includes it. Report the root cause.
+2. Fix so every real ARTICLE body carries `data-pagefind-body` regardless of .md vs
+   .mdx, group, or language. The two zh flow-matching notes MUST become searchable.
+   Apply the same rule the n2d notes already follow; do not special-case individual slugs.
+3. Handle the en coming-soon (missing-translation) pages consistently with how the n2d
+   EN coming-soon pages are already treated (currently indexed) — match that behaviour;
+   note in your report what you chose.
+4. Leave the standalone demo HTML pages and notes.html excluded as today.
+
+Verify (local, no deploy): `npm run build`; the Pagefind "Indexed N pages" count rises
+to include the two zh flow-matching notes; `grep -rl data-pagefind-body dist
+--include='*.html'` now lists dist/zh/notes/flow-matching-flow-ode/index.html and
+dist/zh/notes/flow-matching-training/index.html; a search for "flow matching" and for a
+zh-only term from those notes returns them; all existing URLs, the six demo URLs, the
+legacy notes.html?cat=&id= redirects, both themes, and View-Transitions theme
+persistence still work. Capture the before/after Pagefind "Indexed N pages" line and
+report root cause + the fix. Do NOT push or deploy.
+```
+
+---
+
+## Maintenance task — n2d restructure Batch 1: register `n2d-overview`, re-order `n2d-why-gaussian`
+
+Filed by the content agent (2026-06-27). Content is done (new intro note written; why-gaussian
+relabelled as advanced/optional). This task is the ordering/registration half, which is
+routing and belongs to the maintenance agent. Plan context: `docs/n2d-restructure-plan.md`
+(Batch 1). Do NOT edit note bodies.
+
+New/changed content files (already in the repo):
+- `from-noise-to-data/n2d-overview.zh.mdx` (status available) + `n2d-overview.en.md` (status missing) — a new intro note.
+- `from-noise-to-data/n2d-why-gaussian.zh.mdx` — body unchanged in substance; reframed as advanced/optional reading.
+
+```
+You are working in the LOCAL clone of github.com/shihhsinwang0214/personal_website.
+Local-only: do not push or deploy (owner approves deploys separately). Follow AGENT.md.
+Hard rules: do not change note bodies, copy, facts, or translations; do not break URLs,
+the bilingual (zh+en) system, demos, Pagefind, or View-Transitions theme persistence;
+keep withBase(); slugs are stable (never reuse/rename).
+
+Goal: update only the note ordering/registration in src/lib/notes.ts so the new From
+Noise to Data intro renders first and the "why Gaussian" note moves to the end of the
+series.
+
+Do this:
+1. In src/lib/notes.ts `noteSlugList`, register the new slug `n2d-overview` as the FIRST
+   From-Noise-to-Data entry (before `n2d-what-models-learn`).
+2. Move `n2d-why-gaussian` from its current 2nd position to the END of the From-Noise-to-
+   Data block — immediately after `n2d-three-languages` and before `n2d-review` (or after
+   `n2d-review` if you prefer the review to stay strictly last; pick one and note it). It is
+   now advanced/optional reading.
+3. Resulting From-Noise-to-Data order:
+   n2d-overview, n2d-what-models-learn, n2d-samples-as-particles, n2d-vector-field,
+   n2d-probability-path, n2d-continuity-equation, n2d-denoising, n2d-score-function,
+   n2d-velocity-regression, n2d-conditional-to-marginal, n2d-diffusion-fm-core,
+   n2d-probability-flow-ode, n2d-sampling-as-integration, n2d-path-design,
+   n2d-rectified-flow, n2d-optimal-transport, n2d-three-languages, n2d-why-gaussian,
+   n2d-review.
+4. Confirm prev/next links, the /notes index, and the home "Writing" listing pick up the
+   new order, and that `n2d-overview` (zh) renders with its embedded demo iframe.
+
+NOT in scope (a later phase, do not do now): migrating why-gaussian's content into a dfc
+note and adding a redirect `n2d-why-gaussian` → the dfc slug. That waits until the dfc
+interpolant/EDM note exists.
+
+Verify (local, no deploy): `npm run build` passes; /zh/notes/n2d-overview renders (intro +
+demo + two quizzes); the series order above is reflected on /notes, /zh/notes, the home
+Writing section, and in prev/next; why-gaussian now sits at the end; all existing URLs and
+the six demo URLs still resolve. Report build status and the final order. Do NOT push or
+deploy.
+```
+
+---
+
+## Task — n2d-overview: reorder the bridge (Data → Euclidean space → particle → distribution) + add a density figure
+
+Filed by the content agent (2026-06-27), per the author's review of the new intro note.
+Touches ONE file's body plus ONE new figure asset. The Chinese prose below is **final,
+authored by the content agent — place it verbatim; do not reword, summarize, or translate**.
+Do not invent any claim. The cat / noise pictures in the figure are **illustrative
+placeholders, not model output** — label them as such.
+
+Two changes to `site/src/content/notes/research-areas/from-noise-to-data/n2d-overview.zh.mdx`:
+(1) re-order the conceptual on-ramp so the reader goes Data → "put it in a Euclidean space"
+(a sample is a point = a particle) → distribution explained via density; (2) add a new
+conceptual figure that *shows* the density idea (dense = looks like a cat, empty = not).
+Plus a one-line reframe of the existing demo (the 2-D target shape is deliberately chosen).
+
+```
+You are working in the LOCAL clone of github.com/shihhsinwang0214/personal_website.
+Local-only: do not push or deploy (owner approves deploys separately). Follow AGENT.md and
+CONTENT_AGENT.md. Hard rules: do NOT reword/translate the Chinese prose given below (place
+it verbatim); do NOT invent facts; do not touch any other note, the en stub, the iframe
+URL, the bilingual system, or the demos; keep withBase(); mobile-first; AA contrast in BOTH
+light and dark themes; respect prefers-reduced-motion (this figure is static, no motion).
+
+PART 1 — Reorder the prose.
+In site/src/content/notes/research-areas/from-noise-to-data/n2d-overview.zh.mdx, replace the
+entire block that currently starts at the heading `## 先換個角度：你手上其實只有一堆點`
+and ends at the demo <iframe ...></iframe> line, with EXACTLY this (verbatim):
+
+--- BEGIN REPLACEMENT ---
+## 先換個角度：你手上其實只有一堆資料
+
+一張圖、一段聲音、一個分子，攤平之後都只是**一長串數字**。一張 28×28 的灰階圖就是 784 個數字；一張彩色照片是「寬 × 高 × 3」個數字。先記住這件事：手上的每一筆 data，都能寫成一長串數字。
+
+## 把資料放進一個空間
+
+把那一長串數字的每一個，當成一根座標軸上的值，這筆資料就成了一組座標——也就是一個 **Euclidean space**（我們日常熟悉、有「遠近」和「距離」概念的那種空間）$\mathbb{R}^n$ 裡的**一個點**，其中 $n$ 就是數字的個數。
+
+這個空間的「距離」是有意義的：兩張很像的貓照片會落在附近，貓和卡車則離得很遠。既然每一筆資料都是空間裡的一個點，我們之後乾脆把它當成一顆可以**移動**的點——一顆 **particle**。一整張圖＝一顆 particle（一個高維點），一群圖＝一團 particle 雲。用 2D 來畫只是為了看得見，真實維度高得多。
+
+## 看不見的那一層：哪裡密、哪裡稀
+
+把一大堆真實資料的點都丟進這個空間，它們不會均勻散開，而是**擠成幾團**。「像貓」的地方點很密，「不像貓」的地方幾乎沒有點。這個「哪裡密、哪裡稀」的規律，就是那個你看不見、卻真實存在的 **distribution**，記成 $p_{\text{data}}$。
+
+![示意圖：一個 multimodal 的資料分布，密集處的點對應到清楚的貓、空白處對應到不像任何東西的雜訊。](./n2d-overview-density.svg)
+
+**圖：哪裡密、哪裡稀。** 點擠成幾團（modes）的地方密度高，對應到「像真實資料」的樣本（清楚的貓）；團與團之間幾乎沒有點的空白處，對應到「不像任何真實資料」的東西（一團雜訊）。這張圖是**示意圖**，貓與雜訊都是手繪示意，不是模型實際輸出。
+
+> 一句話：data 是你看得到的幾顆點，distribution 是這些點背後那一整團雲的**密度**——哪裡濃、哪裡淡。
+
+生成模型真正想學的，不是把那幾顆點背起來，而是學會這團雲哪裡濃、哪裡淡——這樣它才能在「濃」的地方，產生**新的、沒看過、但合理**的點。（想分清「density」和「機率」？可以看 [機率密度是什麼](/personal_website/zh/notes/math-density-vs-probability)。）
+
+## 把三個詞接成一句話
+
+data（你有的點）、空間裡的 particle（把點當成會動的東西）、distribution（整團點的密度）——接起來就是整個系列的核心圖像：
+
+> **生成 = 拿一團「容易做出來的點」，把它們慢慢搬動，直到整團的密度和 data 一樣。** 搬動 particle，就是在改變 distribution 的形狀。
+
+那團「容易做出來的點」，慣例上用一團 **Gaussian noise**——你可以先把它當成「一團毫無結構、好製造的圓形點雲」。（為什麼起點偏偏挑 Gaussian？先當它是個方便的選擇就好；真正的理由牽涉到比較深的數學，留到願意深入時再談。）
+
+下面的 demo 就是這張圖在動：拖時間 $t$，看一團圓形點雲被搬成不同的目標形狀。**但要提醒一件事**：這裡的目標形狀（月牙、螺旋那種）是我們**特意挑來、方便你看的**——真實資料活在好幾萬維的空間裡，分布的形狀根本沒辦法這樣畫出來，也不會長得這麼乾淨。這個 2D 例子唯一的目的，是讓「搬動一團點、改變整團密度」這件事**看得見**。
+
+<iframe src="/personal_website/notes/research_areas/noise-to-data/noise-to-data.html" class="demo-frame" title="Noise to Data 互動 demo" style="height: 760px; width: 100%; border: none;"></iframe>
+--- END REPLACEMENT ---
+
+Leave everything before that block (frontmatter, import, title, intro paragraph) and
+everything after it (## 同一件事，兩副鏡頭, the two <Quiz> blocks, ## 這條路會怎麼走,
+## 下一步) UNCHANGED. Bump frontmatter `updated` to the date you do this.
+
+PART 2 — Build the figure `n2d-overview-density.svg`.
+Create site/src/content/notes/research-areas/from-noise-to-data/n2d-overview-density.svg,
+referenced by the ![](./n2d-overview-density.svg) line above. It is a single static,
+conceptual diagram (Olah/Distill style, minimal). Requirements:
+- A 2-D panel showing a MULTIMODAL distribution: 2–3 soft "blobs"/modes drawn as filled
+  density contours (denser fill = higher density), using the site accent color at low
+  opacity. Transparent background.
+- Scatter ~30–50 small dots: concentrated inside the modes, almost none in the gaps.
+- Three callouts with thin leader lines to small framed thumbnails:
+    (a) deep inside a mode → a clean, recognizable cat (simple SVG line-art cat face);
+        label 「密集處：像貓」.
+    (b) at a mode's low-density edge → a rougher / half-formed cat; label 「邊緣：勉強像」.
+    (c) in an empty gap between modes → a scrambled-noise swatch (small grid of random
+        grey squares) or a nonsense blob; label 「空白處：不像任何真實資料」.
+- The cat drawings and the noise swatch are hand-drawn ILLUSTRATIONS, not generated images
+  (the caption already says 示意圖 — keep it honest).
+- Accessibility: include <title> and <desc>; the alt text is already in the markdown.
+- Responsive: viewBox + width:100%, height auto; legible down to ~360px wide.
+- THEME: an SVG referenced via ![]/<img> is isolated, so the site's data-theme toggle will
+  NOT reach it. Make the figure self-contained and readable in BOTH light and dark — use a
+  transparent background and mid-tone colours + the brand accents (royal-blue / warm-brass),
+  avoid pure-white or pure-black fills/strokes and avoid relying on the page text colour. If
+  you prefer true theme reactivity, you MAY instead inline the <svg> directly in the .mdx
+  (then page CSS variables apply) and drop the external file + ![] line — your call; if you
+  inline it, keep the same caption paragraph.
+
+Verify (local, no deploy): `npm run build` passes; /zh/notes/n2d-overview renders with the
+new section order (Data → 空間/particle → 密度 distribution), the figure visible between the
+density heading and the "一句話" blockquote, the demo caption about the deliberately-chosen
+shape present, and the two quizzes + later sections unchanged; the figure is legible in BOTH
+light and dark and down to ~360px; all existing URLs and the six demo URLs still resolve.
+Report build status and attach light+dark screenshots of the figure. Do NOT push or deploy.
+```
+
+---
+
+## Task — n2d rebuild Batch B: relocate 8 deep notes to the dfc course (regroup + reorder)
+
+Filed by the content agent (2026-06-27), per the author's decision. Plan: `docs/n2d-rebuild-blueprint.md`.
+n2d is being rebuilt as an 11-note beginner course; 8 deeper notes move OUT of it into the
+dfc course as **draft seeds** (to be deepened later). Approach chosen by the author:
+**regroup + set status draft — do NOT delete, do NOT rename slugs, no redirects.**
+
+This SUPERSEDES the earlier instruction (in the "n2d-overview: reorder the bridge" task /
+the Batch 1 reorder) to keep `n2d-why-gaussian` at the end of the n2d block — why-gaussian
+now leaves n2d entirely and joins the dfc draft block.
+
+```
+You are working in the LOCAL clone of github.com/shihhsinwang0214/personal_website.
+Local-only: do not push or deploy. Follow AGENT.md. Hard rules: do NOT delete files; do NOT
+rename or reuse slugs (so no redirects are needed); do not change note BODIES (prose stays
+as-is for now — a later content pass cleans cross-links); keep withBase(); bilingual system
+intact; build must stay green; Pagefind must still index the moved notes.
+
+These 8 notes move from the "From Noise to Data" course to the "Diffusion & Flow Models"
+(dfc) course as drafts:
+  n2d-continuity-equation, n2d-conditional-to-marginal, n2d-diffusion-fm-core,
+  n2d-probability-flow-ode, n2d-path-design, n2d-rectified-flow, n2d-optimal-transport,
+  n2d-why-gaussian.
+
+Do this:
+1. Frontmatter (both languages of each of the 8 notes):
+   - set `group: "Diffusion & Flow Models"` (currently "From Noise to Data");
+   - on the zh file set `status: "draft"` (currently "available"); leave the en stub
+     `status: "missing"`;
+   - bump `updated` to today.
+   Keep slug, title, summary, demos, references unchanged.
+2. In src/lib/notes.ts `noteSlugList`, the From-Noise-to-Data block becomes EXACTLY this
+   11-note order (and nothing else):
+     n2d-overview, n2d-what-models-learn, n2d-samples-as-particles, n2d-vector-field,
+     n2d-probability-path, n2d-denoising, n2d-score-function, n2d-velocity-regression,
+     n2d-sampling-as-integration, n2d-three-languages, n2d-review.
+   Move the 8 relocated slugs into the dfc block (after the existing dfc-principles-* notes).
+   Suggested dfc draft order (adjust if the index reads better): n2d-continuity-equation,
+   n2d-probability-flow-ode, n2d-conditional-to-marginal, n2d-diffusion-fm-core,
+   n2d-path-design, n2d-rectified-flow, n2d-optimal-transport, n2d-why-gaussian.
+3. Confirm the home "Writing" listing, the /notes and /zh/notes index, and prev/next now
+   show an 11-note From Noise to Data course and a Diffusion & Flow Models group that
+   includes the 8 drafts.
+
+Notes / caveats:
+- The 8 relocated bodies still contain n2d-style framing ("系列第 N 篇", prev/next prose,
+  cross-links between them). That cleanup is a later CONTENT pass — not your job here; just
+  don't break the links (slugs are unchanged, so they still resolve).
+- If `status: "draft"` hides a page from the live build, that's acceptable (these are
+  seeds); confirm the files remain in the repo and report how draft pages are rendered
+  (hidden vs shown-with-badge) so the content agent can plan the deepening pass.
+
+Verify (local, no deploy): `npm run build` passes; From Noise to Data shows exactly the 11
+core notes in the order above; the 8 notes appear under Diffusion & Flow Models (as drafts);
+no slug 404s; Pagefind still indexes the moved notes (or, if draft hides them, note that);
+all six demo URLs and the legacy redirects still resolve. Report build status, how draft
+renders, and the final noteSlugList. Do NOT push or deploy.
+```
+
+---
+
+## Task — n2d core sweep: drop hard "第 N 篇" numbers + fix links that point at relocated notes
+
+Filed by the content agent (2026-06-27). After Batch B, the 11 surviving core notes still
+carry pre-move artifacts: hard chapter numbers that are now wrong, and forward/cross-links
+that point at the 8 notes which moved to the dfc course. This is a mechanical sweep —
+numbering + link targets + minimal connective wording only. **Do not rewrite substance, do
+not touch the math, the quizzes, or the demos.** (The content agent has already fixed the
+links/intuition inside `n2d-velocity-regression`, `n2d-three-languages`, and `n2d-review`;
+this sweep still needs to remove their stale chapter numbers and clean the other 8 notes.)
+
+Canonical From-Noise-to-Data order (use this to compute the correct "next"):
+1 n2d-overview · 2 n2d-what-models-learn · 3 n2d-samples-as-particles · 4 n2d-vector-field ·
+5 n2d-probability-path · 6 n2d-denoising · 7 n2d-score-function · 8 n2d-velocity-regression ·
+9 n2d-sampling-as-integration · 10 n2d-three-languages · 11 n2d-review.
+
+Relocated to the dfc course (a link to any of these from a core note is "dangling"):
+n2d-continuity-equation, n2d-conditional-to-marginal, n2d-diffusion-fm-core,
+n2d-probability-flow-ode, n2d-path-design, n2d-rectified-flow, n2d-optimal-transport,
+n2d-why-gaussian.
+
+```
+You are working in the LOCAL clone of github.com/shihhsinwang0214/personal_website.
+Local-only: do not push or deploy. Follow AGENT.md and CONTENT_AGENT.md. Hard rules: do not
+change the meaning of any sentence, any math, any <Quiz>, any demo, or any frontmatter
+except `updated`. Only adjust chapter-number wording and link targets as specified. Keep
+slugs stable. Build must stay green.
+
+Scope: the 11 core .mdx files listed above (zh), in
+site/src/content/notes/research-areas/from-noise-to-data/.
+
+RULE 1 — remove hard chapter numbers.
+Find phrases like 「系列第 N 篇」/「第 N 篇」 (e.g. 第 1、第 4、第 5、第 7、第 8、第 9、第 13、
+第 17 篇) in the opening blockquotes and inline.
+- In an opening blockquote, drop the ordinal but KEEP any role word: e.g.
+  「『From Noise to Data』系列第 17 篇，也是收尾。」 → 「『From Noise to Data』系列的收尾。」;
+  「系列第 1 篇。…」 → 「系列的開場。…」 (keep the rest of the sentence).
+- For an INLINE reference to another note by number (e.g. velocity 的「第 3、4 篇」、「第 4 篇的向量場」),
+  replace the number with that note's name/link instead, e.g. 「[向量場](/personal_website/zh/notes/n2d-vector-field)」.
+Do not invent new numbers; once removed, the course reads by prev/next, not ordinals.
+
+RULE 2 — fix links that point at relocated notes.
+In each core note, find every markdown link whose target slug is in the relocated list
+above. For each:
+- If it is the note's "下一步 / 下一篇" pointer, REPOINT it to the correct NEXT core note
+  per the canonical order. Known cases to fix:
+    * n2d-what-models-learn 下一步 currently → n2d-why-gaussian; change to
+      [跟著一顆粒子走](/personal_website/zh/notes/n2d-samples-as-particles).
+    * n2d-probability-path 下一步 currently → n2d-continuity-equation; change to
+      [Denoising](/personal_website/zh/notes/n2d-denoising).
+    * n2d-sampling-as-integration 下一步 currently → n2d-path-design; change to
+      [三種語言](/personal_website/zh/notes/n2d-three-languages).
+    * n2d-vector-field 下一步 should point to
+      [Probability Path](/personal_website/zh/notes/n2d-probability-path) — verify/fix.
+  Reword the surrounding sentence only as much as needed so it reads naturally (the next
+  topic changed).
+- If it is an in-body "deeper / further reading" mention (NOT the main next-step), repoint
+  it to the dfc course [Diffusion & Flow Models 課程](/personal_website/zh/notes/dfc-principles-course-map)
+  and change wording like 「下一篇…那篇」 → 「更深入時（在 dfc 課程）」. Known cases:
+    * n2d-samples-as-particles: 「精確關係留到 continuity equation 那篇」.
+    * n2d-probability-path: the 「Path Design / Rectified Flow … 門把」 sentence.
+    * n2d-vector-field: any rectified-flow / CNF cross-link in 「這怎麼接到論文」.
+Then bump each edited file's frontmatter `updated` to today.
+
+Also grep to be safe: `grep -rn "n2d-\(continuity-equation\|conditional-to-marginal\|diffusion-fm-core\|probability-flow-ode\|path-design\|rectified-flow\|optimal-transport\|why-gaussian\)" ` over the 11 core files — every hit is a link to triage by the rules above.
+
+Verify (local, no deploy): `npm run build` passes; no core note contains 「第 N 篇」 hard
+numbers; every core note's 下一步 lands on another note INSIDE the 11-note core (no core
+note sends the reader into a dfc draft as its "next"); remaining links to relocated topics
+go to the dfc course page, not to a dead "下一篇"; no 404s; demos unchanged. Report which
+files changed and paste each note's final 下一步 target. Do NOT push or deploy.
+```
+

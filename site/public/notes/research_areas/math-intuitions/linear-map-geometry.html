@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Linear Map Geometry Demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #202631; }
+  body[data-dark="1"] { color: #ece9e2; }
+  .card { max-width: 780px; margin: 0 auto; padding: 18px; border-radius: 8px; background: #fbfaf7; border: 1px solid #ded8cf; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #30323a; }
+  .goal { margin: 0 0 12px; font-size: 0.92rem; line-height: 1.55; }
+  .goal b { color: #1f6f78; } body[data-dark="1"] .goal b { color: #e1b45c; }
+  canvas { width: 100%; max-width: 740px; aspect-ratio: 1 / 0.58; height: auto; display: block; margin: 0 auto; border-radius: 8px; }
+  .controls { display: grid; grid-template-columns: repeat(2, minmax(160px, 1fr)); gap: 10px 16px; margin-top: 14px; }
+  label { display: grid; gap: 4px; font-size: 0.82rem; font-weight: 800; }
+  input[type=range] { width: 100%; accent-color: #1f6f78; }
+  body[data-dark="1"] input[type=range] { accent-color: #e1b45c; }
+  .readout { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: rgba(31,111,120,0.08); font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+  body[data-dark="1"] .readout { background: rgba(225,180,92,0.12); }
+  .observe { margin: 12px 0 0; color: #667078; font-size: 0.83rem; line-height: 1.55; }
+  body[data-dark="1"] .observe { color: #a8a69f; }
+  @media (max-width: 560px) { body { padding: 10px; } .card { padding: 12px; } .controls { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal"><b>拖這個 → 看那個：</b>拖四個 matrix entries，看原本的方格紙如何被同一個 linear map 轉、拉、斜。</p>
+  <canvas id="cv" width="740" height="430" aria-label="2 by 2 matrix transforming a grid"></canvas>
+  <div class="controls">
+    <label>a <input id="a" type="range" min="-2" max="2" step="0.05" value="1.25" /></label>
+    <label>b <input id="b" type="range" min="-2" max="2" step="0.05" value="0.55" /></label>
+    <label>c <input id="c" type="range" min="-2" max="2" step="0.05" value="0.15" /></label>
+    <label>d <input id="d" type="range" min="-2" max="2" step="0.05" value="0.95" /></label>
+  </div>
+  <div class="readout" id="matrixR">A = [[1.25, 0.55], [0.15, 0.95]]</div>
+  <p class="observe">紅色箭頭是 Ae₁，也就是第一個 column；藍色箭頭是 Ae₂，也就是第二個 column。</p>
+</div>
+
+<script src="../noise-to-data/_demo-common.js"></script>
+<script>
+(function () {
+  var cv = document.getElementById('cv');
+  var dpi = NDFlow.hiDPICanvas(cv);
+  var ctx = dpi.ctx;
+  var ids = ['a', 'b', 'c', 'd'];
+  var els = ids.map(function (id) { return document.getElementById(id); });
+  var matrixR = document.getElementById('matrixR');
+  var pal = NDFlow.palette();
+
+  function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+  function mat() { return els.map(function (el) { return parseFloat(el.value); }); }
+  function mul(M, p) { return { x: M[0] * p.x + M[1] * p.y, y: M[2] * p.x + M[3] * p.y }; }
+  function arrow(x0, y0, x1, y1, color, w) {
+    var ang = Math.atan2(y1-y0, x1-x0);
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x1-10*Math.cos(ang-0.45), y1-10*Math.sin(ang-0.45)); ctx.lineTo(x1-10*Math.cos(ang+0.45), y1-10*Math.sin(ang+0.45)); ctx.closePath(); ctx.fill();
+  }
+  function drawGrid(toScreen, M, transformed) {
+    ctx.lineWidth = transformed ? 1.4 : 1;
+    ctx.strokeStyle = transformed ? (pal.dark ? 'rgba(225,180,92,0.55)' : 'rgba(31,111,120,0.55)') : pal.grid;
+    for (var i = -3; i <= 3; i++) {
+      ctx.beginPath();
+      for (var t = -3; t <= 3; t += 0.1) {
+        var p1 = transformed ? mul(M, { x: i, y: t }) : { x: i, y: t };
+        var s1 = toScreen(p1);
+        if (t === -3) ctx.moveTo(s1.x, s1.y); else ctx.lineTo(s1.x, s1.y);
+      }
+      ctx.stroke();
+      ctx.beginPath();
+      for (var u = -3; u <= 3; u += 0.1) {
+        var p2 = transformed ? mul(M, { x: u, y: i }) : { x: u, y: i };
+        var s2 = toScreen(p2);
+        if (u === -3) ctx.moveTo(s2.x, s2.y); else ctx.lineTo(s2.x, s2.y);
+      }
+      ctx.stroke();
+    }
+  }
+  function draw() {
+    var size = dpi.resize();
+    pal = NDFlow.palette();
+    var M = mat();
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = pal.dark ? '#111318' : '#f8f6f0';
+    rr(0, 0, size.w, size.h, 8); ctx.fill();
+    var cx = size.w / 2, cy = size.h / 2, scale = Math.min(size.w, size.h) / 8.2;
+    function toScreen(p) { return { x: cx + p.x * scale, y: cy - p.y * scale }; }
+    drawGrid(toScreen, M, false);
+    drawGrid(toScreen, M, true);
+    var o = toScreen({ x: 0, y: 0 });
+    var e1 = toScreen(mul(M, { x: 1, y: 0 }));
+    var e2 = toScreen(mul(M, { x: 0, y: 1 }));
+    arrow(o.x, o.y, e1.x, e1.y, '#d95f4d', 3);
+    arrow(o.x, o.y, e2.x, e2.y, pal.dark ? '#78aaff' : '#2a4ea3', 3);
+    ctx.fillStyle = pal.ink;
+    ctx.font = '800 13px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('Ae₁', e1.x + 8, e1.y - 6);
+    ctx.fillText('Ae₂', e2.x + 8, e2.y - 6);
+    matrixR.textContent = 'A = [[' + M[0].toFixed(2) + ', ' + M[1].toFixed(2) + '], [' + M[2].toFixed(2) + ', ' + M[3].toFixed(2) + ']]';
+  }
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  els.forEach(function (el) { el.oninput = draw; });
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  applyTheme();
+})();
+</script>
+</body>
+</html>

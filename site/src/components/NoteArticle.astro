@@ -13,6 +13,7 @@ import {
   statusLabels,
 } from '../lib/notes';
 import { withBase } from '../lib/url';
+import Comments from './Comments.astro';
 
 interface Props {
   entry: NoteEntry;
@@ -24,7 +25,16 @@ const { entry, allNotes, lang } = Astro.props;
 const { Content, headings } = await render(entry);
 const { previous, next } = siblingNotes(allNotes, entry);
 const otherLang = lang === 'zh' ? 'en' : 'zh';
-const alternate = findNote(allNotes, entry.data.slug, otherLang);
+const alternateEntry = findNote(allNotes, entry.data.slug, otherLang);
+// Missing translations no longer get standalone pages — only link real ones.
+const alternate =
+  alternateEntry && alternateEntry.data.status !== 'missing' ? alternateEntry : undefined;
+const alternates = alternate
+  ? [
+      { lang, path: noteRoute(entry.data.slug, lang) },
+      { lang: otherLang, path: noteRoute(alternate.data.slug, otherLang) },
+    ]
+  : undefined;
 const researchAreaLabel = researchAreaLabelForNote(entry, lang);
 const tocHeadings = headings.filter((heading) => heading.depth > 1 && heading.depth <= 3);
 const description =
@@ -39,9 +49,27 @@ const wordCount = (rawBody.replace(/[㐀-鿿]/g, ' ').match(/[A-Za-z0-9]+/g) || 
 const readingMinutes = Math.max(1, Math.round(cjkCount / 330 + wordCount / 220));
 const showReadingTime = entry.data.status !== 'missing';
 const readingTimeLabel = lang === 'zh' ? `${readingMinutes} 分鐘閱讀` : `${readingMinutes} min read`;
+
+const articleJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  headline: entry.data.title,
+  description: entry.data.summary,
+  inLanguage: lang === 'zh' ? 'zh-Hant' : 'en',
+  dateModified: entry.data.updated.toISOString().slice(0, 10),
+  author: { '@type': 'Person', name: 'Shih-Hsin Wang' },
+  url: Astro.site ? new URL(withBase(noteRoute(entry.data.slug, lang)), Astro.site).href : undefined,
+};
 ---
 
-<Base title={`${entry.data.title} — Notes`} description={description} active="notes" lang={lang}>
+<Base
+  title={`${entry.data.title} — Notes`}
+  description={description}
+  active="notes"
+  lang={lang}
+  alternates={alternates}
+  jsonLd={articleJsonLd}
+>
   <div class="reading-progress" aria-hidden="true"><span></span></div>
   <button class="back-to-top" type="button" aria-label={lang === 'zh' ? '回到頂部' : 'Back to top'}>
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -130,6 +158,8 @@ const readingTimeLabel = lang === 'zh' ? `${readingMinutes} 分鐘閱讀` : `${r
           )
         }
       </nav>
+
+      {entry.data.status !== 'missing' && <Comments lang={lang} />}
     </article>
   </main>
 

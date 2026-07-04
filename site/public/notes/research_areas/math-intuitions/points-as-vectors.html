@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Points as Vectors Demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif;
+    background: transparent;
+    color: #202631;
+  }
+  body[data-dark="1"] { color: #ece9e2; }
+  .card {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 18px;
+    border-radius: 8px;
+    background: #fbfaf7;
+    border: 1px solid #ded8cf;
+  }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #30323a; }
+  .goal { margin: 0 0 12px; font-size: 0.92rem; line-height: 1.55; }
+  .goal b { color: #1f6f78; }
+  body[data-dark="1"] .goal b { color: #e1b45c; }
+  canvas {
+    width: 100%;
+    max-width: 720px;
+    aspect-ratio: 1 / 0.56;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+    border-radius: 8px;
+  }
+  .controls { display: grid; gap: 12px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 12px; }
+  label { font-size: 0.84rem; font-weight: 800; }
+  input[type=range] { width: 230px; max-width: 62vw; accent-color: #1f6f78; }
+  body[data-dark="1"] input[type=range] { accent-color: #e1b45c; }
+  .readout {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
+    gap: 8px;
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric { padding: 8px 10px; border-radius: 8px; background: rgba(31,111,120,0.08); }
+  body[data-dark="1"] .metric { background: rgba(225,180,92,0.12); }
+  .metric span { display: block; color: #667078; font-size: 0.72rem; margin-bottom: 2px; }
+  body[data-dark="1"] .metric span { color: #a8a69f; }
+  .observe { margin: 12px 0 0; color: #667078; font-size: 0.83rem; line-height: 1.55; }
+  body[data-dark="1"] .observe { color: #a8a69f; }
+  @media (max-width: 560px) {
+    body { padding: 10px; }
+    .card { padding: 12px; }
+    .readout { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal"><b>拖這個 → 看那個：</b>調整亮度和上下差異，看小圖如何變成右邊 feature space 裡的一個點。</p>
+  <canvas id="cv" width="720" height="404" aria-label="image features becoming a point in two-dimensional feature space"></canvas>
+  <div class="controls">
+    <div class="row">
+      <label for="bright">整體亮度</label>
+      <input id="bright" type="range" min="0.15" max="0.95" step="0.01" value="0.58" />
+      <label for="contrast">上下差異</label>
+      <input id="contrast" type="range" min="-0.55" max="0.55" step="0.01" value="0.18" />
+    </div>
+    <div class="readout">
+      <div class="metric"><span>vector</span><strong id="vecR">(0.58, 0.18)</strong></div>
+      <div class="metric"><span>dimension</span><strong>2-D toy</strong></div>
+      <div class="metric"><span>meaning</span><strong id="meaningR">偏亮，上半部較亮</strong></div>
+    </div>
+  </div>
+  <p class="observe">真實照片會有更多 coordinates；這裡只用兩個，是為了看清楚「資料 → vector → 空間中的點」這一步。</p>
+</div>
+
+<script src="../noise-to-data/_demo-common.js"></script>
+<script>
+(function () {
+  var cv = document.getElementById('cv');
+  var dpi = NDFlow.hiDPICanvas(cv);
+  var ctx = dpi.ctx;
+  var brightEl = document.getElementById('bright');
+  var contrastEl = document.getElementById('contrast');
+  var vecR = document.getElementById('vecR');
+  var meaningR = document.getElementById('meaningR');
+  var pal = NDFlow.palette();
+  var texture = [
+    -0.06, 0.04, -0.02, 0.07,
+     0.03, -0.04, 0.05, -0.03,
+     0.02, 0.06, -0.05, 0.01,
+    -0.04, 0.02, 0.04, -0.06
+  ];
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function arrow(x0, y0, x1, y1, color, width) {
+    var a = Math.atan2(y1 - y0, x1 - x0);
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - 10 * Math.cos(a - 0.5), y1 - 10 * Math.sin(a - 0.5));
+    ctx.lineTo(x1 - 10 * Math.cos(a + 0.5), y1 - 10 * Math.sin(a + 0.5));
+    ctx.closePath();
+    ctx.fill();
+  }
+  function drawImage(left, top, size, b, c) {
+    var cell = size / 4;
+    ctx.fillStyle = pal.dark ? '#15161a' : '#f4f0e8';
+    rr(left - 10, top - 10, size + 20, size + 20, 8);
+    ctx.fill();
+    for (var r = 0; r < 4; r++) {
+      for (var col = 0; col < 4; col++) {
+        var rowFactor = (1.5 - r) / 1.5;
+        var val = clamp(b + c * rowFactor + texture[r * 4 + col], 0, 1);
+        var g = Math.round(val * 255);
+        ctx.fillStyle = 'rgb(' + g + ',' + g + ',' + g + ')';
+        ctx.fillRect(left + col * cell, top + r * cell, cell - 2, cell - 2);
+      }
+    }
+    ctx.fillStyle = pal.ink;
+    ctx.font = '800 13px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('toy image', left, top + size + 28);
+  }
+  function drawScatter(left, top, w, h, b, c) {
+    var x0 = left + 40, y0 = top + h - 34;
+    var plotW = w - 62, plotH = h - 64;
+    ctx.fillStyle = pal.dark ? '#15161a' : '#ffffff';
+    rr(left, top, w, h, 8);
+    ctx.fill();
+    ctx.strokeStyle = pal.grid;
+    ctx.lineWidth = 1;
+    for (var i = 0; i <= 4; i++) {
+      var gx = x0 + plotW * i / 4;
+      var gy = y0 - plotH * i / 4;
+      ctx.beginPath(); ctx.moveTo(gx, y0); ctx.lineTo(gx, y0 - plotH); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x0, gy); ctx.lineTo(x0 + plotW, gy); ctx.stroke();
+    }
+    ctx.strokeStyle = pal.muted;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x0 + plotW + 8, y0);
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x0, y0 - plotH - 8);
+    ctx.stroke();
+
+    var examples = [[0.25,-0.34],[0.36,0.2],[0.48,-0.08],[0.69,0.31],[0.82,-0.2],[0.58,0.02]];
+    ctx.fillStyle = pal.dark ? 'rgba(160,170,185,0.45)' : 'rgba(80,92,110,0.28)';
+    examples.forEach(function (p) {
+      var ex = x0 + p[0] * plotW;
+      var ey = y0 - ((p[1] + 0.6) / 1.2) * plotH;
+      ctx.beginPath(); ctx.arc(ex, ey, 4, 0, Math.PI * 2); ctx.fill();
+    });
+    var px = x0 + b * plotW;
+    var py = y0 - ((c + 0.6) / 1.2) * plotH;
+    ctx.fillStyle = pal.accent;
+    ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = pal.dark ? '#ffe0a3' : '#153b42';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = pal.ink;
+    ctx.font = '800 13px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('feature space', left + 12, top + 22);
+    ctx.font = '700 11px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('brightness', x0 + plotW - 62, y0 + 24);
+    ctx.save();
+    ctx.translate(x0 - 24, y0 - plotH + 80);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText('top-minus-bottom', 0, 0);
+    ctx.restore();
+  }
+  function draw() {
+    var size = dpi.resize();
+    pal = NDFlow.palette();
+    var b = parseFloat(brightEl.value);
+    var c = parseFloat(contrastEl.value);
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = pal.dark ? '#111318' : '#f8f6f0';
+    rr(0, 0, size.w, size.h, 8);
+    ctx.fill();
+    var imgSize = Math.min(180, size.w * 0.28);
+    var imgLeft = Math.max(24, size.w * 0.08);
+    var imgTop = Math.max(46, size.h * 0.22);
+    drawImage(imgLeft, imgTop, imgSize, b, c);
+    arrow(imgLeft + imgSize + 34, imgTop + imgSize * 0.48, size.w * 0.52 - 18, imgTop + imgSize * 0.48, pal.accent, 2.3);
+    drawScatter(size.w * 0.52, 24, size.w * 0.44, size.h - 48, b, c);
+    vecR.textContent = '(' + b.toFixed(2) + ', ' + c.toFixed(2) + ')';
+    meaningR.textContent = (b > 0.62 ? '偏亮' : b < 0.4 ? '偏暗' : '中等亮度') + '，' + (c > 0.07 ? '上半部較亮' : c < -0.07 ? '下半部較亮' : '上下接近');
+  }
+  function applyTheme() {
+    pal = NDFlow.palette();
+    document.body.dataset.dark = pal.dark ? '1' : '0';
+    draw();
+  }
+  brightEl.oninput = draw;
+  contrastEl.oninput = draw;
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  applyTheme();
+})();
+</script>
+</body>
+</html>

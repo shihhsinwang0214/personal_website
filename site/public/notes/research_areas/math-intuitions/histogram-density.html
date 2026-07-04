@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Density versus Probability Demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #202631; }
+  body[data-dark="1"] { color: #ece9e2; }
+  .card { max-width: 700px; margin: 0 auto; padding: 18px; border-radius: 8px; background: #fbfaf7; border: 1px solid #ded8cf; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #30323a; }
+  .goal { margin: 0 0 12px; font-size: 0.92rem; line-height: 1.5; }
+  .goal b { color: #1f6f78; } body[data-dark="1"] .goal b { color: #e1b45c; }
+  canvas { width: 100%; max-width: 640px; aspect-ratio: 1 / 0.58; height: auto; display: block; margin: 0 auto; border-radius: 8px; }
+  .controls { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; }
+  label { font-size: 0.84rem; font-weight: 700; }
+  input[type=range] { width: 210px; max-width: 60vw; accent-color: #1f6f78; }
+  body[data-dark="1"] input[type=range] { accent-color: #e1b45c; }
+  .readout { display: grid; grid-template-columns: repeat(3, minmax(110px, 1fr)); gap: 8px; font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+  .metric { padding: 8px 10px; border-radius: 8px; background: rgba(31,111,120,0.08); }
+  body[data-dark="1"] .metric { background: rgba(225,180,92,0.12); }
+  .metric span { display: block; color: #667078; font-size: 0.72rem; margin-bottom: 2px; }
+  body[data-dark="1"] .metric span { color: #a8a69f; }
+  .observe { margin: 12px 0 0; color: #667078; font-size: 0.83rem; line-height: 1.55; }
+  body[data-dark="1"] .observe { color: #a8a69f; }
+  @media (max-width: 520px) { body { padding: 10px; } .card { padding: 12px; } .readout { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：<b>probability density</b> 是曲線高度；真正的 probability 是一段區間下面的面積。</p>
+  <canvas id="cv" width="640" height="370" aria-label="histogram becoming a density curve"></canvas>
+  <div class="controls">
+    <div class="row">
+      <label for="bins">histogram bins</label>
+      <input id="bins" type="range" min="8" max="80" step="1" value="24" />
+      <label for="width">區間寬度</label>
+      <input id="width" type="range" min="0.2" max="2.4" step="0.05" value="1.0" />
+    </div>
+    <div class="row">
+      <label for="center">區間中心</label>
+      <input id="center" type="range" min="-2.6" max="2.6" step="0.05" value="0.0" />
+    </div>
+    <div class="readout">
+      <div class="metric"><span>bins</span><strong id="binsR">24</strong></div>
+      <div class="metric"><span>selected interval</span><strong id="intR">[-0.50, 0.50]</strong></div>
+      <div class="metric"><span>area under pdf</span><strong id="areaR">0.22</strong></div>
+    </div>
+  </div>
+  <p class="observe">觀察這個不變量 / tradeoff：bins 變細時，每根柱子的高度會變，但「一段寬度 × 高度」得到的面積才對應 probability。</p>
+</div>
+
+<script src="../noise-to-data/_demo-common.js"></script>
+<script>
+(function () {
+  var cv = document.getElementById('cv');
+  var dpi = NDFlow.hiDPICanvas(cv);
+  var ctx = dpi.ctx, size = { w: 640, h: 370 };
+  var binsEl = document.getElementById('bins');
+  var widthEl = document.getElementById('width');
+  var centerEl = document.getElementById('center');
+  var binsR = document.getElementById('binsR');
+  var intR = document.getElementById('intR');
+  var areaR = document.getElementById('areaR');
+  var pal = NDFlow.palette();
+  var samples = [];
+  var xmin = -3.4, xmax = 3.4;
+
+  function normalPdf(x, m, s) {
+    var z = (x - m) / s;
+    return Math.exp(-0.5 * z * z) / (s * Math.sqrt(2 * Math.PI));
+  }
+  function pdf(x) {
+    return 0.55 * normalPdf(x, -1.0, 0.42) + 0.45 * normalPdf(x, 1.05, 0.72);
+  }
+  function sample() {
+    if (Math.random() < 0.55) return -1.0 + 0.42 * NDFlow.randn();
+    return 1.05 + 0.72 * NDFlow.randn();
+  }
+  function makeSamples() {
+    samples = [];
+    for (var i = 0; i < 1800; i++) samples.push(sample());
+  }
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function toX(x, left, plotW) { return left + (x - xmin) / (xmax - xmin) * plotW; }
+  function toY(y, top, plotH, ymax) { return top + plotH - y / ymax * plotH; }
+  function area(a, b) {
+    var n = 240, h = (b - a) / n, s = 0;
+    for (var i = 0; i <= n; i++) {
+      var x = a + i * h;
+      s += pdf(x) * (i === 0 || i === n ? 0.5 : 1);
+    }
+    return s * h;
+  }
+  function draw() {
+    size = dpi.resize();
+    var left = 36, right = 18, top = 24, bottom = 34;
+    var plotW = size.w - left - right, plotH = size.h - top - bottom;
+    var bins = parseInt(binsEl.value, 10);
+    var bw = (xmax - xmin) / bins;
+    var center = parseFloat(centerEl.value);
+    var width = parseFloat(widthEl.value);
+    var a = center - width / 2, b = center + width / 2;
+    var ymax = 0.62;
+
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = pal.bg;
+    rr(0, 0, size.w, size.h, 8);
+    ctx.fill();
+    ctx.strokeStyle = pal.grid;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(left, top + plotH);
+    ctx.lineTo(left + plotW, top + plotH);
+    ctx.stroke();
+
+    var counts = new Array(bins).fill(0);
+    for (var i = 0; i < samples.length; i++) {
+      var k = Math.floor((samples[i] - xmin) / (xmax - xmin) * bins);
+      if (k >= 0 && k < bins) counts[k]++;
+    }
+    ctx.fillStyle = 'rgba(70,150,255,0.48)';
+    for (var j = 0; j < bins; j++) {
+      var h = counts[j] / (samples.length * bw);
+      var x0 = toX(xmin + j * bw, left, plotW);
+      var x1 = toX(xmin + (j + 1) * bw, left, plotW);
+      var y = toY(h, top, plotH, ymax);
+      ctx.fillRect(x0 + 1, y, Math.max(1, x1 - x0 - 2), top + plotH - y);
+    }
+
+    var xa = Math.max(xmin, a), xb = Math.min(xmax, b);
+    if (xb > xa) {
+      ctx.fillStyle = pal.dark ? 'rgba(225,180,92,0.22)' : 'rgba(31,111,120,0.20)';
+      ctx.beginPath();
+      ctx.moveTo(toX(xa, left, plotW), top + plotH);
+      for (var s = 0; s <= 120; s++) {
+        var xx = xa + (xb - xa) * s / 120;
+        ctx.lineTo(toX(xx, left, plotW), toY(pdf(xx), top, plotH, ymax));
+      }
+      ctx.lineTo(toX(xb, left, plotW), top + plotH);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = pal.accent;
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    for (var t = 0; t <= 280; t++) {
+      var x = xmin + (xmax - xmin) * t / 280;
+      var px = toX(x, left, plotW), py = toY(pdf(x), top, plotH, ymax);
+      if (t === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = '#f3f0e8';
+    ctx.font = '800 13px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('pdf curve', left + 6, top + 18);
+    ctx.fillStyle = pal.dark ? '#ece9e2' : '#202631';
+    ctx.font = '700 11px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('x', left + plotW - 8, top + plotH + 22);
+    binsR.textContent = String(bins);
+    intR.textContent = '[' + a.toFixed(2) + ', ' + b.toFixed(2) + ']';
+    areaR.textContent = area(a, b).toFixed(3);
+  }
+  function applyTheme() {
+    pal = NDFlow.palette();
+    document.body.dataset.dark = pal.dark ? '1' : '0';
+    draw();
+  }
+  binsEl.oninput = draw;
+  widthEl.oninput = draw;
+  centerEl.oninput = draw;
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  makeSamples();
+  applyTheme();
+})();
+</script>
+</body>
+</html>

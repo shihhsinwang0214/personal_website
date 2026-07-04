@@ -1,0 +1,71 @@
+---
+// giscus comments — renders only when configured in src/data/integrations.ts.
+// Theme follows the site's light/dark mode and re-syncs on toggle.
+import { comments } from '../data/integrations';
+
+interface Props {
+  lang?: 'en' | 'zh';
+}
+const { lang = 'en' } = Astro.props;
+const ready = comments.enabled && comments.repo && comments.repoId && comments.categoryId;
+---
+
+{
+  ready && (
+    <section class="comments" aria-label={lang === 'zh' ? '留言' : 'Comments'}>
+      <h2 class="comments-heading">{lang === 'zh' ? '留言討論' : 'Comments'}</h2>
+      <div
+        class="giscus"
+        data-giscus
+        data-repo={comments.repo}
+        data-repo-id={comments.repoId}
+        data-category={comments.category}
+        data-category-id={comments.categoryId}
+        data-mapping={comments.mapping}
+        data-reactions-enabled={comments.reactionsEnabled}
+        data-lang={lang === 'zh' ? 'zh-TW' : 'en'}
+      />
+    </section>
+  )
+}
+
+{
+  ready && (
+    <script>
+      function giscusTheme() {
+        return document.documentElement.dataset.theme === 'dark' ? 'dark_dimmed' : 'light';
+      }
+      function mountGiscus() {
+        const holder = document.querySelector('[data-giscus]');
+        if (!holder || holder.querySelector('iframe.giscus-frame') || holder.dataset.mounted) return;
+        holder.dataset.mounted = '1';
+        const s = document.createElement('script');
+        s.src = 'https://giscus.app/client.js';
+        s.async = true;
+        s.crossOrigin = 'anonymous';
+        s.setAttribute('data-repo', holder.dataset.repo);
+        s.setAttribute('data-repo-id', holder.dataset.repoId);
+        s.setAttribute('data-category', holder.dataset.category);
+        s.setAttribute('data-category-id', holder.dataset.categoryId);
+        s.setAttribute('data-mapping', holder.dataset.mapping);
+        s.setAttribute('data-reactions-enabled', holder.dataset.reactionsEnabled);
+        s.setAttribute('data-emit-metadata', '0');
+        s.setAttribute('data-input-position', 'top');
+        s.setAttribute('data-theme', giscusTheme());
+        s.setAttribute('data-lang', holder.dataset.lang);
+        holder.appendChild(s);
+      }
+      function syncTheme() {
+        const frame = document.querySelector<HTMLIFrameElement>('iframe.giscus-frame');
+        if (!frame || !frame.contentWindow) return;
+        frame.contentWindow.postMessage(
+          { giscus: { setConfig: { theme: giscusTheme() } } },
+          'https://giscus.app',
+        );
+      }
+      document.addEventListener('astro:page-load', mountGiscus);
+      const themeBtn = document.querySelector('.theme-toggle');
+      if (themeBtn) themeBtn.addEventListener('click', () => setTimeout(syncTheme, 60));
+    </script>
+  )
+}

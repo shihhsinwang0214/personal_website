@@ -1,0 +1,103 @@
+---
+slug: "math-linear-map-geometry"
+lang: "zh"
+title: "Linear Map：把整個空間一起轉、拉、斜"
+category: "courses"
+group: "Lecture 2 · Eigen, SVD & PCA"
+status: "available"
+updated: 2026-06-30
+summary: "修圖裡的旋轉、拉寬、傾斜，可以先看成同一種動作：把整張方格紙一起搬到新的位置。"
+demos:
+  - "notes/research_areas/math-intuitions/linear-map-geometry.html"
+references: []
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Linear Map：把整個空間一起轉、拉、斜
+
+修圖軟體裡有「旋轉」、「拉寬」、「傾斜」這些看起來很不一樣的操作。可是電腦不想為每一種視覺效果都發明一套全新的規則。
+
+有沒有一個共同工具，可以描述：每個點都照同一個規則移動，直線還是直線，格線也跟著整張變形？
+
+## 把不同修圖動作放進同一個盒子
+
+要回答這個問題，我們需要 **linear map**。白話說，linear map 是「固定原點，並且把整張空間按同一個比例規則變形」的動作。旋轉、拉伸、剪斜都可以是 linear map；單純把整張圖往右搬，先不要算進來。
+
+在 2-D 裡，linear map 最容易用一個 matrix 表示。上一講把 matrix 看成資料表和批次運算；這一篇換一個視角：matrix 也是一個會作用在整個空間上的動作。
+
+直覺畫面是：你拿一張方格紙，固定住原點，然後拉某些方向、壓某些方向、把方格變成平行四邊形。只要原本的直線仍然變成直線，原點仍然留在原點，這就是 linear map 的典型幾何味道。
+
+## 拖四個數字，看整張網格怎麼動
+
+下面的 demo 把 2-D matrix 的四個數字做成 slider。拖其中一個數字，觀察整張格線怎麼變；也看紅、藍兩支 basis vector 的落點怎麼決定整個動作。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/math-intuitions/linear-map-geometry.html" class="demo-frame" title="Linear map geometry demo" style="height: 660px; width: 100%; border: none;"></iframe>
+
+這裡的 **basis vector** 是「最基本的兩支座標箭頭」：$e_1$ 指向右邊一格，$e_2$ 指向上面一格。只要知道這兩支箭頭被送去哪裡，整張格線就跟著被決定了。
+
+## 兩支基準箭頭決定整個動作
+
+設
+
+$$
+A=
+\begin{bmatrix}
+a & b\\
+c & d
+\end{bmatrix},
+\qquad
+e_1=
+\begin{bmatrix}
+1\\
+0
+\end{bmatrix},
+\qquad
+e_2=
+\begin{bmatrix}
+0\\
+1
+\end{bmatrix}.
+$$
+
+直接乘一次：
+
+$$
+Ae_1=
+\begin{bmatrix}
+a\\
+c
+\end{bmatrix},
+\qquad
+Ae_2=
+\begin{bmatrix}
+b\\
+d
+\end{bmatrix}.
+$$
+
+也就是說，$Ae_1$ 正好是 $A$ 的第一個 column，$Ae_2$ 正好是第二個 column。這就是「columns of $A$ are where the basis vectors land」。
+
+便宜檢查兩個情況：identity matrix 把 $e_1,e_2$ 留在原處，所以格線不動；把第一個 column 拉成兩倍，就只會把水平方向拉寬。
+
+換成白話：如果修圖軟體知道「往右一格」和「往上一格」這兩件事變成什麼，它就知道每個點要去哪裡。
+
+## 一個最容易混淆的地方
+
+<Quiz
+  q="把整張圖片往右移一點，算不算 linear map？"
+  options={[
+    { text: "不算，因為原點也被搬走了；這是 affine 動作。", correct: true, explain: "正解。translation 很像一種規則化移動，但 linear map 必須把原點留在原點。affine 可以理解成 linear map 再加一個平移。" },
+    { text: "算，因為每個點都照同一個方向移動。", explain: "這個想法很自然，但 linear map 不只要求規則一致，也要求原點不動。" },
+    { text: "只有往上移算，往右移不算。", explain: "方向不是重點；任何純平移都會把原點搬走，所以都不是 linear map。" },
+  ]}
+/>
+
+## 修圖問題的答案
+
+旋轉、拉寬、傾斜可以被同一個工具描述：用 matrix 表示一個 linear map，讓整張空間照同一個規則變形。它的 columns 告訴你兩支 basis vector 會落到哪裡，整個動作就被定下來。
+
+下一篇會問一個更細的問題：在這種變形裡，有沒有某些方向雖然被拉長或壓短，卻沒有被轉歪？這會帶到 [Eigenvector and Eigenvalue：找出不被轉走的方向](/personal_website/zh/notes/math-eigenvectors-and-eigenvalues)。
+
+## 參考文獻
+
+本篇只用 standard linear algebra 的基本定義（linear map、matrix-vector product、basis vector），未引用特定 research result。

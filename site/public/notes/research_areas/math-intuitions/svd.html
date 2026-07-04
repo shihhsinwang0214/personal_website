@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SVD Demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #202631; }
+  body[data-dark="1"] { color: #ece9e2; }
+  .card { max-width: 780px; margin: 0 auto; padding: 18px; border-radius: 8px; background: #fbfaf7; border: 1px solid #ded8cf; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #30323a; }
+  .goal { margin: 0 0 12px; font-size: 0.92rem; line-height: 1.55; }
+  .goal b { color: #1f6f78; } body[data-dark="1"] .goal b { color: #e1b45c; }
+  canvas { width: 100%; max-width: 740px; aspect-ratio: 1 / 0.58; height: auto; display: block; margin: 0 auto; border-radius: 8px; }
+  .controls { display: grid; grid-template-columns: repeat(2, minmax(160px, 1fr)); gap: 10px 16px; margin-top: 14px; }
+  label { display: grid; gap: 4px; font-size: 0.82rem; font-weight: 800; }
+  input[type=range] { width: 100%; accent-color: #1f6f78; }
+  body[data-dark="1"] input[type=range] { accent-color: #e1b45c; }
+  .readout { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: rgba(31,111,120,0.08); font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+  body[data-dark="1"] .readout { background: rgba(225,180,92,0.12); }
+  .observe { margin: 12px 0 0; color: #667078; font-size: 0.83rem; line-height: 1.55; }
+  body[data-dark="1"] .observe { color: #a8a69f; }
+  @media (max-width: 560px) { body { padding: 10px; } .card { padding: 12px; } .controls { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal"><b>拖這個 → 看那個：</b>拖 stage slider，看 unit circle 經過 Vᵀ、Σ、U 三步後如何變成橢圓。</p>
+  <canvas id="cv" width="740" height="430" aria-label="SVD transforms a unit circle through rotate stretch rotate stages"></canvas>
+  <div class="controls">
+    <label>stage <input id="stage" type="range" min="0" max="3" step="1" value="3" /></label>
+    <label>first rotation <input id="tv" type="range" min="-90" max="90" step="1" value="35" /></label>
+    <label>σ₁ <input id="s1" type="range" min="0.4" max="2.4" step="0.05" value="1.9" /></label>
+    <label>σ₂ <input id="s2" type="range" min="0.2" max="1.8" step="0.05" value="0.65" /></label>
+    <label>final rotation <input id="tu" type="range" min="-90" max="90" step="1" value="-25" /></label>
+  </div>
+  <div class="readout" id="readout">stage 3: UΣVᵀ circle → ellipse</div>
+  <p class="observe">σ₁ 控制長軸，σ₂ 控制短軸；兩個 rotation 只改方向，不改軸長。</p>
+</div>
+
+<script src="../noise-to-data/_demo-common.js"></script>
+<script>
+(function () {
+  var cv = document.getElementById('cv'), dpi = NDFlow.hiDPICanvas(cv), ctx = dpi.ctx;
+  var stage = document.getElementById('stage'), tv = document.getElementById('tv'), tu = document.getElementById('tu'), s1 = document.getElementById('s1'), s2 = document.getElementById('s2');
+  var readout = document.getElementById('readout'), pal = NDFlow.palette();
+  function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+  function rot(p, deg){var a=deg*Math.PI/180,c=Math.cos(a),s=Math.sin(a);return {x:c*p.x-s*p.y,y:s*p.x+c*p.y};}
+  function trans(p) {
+    var st=parseInt(stage.value,10), q={x:p.x,y:p.y};
+    if(st>=1) q=rot(q,-parseFloat(tv.value));
+    if(st>=2) q={x:parseFloat(s1.value)*q.x,y:parseFloat(s2.value)*q.y};
+    if(st>=3) q=rot(q,parseFloat(tu.value));
+    return q;
+  }
+  function arrow(x0,y0,x1,y1,color,w){var a=Math.atan2(y1-y0,x1-x0);ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=w;ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x1,y1);ctx.stroke();ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x1-10*Math.cos(a-0.45),y1-10*Math.sin(a-0.45));ctx.lineTo(x1-10*Math.cos(a+0.45),y1-10*Math.sin(a+0.45));ctx.closePath();ctx.fill();}
+  function drawShape(toScreen) {
+    ctx.strokeStyle = pal.accent; ctx.lineWidth = 2.4; ctx.beginPath();
+    for (var i=0;i<=240;i++){var a=i/240*Math.PI*2,p=trans({x:Math.cos(a),y:Math.sin(a)}),s=toScreen(p); if(i===0)ctx.moveTo(s.x,s.y); else ctx.lineTo(s.x,s.y);}
+    ctx.stroke();
+    var e1=toScreen(trans({x:1,y:0})), e2=toScreen(trans({x:0,y:1})), o=toScreen({x:0,y:0});
+    arrow(o.x,o.y,e1.x,e1.y,'#d95f4d',3); arrow(o.x,o.y,e2.x,e2.y,pal.dark?'#78aaff':'#2a4ea3',3);
+  }
+  function draw(){
+    var size=dpi.resize(); pal=NDFlow.palette(); ctx.clearRect(0,0,size.w,size.h); ctx.fillStyle=pal.dark?'#111318':'#f8f6f0'; rr(0,0,size.w,size.h,8); ctx.fill();
+    var cx=size.w/2,cy=size.h/2,scale=Math.min(size.w,size.h)/5.8; function S(p){return{x:cx+p.x*scale,y:cy-p.y*scale};}
+    ctx.strokeStyle=pal.grid; ctx.lineWidth=1; for(var i=-3;i<=3;i++){ctx.beginPath();ctx.moveTo(cx+i*scale,24);ctx.lineTo(cx+i*scale,size.h-24);ctx.stroke();ctx.beginPath();ctx.moveTo(24,cy+i*scale);ctx.lineTo(size.w-24,cy+i*scale);ctx.stroke();}
+    ctx.strokeStyle=pal.muted; ctx.setLineDash([4,5]); ctx.beginPath(); for(var j=0;j<=240;j++){var a=j/240*Math.PI*2,s=S({x:Math.cos(a),y:Math.sin(a)}); if(j===0)ctx.moveTo(s.x,s.y);else ctx.lineTo(s.x,s.y);} ctx.stroke(); ctx.setLineDash([]);
+    drawShape(S);
+    var names=['input circle','after Vᵀ rotation','after Σ stretch','after U rotation']; readout.textContent='stage '+stage.value+': '+names[parseInt(stage.value,10)]+'; σ₁='+parseFloat(s1.value).toFixed(2)+', σ₂='+parseFloat(s2.value).toFixed(2);
+  }
+  function applyTheme(){pal=NDFlow.palette();document.body.dataset.dark=pal.dark?'1':'0';draw();}
+  [stage,tv,tu,s1,s2].forEach(function(el){el.oninput=draw;});
+  window.addEventListener('resize',draw); NDFlow.onThemeChange(applyTheme); applyTheme();
+})();
+</script>
+</body>
+</html>

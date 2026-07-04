@@ -4,12 +4,19 @@ import 'katex/dist/katex.min.css';
 import { ClientRouter } from 'astro:transitions';
 import { withBase } from '../lib/url';
 import { profile } from '../data/content';
+import { analytics } from '../data/integrations';
 
 interface Props {
   title: string;
   description?: string;
   active?: 'home' | 'publications' | 'experience' | 'notes' | 'about';
   lang?: 'en' | 'zh';
+  /** hreflang alternates for bilingual pages (site-relative paths, no leading slash) */
+  alternates?: { lang: 'en' | 'zh'; path: string }[];
+  /** JSON-LD structured data object(s) rendered in <head> */
+  jsonLd?: object | object[];
+  /** when set, a language toggle appears in the header linking to this (already base-resolved) URL */
+  langToggleHref?: string;
 }
 
 const {
@@ -17,18 +24,31 @@ const {
   description = 'Shih-Hsin Wang — academic profile, research, and notes.',
   active = 'home',
   lang = 'en',
+  alternates,
+  jsonLd,
+  langToggleHref,
 } = Astro.props;
+
+const isZh = lang === 'zh';
+
+const hreflangLinks = (alternates ?? []).map((alt) => ({
+  hreflang: alt.lang === 'zh' ? 'zh-Hant' : 'en',
+  href: new URL(withBase(alt.path), Astro.site).href,
+}));
+const jsonLdBlocks = jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [];
 const canonicalUrl = Astro.url.href;
 const ogImageUrl = new URL(withBase(profile.photo), Astro.url).href;
 const notesFeedUrl = withBase('rss.xml');
 const newsFeedUrl = withBase('news.xml');
 
+// Nav is language-aware. Home / Notes / About have zh versions; Publications,
+// Experience and CV are English-only by design, so they always point to the en pages.
 const nav = [
-  { id: 'home', label: 'Home', href: withBase('') },
-  { id: 'notes', label: 'Writing', href: withBase('notes') },
-  { id: 'publications', label: 'Publications', href: withBase('publications') },
-  { id: 'experience', label: 'Experience', href: withBase('experience') },
-  { id: 'about', label: 'About', href: withBase('about') },
+  { id: 'home', label: isZh ? '首頁' : 'Home', href: withBase(isZh ? 'zh' : '') },
+  { id: 'notes', label: isZh ? '筆記' : 'Notes', href: withBase(isZh ? 'zh/notes' : 'notes') },
+  { id: 'publications', label: isZh ? '著作' : 'Publications', href: withBase('publications') },
+  { id: 'experience', label: isZh ? '經歷' : 'Experience', href: withBase('experience') },
+  { id: 'about', label: isZh ? '關於' : 'About', href: withBase(isZh ? 'zh/about' : 'about') },
   { id: 'cv', label: 'CV', href: withBase(profile.cv), external: true },
 ];
 
@@ -43,6 +63,10 @@ const year = new Date().getFullYear();
     <meta name="description" content={description} />
     <title>{title}</title>
     <link rel="canonical" href={canonicalUrl} />
+    {hreflangLinks.map((l) => <link rel="alternate" hreflang={l.hreflang} href={l.href} />)}
+    {jsonLdBlocks.map((block) => (
+      <script type="application/ld+json" set:html={JSON.stringify(block)} />
+    ))}
     <link rel="icon" href={withBase('favicon.svg')} type="image/svg+xml" />
     <link rel="alternate" type="application/rss+xml" title="Shih-Hsin Wang notes RSS" href={notesFeedUrl} />
     <link rel="alternate" type="application/rss+xml" title="Shih-Hsin Wang news RSS" href={newsFeedUrl} />
@@ -75,6 +99,16 @@ const year = new Date().getFullYear();
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
       rel="stylesheet"
     />
+    {
+      analytics.enabled && analytics.code && (
+        <script
+          is:inline
+          data-goatcounter={`https://${analytics.code}.goatcounter.com/count`}
+          async
+          src="//gc.zgo.at/count.js"
+        />
+      )
+    }
     <ClientRouter />
   </head>
   <body>
@@ -82,7 +116,7 @@ const year = new Date().getFullYear();
 
     <header class="site-header">
       <div class="topbar-inner">
-        <a class="brand" href={withBase('')}>
+        <a class="brand" href={withBase(isZh ? 'zh' : '')}>
           <img class="brand-avatar" src={withBase(profile.photo)} alt="" />
           <span class="brand-name">{profile.name} <span class="brand-zh">{profile.nameZh}</span></span>
         </a>
@@ -102,6 +136,14 @@ const year = new Date().getFullYear();
               ))
             }
           </nav>
+
+          {
+            langToggleHref && (
+              <a class="lang-toggle" href={langToggleHref} aria-label={isZh ? 'Switch to English' : '切換至中文'}>
+                {isZh ? 'EN' : '中文'}
+              </a>
+            )
+          }
 
           <button class="theme-toggle" type="button" aria-label="Toggle dark mode" aria-pressed="false">
             <svg class="icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
@@ -224,6 +266,19 @@ const year = new Date().getFullYear();
         } catch (e) {}
       });
       document.addEventListener('astro:page-load', setup);
+
+      // GoatCounter: count SPA navigations (view transitions don't reload count.js).
+      let __firstLoad = true;
+      document.addEventListener('astro:page-load', () => {
+        if (__firstLoad) {
+          __firstLoad = false;
+          return;
+        }
+        const gc = (window as any).goatcounter;
+        if (gc && typeof gc.count === 'function') {
+          gc.count({ path: location.pathname + location.search });
+        }
+      });
     </script>
   </body>
 </html>

@@ -1,0 +1,88 @@
+---
+slug: "math-low-rank-approximation"
+lang: "zh"
+title: "Low-Rank Approximation：只留最重要的方向來重建"
+category: "courses"
+group: "Lecture 2 · Eigen, SVD & PCA"
+status: "available"
+updated: 2026-06-30
+summary: "truncated SVD 只保留最大的幾個方向，常常就能用少量資訊重建出很接近原本的資料。"
+demos:
+  - "notes/research_areas/math-intuitions/low-rank-approximation.html"
+references:
+  - "Eckart and Young (1936), The approximation of one matrix by another of lower rank."
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Low-Rank Approximation：只留最重要的方向來重建
+
+一張高解析照片很佔空間。可是肉眼常常不需要每一點微小變化都完全保留，仍然能看出照片內容。
+
+能不能只留下少數幾個「最重要的方向」，就把它重建得幾乎看不出差別，檔案卻小很多？
+
+## 少數方向也能重建大部分
+
+這裡的工具叫 **truncated SVD**。白話說，就是先做 SVD，再只保留最大的幾個 singular values 和它們對應的方向，把其他比較小的方向先丟掉。
+
+保留前 $k$ 個方向得到的結果叫 **rank-k approximation**。白話說，它是用比較少的方向去近似原本 matrix。
+
+直覺是：如果一張資料表的大部分能量都集中在少數方向，丟掉小方向後，重建會變模糊一點，但主要形狀還在。
+
+## 拖 k，看重建和誤差一起變
+
+下面的 demo 用一個小型灰階圖當 matrix。拖 $k$，看只保留前幾個方向時，重建圖怎麼接近原圖，reconstruction error 又怎麼下降。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/math-intuitions/low-rank-approximation.html" class="demo-frame" title="Low-rank approximation demo" style="height: 680px; width: 100%; border: none;"></iframe>
+
+這是 analytic toy：畫面使用預先寫好的幾個 rank-one components，不是現場解碼真實照片。重點是看見「保留大方向，誤差下降」。
+
+## 把 SVD 截短
+
+SVD 可以寫成一串 rank-one pieces：
+
+$$
+A=\sum_i \sigma_i u_i v_i^\top.
+$$
+
+truncated SVD 只留前 $k$ 項：
+
+$$
+A_k=\sum_{i\le k}\sigma_i u_i v_i^\top.
+$$
+
+被丟掉的部分是
+
+$$
+A-A_k=\sum_{i>k}\sigma_i u_i v_i^\top.
+$$
+
+在 Frobenius norm 下，這些互相垂直的 pieces 的能量可以相加，所以 dropped energy 是
+
+$$
+\lVert A-A_k\rVert_F^2=\sum_{i>k}\sigma_i^2.
+$$
+
+便宜檢查：如果 $k$ 增加，右邊少丟一些正的項，error 不會變大；如果 $k$ 已經保留全部項，sum 是 0，重建就回到原本的 $A$。
+
+## 不要把低 rank 想太滿
+
+<Quiz
+  q="如果 rank-5 approximation 看起來已經很像原圖，最合理的解讀是什麼？"
+  options={[
+    { text: "原圖真的只有 5 個 pixel 有資訊。", explain: "不對。rank 不是 pixel 數；它是在說用幾個方向組合可以近似整張圖。" },
+    { text: "所有被丟掉的方向都完全沒有任何資訊。", explain: "也不對。小 singular values 仍可能有細節，只是對整體重建的能量比較小。" },
+    { text: "大部分可見結構集中在前幾個方向；細節被壓到較小方向。", correct: true, explain: "正解。低 rank 重建好看，表示主要結構可由少數方向捕捉，不表示其他方向不存在。" },
+  ]}
+/>
+
+Eckart–Young theorem 說，在 Frobenius norm 或 spectral norm 的意義下，truncated SVD 給的是最佳 rank-k approximation。這一篇只用它作為方向感；完整為什麼最佳，留到下一講的照片壓縮 note 再證明。
+
+## 照片壓縮的答案
+
+開頭問的是：能不能只留少數重要方向來重建照片？答案是可以先用 SVD 拆成一串由大到小的方向，再用 truncated SVD 保留前 $k$ 個，得到 $A_k$。$k$ 越大越準，$k$ 越小越省。
+
+下一講會把這件事放到真實影像壓縮語境裡：[Image Compression with SVD](/personal_website/zh/notes/math-image-compression-svd) 會接著看 storage ratio、retained energy，以及 Eckart–Young 為什麼保證這個 rank-k 選擇是最佳的。
+
+## 參考文獻
+
+- Eckart and Young (1936), "The approximation of one matrix by another of lower rank." 本篇只陳述 Eckart–Young theorem；證明留到下一講。

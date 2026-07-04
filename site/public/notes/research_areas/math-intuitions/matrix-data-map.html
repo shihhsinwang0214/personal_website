@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Matrix as Data and Map Demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif;
+    background: transparent;
+    color: #202631;
+  }
+  body[data-dark="1"] { color: #ece9e2; }
+  .card {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 18px;
+    border-radius: 8px;
+    background: #fbfaf7;
+    border: 1px solid #ded8cf;
+  }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #30323a; }
+  .goal { margin: 0 0 12px; font-size: 0.92rem; line-height: 1.55; }
+  .goal b { color: #1f6f78; }
+  body[data-dark="1"] .goal b { color: #e1b45c; }
+  canvas {
+    width: 100%;
+    max-width: 740px;
+    aspect-ratio: 1 / 0.58;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+    border-radius: 8px;
+    touch-action: none;
+  }
+  .readout {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
+    gap: 8px;
+    margin-top: 14px;
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric { padding: 8px 10px; border-radius: 8px; background: rgba(31,111,120,0.08); }
+  body[data-dark="1"] .metric { background: rgba(225,180,92,0.12); }
+  .metric span { display: block; color: #667078; font-size: 0.72rem; margin-bottom: 2px; }
+  body[data-dark="1"] .metric span { color: #a8a69f; }
+  .observe { margin: 12px 0 0; color: #667078; font-size: 0.83rem; line-height: 1.55; }
+  body[data-dark="1"] .observe { color: #a8a69f; }
+  @media (max-width: 560px) {
+    body { padding: 10px; }
+    .card { padding: 12px; }
+    .readout { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal"><b>拖這個 → 看那個：</b>拖動 query vector，右邊五個分數會同時更新，像一次算出 Xq。</p>
+  <canvas id="cv" width="740" height="430" aria-label="drag a query vector to see batched row inner products"></canvas>
+  <div class="readout">
+    <div class="metric"><span>query q</span><strong id="qR">(1.10, 0.55)</strong></div>
+    <div class="metric"><span>top row</span><strong id="topR">row 1</strong></div>
+    <div class="metric"><span>operation</span><strong>Xq = row scores</strong></div>
+  </div>
+  <p class="observe">左邊把 matrix 當成 rows of data；右邊把同一個 matrix 當成「輸入 q，輸出一排分數」的動作。</p>
+</div>
+
+<script src="../noise-to-data/_demo-common.js"></script>
+<script>
+(function () {
+  var cv = document.getElementById('cv');
+  var dpi = NDFlow.hiDPICanvas(cv);
+  var ctx = dpi.ctx;
+  var qR = document.getElementById('qR');
+  var topR = document.getElementById('topR');
+  var pal = NDFlow.palette();
+  var rows = [
+    { x: 1.25, y: 0.58, name: 'row 1' },
+    { x: 0.42, y: 1.32, name: 'row 2' },
+    { x: -0.95, y: 0.72, name: 'row 3' },
+    { x: -1.15, y: -0.48, name: 'row 4' },
+    { x: 0.9, y: -1.02, name: 'row 5' }
+  ];
+  var q = { x: 1.1, y: 0.55 };
+  var plot = { left: 0, top: 0, side: 1 };
+  var dragging = false;
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function score(r) { return r.x * q.x + r.y * q.y; }
+  function toScreen(p) {
+    return {
+      x: plot.left + (p.x + 1.8) / 3.6 * plot.side,
+      y: plot.top + (1.8 - p.y) / 3.6 * plot.side
+    };
+  }
+  function fromScreen(x, y) {
+    return {
+      x: clamp((x - plot.left) / plot.side * 3.6 - 1.8, -1.8, 1.8),
+      y: clamp(1.8 - (y - plot.top) / plot.side * 3.6, -1.8, 1.8)
+    };
+  }
+  function arrow(x0, y0, x1, y1, color, width, alpha) {
+    var a = Math.atan2(y1 - y0, x1 - x0);
+    ctx.save();
+    ctx.globalAlpha = alpha == null ? 1 : alpha;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - 10 * Math.cos(a - 0.45), y1 - 10 * Math.sin(a - 0.45));
+    ctx.lineTo(x1 - 10 * Math.cos(a + 0.45), y1 - 10 * Math.sin(a + 0.45));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+  function drawPlot(size, scores, topIndex) {
+    plot.side = Math.min(size.h - 58, size.w * 0.48);
+    plot.left = 34;
+    plot.top = (size.h - plot.side) / 2;
+    ctx.fillStyle = pal.dark ? '#15161a' : '#ffffff';
+    rr(plot.left, plot.top, plot.side, plot.side, 8);
+    ctx.fill();
+    ctx.strokeStyle = pal.grid;
+    ctx.lineWidth = 1;
+    for (var i = -2; i <= 2; i++) {
+      var gx = plot.left + (i / 2 + 1) / 2 * plot.side;
+      var gy = plot.top + (1 - i / 2) / 2 * plot.side;
+      ctx.beginPath(); ctx.moveTo(gx, plot.top); ctx.lineTo(gx, plot.top + plot.side); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(plot.left, gy); ctx.lineTo(plot.left + plot.side, gy); ctx.stroke();
+    }
+    var origin = toScreen({ x: 0, y: 0 });
+    ctx.strokeStyle = pal.muted;
+    ctx.beginPath();
+    ctx.moveTo(plot.left, origin.y); ctx.lineTo(plot.left + plot.side, origin.y);
+    ctx.moveTo(origin.x, plot.top); ctx.lineTo(origin.x, plot.top + plot.side);
+    ctx.stroke();
+    rows.forEach(function (r, i) {
+      var end = toScreen(r);
+      arrow(origin.x, origin.y, end.x, end.y, i === topIndex ? pal.accent : pal.muted, i === topIndex ? 2.7 : 1.8, i === topIndex ? 0.95 : 0.48);
+      ctx.fillStyle = i === topIndex ? pal.ink : pal.muted;
+      ctx.font = '800 11px Segoe UI, system-ui, sans-serif';
+      ctx.fillText(String(i + 1), end.x + 5, end.y - 5);
+    });
+    var qs = toScreen(q);
+    arrow(origin.x, origin.y, qs.x, qs.y, pal.dark ? '#78aaff' : '#2a4ea3', 3.2, 1);
+    ctx.fillStyle = pal.ink;
+    ctx.font = '800 13px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('q', qs.x + 8, qs.y - 8);
+    ctx.fillText('rows of X', plot.left + 12, plot.top + 22);
+  }
+  function drawBars(size, scores, topIndex) {
+    var left = Math.max(size.w * 0.55, plot.left + plot.side + 28);
+    var top = 42;
+    var w = size.w - left - 28;
+    var h = size.h - 84;
+    ctx.fillStyle = pal.dark ? '#15161a' : '#ffffff';
+    rr(left, top, w, h, 8);
+    ctx.fill();
+    ctx.fillStyle = pal.ink;
+    ctx.font = '800 13px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('Xq scores', left + 14, top + 24);
+    var zero = left + w * 0.5;
+    ctx.strokeStyle = pal.grid;
+    ctx.beginPath();
+    ctx.moveTo(zero, top + 38);
+    ctx.lineTo(zero, top + h - 16);
+    ctx.stroke();
+    var maxAbs = Math.max(1, Math.max.apply(null, scores.map(function (v) { return Math.abs(v); })));
+    for (var i = 0; i < scores.length; i++) {
+      var y = top + 52 + i * ((h - 76) / 5);
+      var barW = scores[i] / maxAbs * (w * 0.42);
+      ctx.fillStyle = i === topIndex ? pal.accent : (scores[i] >= 0 ? 'rgba(70,150,255,0.55)' : 'rgba(230,110,90,0.50)');
+      rr(barW >= 0 ? zero : zero + barW, y, Math.abs(barW), 16, 7);
+      ctx.fill();
+      ctx.fillStyle = pal.ink;
+      ctx.font = '800 12px Segoe UI, system-ui, sans-serif';
+      ctx.fillText('row ' + (i + 1), left + 12, y + 13);
+      ctx.fillText(scores[i].toFixed(2), zero + barW + (barW >= 0 ? 8 : -42), y + 13);
+    }
+  }
+  function draw() {
+    var size = dpi.resize();
+    pal = NDFlow.palette();
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = pal.dark ? '#111318' : '#f8f6f0';
+    rr(0, 0, size.w, size.h, 8);
+    ctx.fill();
+    var scores = rows.map(score);
+    var topIndex = 0;
+    for (var i = 1; i < scores.length; i++) if (scores[i] > scores[topIndex]) topIndex = i;
+    drawPlot(size, scores, topIndex);
+    drawBars(size, scores, topIndex);
+    qR.textContent = '(' + q.x.toFixed(2) + ', ' + q.y.toFixed(2) + ')';
+    topR.textContent = 'row ' + (topIndex + 1) + ' / score ' + scores[topIndex].toFixed(2);
+  }
+  function pointer(e) {
+    var rect = cv.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+  cv.addEventListener('pointerdown', function (e) {
+    var p = pointer(e);
+    var qs = toScreen(q);
+    dragging = Math.hypot(p.x - qs.x, p.y - qs.y) < 34 ||
+      (p.x >= plot.left && p.x <= plot.left + plot.side && p.y >= plot.top && p.y <= plot.top + plot.side);
+    if (dragging) {
+      q = fromScreen(p.x, p.y);
+      cv.setPointerCapture(e.pointerId);
+      draw();
+    }
+  });
+  cv.addEventListener('pointermove', function (e) {
+    if (!dragging) return;
+    var p = pointer(e);
+    q = fromScreen(p.x, p.y);
+    draw();
+  });
+  cv.addEventListener('pointerup', function (e) {
+    dragging = false;
+    try { cv.releasePointerCapture(e.pointerId); } catch (err) {}
+  });
+  function applyTheme() {
+    pal = NDFlow.palette();
+    document.body.dataset.dark = pal.dark ? '1' : '0';
+    draw();
+  }
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  applyTheme();
+})();
+</script>
+</body>
+</html>

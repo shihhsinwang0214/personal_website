@@ -1,12 +1,17 @@
 ---
 import { getCollection } from 'astro:content';
 import NoteArticle from '../../components/NoteArticle.astro';
-import { isListedNote } from '../../lib/notes';
+import { isPublishedNote } from '../../lib/notes';
 
 export async function getStaticPaths() {
   const allNotes = await getCollection('notes');
+  // Missing translations are tracked in metadata but get no standalone page
+  // (they were thin "coming soon" pages hurting search and SEO); listings link
+  // to the available language instead.
   return allNotes
-    .filter((entry) => entry.data.lang === 'en' && isListedNote(entry))
+    .filter(
+      (entry) => entry.data.lang === 'en' && entry.data.status !== 'missing' && isPublishedNote(entry),
+    )
     .map((entry) => ({
       params: { slug: entry.data.slug },
       props: { entry, allNotes },

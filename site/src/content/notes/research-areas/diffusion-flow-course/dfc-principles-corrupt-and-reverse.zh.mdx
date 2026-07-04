@@ -1,0 +1,170 @@
+---
+slug: "dfc-principles-corrupt-and-reverse"
+lang: "zh"
+title: "Corrupt Then Reverse：先毀掉，再學著回來"
+category: "research-areas"
+group: "Diffusion & Flow Models"
+status: "available"
+updated: 2026-06-26
+summary: "diffusion 的第一個精確版本：先定義一條會把資料抹成高斯的 forward process，再學它的反向條件分布。"
+demos:
+  - "notes/research_areas/diffusion-flow-course/principles-pipeline.html"
+references:
+  - label: "Sohl-Dickstein et al., Deep Unsupervised Learning using Nonequilibrium Thermodynamics (ICML 2015)"
+    href: "https://arxiv.org/abs/1503.03585"
+  - label: "Ho, Jain & Abbeel, Denoising Diffusion Probabilistic Models (NeurIPS 2020)"
+    href: "https://arxiv.org/abs/2006.11239"
+  - label: "Song et al., Score-Based Generative Modeling through Stochastic Differential Equations (ICLR 2021)"
+    href: "https://arxiv.org/abs/2011.13456"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Corrupt Then Reverse：先毀掉，再學著回來
+
+> Diffusion & Flow Models 第 1 講，第 2 篇。這篇先用離散 DDPM 的 forward process 把「加噪」講精確；完整 variational bound 會留到第 3 講。
+
+想像你把一張乾淨資料點放進機器裡，每次只加一點點高斯噪聲。剛開始，形狀還看得出來；中間，資料的細節被抹平；最後，它看起來幾乎只是標準高斯。diffusion 的妙處是：前向破壞很容易寫下來，真正要學的是反過來的條件分布。
+
+## 先抓住反直覺
+
+> diffusion 不是先學一個生成器再加噪；它先設計一條已知的破壞過程，讓資料變成 noise，然後訓練模型近似這條過程的 reverse。
+
+這就是「corrupt then reverse」。前向是我們定義的；反向才是模型學的。
+
+## 為什麼一步太難，一格剛好
+
+你可能會問：既然最後要的是「從 noise 生出 data」，何不直接學一個一步到位的生成器？問題出在難度。給你一張**純高斯 noise**，要你說它對應到貓還是狗——你說不出來，因為純 noise 裡沒有任何語意線索（它本來也就能對到無數種結果）。直接從這裡一步跳到清晰圖片，等於要模型憑空把所有結構一次補齊。
+
+但把難度退一格就完全不同。給你一張**只糊了一點點的狗照片**，你一眼還是看得出是狗，於是「再修清楚一格」變成一個很好猜的問題。diffusion 就是吃這個道理：與其逼模型一步畫完，不如讓它在**每個模糊程度**上只回答「往乾淨修一點，會長什麼樣」。每一格都是容易題，串起來才走完從 noise 到 data 的整段路。
+
+forward 把資料**逐格弄髒**，正是為了造出這一整排「難度剛好」的中間狀態；reverse 要學的，就是在每一格上往回走一步。下面的 demo 會讓你看到這排中間狀態，再往下我們把 forward 寫精確，並看出為什麼 reverse 沒辦法只是倒帶。
+
+## 在 2D 裡把資料抹掉
+
+再看一次同一個 demo，這次請切到「前向加噪：data → noise」。滑桿越往右，$\alpha$ 越小、$\sigma$ 越大，SNR 下降；資料形狀被高斯噪聲蓋掉。切回「反向生成：noise → data」時，請把它當成理想化的反向路徑：真實模型要學的，就是如何在不知道乾淨資料點的情況下走回來。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-flow-course/principles-pipeline.html" class="demo-frame" title="Forward corruption and ideal reverse demo" style="height: 760px; width: 100%; border: none;"></iframe>
+
+這個 toy 的重要限制也要講清楚：它把每個 noise 點和某個 data 點配對，所以能畫出乾淨的反向軌跡。真正的 diffusion sampler 沒有這條配對；它只看到目前的 noisy sample，必須從學到的局部資訊決定下一步。
+
+## 離散 DDPM 的 forward kernel
+
+這段使用 diffusion convention：$k=0$ 是 data，$k=K$ 是 noise。令乾淨資料為 $x_{\mathrm{data}}\sim p_{\mathrm{data}}$，並設一組噪聲強度 $\beta_k\in(0,1)$。DDPM 的前向 Markov chain 定義為
+
+$$
+q(x_k\mid x_{k-1})
+=
+\mathcal N\big(\sqrt{1-\beta_k}\,x_{k-1},\,\beta_k I\big).
+$$
+
+記 $\alpha_k=1-\beta_k$，$\bar\alpha_k=\prod_{i=1}^k \alpha_i$。由高斯線性組合可得封閉式邊際：
+
+$$
+q(x_k\mid x_{\mathrm{data}})
+=
+\mathcal N\big(\sqrt{\bar\alpha_k}\,x_{\mathrm{data}},\,(1-\bar\alpha_k)I\big),
+$$
+
+等價地，
+
+$$
+x_k=\sqrt{\bar\alpha_k}\,x_{\mathrm{data}}
++\sqrt{1-\bar\alpha_k}\,\epsilon,
+\qquad \epsilon\sim\mathcal N(0,I).
+$$
+
+推導只用一個歸納步。若
+
+$$
+x_{k-1}
+=
+\sqrt{\bar\alpha_{k-1}}\,x_{\mathrm{data}}
++\sqrt{1-\bar\alpha_{k-1}}\,\eta,
+\qquad \eta\sim\mathcal N(0,I),
+$$
+
+且
+
+$$
+x_k=\sqrt{\alpha_k}x_{k-1}+\sqrt{1-\alpha_k}\epsilon_k,
+$$
+
+其中 $\eta$ 與 $\epsilon_k$ 獨立，則噪聲方差變成
+
+$$
+\alpha_k(1-\bar\alpha_{k-1})+(1-\alpha_k)
+=
+1-\bar\alpha_k.
+$$
+
+因此 $x_k$ 仍是「乾淨資料加上一個高斯噪聲」的形式。這個封閉式非常重要：訓練時我們可以任意抽一個 $k$，直接產生 $x_k$，不必真的從 $0$ 跑到 $k$。
+
+連續時間常寫成
+
+$$
+x_\tau=\alpha_\tau x_{\mathrm{data}}+\sigma_\tau\epsilon,
+\qquad \epsilon\sim\mathcal N(0,I),
+$$
+
+其中 $\tau\in[0,1]$ 是 data-to-noise 的 forward time，$\alpha_0=1,\sigma_0=0$，而 $\alpha_1\approx 0,\sigma_1\approx 1$。若採用 variance-preserving schedule，常有 $\alpha_\tau^2+\sigma_\tau^2=1$，SNR 為
+
+$$
+\mathrm{SNR}(\tau)=\frac{\alpha_\tau^2}{\sigma_\tau^2}.
+$$
+
+本課的 flow convention 則把方向反過來：$t=1-\tau$，所以 $t=0$ 是 noise，$t=1$ 是 data。
+
+## 反向不是把同一個雜訊樣本倒帶
+
+前向 $q(x_k\mid x_{k-1})$ 很容易，反向 $q(x_{k-1}\mid x_k)$ 卻不容易。原因不是高斯代數難，而是 $x_k$ 可能來自許多不同的乾淨資料點。嚴格地寫，
+
+$$
+q(x_{k-1}\mid x_k)
+=
+\int q(x_{k-1}\mid x_k,x_{\mathrm{data}})
+\,q(x_{\mathrm{data}}\mid x_k)\,dx_{\mathrm{data}}.
+$$
+
+後面的 posterior $q(x_{\mathrm{data}}\mid x_k)$ 依賴整個資料分布 $p_{\mathrm{data}}$，正是我們不知道的東西。因此模型學的是一個近似反向 kernel，例如
+
+$$
+p_\theta(x_{k-1}\mid x_k)
+=
+\mathcal N\big(\mu_\theta(x_k,k),\,\Sigma_\theta(x_k,k)\big),
+$$
+
+或等價地學 denoiser、noise predictor、score。第 3 講會從 ELBO 推出 DDPM 的訓練目標；這裡先記住：**forward 是手寫的 Gaussian corruption，reverse 是從資料學出來的 posterior approximation。**
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="為什麼 diffusion 要先定義一條會把資料毀掉的 forward process？"
+  options={[
+    { text: "因為 forward process 可控、可取樣、邊際有封閉式；反向生成就有了一條清楚的學習目標。", correct: true, explain: "正解。前向破壞不是目的，而是為了建出一條已知路徑，讓反向問題可以被分解成許多局部去噪問題。" },
+    { text: "因為資料本身太乾淨，神經網路不能直接處理。", explain: "神經網路當然能處理乾淨資料。加噪的重點是定義 probability path 和訓練目標。" },
+    { text: "因為 forward process 本身已經是一個生成器。", explain: "forward 是 data → noise，方向和生成相反；生成需要學 reverse。" },
+  ]}
+/>
+
+<Quiz
+  q="看到 x_k 之後，反向步驟是不是只要把剛才加上的同一個 ε 減掉？"
+  options={[
+    { text: "是，因為 forward 公式裡有 ε，所以反向一定能唯一解回來。", explain: "不對。取樣時你不知道那個 ε，也不知道乾淨 x_data；而且多個資料點可能產生相似的 x_k。" },
+    { text: "只有在資料是一維時才可以。", explain: "維度不是核心。核心是 posterior q(x_data|x_k) 依賴未知資料分布。" },
+    { text: "不是。反向要從 q(x_data|x_k) 的不確定性中取樣或估計，所以模型學的是 posterior 的局部資訊。", correct: true, explain: "正解。reverse 不是 deterministic undo，而是學一個條件分布或它的等價訊號。" },
+  ]}
+/>
+
+## 這怎麼接到研究？
+
+Sohl-Dickstein 等人把這種 forward-noising / reverse-denoising 的思路連到 nonequilibrium thermodynamics。Ho、Jain 與 Abbeel 的 DDPM 使用簡單的 Gaussian forward process，並把反向 kernel 的學習化成實用的 denoising 目標。Song 等人再把離散步數推到連續 SDE，讓 forward corruption、reverse-time dynamics、score 和 probability-flow ODE 能在同一個連續時間框架裡比較。下一講會把 reverse-time SDE 和 Fokker-Planck 方程補上；第 3 講才正式推 ELBO。
+
+## 下一步
+
+下一篇 [一張地圖讀完整門課](/personal_website/zh/notes/dfc-principles-course-map) 先把 path、training target、sampler、guidance、evaluation 放到同一張地圖上。等這張地圖熟了，後面的推導就不會變成一串孤立公式。
+
+## 參考文獻
+
+1. Sohl-Dickstein, J., Weiss, E. A., Maheswaranathan, N., Ganguli, S. [*Deep Unsupervised Learning using Nonequilibrium Thermodynamics.*](https://arxiv.org/abs/1503.03585) ICML 2015.
+2. Ho, J., Jain, A., Abbeel, P. [*Denoising Diffusion Probabilistic Models.*](https://arxiv.org/abs/2006.11239) NeurIPS 2020.
+3. Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Ermon, S., Poole, B. [*Score-Based Generative Modeling through Stochastic Differential Equations.*](https://arxiv.org/abs/2011.13456) ICLR 2021.

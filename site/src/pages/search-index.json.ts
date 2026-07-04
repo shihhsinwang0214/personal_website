@@ -1,9 +1,12 @@
 import { getCollection } from 'astro:content';
-import { categoryLabels, isListedNote, noteRoute, researchAreaLabelForNote, sortNotes, statusLabels } from '../lib/notes';
+import { categoryLabels, isPublishedNote, noteRoute, researchAreaLabelForNote, sortNotes, statusLabels } from '../lib/notes';
 import { withBase } from '../lib/url';
 
 export async function GET() {
-  const notes = sortNotes(await getCollection('notes')).filter(isListedNote);
+  // Missing translations have no standalone page; keep them out of search.
+  const notes = sortNotes(await getCollection('notes')).filter(
+    (note) => isPublishedNote(note) && note.data.status !== 'missing',
+  );
   const entries = notes.map((note) => {
     const lang = note.data.lang;
     const category = categoryLabels[note.data.category][lang];

@@ -2,12 +2,28 @@
 import Base from '../layouts/Base.astro';
 import { withBase } from '../lib/url';
 import { publications } from '../data/content';
+
+// ScholarlyArticle JSON-LD for each publication (built from repository records).
+const scholarlyJsonLd = publications.flatMap((group) =>
+  group.items.map((pub) => ({
+    '@context': 'https://schema.org',
+    '@type': 'ScholarlyArticle',
+    headline: pub.title,
+    author: { '@type': 'Person', name: 'Shih-Hsin Wang' },
+    publication: pub.venue,
+    ...(pub.url ? { url: pub.url } : {}),
+  })),
+);
 ---
 
-<Base title="Publications — Shih-Hsin Wang" active="publications">
+<Base title="Publications — Shih-Hsin Wang" active="publications" jsonLd={scholarlyJsonLd}>
   <main class="page content">
     <section>
       <h1>Publications</h1>
+      <p class="pub-intro">
+        Full list also on
+        <a href="https://scholar.google.com/citations?user=IoihdcYAAAAJ&hl=en" target="_blank" rel="noopener">Google Scholar</a>. * denotes equal contribution.
+      </p>
       {
         publications.map((group) => (
           <>
@@ -25,15 +41,23 @@ import { publications } from '../data/content';
                 </div>
                 <div class="pub-authors" set:html={pub.authors} />
                 <div class="pub-venue">{pub.venue}</div>
-                {pub.links && (
-                  <div class="pub-links">
-                    {pub.links.map((l) => (
+                <div class="pub-links">
+                  {pub.links &&
+                    pub.links.map((l) => (
                       <a class="pub-link" href={withBase(l.href)} target="_blank" rel="noopener">
                         {l.label}
                       </a>
                     ))}
-                  </div>
-                )}
+                  {pub.bibtex && (
+                    <details class="pub-bibtex">
+                      <summary class="pub-link pub-bibtex-toggle">BibTeX</summary>
+                      <div class="pub-bibtex-body">
+                        <button class="pub-bibtex-copy" type="button">Copy</button>
+                        <pre><code>{pub.bibtex}</code></pre>
+                      </div>
+                    </details>
+                  )}
+                </div>
               </div>
             ))}
           </>
@@ -41,4 +65,25 @@ import { publications } from '../data/content';
       }
     </section>
   </main>
+
+  <script>
+    function initBibtex() {
+      document.querySelectorAll('.pub-bibtex-copy').forEach((btn) => {
+        if ((btn as HTMLElement).dataset.bound) return;
+        (btn as HTMLElement).dataset.bound = '1';
+        btn.addEventListener('click', () => {
+          const code = btn.parentElement?.querySelector('code')?.textContent ?? '';
+          if (!navigator.clipboard) return;
+          navigator.clipboard.writeText(code).then(() => {
+            const original = btn.textContent;
+            btn.textContent = 'Copied';
+            setTimeout(() => {
+              btn.textContent = original;
+            }, 1400);
+          });
+        });
+      });
+    }
+    document.addEventListener('astro:page-load', initBibtex);
+  </script>
 </Base>

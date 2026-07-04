@@ -5,7 +5,7 @@ title: "取樣即解微分方程：離散化、步數與 NFE"
 category: "research-areas"
 group: "From Noise to Data"
 status: "available"
-updated: 2026-06-22
+updated: 2026-06-28
 summary: "生成就是數值積分一條 ODE/SDE；步數、離散化誤差與 NFE 是一等公民，也是少步生成研究的起點。"
 demos:
   - "notes/research_areas/flow-matching/story-truncation-error-zh.html"
@@ -21,7 +21,7 @@ import Quiz from '../../components/Quiz.astro';
 
 # 取樣即解微分方程：離散化、步數與 NFE
 
-> 「From Noise to Data」系列第 13 篇。把抽象的「解 ODE」變成你真的會在意的工程數字。
+> 把抽象的「解 ODE」變成你真的會在意的工程數字。
 
 到這裡，「生成」已經有了一個乾淨的定義：從 $x_0 \sim \mathcal{N}(0,I)$ 出發，沿著學到的速度場把 ODE 積分到 $t=1$。但電腦不會「連續積分」——它只能一小步一小步地走。這一篇就看這件事帶來的代價，以及為什麼它催生了一整類研究。
 
@@ -41,14 +41,16 @@ $$
 
 每呼叫一次網路就是一次 **NFE（number of function evaluations）**。一張高品質 diffusion 圖可能要幾十到上千 NFE——這就是它「慢」的根源。下面這個（沿用自 Flow Matching 系列的）demo，讓你直接看見步數變少時，離散化造成的偏移如何放大：
 
-<iframe src="/personal_website/notes/research_areas/flow-matching/story-truncation-error-zh.html" class="demo-frame" title="Truncation error demo" style="height: 960px; width: 100%; border: none;"></iframe>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/flow-matching/story-truncation-error-zh.html" class="demo-frame" title="Truncation error demo" style="height: 960px; width: 100%; border: none;"></iframe>
 
 ## 把畫面寫成數學
 
-用有限步近似連續積分，必然產生誤差，稱為 **truncation error**。Euler 法每步的局部誤差約為 $\mathcal{O}(\Delta t^2)$，整段累積約 $\mathcal{O}(\Delta t)$；想更準，可以用高階 solver（Heun、Runge–Kutta、DPM-Solver 等），用同樣的步數換更小的誤差。研究的兩條主線因此很清楚：
+用有限步去近似一條連續軌跡，必然會有誤差——步子邁得越大，「以直線代替曲線」的偏差就越明顯，這個偏差叫 **truncation error**。直覺很簡單：**步數多 → 跟得準但慢；步數少 → 快但容易偏**。研究因此沿兩條路走：
 
-1. **更聰明的 solver**：在固定 NFE 下把誤差壓低（DDIM、DPM-Solver……）。
-2. **更好走的路 / 蒸餾**：把模型本身改造成「少步甚至一步就夠」（rectified flow、consistency models、各種 distillation）。
+1. **更聰明的走法**：在同樣的步數（NFE）下把誤差壓低（例如 DDIM 這類更準的 sampler）。
+2. **更好走的路 / 蒸餾**：把模型或路徑改造成「少步、甚至一步就夠」（rectified flow、consistency models 等）。
+
+（誤差怎麼隨步長精確地縮放、各種高階 solver 的細節，屬於更技術的內容，留給 [Diffusion & Flow Models 課程](/personal_website/zh/notes/dfc-principles-course-map)。）
 
 ## 幾個容易想歪的地方
 
@@ -76,7 +78,7 @@ $$
 
 ## 下一步
 
-solver 是「給定一條路、怎麼走得快」。但還有更前面的一個槓桿：**路本身**能不能設計得更好走？下一篇 [Path Design](/personal_website/zh/notes/n2d-path-design) 說明為什麼路徑的選擇，會直接改變這道積分的難度。
+我們已經把「生成」從抽象的解 ODE，落到「走幾步、多準、多貴」的具體取捨。到這裡，noise、score、velocity 三種訊號，加上「怎麼取樣」這一步，都湊齊了。下一篇 [三種語言](/personal_website/zh/notes/n2d-three-languages) 把它們收成一句話，作為整門課的收尾。
 
 ## 參考文獻
 

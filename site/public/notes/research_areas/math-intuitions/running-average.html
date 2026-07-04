@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Expectation and Running Average Demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #202631; }
+  body[data-dark="1"] { color: #ece9e2; }
+  .card { max-width: 700px; margin: 0 auto; padding: 18px; border-radius: 8px; background: #fbfaf7; border: 1px solid #ded8cf; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #30323a; }
+  .goal { margin: 0 0 12px; font-size: 0.92rem; line-height: 1.5; }
+  .goal b { color: #1f6f78; } body[data-dark="1"] .goal b { color: #e1b45c; }
+  canvas { width: 100%; max-width: 640px; aspect-ratio: 1 / 0.58; height: auto; display: block; margin: 0 auto; border-radius: 8px; }
+  .controls { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; }
+  label { font-size: 0.84rem; font-weight: 700; }
+  select { padding: 7px 10px; border-radius: 8px; border: 1px solid #bfc6c7; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #282b33; border-color: #444855; color: #ece9e2; }
+  button { padding: 7px 14px; border-radius: 8px; border: 0; cursor: pointer; font-weight: 800; background: #1f6f78; color: #fff; }
+  body[data-dark="1"] button { background: #e1b45c; color: #17191d; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #bfc6c7; }
+  body[data-dark="1"] button.ghost { border-color: #444855; }
+  .readout { display: grid; grid-template-columns: repeat(3, minmax(110px, 1fr)); gap: 8px; font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+  .metric { padding: 8px 10px; border-radius: 8px; background: rgba(31,111,120,0.08); }
+  body[data-dark="1"] .metric { background: rgba(225,180,92,0.12); }
+  .metric span { display: block; color: #667078; font-size: 0.72rem; margin-bottom: 2px; }
+  body[data-dark="1"] .metric span { color: #a8a69f; }
+  .observe { margin: 12px 0 0; color: #667078; font-size: 0.83rem; line-height: 1.55; }
+  body[data-dark="1"] .observe { color: #a8a69f; }
+  @media (max-width: 520px) { body { padding: 10px; } .card { padding: 12px; } .readout { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：<b>expectation</b> 是長期平均的目標值；<b>Monte Carlo</b> estimate 是用很多次 sample average 去靠近它。</p>
+  <canvas id="cv" width="640" height="370" aria-label="running average converging to expectation"></canvas>
+  <div class="controls">
+    <div class="row">
+      <label for="dist">抽樣 rule</label>
+      <select id="dist">
+        <option value="die">偏骰子</option>
+        <option value="coin">不公平硬幣</option>
+        <option value="normal">鐘形雜訊</option>
+      </select>
+      <button id="one">抽 1 次</button>
+      <button id="twenty">抽 20 次</button>
+      <button id="reset" class="ghost">重設</button>
+    </div>
+    <div class="readout">
+      <div class="metric"><span>samples</span><strong id="nR">0</strong></div>
+      <div class="metric"><span>running mean</span><strong id="meanR">none</strong></div>
+      <div class="metric"><span>true expectation</span><strong id="trueR">4.15</strong></div>
+    </div>
+  </div>
+  <p class="observe">觀察這個不變量 / tradeoff：前幾次 sample average 會亂跳；sample 數變多後，它通常會貼近 expectation。估計變穩的代價，是要多抽樣。</p>
+</div>
+
+<script src="../noise-to-data/_demo-common.js"></script>
+<script>
+(function () {
+  var cv = document.getElementById('cv');
+  var dpi = NDFlow.hiDPICanvas(cv);
+  var ctx = dpi.ctx, size = { w: 640, h: 370 };
+  var distEl = document.getElementById('dist');
+  var nR = document.getElementById('nR');
+  var meanR = document.getElementById('meanR');
+  var trueR = document.getElementById('trueR');
+  var pal = NDFlow.palette();
+  var values = [], running = [];
+
+  function drawSample() {
+    var d = distEl.value;
+    if (d === 'coin') return Math.random() < 0.7 ? 1 : 0;
+    if (d === 'normal') return 1.5 + NDFlow.randn() * 1.0;
+    var r = Math.random();
+    var weights = [0.05, 0.08, 0.12, 0.18, 0.25, 0.32];
+    var s = 0;
+    for (var i = 0; i < weights.length; i++) {
+      s += weights[i];
+      if (r <= s) return i + 1;
+    }
+    return 6;
+  }
+  function trueMean() {
+    if (distEl.value === 'coin') return 0.7;
+    if (distEl.value === 'normal') return 1.5;
+    return 1 * 0.05 + 2 * 0.08 + 3 * 0.12 + 4 * 0.18 + 5 * 0.25 + 6 * 0.32;
+  }
+  function yRange() {
+    if (distEl.value === 'coin') return [-0.1, 1.1];
+    if (distEl.value === 'normal') return [-1.0, 4.0];
+    return [0.5, 6.5];
+  }
+  function add(k) {
+    for (var i = 0; i < k && values.length < 400; i++) {
+      var x = drawSample();
+      values.push(x);
+      var prev = running.length ? running[running.length - 1] * (values.length - 1) : 0;
+      running.push((prev + x) / values.length);
+    }
+    draw();
+  }
+  function reset() { values = []; running = []; draw(); }
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function draw() {
+    size = dpi.resize();
+    var left = 42, right = 18, top = 24, bottom = 34;
+    var plotW = size.w - left - right, plotH = size.h - top - bottom;
+    var yr = yRange(), ymin = yr[0], ymax = yr[1];
+    function px(i) { return left + (i - 1) / 399 * plotW; }
+    function py(y) { return top + plotH - (y - ymin) / (ymax - ymin) * plotH; }
+
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = pal.bg;
+    rr(0, 0, size.w, size.h, 8);
+    ctx.fill();
+    ctx.strokeStyle = pal.grid;
+    ctx.lineWidth = 1;
+    for (var g = 0; g <= 4; g++) {
+      var y = top + plotH * g / 4;
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(left + plotW, y);
+      ctx.stroke();
+    }
+
+    var tm = trueMean();
+    ctx.strokeStyle = pal.dark ? 'rgba(225,180,92,0.85)' : 'rgba(31,111,120,0.85)';
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath();
+    ctx.moveTo(left, py(tm));
+    ctx.lineTo(left + plotW, py(tm));
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    if (running.length > 0) {
+      ctx.strokeStyle = 'rgb(' + pal.noise.join(',') + ')';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      for (var i = 0; i < running.length; i++) {
+        var x = px(i + 1), y2 = py(running[i]);
+        if (i === 0) ctx.moveTo(x, y2);
+        else ctx.lineTo(x, y2);
+      }
+      ctx.stroke();
+      ctx.fillStyle = pal.accent;
+      ctx.beginPath();
+      ctx.arc(px(running.length), py(running[running.length - 1]), 4.5, 0, 6.2832);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#f3f0e8';
+    ctx.font = '800 13px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('running mean', left + 6, top + 18);
+    ctx.fillStyle = pal.accent;
+    ctx.fillText('true expectation', left + 6, top + 38);
+
+    nR.textContent = String(values.length);
+    meanR.textContent = running.length ? running[running.length - 1].toFixed(3) : 'none';
+    trueR.textContent = tm.toFixed(3);
+  }
+  function applyTheme() {
+    pal = NDFlow.palette();
+    document.body.dataset.dark = pal.dark ? '1' : '0';
+    draw();
+  }
+  document.getElementById('one').onclick = function () { add(1); };
+  document.getElementById('twenty').onclick = function () { add(20); };
+  document.getElementById('reset').onclick = reset;
+  distEl.onchange = reset;
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  applyTheme();
+})();
+</script>
+</body>
+</html>

@@ -21,7 +21,7 @@ const notes = defineCollection({
     slug: z.string(),
     lang: z.enum(['en', 'zh']),
     title: z.string(),
-    category: z.enum(['research-areas', 'academic-skills']),
+    category: z.enum(['research-areas', 'courses', 'academic-skills']),
     group: z.string(),
     status: z.enum(['available', 'draft', 'missing', 'coming-soon']),
     updated: z.coerce.date(),

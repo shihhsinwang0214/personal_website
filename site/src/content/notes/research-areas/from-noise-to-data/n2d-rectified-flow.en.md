@@ -3,9 +3,9 @@ slug: "n2d-rectified-flow"
 lang: "en"
 title: "Rectified Flow: What It Means to Straighten the Path"
 category: "research-areas"
-group: "From Noise to Data"
+group: "Diffusion & Flow Models"
 status: "missing"
-updated: 2026-06-21
+updated: 2026-06-28
 summary: "English translation in progress; content-agent task."
 demos: []
 references: []

@@ -1,12 +1,12 @@
 import rss from '@astrojs/rss';
 import type { APIRoute } from 'astro';
 import { getCollection } from 'astro:content';
-import { isListedNote, noteResearchArea, noteRoute, sortNotes } from '../lib/notes';
+import { isPublishedNote, noteResearchArea, noteRoute, sortNotes } from '../lib/notes';
 
 export const GET: APIRoute = async (context) => {
   const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
   const notes = sortNotes(await getCollection('notes')).filter(
-    (note) => note.data.status === 'available' && isListedNote(note),
+    (note) => note.data.status === 'available' && isPublishedNote(note),
   );
 
   return rss({

@@ -1,185 +1,33 @@
 ---
-import { getCollection } from 'astro:content';
 import Base from '../layouts/Base.astro';
+import HomeView from '../components/HomeView.astro';
 import { withBase } from '../lib/url';
-import { profile, research, news, publications } from '../data/content';
-import {
-  categoryLabels,
-  formatNoteDate,
-  groupNotes,
-  latestNoteDate,
-  noteRoute,
-  notesForListingLang,
-  researchAreaLabels,
-} from '../lib/notes';
+import { profile, research } from '../data/content';
 
-const allNotes = await getCollection('notes');
-const writing = notesForListingLang(allNotes, 'en');
-const writingGroups = groupNotes(writing);
-const selectedPubs = publications[0].items.slice(0, 3);
-const recentNews = news.slice(0, 4);
+const personJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Person',
+  name: profile.name,
+  alternateName: profile.nameZh,
+  email: `mailto:${profile.contact.email}`,
+  affiliation: { '@type': 'CollegeOrUniversity', name: 'National Taiwan University' },
+  url: Astro.site ? new URL(withBase(''), Astro.site).href : undefined,
+  sameAs: [profile.contact.scholar, profile.contact.github, profile.contact.linkedin],
+  knowsAbout: research.map((r) => r.name),
+};
+
+const alternates = [
+  { lang: 'en' as const, path: '' },
+  { lang: 'zh' as const, path: 'zh' },
+];
 ---
 
-<Base title="Shih-Hsin Wang" active="home">
-  <main class="home">
-    <section class="hero">
-      <svg class="hero-contour" viewBox="0 0 380 140" preserveAspectRatio="none" aria-hidden="true">
-        <path d="M0,34 C90,8 210,58 380,18" />
-        <path d="M0,62 C110,38 240,86 380,48" />
-        <path d="M0,90 C100,70 230,114 380,80" />
-        <path d="M0,118 C120,98 250,140 380,108" />
-      </svg>
-      <p class="eyebrow">PhD in Mathematics · University of Utah</p>
-      <h1 class="hero-title">Shih-Hsin Wang <span class="zh">王士欣</span></h1>
-      <div class="hero-rule"></div>
-      <p class="hero-lead">
-        I develop mathematically rigorous methods that bridge theory and practice across
-        geometric deep learning, generative models (flow matching &amp; diffusion), and AI for science.
-      </p>
-      <div class="hero-links">
-        <a href={profile.contact.github} target="_blank" rel="noopener">GitHub</a>
-        <a href={profile.contact.linkedin} target="_blank" rel="noopener">LinkedIn</a>
-        <a href={withBase(profile.cv)} target="_blank" rel="noopener">CV</a>
-        <a href={`mailto:${profile.contact.email}`}>Email</a>
-      </div>
-    </section>
-
-    <section class="home-section">
-      <div class="home-section-head">
-        <h2>Writing</h2>
-        <a class="section-more" href={withBase('notes')}>All writing →</a>
-      </div>
-      <div class="writing-list">
-        {
-          writingGroups.map((categoryGroup) => (
-            <section class="writing-category" aria-labelledby={`writing-${categoryGroup.category}`}>
-              <h3 id={`writing-${categoryGroup.category}`} class="writing-category-label">
-                {categoryLabels[categoryGroup.category].en}
-              </h3>
-              <div class="writing-areas">
-                {categoryGroup.areas.map((areaGroup) => (
-                  <section class="writing-area">
-                    {areaGroup.area && (
-                      <div class="writing-area-label">{researchAreaLabels[areaGroup.area].en}</div>
-                    )}
-                    <div class="writing-groups">
-                {areaGroup.groups.map(({ group, notes: groupEntries }) => {
-                  const latest = latestNoteDate(groupEntries);
-                  const categoryNotes = groupEntries;
-                  return (
-                    <details class="writing-group">
-                      <summary class="disclosure-summary writing-group-summary">
-                  <span class="disclosure-copy">
-                    <span class="disclosure-label">{group}</span>
-                    <span class="disclosure-meta">
-                      {categoryNotes.length} {categoryNotes.length === 1 ? 'note' : 'notes'} · Updated{' '}
-                      {latest ? formatNoteDate(latest, 'en') : ''}
-                    </span>
-                  </span>
-                  <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-                    <path d="M7 4.5 12.5 10 7 15.5" />
-                  </svg>
-                </summary>
-                <div class="disclosure-content writing-group-content">
-                  {categoryNotes.map((n) => {
-                    const missing = n.data.status === 'missing';
-                    const fallbackLang = n.data.lang !== 'en';
-                    const href = missing ? noteRoute(n.data.slug, 'zh') : noteRoute(n.data.slug, n.data.lang);
-            const badge = missing || fallbackLang ? '中文' : 'EN · 中文';
-            const desc =
-              missing || fallbackLang
-                ? 'Not in English yet — read it in 中文.'
-                : n.data.summary && n.data.summary !== n.data.title
-                  ? n.data.summary
-                  : '';
-            return (
-              <a class="writing-row" href={withBase(href)}>
-                <span class="w-meta">{formatNoteDate(n.data.updated, 'en')}</span>
-                <span>
-                  <span class="w-title">{n.data.title}<span class="w-badge">{badge}</span></span>
-                  {desc && <span class="w-desc">{desc}</span>}
-                </span>
-              </a>
-            );
-                        })}
-                      </div>
-                    </details>
-                  );
-                })}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            </section>
-          ))
-        }
-      </div>
-    </section>
-
-    <section class="home-section">
-      <div class="home-section-head"><h2>Research</h2></div>
-      <ul class="research-list">
-        {
-          research.map((r) => (
-            <li>
-              <strong>{r.name}</strong>
-              <span>{r.desc}</span>
-            </li>
-          ))
-        }
-      </ul>
-    </section>
-
-    <section class="home-section">
-      <div class="home-section-head">
-        <h2>Recent</h2>
-        <a class="section-more" href={withBase('experience')}>Experience →</a>
-      </div>
-      <div class="update-list">
-        {
-          recentNews.map((n) => (
-            <div class="update-item">
-              <div class="update-date">{n.date}</div>
-              <div class="update-text">
-                <span set:html={n.html} />
-                {n.links &&
-                  n.links.map((l) => (
-                    <>
-                      {' '}
-                      <a href={withBase(l.href)} target="_blank" rel="noopener">
-                        {l.label}
-                      </a>
-                    </>
-                  ))}
-              </div>
-            </div>
-          ))
-        }
-      </div>
-    </section>
-
-    <section class="home-section">
-      <div class="home-section-head">
-        <h2>Selected publications</h2>
-        <a class="section-more" href={withBase('publications')}>All publications →</a>
-      </div>
-      {
-        selectedPubs.map((pub) => (
-          <div class="pub-item">
-            <div class="pub-title">
-              {pub.url ? (
-                <a href={pub.url} target="_blank" rel="noopener">
-                  {pub.title}
-                </a>
-              ) : (
-                pub.title
-              )}
-            </div>
-            <div class="pub-authors" set:html={pub.authors} />
-            <div class="pub-venue">{pub.venue}</div>
-          </div>
-        ))
-      }
-    </section>
-  </main>
+<Base
+  title="Shih-Hsin Wang"
+  active="home"
+  jsonLd={personJsonLd}
+  alternates={alternates}
+  langToggleHref={withBase('zh')}
+>
+  <HomeView lang="en" />
 </Base>

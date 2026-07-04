@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Randomness and Distribution Demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif;
+    background: transparent;
+    color: #202631;
+  }
+  body[data-dark="1"] { color: #ece9e2; }
+  .card {
+    max-width: 700px;
+    margin: 0 auto;
+    padding: 18px;
+    border-radius: 8px;
+    background: #fbfaf7;
+    border: 1px solid #ded8cf;
+  }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #30323a; }
+  .goal { margin: 0 0 12px; font-size: 0.92rem; line-height: 1.5; }
+  .goal b { color: #1f6f78; }
+  body[data-dark="1"] .goal b { color: #e1b45c; }
+  canvas {
+    width: 100%;
+    max-width: 640px;
+    aspect-ratio: 1 / 0.64;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+    border-radius: 8px;
+  }
+  .controls { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; }
+  label { font-size: 0.84rem; font-weight: 700; }
+  select {
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid #bfc6c7;
+    background: #fff;
+    color: inherit;
+    font: inherit;
+  }
+  body[data-dark="1"] select { background: #282b33; border-color: #444855; color: #ece9e2; }
+  button {
+    padding: 7px 14px;
+    border-radius: 8px;
+    border: 0;
+    cursor: pointer;
+    font-weight: 800;
+    background: #1f6f78;
+    color: #fff;
+  }
+  body[data-dark="1"] button { background: #e1b45c; color: #17191d; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #bfc6c7; }
+  body[data-dark="1"] button.ghost { border-color: #444855; }
+  .readout {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+    gap: 8px;
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric { padding: 8px 10px; border-radius: 8px; background: rgba(31,111,120,0.08); }
+  body[data-dark="1"] .metric { background: rgba(225,180,92,0.12); }
+  .metric span { display: block; color: #667078; font-size: 0.72rem; margin-bottom: 2px; }
+  body[data-dark="1"] .metric span { color: #a8a69f; }
+  .observe { margin: 12px 0 0; color: #667078; font-size: 0.83rem; line-height: 1.55; }
+  body[data-dark="1"] .observe { color: #a8a69f; }
+  @media (max-width: 520px) {
+    body { padding: 10px; }
+    .card { padding: 12px; }
+    .readout { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：每按一次抽樣，就看到一個 <b>sample</b>。很多 sample 疊起來，才慢慢露出背後的 <b>distribution</b>。</p>
+  <canvas id="cv" width="640" height="410" aria-label="samples accumulating into a distribution"></canvas>
+  <div class="controls">
+    <div class="row">
+      <label for="shape">背後的 rule</label>
+      <select id="shape">
+        <option value="two_gaussians">兩群人</option>
+        <option value="ring">圓環</option>
+        <option value="two_moons">兩條弧</option>
+      </select>
+      <button id="one">抽 1 次</button>
+      <button id="many">抽 50 次</button>
+      <button id="reset" class="ghost">重設</button>
+    </div>
+    <div class="readout">
+      <div class="metric"><span>samples seen</span><strong id="nR">0</strong></div>
+      <div class="metric"><span>latest sample</span><strong id="latestR">none</strong></div>
+    </div>
+  </div>
+  <p class="observe">觀察這個不變量 / tradeoff：單一 sample 會跳來跳去，distribution 的輪廓卻越抽越穩。不要用一個點猜整個 rule。</p>
+</div>
+
+<script src="../noise-to-data/_demo-common.js"></script>
+<script>
+(function () {
+  var cv = document.getElementById('cv');
+  var dpi = NDFlow.hiDPICanvas(cv);
+  var ctx = dpi.ctx, size = { w: 640, h: 410 };
+  var shapeEl = document.getElementById('shape');
+  var nR = document.getElementById('nR');
+  var latestR = document.getElementById('latestR');
+  var pal = NDFlow.palette();
+  var backdrop = [], samples = [], latest = null;
+
+  function drawOneFrom(shape) {
+    return NDFlow.sampleTarget(shape, 1)[0];
+  }
+  function rebuildBackdrop() {
+    backdrop = NDFlow.sampleTarget(shapeEl.value, 1200);
+    samples = [];
+    latest = null;
+  }
+  function add(k) {
+    for (var i = 0; i < k; i++) {
+      latest = drawOneFrom(shapeEl.value);
+      samples.push(latest);
+    }
+    draw();
+  }
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function point(p, scale, cx, cy) {
+    return [cx + p[0] * scale, cy - p[1] * scale];
+  }
+  function draw() {
+    size = dpi.resize();
+    var scale = Math.min(size.w, size.h) / 4.55;
+    var cx = size.w / 2, cy = size.h / 2;
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = pal.bg;
+    rr(0, 0, size.w, size.h, 8);
+    ctx.fill();
+
+    ctx.fillStyle = 'rgb(' + pal.data.join(',') + ')';
+    ctx.globalAlpha = 0.13;
+    for (var b = 0; b < backdrop.length; b++) {
+      var pb = point(backdrop[b], scale, cx, cy);
+      ctx.beginPath();
+      ctx.arc(pb[0], pb[1], 1.6, 0, 6.2832);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 0.88;
+    ctx.fillStyle = 'rgb(' + pal.noise.join(',') + ')';
+    for (var i = 0; i < samples.length; i++) {
+      var ps = point(samples[i], scale, cx, cy);
+      ctx.beginPath();
+      ctx.arc(ps[0], ps[1], 2.4, 0, 6.2832);
+      ctx.fill();
+    }
+    if (latest) {
+      var pl = point(latest, scale, cx, cy);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = pal.accent;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(pl[0], pl[1], 7, 0, 6.2832);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#f3f0e8';
+    ctx.font = '800 13px Segoe UI, system-ui, sans-serif';
+    ctx.fillText('hidden distribution', 18, 28);
+    ctx.fillStyle = pal.accent;
+    ctx.fillText('samples', 18, 48);
+
+    nR.textContent = String(samples.length);
+    latestR.textContent = latest ? '(' + latest[0].toFixed(2) + ', ' + latest[1].toFixed(2) + ')' : 'none';
+  }
+  function applyTheme() {
+    pal = NDFlow.palette();
+    document.body.dataset.dark = pal.dark ? '1' : '0';
+    draw();
+  }
+  document.getElementById('one').onclick = function () { add(1); };
+  document.getElementById('many').onclick = function () { add(50); };
+  document.getElementById('reset').onclick = function () { samples = []; latest = null; draw(); };
+  shapeEl.onchange = function () { rebuildBackdrop(); draw(); };
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  rebuildBackdrop();
+  applyTheme();
+})();
+</script>
+</body>
+</html>

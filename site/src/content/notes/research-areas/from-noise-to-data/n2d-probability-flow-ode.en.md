@@ -3,9 +3,9 @@ slug: "n2d-probability-flow-ode"
 lang: "en"
 title: "The Probability Flow ODE: Bridging Score and Flow"
 category: "research-areas"
-group: "From Noise to Data"
+group: "Diffusion & Flow Models"
 status: "missing"
-updated: 2026-06-21
+updated: 2026-06-28
 summary: "English translation in progress; content-agent task."
 demos: []
 references: []

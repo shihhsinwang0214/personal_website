@@ -1,0 +1,81 @@
+---
+slug: "math-pca"
+lang: "zh"
+title: "PCA：保留最多變化的低維視角"
+category: "courses"
+group: "Lecture 2 · Eigen, SVD & PCA"
+status: "available"
+updated: 2026-06-30
+summary: "PCA 會找出資料最展開的方向，讓高維資料降到 2-D 時盡量保留主要變化。"
+demos:
+  - "notes/research_areas/math-intuitions/pca.html"
+references: []
+---
+import Quiz from '../../components/Quiz.astro';
+
+# PCA：保留最多變化的低維視角
+
+一份資料有 100 個欄位，你想畫成一張看得懂的 2-D 圖。可是你不想隨便挑兩欄，因為那可能剛好丟掉最重要的差異。
+
+如果只能保留兩個方向，該留哪兩個，才最能看見資料本來的變化？
+
+## 先問哪個方向最展開
+
+這個問題的工具叫 **PCA**，全名是 principal component analysis。白話說，PCA 會找出資料雲最展開的方向；第一個 **principal component** 就是變化最大的方向，第二個是在垂直於第一個方向裡變化最大的方向。
+
+為了量「展開多少」，我們需要 **covariance**。白話說，covariance 是在看不同 feature 怎麼一起變；整理成 matrix 後，它會告訴我們每個方向上的 spread 有多大。
+
+PCA 的畫面很像拿手電筒照一團點：你想選一個角度，讓影子看起來最分散、最能保留原本差異。
+
+## 拖主軸，看投影保留多少
+
+下面的 demo 有一團 2-D 點。拖投影方向，觀察投影到那條線後還保留多少 variance；畫面也會標出 PCA 找到的最佳方向。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/math-intuitions/pca.html" class="demo-frame" title="PCA projection variance demo" style="height: 660px; width: 100%; border: none;"></iframe>
+
+當投影方向貼近資料雲的長軸，保留的 variance 會變高；如果投影方向轉到短軸，很多差異會被壓在一起。
+
+## variance 怎麼變成 wᵀΣw
+
+先把資料置中，得到 $X_c\in\mathbb{R}^{m\times n}$；每一列是一筆 sample，平均已經移到 0。covariance matrix 定義成
+
+$$
+\Sigma=\frac{1}{m}X_c^\top X_c.
+$$
+
+如果我們把資料投影到 unit vector $w$ 上，投影後的數值是 $X_cw$。它的 variance 是
+
+$$
+\operatorname{Var}(X_cw)
+=\frac{1}{m}(X_cw)^\top(X_cw)
+=w^\top\left(\frac{1}{m}X_c^\top X_c\right)w
+=w^\top\Sigma w.
+$$
+
+所以「找最展開的方向」就翻成：在 $\lVert w\rVert_2=1$ 的條件下，讓 $w^\top\Sigma w$ 最大。
+
+兩個便宜檢查：如果 $w$ 沿著資料雲長軸，投影 spread 大；如果 $w$ 沿著短軸，很多點投影後擠在一起，variance 小。
+
+## 置中不是裝飾
+
+<Quiz
+  q="做 PCA 前為什麼通常要先 centering？"
+  options={[
+    { text: "因為不置中，第一個方向可能追著平均位置跑，而不是追資料的 spread。", correct: true, explain: "正解。PCA 要看資料相對於中心怎麼展開；沒置中時，離原點很遠的平均位置會污染方向判斷。" },
+    { text: "因為 centering 會讓所有資料變成一樣。", explain: "不對。centering 只是把平均移到 0，點與點之間的相對差異還在。" },
+    { text: "因為 PCA 只能處理正數。", explain: "PCA 不要求資料都是正數；置中後常常會有負值，這完全正常。" },
+  ]}
+/>
+
+> **`深一層`：最大 variance 為什麼變成 eigenvector？**
+> 要在 $\lVert w\rVert_2=1$ 下最大化 $w^\top\Sigma w$，可以用 Lagrange multiplier：令 $L(w,\lambda)=w^\top\Sigma w-\lambda(w^\top w-1)$。對 $w$ 微分得到 $2\Sigma w-2\lambda w=0$，所以 $\Sigma w=\lambda w$。也就是說，principal components 是 covariance matrix 的 eigenvectors；最大的 eigenvalue 對應最大 projected variance。因為 $\Sigma=(1/m)X_c^\top X_c$，這也說明 PCA 等價於對 centered data $X_c$ 做 SVD，取 top right-singular vectors。
+
+## 那張 2-D 圖該怎麼畫
+
+開頭問的是：100 欄資料要畫成 2-D 時，該保留哪兩個方向？PCA 的回答是：先 centering，算 covariance，取前兩個 principal components，因為它們保留最多 projected variance。
+
+下一篇會把同一套「保留重要方向」的想法用在重建：如果只保留前幾個 singular values，能不能把資料近似回來？這就是 [Low-Rank Approximation：只留最重要的方向來重建](/personal_website/zh/notes/math-low-rank-approximation)。
+
+## 參考文獻
+
+本篇使用 standard linear algebra 與 statistics 的 PCA、covariance、Rayleigh quotient 觀點；未引用特定 research result。

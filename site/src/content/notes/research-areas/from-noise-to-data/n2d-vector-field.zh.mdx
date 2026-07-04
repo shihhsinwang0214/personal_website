@@ -5,7 +5,7 @@ title: "Vector Field：每個點該往哪裡走？"
 category: "research-areas"
 group: "From Noise to Data"
 status: "available"
-updated: 2026-06-21
+updated: 2026-06-28
 summary: "從 Lagrangian（跟著一顆粒子）切到 Eulerian（每個位置擺一支箭頭）。Vector field 就是 flow matching 要學的對象。"
 demos:
   - "notes/research_areas/noise-to-data/vector-field.html"
@@ -17,7 +17,7 @@ import Quiz from '../../components/Quiz.astro';
 
 # Vector Field：每個點該往哪裡走？
 
-> 「From Noise to Data」系列第 4 篇。上一篇跟著一顆粒子走（Lagrangian）；這一篇換成站在空間裡看整個場（Eulerian）。
+> 上一篇跟著一顆粒子走（Lagrangian）；這一篇換成站在空間裡看整個場（Eulerian）。
 
 想像你打開一張圖，上面每個格點旁邊都畫著一支小箭頭：有的往左、有的往右、有的指向某個聚集中心。這正是 flow matching 論文給你的東西——它不會列出「每顆粒子的軌跡」，而是給你一個函數 $v_t(x)$，叫它 vector field（向量場），然後說「模型就是要學這個」。
 
@@ -42,7 +42,7 @@ import Quiz from '../../components/Quiz.astro';
 
 下面的 demo 把場和粒子畫在一起：拖時間 $t$ 看箭頭如何隨時間改變，調粒子數量與箭頭長度，觀察粒子如何順著箭頭被搬成資料形狀。
 
-<iframe src="/personal_website/notes/research_areas/noise-to-data/vector-field.html" class="demo-frame" title="Vector Field 互動 demo" style="height: 780px; width: 100%; border: none;"></iframe>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/noise-to-data/vector-field.html" class="demo-frame" title="Vector Field 互動 demo" style="height: 780px; width: 100%; border: none;"></iframe>
 
 請特別注意一件事：**箭頭依「位置」與「時間」而不同**。同一時刻，不同位置的粒子速度不一樣；同一位置，不同時刻的箭頭也會變。場不是單一的全域方向。
 
@@ -60,13 +60,7 @@ $$
 \frac{d x}{d t} = v_t(x), \qquad x(0) = x_0 \sim p_0.
 $$
 
-把「對所有起點同時做這件事」寫成一個映射 $\phi_t$（flow map），它滿足
-
-$$
-\frac{d}{dt}\phi_t(x_0) = v_t\big(\phi_t(x_0)\big), \qquad \phi_0(x_0) = x_0,
-$$
-
-我們要的生成器就是 $x_1 = \phi_1(x_0)$。Lagrangian 與 Eulerian 的關係就藏在這裡：粒子軌跡 $x_t = \phi_t(x_0)$ 是「解」，向量場 $v_t$ 是「方程」。給場能解出軌跡；給一族軌跡也能反推出場。
+把「對所有起點同時做這件事」想成一個映射 $\phi_t$（flow map）：它把每個起點 $x_0$ 送到它在時刻 $t$ 的位置，我們要的生成器就是 $x_1 = \phi_1(x_0)$。Lagrangian 與 Eulerian 的關係就藏在這裡：**向量場 $v_t$ 是「方程」，粒子軌跡是「解」**——給場能解出軌跡，給一族軌跡也能反推出場。（把它寫成嚴格的 ODE、以及解的存在唯一性，屬於更技術的內容，留給 [Diffusion & Flow Models 課程](/personal_website/zh/notes/dfc-principles-course-map)。）
 
 ## 為什麼場比軌跡更有用
 
@@ -102,4 +96,13 @@ $$
 
 ## 這怎麼接到論文？
 
-學習向量場 $v_\theta(x, t)$ 正是 **flow matching** 的核心；continuous normalizing flow（CNF）和 rectified flow 也都建立在同一個動
+學習向量場 $v_\theta(x, t)$ 正是 **flow matching** 的核心；continuous normalizing flow（CNF）和 rectified flow 也都建立在同一個動態觀上：要學的不是一條條軌跡，而是那個能把整群 noise 推成資料的場。把「該往哪走」交給一個神經網路去逼近，正是這些方法能擴展到高維資料的關鍵。
+
+## 下一步
+
+我們有了「場」這個要學的對象，卻還沒講它怎麼隨時間把整團分布從 noise 帶到 data。下一篇 [Probability Path](/personal_website/zh/notes/n2d-probability-path) 把鏡頭從「一個場」拉高到「一整條分布的演化」——看 noise 與 data 之間那段「影片」是怎麼接起來的。
+
+## 參考文獻
+
+1. Lipman, Y., et al. *Flow Matching for Generative Modeling.* ICLR 2023.
+2. Chen, R. T. Q., et al. *Neural Ordinary Differential Equations.* NeurIPS 2018.

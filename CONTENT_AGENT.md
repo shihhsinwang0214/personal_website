@@ -178,5 +178,27 @@ agent uses it for navigation, search, and social/SEO cards.
 4. Add the references section.
 5. Produce the second-language version, or mark it `missing` as a tracked TODO.
 6. Emit the handoff metadata.
-7. Hand to the maintenance agent for rendering, linking, and validation;
+7. **Verify before handoff** — see the Verification checklist below.
+8. Hand to the maintenance agent for rendering, linking, and validation;
    resolve any content questions it raises.
+
+---
+
+## Verification (before every handoff)
+
+* **Source of truth is the editor's file tools, not the shell.** The sandbox shell
+  can serve a stale or partially-written copy of a file right after an edit. Confirm
+  content with the Read tool; never conclude a file is wrong or corrupted from a shell
+  `cat` / `grep` / `wc` immediately after writing it.
+* **The build compiles.** Run the site build (`astro build`). A note that fails MDX or
+  frontmatter parsing breaks the build; a clean build is the minimum bar. (If the shell
+  build runs against a stale copy, re-run or rely on the author's build log.)
+* **The note is search-indexed.** After build, the rendered page must carry
+  `data-pagefind-body`, and Pagefind's "Indexed N pages" must include it. If the log
+  reads "Found X html / Indexed M" with M < X, diff the two file lists: standalone
+  interactive demos and listing/index pages are expected to be excluded, but a real
+  *article* missing the tag is a discoverability bug — hand it to the maintenance agent
+  (it is a rendering/layout issue, not content).
+* **Quizzes and links.** Every `<Quiz>` option (including wrong ones) has an `explain`;
+  correct-answer index varies across the series; cross-note links are absolute
+  `/personal_website/zh/notes/<slug>` and point to slugs that exist.

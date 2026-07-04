@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PCA Demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #202631; }
+  body[data-dark="1"] { color: #ece9e2; }
+  .card { max-width: 780px; margin: 0 auto; padding: 18px; border-radius: 8px; background: #fbfaf7; border: 1px solid #ded8cf; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #30323a; }
+  .goal { margin: 0 0 12px; font-size: 0.92rem; line-height: 1.55; }
+  .goal b { color: #1f6f78; } body[data-dark="1"] .goal b { color: #e1b45c; }
+  canvas { width: 100%; max-width: 740px; aspect-ratio: 1 / 0.58; height: auto; display: block; margin: 0 auto; border-radius: 8px; }
+  .controls { display: grid; gap: 10px; margin-top: 14px; }
+  label { display: grid; gap: 4px; font-size: 0.82rem; font-weight: 800; }
+  input[type=range] { width: 100%; accent-color: #1f6f78; }
+  body[data-dark="1"] input[type=range] { accent-color: #e1b45c; }
+  .readout { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: rgba(31,111,120,0.08); font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+  body[data-dark="1"] .readout { background: rgba(225,180,92,0.12); }
+  .observe { margin: 12px 0 0; color: #667078; font-size: 0.83rem; line-height: 1.55; }
+  body[data-dark="1"] .observe { color: #a8a69f; }
+  @media (max-width: 560px) { body { padding: 10px; } .card { padding: 12px; } }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal"><b>拖這個 → 看那個：</b>拖投影方向，看資料投到線上後保留多少 variance；金色線是 PCA 方向。</p>
+  <canvas id="cv" width="740" height="430" aria-label="PCA projection direction and retained variance"></canvas>
+  <div class="controls">
+    <label>projection angle <input id="angle" type="range" min="0" max="180" step="1" value="28" /></label>
+  </div>
+  <div class="readout" id="readout">retained variance</div>
+  <p class="observe">投影方向貼近資料雲長軸時，點在線上的 spread 最大。</p>
+</div>
+
+<script src="../noise-to-data/_demo-common.js"></script>
+<script>
+(function(){
+  var cv=document.getElementById('cv'), dpi=NDFlow.hiDPICanvas(cv), ctx=dpi.ctx, angleEl=document.getElementById('angle'), readout=document.getElementById('readout'), pal=NDFlow.palette();
+  var pts=[]; for(var i=0;i<36;i++){var t=-1.8+3.6*i/35, noise=0.22*Math.sin(i*2.17), x=t, y=0.58*t+noise; pts.push({x:x+0.65,y:y+0.18});}
+  function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+  function stats(){var mx=0,my=0;pts.forEach(function(p){mx+=p.x;my+=p.y;});mx/=pts.length;my/=pts.length;var sxx=0,sxy=0,syy=0;pts.forEach(function(p){var x=p.x-mx,y=p.y-my;sxx+=x*x;sxy+=x*y;syy+=y*y;});sxx/=pts.length;sxy/=pts.length;syy/=pts.length;var tr=sxx+syy,det=sxx*syy-sxy*sxy,root=Math.sqrt(Math.max(0,tr*tr-4*det)),lam=(tr+root)/2;var v=Math.abs(sxy)>1e-8?{x:sxy,y:lam-sxx}:{x:1,y:0};var n=Math.hypot(v.x,v.y)||1;return{m:{x:mx,y:my},cov:[sxx,sxy,syy],pca:{x:v.x/n,y:v.y/n},total:tr,top:lam};}
+  function project(p,m,w){var dx=p.x-m.x,dy=p.y-m.y,t=dx*w.x+dy*w.y;return{x:m.x+t*w.x,y:m.y+t*w.y,t:t};}
+  function drawLine(S,m,w,color,width,dash){var a=S({x:m.x-3*w.x,y:m.y-3*w.y}),b=S({x:m.x+3*w.x,y:m.y+3*w.y});ctx.save();if(dash)ctx.setLineDash([6,5]);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.restore();}
+  function draw(){var size=dpi.resize();pal=NDFlow.palette();var st=stats(),deg=parseFloat(angleEl.value),rad=deg*Math.PI/180,w={x:Math.cos(rad),y:Math.sin(rad)},variance=0;pts.forEach(function(p){var pr=project(p,st.m,w);variance+=pr.t*pr.t;});variance/=pts.length;ctx.clearRect(0,0,size.w,size.h);ctx.fillStyle=pal.dark?'#111318':'#f8f6f0';rr(0,0,size.w,size.h,8);ctx.fill();var cx=size.w/2,cy=size.h/2,scale=Math.min(size.w,size.h)/6.2;function S(p){return{x:cx+p.x*scale,y:cy-p.y*scale};}
+    ctx.strokeStyle=pal.grid;ctx.lineWidth=1;for(var i=-3;i<=3;i++){ctx.beginPath();ctx.moveTo(cx+i*scale,24);ctx.lineTo(cx+i*scale,size.h-24);ctx.stroke();ctx.beginPath();ctx.moveTo(24,cy+i*scale);ctx.lineTo(size.w-24,cy+i*scale);ctx.stroke();}
+    drawLine(S,st.m,st.pca,pal.accent,3,true); drawLine(S,st.m,w,pal.dark?'#78aaff':'#2a4ea3',2.4,false);
+    pts.forEach(function(p){var pr=project(p,st.m,w),sp=S(p),sr=S(pr);ctx.strokeStyle=pal.grid;ctx.beginPath();ctx.moveTo(sp.x,sp.y);ctx.lineTo(sr.x,sr.y);ctx.stroke();ctx.fillStyle=pal.dark?'rgba(120,170,255,0.92)':'rgba(42,78,163,0.82)';ctx.beginPath();ctx.arc(sp.x,sp.y,4,0,Math.PI*2);ctx.fill();ctx.fillStyle=pal.accent;ctx.beginPath();ctx.arc(sr.x,sr.y,3,0,Math.PI*2);ctx.fill();});
+    readout.textContent='angle '+deg.toFixed(0)+'°; retained variance '+(variance/st.total*100).toFixed(1)+'%; PCA best '+(st.top/st.total*100).toFixed(1)+'%';
+  }
+  function applyTheme(){pal=NDFlow.palette();document.body.dataset.dark=pal.dark?'1':'0';draw();}
+  angleEl.oninput=draw;window.addEventListener('resize',draw);NDFlow.onThemeChange(applyTheme);applyTheme();
+})();
+</script>
+</body>
+</html>

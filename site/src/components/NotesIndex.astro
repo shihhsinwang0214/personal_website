@@ -2,7 +2,9 @@
 import type { Lang, NoteEntry } from '../lib/notes';
 import {
   categoryLabels,
+  courseSections,
   formatNoteDate,
+  groupMeta,
   groupNotes,
   latestNoteDate,
   notesIndexRoute,
@@ -21,6 +23,7 @@ interface Props {
 const { lang, notes } = Astro.props;
 const otherLang = lang === 'zh' ? 'en' : 'zh';
 const grouped = groupNotes(notes);
+const courseBlocks = courseSections(notes, lang);
 ---
 
 <section class="notes-index">
@@ -46,74 +49,192 @@ const grouped = groupNotes(notes);
     grouped.map((categoryGroup) => (
       <section class="note-category">
         <h3>{categoryLabels[categoryGroup.category][lang]}</h3>
-        {categoryGroup.areas.map((areaGroup) => (
-          <section class="note-area">
-            {areaGroup.area && (
-              <div class="note-area-heading">
-                <span>{researchAreaLabels[areaGroup.area][lang]}</span>
-              </div>
-            )}
-        {areaGroup.groups.map(({ group, notes: groupEntries }) => {
-          const latest = latestNoteDate(groupEntries);
-          return (
-          <details class="note-group">
-            <summary class="disclosure-summary note-group-summary">
-              <span class="disclosure-copy">
-                <span class="disclosure-label">{group}</span>
-                <span class="disclosure-meta">
-                  {groupEntries.length} · Updated {latest ? formatNoteDate(latest, lang) : ''}
-                </span>
-              </span>
-              <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-                <path d="M7 4.5 12.5 10 7 15.5" />
-              </svg>
-            </summary>
-            <div class="disclosure-content note-group-content">
-              <div class="note-list-cards">
-              {groupEntries.map((note) => {
-                const isMissing = note.data.status === 'missing';
-                const isFallbackLang = note.data.lang !== lang;
-                const targetLang = isMissing ? otherLang : note.data.lang;
-                const targetName = targetLang === 'zh' ? '中文' : 'English';
-                const href = isMissing
-                  ? noteRoute(note.data.slug, otherLang)
-                  : noteRoute(note.data.slug, note.data.lang);
-                return (
-                  <a class="note-list-card" href={withBase(href)}>
-                    <div class="note-card-topline">
-                      <span>{formatNoteDate(note.data.updated, lang)}</span>
-                      {isMissing || isFallbackLang ? (
-                        <span class="status-badge status-alt">
-                          {lang === 'zh' ? `可讀 ${targetName}` : `Available in ${targetName}`}
+        {categoryGroup.category === 'courses'
+          ? courseBlocks.map((course) => (
+              <section class="note-area note-course">
+                <div class="note-area-heading">
+                  <span>{course.title}</span>
+                </div>
+                {course.lectures.map((lecture) => {
+                  if (lecture.comingSoon) {
+                    return (
+                      <div class="note-group note-group-soon" aria-disabled="true">
+                        <div class="disclosure-summary note-group-summary">
+                          <span class="disclosure-copy">
+                            <span class="disclosure-label">{lecture.group}</span>
+                            <span class="note-lecture-desc">{lecture.description}</span>
+                          </span>
+                          <span class="status-badge status-coming-soon">
+                            {lang === 'zh' ? '即將推出' : 'Coming soon'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  const latest = latestNoteDate(lecture.notes);
+                  const total = lecture.notes.length;
+                  return (
+                    <details class="note-group" open={lecture.open}>
+                      <summary class="disclosure-summary note-group-summary">
+                        <span class="disclosure-copy">
+                          <span class="disclosure-label">{lecture.group}</span>
+                          <span class="note-lecture-desc">{lecture.description}</span>
+                          <span class="disclosure-meta">
+                            {total} {lang === 'zh' ? '篇' : 'notes'}
+                            {latest ? ` · Updated ${formatNoteDate(latest, lang)}` : ''}
+                          </span>
                         </span>
-                      ) : (
-                        <span class={`status-badge status-${note.data.status}`}>
-                          {statusLabels[note.data.status][lang]}
+                        <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+                          <path d="M7 4.5 12.5 10 7 15.5" />
+                        </svg>
+                      </summary>
+                      <div class="disclosure-content note-group-content">
+                        <div class="note-list-cards">
+                          {lecture.notes.map((note, index) => {
+                            const isMissing = note.data.status === 'missing';
+                            const isFallbackLang = note.data.lang !== lang;
+                            const targetLang = isMissing ? otherLang : note.data.lang;
+                            const targetName = targetLang === 'zh' ? '中文' : 'English';
+                            const href = isMissing
+                              ? noteRoute(note.data.slug, otherLang)
+                              : noteRoute(note.data.slug, note.data.lang);
+                            const isStart = lecture.open && index === 0;
+                            return (
+                              <a class="note-list-card" href={withBase(href)}>
+                                <div class="note-card-topline">
+                                  <span class="note-card-meta-left">
+                                    <span class="note-card-order">
+                                      {lang === 'zh'
+                                        ? `第 ${index + 1} / ${total} 篇`
+                                        : `Part ${index + 1} / ${total}`}
+                                    </span>
+                                    {isStart && (
+                                      <span class="start-here-pill">
+                                        {lang === 'zh' ? '從這裡開始' : 'Start here'}
+                                      </span>
+                                    )}
+                                  </span>
+                                  {isMissing || isFallbackLang ? (
+                                    <span class="status-badge status-alt">
+                                      {lang === 'zh' ? `可讀 ${targetName}` : `Available in ${targetName}`}
+                                    </span>
+                                  ) : (
+                                    <span class={`status-badge status-${note.data.status}`}>
+                                      {statusLabels[note.data.status][lang]}
+                                    </span>
+                                  )}
+                                </div>
+                                <strong>{note.data.title}</strong>
+                                <p>
+                                  {isMissing || isFallbackLang ? (
+                                    <span class="alt-hint">
+                                      {lang === 'zh'
+                                        ? `此語言版本尚未完成 — 前往 ${targetName} 版 →`
+                                        : `Not in this language yet — read it in ${targetName} →`}
+                                    </span>
+                                  ) : (
+                                    note.data.summary
+                                  )}
+                                </p>
+                              </a>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </details>
+                  );
+                })}
+              </section>
+            ))
+          : categoryGroup.areas.map((areaGroup) => (
+              <section class="note-area">
+                {areaGroup.area && (
+                  <div class="note-area-heading">
+                    <span>{researchAreaLabels[areaGroup.area][lang]}</span>
+                  </div>
+                )}
+                {areaGroup.groups.map(({ group, notes: groupEntries }) => {
+                  const latest = latestNoteDate(groupEntries);
+                  const meta = groupMeta[group];
+                  const total = groupEntries.length;
+                  return (
+                    <details class="note-group" open={meta?.defaultOpen}>
+                      <summary class="disclosure-summary note-group-summary">
+                        <span class="disclosure-copy">
+                          <span class="disclosure-label">{group}</span>
+                          {meta?.description && (
+                            <span class="note-lecture-desc">{meta.description[lang]}</span>
+                          )}
+                          <span class="disclosure-meta">
+                            {total} {lang === 'zh' ? '篇' : 'notes'}
+                            {latest ? ` · Updated ${formatNoteDate(latest, lang)}` : ''}
+                          </span>
                         </span>
-                      )}
-                    </div>
-                    <strong>{note.data.title}</strong>
-                    <p>
-                      {isMissing || isFallbackLang ? (
-                        <span class="alt-hint">
-                          {lang === 'zh'
-                            ? `此語言版本尚未完成 — 前往 ${targetName} 版 →`
-                            : `Not in this language yet — read it in ${targetName} →`}
-                        </span>
-                      ) : (
-                        note.data.summary
-                      )}
-                    </p>
-                  </a>
-                );
-              })}
-              </div>
-            </div>
-          </details>
-          );
-        })}
-          </section>
-        ))}
+                        <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+                          <path d="M7 4.5 12.5 10 7 15.5" />
+                        </svg>
+                      </summary>
+                      <div class="disclosure-content note-group-content">
+                        <div class="note-list-cards">
+                          {groupEntries.map((note, index) => {
+                            const isMissing = note.data.status === 'missing';
+                            const isFallbackLang = note.data.lang !== lang;
+                            const targetLang = isMissing ? otherLang : note.data.lang;
+                            const targetName = targetLang === 'zh' ? '中文' : 'English';
+                            const href = isMissing
+                              ? noteRoute(note.data.slug, otherLang)
+                              : noteRoute(note.data.slug, note.data.lang);
+                            return (
+                              <a class="note-list-card" href={withBase(href)}>
+                                <div class="note-card-topline">
+                                  {meta?.ordered ? (
+                                    <span class="note-card-meta-left">
+                                      <span class="note-card-order">
+                                        {lang === 'zh'
+                                          ? `第 ${index + 1} / ${total} 篇`
+                                          : `Part ${index + 1} / ${total}`}
+                                      </span>
+                                      {meta?.startHere && index === 0 && (
+                                        <span class="start-here-pill">
+                                          {lang === 'zh' ? '從這裡開始' : 'Start here'}
+                                        </span>
+                                      )}
+                                    </span>
+                                  ) : (
+                                    <span>{formatNoteDate(note.data.updated, lang)}</span>
+                                  )}
+                                  {isMissing || isFallbackLang ? (
+                                    <span class="status-badge status-alt">
+                                      {lang === 'zh' ? `可讀 ${targetName}` : `Available in ${targetName}`}
+                                    </span>
+                                  ) : (
+                                    <span class={`status-badge status-${note.data.status}`}>
+                                      {statusLabels[note.data.status][lang]}
+                                    </span>
+                                  )}
+                                </div>
+                                <strong>{note.data.title}</strong>
+                                <p>
+                                  {isMissing || isFallbackLang ? (
+                                    <span class="alt-hint">
+                                      {lang === 'zh'
+                                        ? `此語言版本尚未完成 — 前往 ${targetName} 版 →`
+                                        : `Not in this language yet — read it in ${targetName} →`}
+                                    </span>
+                                  ) : (
+                                    note.data.summary
+                                  )}
+                                </p>
+                              </a>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </details>
+                  );
+                })}
+              </section>
+            ))}
       </section>
     ))
   }

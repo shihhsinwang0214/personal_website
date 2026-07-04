@@ -1,0 +1,144 @@
+---
+slug: "dfc-principles-transport-map"
+lang: "zh"
+title: "生成就是把分布搬過去"
+category: "research-areas"
+group: "Diffusion & Flow Models"
+status: "available"
+updated: 2026-06-26
+summary: "先把 diffusion 和 flow 放回同一個問題：從容易取樣的高斯分布，搬到資料分布。"
+demos:
+  - "notes/research_areas/diffusion-flow-course/principles-pipeline.html"
+references:
+  - label: "Sohl-Dickstein et al., Deep Unsupervised Learning using Nonequilibrium Thermodynamics (ICML 2015)"
+    href: "https://arxiv.org/abs/1503.03585"
+  - label: "Ho, Jain & Abbeel, Denoising Diffusion Probabilistic Models (NeurIPS 2020)"
+    href: "https://arxiv.org/abs/2006.11239"
+  - label: "Song et al., Score-Based Generative Modeling through Stochastic Differential Equations (ICLR 2021)"
+    href: "https://arxiv.org/abs/2011.13456"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# 生成就是把分布搬過去
+
+> Diffusion & Flow Models 第 1 講，第 1 篇。這門課先不從 DDPM 的 loss 開始，而是從一個更穩的問題開始：我們到底要搬動什麼？
+
+你面前有兩團點。左邊是一團圓圓的高斯雜訊，右邊是一個有形狀的資料分布：雙月、雙峰、環形，或高維世界裡的圖片、分子、軌跡。生成模型不是在問「怎麼從一顆雜訊點猜出某張圖」，而是在問一個分布層級的問題：**能不能把整團容易取樣的雜訊，搬成整團資料？**
+
+## 先抓住這句
+
+> diffusion、score-based SDE、flow matching 都是在設計一條路，讓 $p_0=\mathcal N(0,I)$ 逐步變成 $p_1\approx p_{\mathrm{data}}$；差別在於路怎麼定、局部方向怎麼學、生成時怎麼走。
+
+這句話很短，但它會是整門課的骨架。後面每個 loss、sampler、guidance 技巧，都可以先放回這條「從 $p_0$ 到 $p_1$」的路上。
+
+## 先看一團點怎麼搬
+
+下面的 toy demo 固定一批 noise 點和一批 data 點，讓你切換「data → noise」的前向破壞，以及理想化「noise → data」的反向生成。它不是一個訓練好的模型；它只是把本講的對象畫清楚：**我們關心的是整個分布隨時間怎麼變。**
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-flow-course/principles-pipeline.html" class="demo-frame" title="Diffusion and flow principles pipeline demo" style="height: 760px; width: 100%; border: none;"></iframe>
+
+拖動滑桿時，請不要只盯著某一顆點。更重要的是看整團點雲：哪裡變密、哪裡被抹平、什麼時候形狀開始出現。這個「整團點雲」才是 $p_t$。
+
+## 分布層級的定義
+
+設資料分布為 $p_{\mathrm{data}}$，定義在 $\mathbb R^d$ 上；假設它有密度或至少能由樣本近似，且有有限二階矩。起點選標準高斯
+
+$$
+z \sim p_0 = \mathcal N(0,I_d).
+$$
+
+最樸素的生成器是一個映射 $T_\theta:\mathbb R^d\to\mathbb R^d$，把 $z$ 送成樣本 $x=T_\theta(z)$。它對應的生成分布是 push-forward：
+
+$$
+p_\theta = (T_\theta)_\# p_0,
+$$
+
+意思是對任何有界測試函數 $\varphi$，
+
+$$
+\int \varphi(x)\,p_\theta(dx)
+=
+\int \varphi(T_\theta(z))\,p_0(dz).
+$$
+
+所以目標不是讓每個 $z$ 對到某個「正確答案」，而是讓整個推送後的分布接近資料：
+
+$$
+(T_\theta)_\# p_0 \approx p_{\mathrm{data}}.
+$$
+
+diffusion 和 flow-based 方法通常不把 $T_\theta$ 當成一步完成的黑盒，而是把它拆成一條時間路徑。採用本課的 flow convention：$t\in[0,1]$，$p_0=\mathcal N(0,I_d)$ 是 noise，$p_1\approx p_{\mathrm{data}}$ 是 data。中間的 $p_t$ 是我們設計或隱含得到的 probability path。
+
+## 場如何真的搬動密度
+
+先看確定性版本。令粒子滿足 ODE
+
+$$
+\frac{dX_t}{dt}=v_t(X_t),\qquad X_0\sim p_0,
+$$
+
+其中 $v_t:\mathbb R^d\to\mathbb R^d$ 是時間相依的速度場。若 $v_t$ 對 $x$ 局部 Lipschitz、成長條件足以保證解存在且唯一，ODE 會產生 flow map $\Phi_t$，因此
+
+$$
+p_t = (\Phi_t)_\# p_0.
+$$
+
+這不是比喻；它可以用弱形式直接驗算。對任意光滑且緊支撐的 $\varphi$，
+
+$$
+\frac{d}{dt}\mathbb E[\varphi(X_t)]
+=
+\mathbb E[\nabla\varphi(X_t)\cdot v_t(X_t)]
+=
+\int \nabla\varphi(x)\cdot v_t(x)\,p_t(x)\,dx.
+$$
+
+把右邊分部積分，就得到 continuity equation 的弱形式：
+
+$$
+\partial_t p_t(x)+\nabla\cdot\big(p_t(x)v_t(x)\big)=0.
+$$
+
+這條方程說明了「學一個局部方向」為什麼能搬動「整個分布」。後面 flow matching 會直接回歸 $v_t$；diffusion 則多了一個隨機項，但最後仍會回到同一張 SDE/ODE 地圖。
+
+## 幾個容易想歪的地方
+
+<Quiz
+  q="在這門課的分布視角裡，生成模型最核心的任務是什麼？"
+  options={[
+    { text: "把每一個 noise seed 解碼成某一張固定訓練圖片。", explain: "這會把生成誤看成查表。模型要學的是整個分布的形狀，不是 seed 到訓練樣本的一對一對應。" },
+    { text: "把容易取樣的 base distribution 推送成接近資料的分布。", correct: true, explain: "對。這就是 push-forward 的語言：seed 提供隨機性，學到的動態負責把整團分布搬過去。" },
+    { text: "先產生很多漂亮單張樣本，再事後希望它們像資料。", explain: "漂亮單張樣本不等於分布正確。生成模型的目標本來就是分布層級的。" },
+  ]}
+/>
+
+<Quiz
+  q="如果生成時用的是確定性 ODE，為什麼仍然可以產生多樣樣本？"
+  options={[
+    { text: "因為 ODE solver 會偷偷加入隨機噪聲。", explain: "確定性 ODE sampler 不需要沿路加噪。多樣性不從 solver 偷偷來。" },
+    { text: "因為每一步都會隨機選一個資料 mode。", explain: "這不是 ODE 的機制。ODE 給定初始 seed 後軌跡是確定的。" },
+    { text: "因為初始 seed z 來自一整個隨機 base distribution；確定性 map 會把不同 seed 推到不同資料區域。", correct: true, explain: "正解。多樣性的來源是起點那一抽；確定性不代表只能產生單一樣本。" },
+  ]}
+/>
+
+## 這怎麼接到研究？
+
+Sohl-Dickstein 等人的 nonequilibrium thermodynamics 觀點把「逐步破壞資料，再學反向過程」放進生成模型；Ho、Jain 與 Abbeel 的 DDPM 把這條思路變成了可訓練、可擴展的 denoising 目標；Song 等人的 score-based SDE 框架則把離散 diffusion 推到連續時間，並把隨機 SDE 和確定性 probability-flow ODE 接在一起。三篇讀起來語言不同，但第一層問題都一樣：如何把一個簡單分布搬成資料分布。
+
+## 搬運只是其中一種讀法
+
+把生成看成「搬運」，是站在**粒子與幾何**那一端：整團分布沿一條路被推過去，每顆點往哪走由 velocity field 決定。這個畫面擅長說明「分布怎麼移動」，卻沒直接回答另一個問題：**為什麼要把這段路切成很多小步，而不是一步到位？**
+
+換到**資料**那一端看就比較清楚。一步從純高斯雜訊直接生出一張清晰圖片很難——純雜訊裡沒有任何語意線索，你看不出它該變成貓還是狗（它本來也就能對到無數種結果）。但只要把同一段路拆成「在每個模糊程度上只往乾淨修一點」，每一步就都從難題變回容易的問題。
+
+所以同一條從 $p_0$ 到 $p_1$ 的路有兩種讀法：**搬運**講的是怎麼移動，**加噪／去噪**講的是為什麼能拆成許多容易的小步。下一篇就從後者出發。
+
+## 下一步
+
+下一篇 [Corrupt Then Reverse：先毀掉，再學著回來](/personal_website/zh/notes/dfc-principles-corrupt-and-reverse) 會把 diffusion 這個「先破壞、再反轉」的視角寫成具體 Gaussian forward kernel，並解釋為什麼 reverse 不是單純倒帶。
+
+## 參考文獻
+
+1. Sohl-Dickstein, J., Weiss, E. A., Maheswaranathan, N., Ganguli, S. [*Deep Unsupervised Learning using Nonequilibrium Thermodynamics.*](https://arxiv.org/abs/1503.03585) ICML 2015.
+2. Ho, J., Jain, A., Abbeel, P. [*Denoising Diffusion Probabilistic Models.*](https://arxiv.org/abs/2006.11239) NeurIPS 2020.
+3. Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Ermon, S., Poole, B. [*Score-Based Generative Modeling through Stochastic Differential Equations.*](https://arxiv.org/abs/2011.13456) ICLR 2021.

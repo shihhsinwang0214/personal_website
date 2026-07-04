@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Norm and Distance Demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif;
+    background: transparent;
+    color: #202631;
+  }
+  body[data-dark="1"] { color: #ece9e2; }
+  .card {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 18px;
+    border-radius: 8px;
+    background: #fbfaf7;
+    border: 1px solid #ded8cf;
+  }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #30323a; }
+  .goal { margin: 0 0 12px; font-size: 0.92rem; line-height: 1.55; }
+  .goal b { color: #1f6f78; }
+  body[data-dark="1"] .goal b { color: #e1b45c; }
+  canvas {
+    width: 100%;
+    max-width: 720px;
+    aspect-ratio: 1 / 0.58;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+    border-radius: 8px;
+    touch-action: none;
+  }
+  .readout {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(92px, 1fr));
+    gap: 8px;
+    margin-top: 14px;
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric { padding: 8px 10px; border-radius: 8px; background: rgba(31,111,120,0.08); }
+  body[data-dark="1"] .metric { background: rgba(225,180,92,0.12); }
+  .metric span { display: block; color: #667078; font-size: 0.72rem; margin-bottom: 2px; }
+  body[data-dark="1"] .metric span { color: #a8a69f; }
+  .observe { margin: 12px 0 0; color: #667078; font-size: 0.83rem; line-height: 1.55; }
+  body[data-dark="1"] .observe { color: #a8a69f; }
+  @media (max-width: 560px) {
+    body { padding: 10px; }
+    .card { padding: 12px; }
+    .readout { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal"><b>拖這個 → 看那個：</b>拖動 A 或 B，觀察同一對點在 L1 distance 和 L2 distance 下會得到不同長度。</p>
+  <canvas id="cv" width="720" height="418" aria-label="drag two points to compare L1 and L2 distances"></canvas>
+  <div class="readout">
+    <div class="metric"><span>dx</span><strong id="dxR">0.00</strong></div>
+    <div class="metric"><span>dy</span><strong id="dyR">0.00</strong></div>
+    <div class="metric"><span>L1 distance</span><strong id="l1R">0.00</strong></div>
+    <div class="metric"><span>L2 distance</span><strong id="l2R">0.00</strong></div>
+  </div>
+  <p class="observe">淡色菱形是「L1 同距離」的邊界，圓形是「L2 同距離」的邊界；它們代表兩把不同的尺。</p>
+</div>
+
+<script src="../noise-to-data/_demo-common.js"></script>
+<script>
+(function () {
+  var cv = document.getElementById('cv');
+  var dpi = NDFlow.hiDPICanvas(cv);
+  var ctx = dpi.ctx;
+  var dxR = document.getElementById('dxR');
+  var dyR = document.getElementById('dyR');
+  var l1R = document.getElementById('l1R');
+  var l2R = document.getElementById('l2R');
+  var pal = NDFlow.palette();
+  var pts = { a: { x: -1.5, y: -0.8 }, b: { x: 1.4, y: 1.05 } };
+  var drag = null;
+  var bounds = { left: 0, top: 0, w: 1, h: 1 };
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function toScreen(p) {
+    return {
+      x: bounds.left + (p.x + 3) / 6 * bounds.w,
+      y: bounds.top + (3 - p.y) / 6 * bounds.h
+    };
+  }
+  function fromScreen(x, y) {
+    return {
+      x: clamp((x - bounds.left) / bounds.w * 6 - 3, -3, 3),
+      y: clamp(3 - (y - bounds.top) / bounds.h * 6, -3, 3)
+    };
+  }
+  function drawPoint(p, label, color) {
+    var s = toScreen(p);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = pal.dark ? '#fff4d7' : '#10272d';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = pal.ink;
+    ctx.font = '800 13px Segoe UI, system-ui, sans-serif';
+    ctx.fillText(label, s.x + 12, s.y - 10);
+  }
+  function draw() {
+    var size = dpi.resize();
+    pal = NDFlow.palette();
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = pal.dark ? '#111318' : '#f8f6f0';
+    rr(0, 0, size.w, size.h, 8);
+    ctx.fill();
+    var side = Math.min(size.w - 78, size.h - 58);
+    bounds = { left: (size.w - side) / 2, top: (size.h - side) / 2, w: side, h: side };
+    ctx.fillStyle = pal.dark ? '#15161a' : '#ffffff';
+    rr(bounds.left, bounds.top, bounds.w, bounds.h, 8);
+    ctx.fill();
+
+    ctx.strokeStyle = pal.grid;
+    ctx.lineWidth = 1;
+    for (var i = -3; i <= 3; i++) {
+      var vx = bounds.left + (i + 3) / 6 * bounds.w;
+      var hy = bounds.top + (3 - i) / 6 * bounds.h;
+      ctx.beginPath(); ctx.moveTo(vx, bounds.top); ctx.lineTo(vx, bounds.top + bounds.h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(bounds.left, hy); ctx.lineTo(bounds.left + bounds.w, hy); ctx.stroke();
+    }
+    var zero = toScreen({ x: 0, y: 0 });
+    ctx.strokeStyle = pal.muted;
+    ctx.beginPath();
+    ctx.moveTo(bounds.left, zero.y); ctx.lineTo(bounds.left + bounds.w, zero.y);
+    ctx.moveTo(zero.x, bounds.top); ctx.lineTo(zero.x, bounds.top + bounds.h);
+    ctx.stroke();
+
+    var a = pts.a, b = pts.b;
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var l1 = Math.abs(dx) + Math.abs(dy);
+    var l2 = Math.sqrt(dx * dx + dy * dy);
+    var as = toScreen(a), bs = toScreen(b);
+
+    ctx.strokeStyle = pal.dark ? 'rgba(225,180,92,0.34)' : 'rgba(31,111,120,0.26)';
+    ctx.fillStyle = pal.dark ? 'rgba(225,180,92,0.08)' : 'rgba(31,111,120,0.06)';
+    ctx.beginPath();
+    var dpx = l1 / 6 * bounds.w;
+    var dpy = l1 / 6 * bounds.h;
+    ctx.moveTo(as.x, as.y - dpy);
+    ctx.lineTo(as.x + dpx, as.y);
+    ctx.lineTo(as.x, as.y + dpy);
+    ctx.lineTo(as.x - dpx, as.y);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+    ctx.strokeStyle = pal.dark ? 'rgba(120,170,255,0.42)' : 'rgba(42,78,163,0.28)';
+    ctx.beginPath();
+    ctx.arc(as.x, as.y, l2 / 6 * bounds.w, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = pal.accent;
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(as.x, as.y);
+    ctx.lineTo(bs.x, bs.y);
+    ctx.stroke();
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = pal.muted;
+    ctx.beginPath();
+    ctx.moveTo(as.x, as.y);
+    ctx.lineTo(bs.x, as.y);
+    ctx.lineTo(bs.x, bs.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    drawPoint(a, 'A', pal.dark ? '#e1b45c' : '#1f6f78');
+    drawPoint(b, 'B', pal.dark ? '#78aaff' : '#2a4ea3');
+    dxR.textContent = dx.toFixed(2);
+    dyR.textContent = dy.toFixed(2);
+    l1R.textContent = l1.toFixed(2);
+    l2R.textContent = l2.toFixed(2);
+  }
+  function pointer(e) {
+    var rect = cv.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+  cv.addEventListener('pointerdown', function (e) {
+    var p = pointer(e);
+    var as = toScreen(pts.a), bs = toScreen(pts.b);
+    var da = Math.hypot(p.x - as.x, p.y - as.y);
+    var db = Math.hypot(p.x - bs.x, p.y - bs.y);
+    drag = da < db ? 'a' : 'b';
+    cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    var p = pointer(e);
+    pts[drag] = fromScreen(p.x, p.y);
+    draw();
+  });
+  cv.addEventListener('pointerup', function (e) {
+    drag = null;
+    try { cv.releasePointerCapture(e.pointerId); } catch (err) {}
+  });
+  function applyTheme() {
+    pal = NDFlow.palette();
+    document.body.dataset.dark = pal.dark ? '1' : '0';
+    draw();
+  }
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  applyTheme();
+})();
+</script>
+</body>
+</html>

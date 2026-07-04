@@ -5,7 +5,7 @@ title: "Probability Path：分布之間可以有一條路"
 category: "research-areas"
 group: "From Noise to Data"
 status: "available"
-updated: 2026-06-21
+updated: 2026-06-28
 summary: "生成不只關心起點與終點，還關心中間那一整條分布的演化 p_t——像兩張照片之間的那段影片。"
 demos:
   - "notes/research_areas/noise-to-data/probability-path.html"
@@ -18,7 +18,7 @@ import Quiz from '../../components/Quiz.astro';
 
 # Probability Path：分布之間可以有一條路
 
-> 「From Noise to Data」系列第 5 篇。把鏡頭從個別粒子拉高到整條分布的演化。
+> 把鏡頭從個別粒子拉高到整條分布的演化。
 
 第一次讀 diffusion 或 flow matching 的公式時，常會在某一行卡住：式子裡突然冒出一個帶下標的 $p_t$，而且 $t$ 還是連續的——也就是說，這不是一個分布，而是**一整族**分布。你可能會想：這些中間的分布是哪來的？是真有一批「半噪聲半資料」的樣本嗎？
 
@@ -38,9 +38,9 @@ $p_0$（noise）和 $p_1$（data）是頭尾兩幀；$p_t$ 就是影片中間的
 
 下面的 demo 讓你看見這支影片：拖 $t$，看密度形狀如何從高斯漸變到目標；切換不同插值方式，看**同樣的頭尾**可以拍出**不同的中間**。
 
-<iframe src="/personal_website/notes/research_areas/noise-to-data/probability-path.html" class="demo-frame" title="Probability Path 互動 demo" style="height: 760px; width: 100%; border: none;"></iframe>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/noise-to-data/probability-path.html" class="demo-frame" title="Probability Path 互動 demo" style="height: 760px; width: 100%; border: none;"></iframe>
 
-如果你已經注意到「兩端不變、中間會變」，那你已經摸到後面 [Path Design](/personal_website/zh/notes/n2d-path-design) 和 [Rectified Flow](/personal_website/zh/notes/n2d-rectified-flow) 的門把了——它們做的，正是挑一條更好拍的影片。
+如果你已經注意到「兩端不變、中間會變」，那你已經摸到 [Diffusion & Flow Models 課程](/personal_website/zh/notes/dfc-principles-course-map) 裡 path design 和 rectified flow 的門把了——它們做的，正是挑一條更好拍的影片。
 
 ## 把圖像翻成數學
 
@@ -50,7 +50,7 @@ $$
 \{ p_t \}_{t \in [0,1]}, \qquad p_0 = p_{\text{noise}}, \quad p_1 = p_{\text{data}},
 $$
 
-要求它對 $t$ 夠平滑地變化。它和上一篇的向量場是配對的：若粒子照 $\frac{dx}{dt}=v_t(x)$ 移動、起點分布是 $p_0$，那粒子在時刻 $t$ 的分布就是某個確定的 $p_t$。「向量場 $v_t$」生成「機率路徑 $p_t$」——這個對應正是下一篇 continuity equation 要寫下的。
+要求它對 $t$ 夠平滑地變化。它和上一篇的向量場是配對的：若粒子照 $\frac{dx}{dt}=v_t(x)$ 移動、起點分布是 $p_0$，那粒子在時刻 $t$ 的分布就是某個確定的 $p_t$。「向量場 $v_t$」生成「機率路徑 $p_t$」——這個對應的嚴格寫法（continuity equation）收在 [Diffusion & Flow Models 課程](/personal_website/zh/notes/dfc-principles-course-map)。
 
 flow matching 常見的設計，是先指定一條「條件路徑」再混合。例如給定一筆資料 $x_1$，把它和噪聲 $x_0$ 用直線相連：
 
@@ -82,8 +82,18 @@ $$
   ]}
 />
 
-換句話說：$p_t$ 不是自然界裡本來就有的一批中間資料，而是我們為了讓生成變得可學，刻意設計出來的一段過渡過程。它也**不必是確定性流動**——diffusion 的前向過程是隨機的（SDE），但它在每個 $t$ 仍定義了一個邊際 $p_t$；同一條 $p_t$，可由隨機 SDE 或確定 ODE 實現（這是 [probability flow ODE](/personal_website/zh/notes/n2d-probability-flow-ode) 的核心）。
+換句話說：$p_t$ 不是自然界裡本來就有的一批中間資料，而是我們為了讓生成變得可學，刻意設計出來的一段過渡過程。它也**不必是確定性流動**——diffusion 的前向過程是隨機的（SDE），但它在每個 $t$ 仍定義了一個邊際 $p_t$；同一條 $p_t$，可由隨機 SDE 或確定 ODE 實現（這是 probability flow ODE 的核心，收在 [Diffusion & Flow Models 課程](/personal_website/zh/notes/dfc-principles-course-map)）。
 
 ## 為什麼研究者在乎？
 
-probability path 是 diffusion 與 flow matching 的共同骨架。diffusion 用「加噪 schedule」隱含地定義一條路；flow matching 則常**先明確指定**一條路（直線、optimal-transport 路徑……），再去學讓樣本沿這條路移動的速度場。noise schedule、rectified flow、Schrödinger bridge 等研究，本質上都在問同一個問題：**哪一條分布路徑
+probability path 是 diffusion 與 flow matching 的共同骨架。diffusion 用「加噪 schedule」隱含地定義一條路；flow matching 則常**先明確指定**一條路（直線、optimal-transport 路徑……），再去學讓樣本沿這條路移動的速度場。noise schedule、rectified flow、Schrödinger bridge 等研究，本質上都在問同一個問題：**哪一條分布路徑，最好學、又最好取樣？** 把這條路選得好，後面的訓練與取樣都會跟著變簡單；選得差，則處處卡關。
+
+## 下一步
+
+有了「分布之間可以有一條路」這個畫面，下一個問題是：模型在這條路上的每一步，到底要學什麼、又怎麼學？下一篇 [Denoising：生成可以被看成局部修復](/personal_website/zh/notes/n2d-denoising) 給出第一種具體的局部訊號——去噪。
+
+## 參考文獻
+
+1. Lipman, Y., et al. *Flow Matching for Generative Modeling.* ICLR 2023.
+2. Albergo, M. S., Vanden-Eijnden, E. *Building Normalizing Flows with Stochastic Interpolants.* ICLR 2023.
+3. Ho, J., Jain, A., Abbeel, P. *Denoising Diffusion Probabilistic Models.* NeurIPS 2020.

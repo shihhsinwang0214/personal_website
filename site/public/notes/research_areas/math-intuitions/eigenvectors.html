@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Eigenvectors Demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #202631; }
+  body[data-dark="1"] { color: #ece9e2; }
+  .card { max-width: 780px; margin: 0 auto; padding: 18px; border-radius: 8px; background: #fbfaf7; border: 1px solid #ded8cf; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #30323a; }
+  .goal { margin: 0 0 12px; font-size: 0.92rem; line-height: 1.55; }
+  .goal b { color: #1f6f78; } body[data-dark="1"] .goal b { color: #e1b45c; }
+  canvas { width: 100%; max-width: 740px; aspect-ratio: 1 / 0.58; height: auto; display: block; margin: 0 auto; border-radius: 8px; }
+  .controls { display: grid; grid-template-columns: repeat(4, minmax(90px, 1fr)); gap: 9px; margin-top: 14px; }
+  label { display: grid; gap: 4px; font-size: 0.8rem; font-weight: 800; }
+  input[type=range] { width: 100%; accent-color: #1f6f78; }
+  body[data-dark="1"] input[type=range] { accent-color: #e1b45c; }
+  button { border: 1px solid #cfc7bc; background: #fff; border-radius: 8px; padding: 8px 10px; font-weight: 800; color: #202631; }
+  body[data-dark="1"] button { background: #272a31; color: #ece9e2; border-color: #3a3d45; }
+  .readout { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: rgba(31,111,120,0.08); font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+  body[data-dark="1"] .readout { background: rgba(225,180,92,0.12); }
+  .observe { margin: 12px 0 0; color: #667078; font-size: 0.83rem; line-height: 1.55; }
+  body[data-dark="1"] .observe { color: #a8a69f; }
+  @media (max-width: 560px) { body { padding: 10px; } .card { padding: 12px; } .controls { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal"><b>拖這個 → 看那個：</b>調 matrix entries，看哪些方向被 A 作用後仍留在同一條線上。</p>
+  <canvas id="cv" width="740" height="430" aria-label="highlight real eigenvector directions for a 2 by 2 matrix"></canvas>
+  <div class="controls">
+    <label>a <input id="a" type="range" min="-2" max="2" step="0.05" value="1.4" /></label>
+    <label>b <input id="b" type="range" min="-2" max="2" step="0.05" value="0.45" /></label>
+    <label>c <input id="c" type="range" min="-2" max="2" step="0.05" value="0.45" /></label>
+    <label>d <input id="d" type="range" min="-2" max="2" step="0.05" value="0.55" /></label>
+  </div>
+  <div style="margin-top:10px;"><button id="rot">設成 90° 旋轉</button></div>
+  <div class="readout" id="eigR">real eigenvectors highlighted</div>
+  <p class="observe">亮色直線是 eigenvector direction；短箭頭顯示 Av。若變成純旋轉，real 穩定方向會消失。</p>
+</div>
+
+<script src="../noise-to-data/_demo-common.js"></script>
+<script>
+(function () {
+  var cv = document.getElementById('cv');
+  var dpi = NDFlow.hiDPICanvas(cv);
+  var ctx = dpi.ctx;
+  var ids = ['a', 'b', 'c', 'd'];
+  var els = ids.map(function (id) { return document.getElementById(id); });
+  var eigR = document.getElementById('eigR');
+  var rot = document.getElementById('rot');
+  var pal = NDFlow.palette();
+  function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+  function mat() { return els.map(function (el) { return parseFloat(el.value); }); }
+  function setMat(v) { els.forEach(function (el, i) { el.value = v[i]; }); draw(); }
+  function mul(M, p) { return { x: M[0]*p.x + M[1]*p.y, y: M[2]*p.x + M[3]*p.y }; }
+  function norm(p) { var n = Math.hypot(p.x, p.y) || 1; return { x: p.x/n, y: p.y/n }; }
+  function eigVec(M, lam) {
+    var a = M[0], b = M[1], c = M[2], d = M[3];
+    var v = Math.abs(b) > Math.abs(c) ? { x: b, y: lam - a } : { x: lam - d, y: c };
+    if (Math.hypot(v.x, v.y) < 1e-6) v = Math.abs(a - lam) < Math.abs(d - lam) ? { x: 1, y: 0 } : { x: 0, y: 1 };
+    return norm(v);
+  }
+  function arrow(x0, y0, x1, y1, color, w) {
+    var ang = Math.atan2(y1-y0, x1-x0);
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x1-10*Math.cos(ang-0.45), y1-10*Math.sin(ang-0.45)); ctx.lineTo(x1-10*Math.cos(ang+0.45), y1-10*Math.sin(ang+0.45)); ctx.closePath(); ctx.fill();
+  }
+  function draw() {
+    var size = dpi.resize();
+    pal = NDFlow.palette();
+    var M = mat(), tr = M[0] + M[3], det = M[0]*M[3] - M[1]*M[2], disc = tr*tr - 4*det;
+    ctx.clearRect(0,0,size.w,size.h);
+    ctx.fillStyle = pal.dark ? '#111318' : '#f8f6f0'; rr(0,0,size.w,size.h,8); ctx.fill();
+    var cx = size.w/2, cy = size.h/2, scale = Math.min(size.w,size.h)/7.2;
+    function S(p) { return { x: cx + p.x*scale, y: cy - p.y*scale }; }
+    ctx.strokeStyle = pal.grid; ctx.lineWidth = 1;
+    for (var i=-3;i<=3;i++) { var x=cx+i*scale, y=cy+i*scale; ctx.beginPath(); ctx.moveTo(x,24); ctx.lineTo(x,size.h-24); ctx.stroke(); ctx.beginPath(); ctx.moveTo(24,y); ctx.lineTo(size.w-24,y); ctx.stroke(); }
+    for (var k=0;k<16;k++) {
+      var ang = k*Math.PI/16, v = {x: Math.cos(ang), y: Math.sin(ang)}, av = mul(M,v);
+      var s0 = S(v), s1 = S({x: av.x*0.55, y: av.y*0.55});
+      arrow(s0.x, s0.y, s1.x, s1.y, pal.muted, 1.1);
+    }
+    if (disc >= -1e-8) {
+      disc = Math.max(0, disc);
+      var root = Math.sqrt(disc), vals = [(tr + root)/2, (tr - root)/2];
+      vals.forEach(function (lam, idx) {
+        var v = eigVec(M, lam), av = mul(M, v), p1 = S({x: -v.x*3, y: -v.y*3}), p2 = S({x: v.x*3, y: v.y*3}), o = S({x:0,y:0}), a = S({x: av.x, y: av.y});
+        ctx.strokeStyle = idx === 0 ? pal.accent : (pal.dark ? '#78aaff' : '#2a4ea3');
+        ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y); ctx.stroke();
+        arrow(o.x, o.y, a.x, a.y, ctx.strokeStyle, 3);
+      });
+      eigR.textContent = 'λ ≈ ' + vals[0].toFixed(2) + ', ' + vals[1].toFixed(2);
+    } else {
+      ctx.fillStyle = pal.ink; ctx.font = '800 16px Segoe UI, system-ui, sans-serif'; ctx.fillText('no real eigenvector directions', 34, 42);
+      eigR.textContent = 'no real eigenvectors for this matrix';
+    }
+  }
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  els.forEach(function (el) { el.oninput = draw; });
+  rot.onclick = function () { setMat([0, -1, 1, 0]); };
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  applyTheme();
+})();
+</script>
+</body>
+</html>

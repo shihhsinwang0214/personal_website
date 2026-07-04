@@ -1,0 +1,90 @@
+---
+slug: "math-svd"
+lang: "zh"
+title: "SVD：任何矩陣都能拆成旋轉、拉伸、旋轉"
+category: "courses"
+group: "Lecture 2 · Eigen, SVD & PCA"
+status: "available"
+updated: 2026-06-30
+summary: "SVD 把任何資料表拆成幾個主要方向，讓我們看見哪些方向最有影響力。"
+demos:
+  - "notes/research_areas/math-intuitions/svd.html"
+references: []
+---
+import Quiz from '../../components/Quiz.astro';
+
+# SVD：任何矩陣都能拆成旋轉、拉伸、旋轉
+
+有些方向工具只對「正方形的動作」最自然，可是真實資料常常是一張長方形的表：很多列樣本，配上很多欄特徵。
+
+如果表格不是正方形，還能不能找出它最主要的幾個方向？能不能說清楚：哪些方向最重要，哪些方向幾乎可以先忽略？
+
+## 長方形也能找主要方向
+
+這裡的工具叫 **SVD**，全名是 singular value decomposition。白話說，SVD 會把任何 real matrix 拆成三步：先轉到一組好讀的方向，沿著座標軸拉伸或壓縮，再轉到輸出空間。
+
+每個拉伸倍率叫 **singular value**。singular value 越大，代表那個方向被 matrix 保留下來或放大的程度越強；越小，代表那個方向影響比較弱。
+
+如果 eigenvector 像是在方形動作裡找穩定方向，SVD 就像是更通用的版本：長方形資料表也能找「輸入方向」和「輸出方向」。
+
+## 看圓被分三步變成橢圓
+
+下面的 demo 把 unit circle 送進一個 2-D matrix。拖三段拆解的參數，看圓先旋轉、再沿軸拉伸、最後再旋轉，合起來就是原本的 matrix 動作。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/math-intuitions/svd.html" class="demo-frame" title="SVD rotate stretch rotate demo" style="height: 680px; width: 100%; border: none;"></iframe>
+
+觀察兩件事：最大的 singular value 對應橢圓的長軸；較小的 singular value 對應短軸。
+
+## 把三步寫成 A = UΣVᵀ
+
+SVD 把 matrix 寫成
+
+$$
+A=U\Sigma V^\top.
+$$
+
+這裡 $V^\top$ 是第一個旋轉，$\Sigma$ 是沿座標軸拉伸的 diagonal matrix，$U$ 是最後的旋轉。diagonal 上的數字是 singular values：
+
+$$
+\sigma_1\ge\sigma_2\ge\cdots\ge 0.
+$$
+
+輕量推一步，看看它怎麼回到 eigenvector：
+
+$$
+A^\top A=(U\Sigma V^\top)^\top(U\Sigma V^\top)
+=V\Sigma^\top U^\top U\Sigma V^\top
+=V\Sigma^2V^\top.
+$$
+
+因為 $U^\top U=I$，所以 $V$ 的 columns 是 $A^\top A$ 的 eigenvectors，而
+
+$$
+\sigma_i=\sqrt{\lambda_i}.
+$$
+
+便宜檢查：如果 $\sigma_i$ 很大，那個方向通過 $A$ 後能量大；如果 $\sigma_i=0$，那個方向被壓扁到沒有輸出。
+
+## 不要把 σ 看成次數
+
+<Quiz
+  q="SVD 裡的 singular value σ 大，最準確代表什麼？"
+  options={[
+    { text: "代表那個方向出現很多次。", explain: "這是把 σ 誤讀成 frequency。σ 不是計數，而是 matrix 對某個方向的拉伸強度。" },
+    { text: "代表那個方向被保留或放大的能量比較大。", correct: true, explain: "正解。σ 是沿著某個 singular direction 的拉伸倍率；越大，該方向越重要。" },
+    { text: "代表那個方向一定是原始資料的第一欄。", explain: "singular direction 是由整個 matrix 決定的方向，不一定等於某個原始 column。" },
+  ]}
+/>
+
+> **`深一層`：為什麼任何 real matrix 都有 SVD？**
+> 一條常見路線是先看 $A^\top A$。它是 symmetric 且 positive semidefinite，所以 spectral theorem 給我們一組 orthonormal eigenvectors $v_i$，以及非負 eigenvalues $\lambda_i$。令 $\sigma_i=\sqrt{\lambda_i}$，再把有非零 $\sigma_i$ 的方向送過 $A$，定義 $u_i=Av_i/\sigma_i$。這就建立了 $A=U\Sigma V^\top$ 的核心部分；剩下的零方向可以用 orthonormal vectors 補齊。完整證明需要處理 rank 和補齊細節，主線只需要記得：SVD 對任何 real matrix 都存在。
+
+## 把答案帶回長方形資料表
+
+開頭問的是：長方形資料表能不能找主要方向？SVD 的答案是可以。$V$ 給輸入 feature space 裡的重要方向，$\sigma_i$ 告訴你每個方向的重要程度，$U$ 描述輸出端對應的方向。
+
+下一篇會把這個想法用在「把 100 欄資料畫成 2-D 圖」：我們會保留資料最展開的方向，也就是 [PCA：保留最多變化的低維視角](/personal_website/zh/notes/math-pca)。
+
+## 參考文獻
+
+本篇使用 standard linear algebra 的 SVD 定理與 eigen decomposition 觀點；未引用特定 research result。

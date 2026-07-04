@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Diffusion & Flow course map demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif;
+    background: transparent;
+    color: #202631;
+  }
+  body[data-dark="1"] { color: #ece9e2; }
+  .card {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 18px;
+    border-radius: 8px;
+    background: #fbfaf7;
+    border: 1px solid #ded8cf;
+  }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #30323a; }
+  .goal { font-size: 0.92rem; line-height: 1.5; margin: 0 0 12px; }
+  .goal b { color: #1f6f78; }
+  body[data-dark="1"] .goal b { color: #e1b45c; }
+  canvas {
+    width: 100%;
+    max-width: 680px;
+    aspect-ratio: 1 / 0.66;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+    border-radius: 8px;
+  }
+  .controls { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; }
+  label { font-size: 0.84rem; font-weight: 700; }
+  select {
+    min-width: min(100%, 310px);
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid #bfc6c7;
+    background: #fff;
+    color: inherit;
+    font: inherit;
+  }
+  body[data-dark="1"] select { background: #282b33; border-color: #444855; color: #ece9e2; }
+  .readout {
+    min-height: 54px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 0.86rem;
+    line-height: 1.5;
+    background: rgba(31,111,120,0.08);
+  }
+  body[data-dark="1"] .readout { background: rgba(225,180,92,0.12); }
+  .observe { font-size: 0.83rem; line-height: 1.55; margin: 12px 0 0; color: #667078; }
+  body[data-dark="1"] .observe { color: #a8a69f; }
+  @media (max-width: 520px) {
+    body { padding: 10px; }
+    .card { padding: 12px; }
+    canvas { aspect-ratio: 1 / 1.22; }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：把一篇 diffusion / flow 論文先放到 <b>path、target、sampler、guidance、evaluation</b> 五個位置。先定位，再讀細節。</p>
+  <canvas id="cv" width="680" height="450" aria-label="course concept map"></canvas>
+  <div class="controls">
+    <div class="row">
+      <label for="focus">讀圖角度</label>
+      <select id="focus">
+        <option value="path">1. 路徑：p₀ → pₜ → p₁</option>
+        <option value="target">2. 目標：學 ε、score、velocity 或 denoiser</option>
+        <option value="sampler">3. 取樣：把學到的場積分回資料</option>
+        <option value="guidance">4. 控制：用條件把分布傾斜</option>
+        <option value="eval">5. 評估：看整個分布，不只看單張樣本</option>
+      </select>
+    </div>
+    <div id="readout" class="readout"></div>
+  </div>
+  <p class="observe">觀察這個不變量 / tradeoff：方法名會換，但問題的位置不會換。新的論文通常是在這五個位置之一改設計，或改兩個位置之間的耦合。</p>
+</div>
+
+<script src="../noise-to-data/_demo-common.js"></script>
+<script>
+(function () {
+  var cv = document.getElementById('cv');
+  var dpi = NDFlow.hiDPICanvas(cv);
+  var ctx = dpi.ctx, size = { w: 680, h: 450 };
+  var focusEl = document.getElementById('focus');
+  var readout = document.getElementById('readout');
+  var pal = NDFlow.palette();
+  var copy = {
+    path: '先問：這篇論文選了哪條 p_t？DDPM 用加噪路徑，flow matching 常用插值路徑，stochastic interpolants 把噪聲也變成設計變數。',
+    target: '再問：網路回歸的是什麼？ε、x₀、score、velocity 看似不同，通常只是同一個局部訊號的不同座標。',
+    sampler: '接著問：生成時怎麼走？SDE sampler 加噪、ODE sampler 確定前進；步數、穩定性與誤差都在這裡付帳。',
+    guidance: '有條件時問：條件怎麼改變 score 或 velocity？控制越強，通常越可能犧牲多樣性或校準。',
+    eval: '最後問：它改善的是什麼分布性質？漂亮樣本、likelihood、coverage、precision/recall 常常不是同一件事。'
+  };
+  var focusNodes = {
+    path: ['base', 'path', 'data'],
+    target: ['target', 'path'],
+    sampler: ['sampler', 'base', 'path', 'data'],
+    guidance: ['guidance', 'target', 'sampler'],
+    eval: ['eval', 'data']
+  };
+  var labels = {
+    base: ['p₀', 'simple noise'],
+    path: ['pₜ', 'designed path'],
+    data: ['p₁', 'data law'],
+    target: ['target', 'ε / score / v'],
+    sampler: ['sampler', 'SDE or ODE'],
+    guidance: ['guidance', 'condition c'],
+    eval: ['eval', 'quality + coverage']
+  };
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function arrow(a, b, strong) {
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var mag = Math.hypot(dx, dy);
+    if (!mag) return;
+    var ux = dx / mag, uy = dy / mag;
+    var sx = a.x + ux * 58, sy = a.y + uy * 28;
+    var ex = b.x - ux * 58, ey = b.y - uy * 28;
+    ctx.strokeStyle = strong ? pal.accent : pal.grid;
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.lineWidth = strong ? 2.2 : 1.4;
+    ctx.globalAlpha = strong ? 0.95 : 0.58;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+    var ang = Math.atan2(ey - sy, ex - sx);
+    ctx.beginPath();
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - 7 * Math.cos(ang - 0.45), ey - 7 * Math.sin(ang - 0.45));
+    ctx.lineTo(ex - 7 * Math.cos(ang + 0.45), ey - 7 * Math.sin(ang + 0.45));
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  function node(id, p, active) {
+    var w = p.w || 126, h = p.h || 58;
+    ctx.fillStyle = active ? (pal.dark ? '#2c2a20' : '#fff4d8') : (pal.dark ? '#282b33' : '#ffffff');
+    ctx.strokeStyle = active ? pal.accent : (pal.dark ? '#444855' : '#cfd5d6');
+    ctx.lineWidth = active ? 2.2 : 1;
+    rr(p.x - w / 2, p.y - h / 2, w, h, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = pal.dark ? '#ece9e2' : '#202631';
+    ctx.font = '800 16px Segoe UI, system-ui, sans-serif';
+    ctx.fillText(labels[id][0], p.x, p.y - 4);
+    ctx.fillStyle = pal.dark ? '#a8a69f' : '#667078';
+    ctx.font = '600 11px Segoe UI, system-ui, sans-serif';
+    ctx.fillText(labels[id][1], p.x, p.y + 17);
+  }
+  function layout() {
+    var mobile = size.w < 520;
+    if (mobile) {
+      return {
+        base: { x: size.w * 0.50, y: 54 },
+        path: { x: size.w * 0.50, y: 128 },
+        data: { x: size.w * 0.50, y: 202 },
+        target: { x: size.w * 0.30, y: 292 },
+        sampler: { x: size.w * 0.70, y: 292 },
+        guidance: { x: size.w * 0.30, y: 382 },
+        eval: { x: size.w * 0.70, y: 382 }
+      };
+    }
+    return {
+      base: { x: size.w * 0.16, y: size.h * 0.47 },
+      path: { x: size.w * 0.50, y: size.h * 0.47 },
+      data: { x: size.w * 0.84, y: size.h * 0.47 },
+      target: { x: size.w * 0.50, y: size.h * 0.17 },
+      sampler: { x: size.w * 0.50, y: size.h * 0.78 },
+      guidance: { x: size.w * 0.16, y: size.h * 0.78 },
+      eval: { x: size.w * 0.84, y: size.h * 0.78 }
+    };
+  }
+  function isActive(id) {
+    return focusNodes[focusEl.value].indexOf(id) >= 0;
+  }
+  function draw() {
+    size = dpi.resize();
+    var nodes = layout();
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = pal.bg;
+    rr(0, 0, size.w, size.h, 8);
+    ctx.fill();
+    var active = focusNodes[focusEl.value];
+    function edge(a, b) {
+      arrow(nodes[a], nodes[b], active.indexOf(a) >= 0 && active.indexOf(b) >= 0);
+    }
+    edge('base', 'path');
+    edge('path', 'data');
+    edge('target', 'path');
+    edge('path', 'sampler');
+    edge('guidance', 'sampler');
+    edge('data', 'eval');
+    Object.keys(nodes).forEach(function (id) { node(id, nodes[id], isActive(id)); });
+    readout.textContent = copy[focusEl.value];
+  }
+  function applyTheme() {
+    pal = NDFlow.palette();
+    document.body.dataset.dark = pal.dark ? '1' : '0';
+    draw();
+  }
+  focusEl.onchange = draw;
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  applyTheme();
+})();
+</script>
+</body>
+</html>

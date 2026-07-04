@@ -5,8 +5,8 @@ title: "Score Function：資料分布的局部方向感"
 category: "research-areas"
 group: "From Noise to Data"
 status: "available"
-updated: 2026-06-22
-summary: "score = ∇ log p，指向密度變高的方向；用 Tweedie 公式說明去噪與 score 其實是同一件事換個寫法。"
+updated: 2026-06-28
+summary: "score = ∇ log p，指向密度變高的方向；說明去噪與 score 其實是同一件事（差一個已知比例 −1/σₜ），完整的 Tweedie 推導留給 dfc。"
 demos:
   - "notes/research_areas/noise-to-data/score-field.html"
 references:
@@ -21,7 +21,7 @@ import Quiz from '../../components/Quiz.astro';
 
 # Score Function：資料分布的局部方向感
 
-> 「From Noise to Data」系列第 8 篇。上一篇的「預測噪聲」，這一篇要揭穿它其實是一個更幾何的東西。
+> 上一篇的「預測噪聲」，這一篇要揭穿它其實是一個更幾何的東西。
 
 翻開任何一篇 score-based 的論文，幾乎一定會撞到 $\nabla_x \log p(x)$ 這個符號，被稱作 score。第一次看到很容易心想：這到底在量什麼？跟我熟悉的「分數」有關係嗎？
 
@@ -41,7 +41,7 @@ $$
 
 下面的 demo 把這件事放到 2D：把滑鼠移到任一點，看那裡的 score 箭頭指向附近的資料聚集處；拉動噪聲程度 $\sigma$，看分布被抹平、score 變平滑。
 
-<iframe src="/personal_website/notes/research_areas/noise-to-data/score-field.html" class="demo-frame" title="Score Field 互動 demo" style="height: 760px; width: 100%; border: none;"></iframe>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/noise-to-data/score-field.html" class="demo-frame" title="Score Field 互動 demo" style="height: 760px; width: 100%; border: none;"></iframe>
 
 ## 揭穿：去噪和 score 是同一件事
 
@@ -51,11 +51,7 @@ $$
 \nabla_{x_t} \log p_t(x_t) = -\frac{\epsilon^\star(x_t, t)}{\sigma_t}.
 $$
 
-換句話說，**「猜噪聲」和「指向高密度」是同一個方向，只差一個 $-1/\sigma_t$**。難怪 denoising 能拿來生成——它本來就在估計 score。順帶一提，由此還能還原乾淨資料的最佳猜測（Tweedie 公式）：
-
-$$
-\mathbb{E}[x_0 \mid x_t] = \frac{x_t + \sigma_t^2\, \nabla_{x_t}\log p_t(x_t)}{\alpha_t}.
-$$
+換句話說，**「猜噪聲」和「指向高密度」是同一個方向，只差一個 $-1/\sigma_t$ 的比例**。難怪 denoising 能拿來生成——它本來就在估計 score。（從同一條關係式還能反推「最乾淨的猜測」$\mathbb{E}[x_0\mid x_t]$，那條公式叫 **Tweedie**，屬於更技術的內容，留給 [Diffusion & Flow Models 課程](/personal_website/zh/notes/dfc-principles-course-map)。）
 
 如果上一篇你已經接受「去噪能生成」，那這篇等於告訴你：你早就在跟 score 打交道了。
 
