@@ -31,4 +31,22 @@ const notes = defineCollection({
   }),
 });
 
-export const collections = { notes };
+const handbook = defineCollection({
+  loader: glob({
+    pattern: '**/*.{md,mdx}',
+    base: './src/content/handbook',
+    generateId: ({ data }) => `${data.lang}/${data.slug}`,
+  }),
+  schema: z.object({
+    slug: z.string(),
+    lang: z.enum(['en', 'zh']),
+    title: z.string(),
+    section: z.enum(['joining', 'getting-started', 'research', 'policies']),
+    order: z.number(),
+    status: z.enum(['available', 'draft']),
+    updated: z.coerce.date(),
+    summary: z.string(),
+  }),
+});
+
+export const collections = { notes, handbook };

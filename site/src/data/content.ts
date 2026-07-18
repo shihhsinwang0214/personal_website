@@ -133,6 +133,11 @@ export const heroContent = {
 export const news: NewsItem[] = [
   {
     date: 'Jul 2026',
+    html: 'I am <strong>actively recruiting undergraduate project students and MS/PhD students</strong> for my new lab at NTU CSIE. See <a href="/personal_website/handbook/join">Join the Lab</a> for openings and how to apply.',
+    htmlZh: '實驗室<strong>目前正在積極招收學士專題生與碩博士生</strong>。招募資訊與申請方式請見<a href="/personal_website/zh/handbook/join">加入實驗室</a>。',
+  },
+  {
+    date: 'Jul 2026',
     html: 'I will join the <strong>Department of Computer Science and Information Engineering at National Taiwan University</strong> as an Assistant Professor in August 2026.',
     htmlZh: '我將於 2026 年 8 月加入<strong>國立臺灣大學資訊工程學系</strong>擔任助理教授。',
   },

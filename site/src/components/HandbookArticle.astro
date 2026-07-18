@@ -1,0 +1,194 @@
+---
+import { render } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import { withBase } from '../lib/url';
+import type { HandbookEntry, Lang } from '../lib/handbook';
+import {
+  findHandbook,
+  formatHandbookDate,
+  handbookIndexRoute,
+  handbookNav,
+  handbookRoute,
+  handbookSiblings,
+  sectionByKey,
+  statusLabels,
+} from '../lib/handbook';
+
+interface Props {
+  entry: HandbookEntry;
+  allEntries: HandbookEntry[];
+  lang: Lang;
+}
+const { entry, allEntries, lang } = Astro.props;
+const { Content, headings } = await render(entry);
+const otherLang: Lang = lang === 'zh' ? 'en' : 'zh';
+const alt = findHandbook(allEntries, entry.data.slug, otherLang);
+const nav = handbookNav(allEntries, lang);
+const { previous, next } = handbookSiblings(allEntries, entry, lang);
+const section = sectionByKey(entry.data.section);
+const tocHeadings = headings.filter((h) => h.depth > 1 && h.depth <= 3);
+
+const alternates = alt
+  ? [
+      { lang, path: handbookRoute(entry.data.slug, lang) },
+      { lang: otherLang, path: handbookRoute(alt.data.slug, otherLang) },
+    ]
+  : undefined;
+const articleJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  headline: entry.data.title,
+  description: entry.data.summary,
+  inLanguage: lang === 'zh' ? 'zh-Hant' : 'en',
+  dateModified: entry.data.updated.toISOString().slice(0, 10),
+  author: { '@type': 'Person', name: 'Shih-Hsin Wang' },
+  isPartOf: { '@type': 'CreativeWork', name: lang === 'zh' ? '實驗室手冊' : 'Lab Handbook' },
+};
+---
+
+<Base
+  title={`${entry.data.title} — ${lang === 'zh' ? '實驗室手冊' : 'Lab Handbook'}`}
+  description={entry.data.summary}
+  active="handbook"
+  lang={lang}
+  alternates={alternates}
+  jsonLd={articleJsonLd}
+  langToggleHref={alt ? withBase(handbookRoute(alt.data.slug, otherLang)) : undefined}
+>
+  <div class="reading-progress" aria-hidden="true"><span></span></div>
+  <button class="back-to-top" type="button" aria-label={lang === 'zh' ? '回到頂部' : 'Back to top'}>
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+  </button>
+
+  <main class="handbook-shell" id="note-main">
+    <details class="handbook-sidebar" open>
+      <summary class="handbook-sidebar-head">
+        <a href={withBase(handbookIndexRoute(lang))}>{lang === 'zh' ? '實驗室手冊' : 'Lab Handbook'}</a>
+        <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 12.5 10 7 15.5" /></svg>
+      </summary>
+      <nav class="handbook-nav" aria-label={lang === 'zh' ? '手冊導覽' : 'Handbook navigation'}>
+        {nav.map((group) => (
+          <div class="handbook-nav-group">
+            <div class="handbook-nav-label"><span aria-hidden="true">{group.section.icon}</span> {group.section.label[lang]}</div>
+            <ul>
+              {group.items.map((item) => (
+                <li>
+                  <a
+                    href={withBase(handbookRoute(item.data.slug, lang))}
+                    aria-current={item.data.slug === entry.data.slug ? 'page' : undefined}
+                  >
+                    {item.data.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </nav>
+    </details>
+
+    <article class="handbook-article">
+      <header class="note-header">
+        <a class="back-link" href={withBase(handbookIndexRoute(lang))}>
+          {lang === 'zh' ? '← 手冊首頁' : '← Handbook home'}
+        </a>
+        <p class="note-meta">
+          {section.icon} {section.label[lang]} / {formatHandbookDate(entry.data.updated, lang)}
+        </p>
+        <h1>{entry.data.title}</h1>
+        <div class="note-header-actions">
+          <span class={`status-badge status-${entry.data.status}`}>{statusLabels[entry.data.status][lang]}</span>
+          {alt && (
+            <a href={withBase(handbookRoute(alt.data.slug, otherLang))}>{otherLang === 'zh' ? '中文' : 'EN'}</a>
+          )}
+        </div>
+      </header>
+
+      <div class="note-grid">
+        <aside class="note-toc" aria-label={lang === 'zh' ? '目錄' : 'Table of contents'}>
+          <strong>{lang === 'zh' ? '本頁目錄' : 'On this page'}</strong>
+          {tocHeadings.length > 0 ? (
+            <ol>
+              {tocHeadings.map((h) => (
+                <li class={`toc-depth-${h.depth}`}><a href={`#${h.slug}`}>{h.text}</a></li>
+              ))}
+            </ol>
+          ) : (
+            <p>{lang === 'zh' ? '此頁沒有章節目錄。' : 'No section headings.'}</p>
+          )}
+        </aside>
+        <div class="note-body markdown-body">
+          <Content />
+        </div>
+      </div>
+
+      <nav class="note-prev-next" aria-label="Previous and next">
+        {previous ? (
+          <a href={withBase(handbookRoute(previous.data.slug, lang))}>
+            <span>{lang === 'zh' ? '上一篇' : 'Previous'}</span>
+            {previous.data.title}
+          </a>
+        ) : (<span />)}
+        {next ? (
+          <a href={withBase(handbookRoute(next.data.slug, lang))}>
+            <span>{lang === 'zh' ? '下一篇' : 'Next'}</span>
+            {next.data.title}
+          </a>
+        ) : (<span />)}
+      </nav>
+    </article>
+  </main>
+
+  <script>
+    function initHandbook() {
+      const progress = document.querySelector('.reading-progress > span');
+      const backTop = document.querySelector('.back-to-top');
+      const body = document.querySelector('.note-body');
+      const tocLinks = Array.from(document.querySelectorAll('.note-toc a[href^="#"]'));
+      const onScroll = () => {
+        const doc = document.documentElement;
+        const max = doc.scrollHeight - doc.clientHeight;
+        const ratio = max > 0 ? Math.min(1, doc.scrollTop / max) : 0;
+        if (progress) progress.style.width = ratio * 100 + '%';
+        if (backTop) backTop.classList.toggle('is-visible', doc.scrollTop > 600);
+      };
+      if (window.__hbScroll) window.removeEventListener('scroll', window.__hbScroll);
+      window.__hbScroll = onScroll;
+      window.addEventListener('scroll', onScroll, { passive: true });
+      onScroll();
+      if (backTop) backTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+      if (body) {
+        body.querySelectorAll('h2[id], h3[id]').forEach((h) => {
+          if (h.querySelector('.heading-anchor')) return;
+          const a = document.createElement('a');
+          a.className = 'heading-anchor'; a.href = '#' + h.id; a.textContent = '#';
+          a.setAttribute('aria-label', 'Copy link to this section');
+          a.addEventListener('click', (e) => {
+            e.preventDefault();
+            history.replaceState(null, '', '#' + h.id);
+            if (navigator.clipboard) navigator.clipboard.writeText(location.origin + location.pathname + '#' + h.id).catch(() => {});
+          });
+          h.appendChild(a);
+        });
+      }
+      const map = new Map();
+      tocLinks.forEach((l) => { const href = l.getAttribute('href'); if (href) map.set(decodeURIComponent(href.slice(1)), l); });
+      const targets = body ? Array.from(body.querySelectorAll('h2[id], h3[id]')) : [];
+      if (window.__hbSpy && window.__hbSpy.disconnect) window.__hbSpy.disconnect();
+      if (targets.length && map.size) {
+        const obs = new IntersectionObserver((entries) => {
+          entries.forEach((en) => {
+            if (!en.isIntersecting) return;
+            const link = map.get(en.target.id);
+            if (!link) return;
+            tocLinks.forEach((l) => l.classList.remove('is-active'));
+            link.classList.add('is-active');
+          });
+        }, { rootMargin: '-88px 0px -70% 0px', threshold: 0 });
+        targets.forEach((t) => obs.observe(t));
+        window.__hbSpy = obs;
+      }
+    }
+    document.addEventListener('astro:page-load', initHandbook);
+  </script>
+</Base>

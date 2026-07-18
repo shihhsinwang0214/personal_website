@@ -1,0 +1,14 @@
+---
+import { getCollection } from 'astro:content';
+import HandbookArticle from '../../components/HandbookArticle.astro';
+import { hiddenHandbookSlugs } from '../../lib/handbook';
+
+export async function getStaticPaths() {
+  const all = await getCollection('handbook');
+  return all
+    .filter((entry) => entry.data.lang === 'en' && !hiddenHandbookSlugs.has(entry.data.slug))
+    .map((entry) => ({ params: { slug: entry.data.slug }, props: { entry, allEntries: all } }));
+}
+const { entry, allEntries } = Astro.props;
+---
+<HandbookArticle entry={entry} allEntries={allEntries} lang="en" />

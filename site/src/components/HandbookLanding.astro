@@ -1,0 +1,100 @@
+---
+import { getCollection } from 'astro:content';
+import { withBase } from '../lib/url';
+import type { Lang } from '../lib/handbook';
+import {
+  handbookNav,
+  handbookRoute,
+  roleCards,
+  sectionByKey,
+  formatHandbookDate,
+  handbookOrdered,
+} from '../lib/handbook';
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const all = await getCollection('handbook');
+const nav = handbookNav(all, lang);
+const ordered = handbookOrdered(all, lang);
+const lastUpdated = ordered.reduce<Date | undefined>((latest, e) => {
+  if (!latest || e.data.updated > latest) return e.data.updated;
+  return latest;
+}, undefined);
+
+const t = {
+  lead: {
+    en: 'A living guide to how we think, work, and grow together.',
+    zh: '一份持續演進的指南，記錄我們如何思考、工作、一起成長。',
+  },
+  intro: {
+    en: 'This handbook documents the culture, philosophy, and workflow of the lab — the things that usually stay unwritten. It is for prospective students deciding whether to apply, new members finding their footing, and current researchers doing the work. It values research culture over rules, and independent thinking over task completion. Start wherever fits you best.',
+    zh: '這本手冊記錄實驗室的文化、理念與工作方式——那些通常沒被寫下來的東西。它寫給正在考慮申請的準學生、剛加入正在站穩腳步的新成員，以及正在做研究的現任成員。它重視研究文化勝過規則、獨立思考勝過完成任務。從最適合你的地方開始。',
+  },
+  startWhere: { en: 'Start where you are', zh: '從你所在的地方開始' },
+  browse: { en: 'Browse everything', zh: '瀏覽全部' },
+  livingTitle: { en: 'A living document', zh: '一份活的文件' },
+  living: {
+    en: 'This handbook evolves with the lab. Pages will be added, revised, and sharpened over time; some are marked as drafts. If something is unclear, outdated, or missing, that itself is useful feedback — tell me.',
+    zh: '這本手冊會隨實驗室演進。頁面會持續新增、修訂、打磨；有些標記為草稿。若有內容不清楚、過時或缺漏，那本身就是有用的回饋——請告訴我。',
+  },
+  lastUpdated: { en: 'Last updated', zh: '最後更新' },
+};
+---
+
+<main class="handbook-landing content">
+  <section class="hb-hero">
+    <p class="eyebrow">{lang === 'zh' ? '實驗室手冊' : 'Lab Handbook'}</p>
+    <h1>{lang === 'zh' ? '實驗室手冊' : 'Lab Handbook'}</h1>
+    <p class="hb-lead">{t.lead[lang]}</p>
+    <p class="hb-intro">{t.intro[lang]}</p>
+  </section>
+
+  <section class="hb-section">
+    <h2>{t.startWhere[lang]}</h2>
+    <div class="hb-role-grid">
+      {roleCards.map((card) => {
+        const section = sectionByKey(card.section);
+        return (
+          <a class="hb-role-card" href={withBase(handbookRoute(section.start, lang))}>
+            <span class="hb-role-icon" aria-hidden="true">{card.icon}</span>
+            <span class="hb-role-title">{card.title[lang]}</span>
+            <span class="hb-role-desc">{card.desc[lang]}</span>
+            <span class="hb-role-more">{section.label[lang]} →</span>
+          </a>
+        );
+      })}
+    </div>
+  </section>
+
+  <section class="hb-section">
+    <h2>{t.browse[lang]}</h2>
+    <div class="hb-browse">
+      {nav.map((group) => (
+        <section class="hb-browse-group">
+          <h3><span aria-hidden="true">{group.section.icon}</span> {group.section.label[lang]}</h3>
+          <p class="hb-browse-blurb">{group.section.blurb[lang]}</p>
+          <ul>
+            {group.items.map((item) => (
+              <li>
+                <a href={withBase(handbookRoute(item.data.slug, lang))}>
+                  <span class="hb-item-title">{item.data.title}</span>
+                  <span class="hb-item-summary">{item.data.summary}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  </section>
+
+  <section class="hb-living">
+    <h2>{t.livingTitle[lang]}</h2>
+    <p>{t.living[lang]}</p>
+    {lastUpdated && (
+      <p class="hb-updated">{t.lastUpdated[lang]}: {formatHandbookDate(lastUpdated, lang)}</p>
+    )}
+  </section>
+</main>

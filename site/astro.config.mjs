@@ -12,8 +12,9 @@ export default defineConfig({
   base: '/personal_website/',
   integrations: [mdx(), sitemap()],
   markdown: {
-    remarkPlugins: [remarkMath, remarkRemoveFirstH1],
-    rehypePlugins: [rehypeKatex],
+    processor: unified({
+      remarkPlugins: [remarkMath, remarkRemoveFirstH1],
+      rehypePlugins: [rehypeKatex],
+    }),
   },
 });
-
