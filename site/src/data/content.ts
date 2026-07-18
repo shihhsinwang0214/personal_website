@@ -56,7 +56,7 @@ export const profile = {
 };
 
 export const aboutHtml = `
-I will join the Department of Computer Science and Information Engineering (CSIE) at National Taiwan University as an Assistant Professor in August 2026, with a joint appointment at the NTU AI Center of Research Excellence (AICoRE).
+I will join the Department of Computer Science and Information Engineering (CSIE) at National Taiwan University as an Assistant Professor in August 2026, with a joint appointment at the NTU AI Center of Research Excellence (AICoRE). I am also a <strong>Yushan Young Fellow</strong> (Yushan Fellow Program, Ministry of Education, Taiwan).
 <br><br>
 I am also a graduate of the Department of Mathematics at National Taiwan University. I earned my PhD in Mathematics at the University of Utah (advised by Bao Wang and Tommaso de Fernex).
 <br><br>
@@ -64,7 +64,7 @@ My work spans <strong>geometric deep learning</strong>, <strong>generative model
 `;
 
 export const aboutHtmlZh = `
-我將於 2026 年 8 月加入<strong>國立臺灣大學資訊工程學系（CSIE）</strong>擔任助理教授，並於臺大人工智慧頂尖研究中心（NTU AI Center of Research Excellence, AICoRE）合聘。
+我將於 2026 年 8 月加入<strong>國立臺灣大學資訊工程學系（CSIE）</strong>擔任助理教授，並於臺大人工智慧頂尖研究中心（NTU AI Center of Research Excellence, AICoRE）合聘。我亦獲選為教育部<strong>玉山青年學者</strong>。
 <br><br>
 我畢業於國立臺灣大學數學系，並於美國 University of Utah 取得數學博士學位（指導教授為 Bao Wang 與 Tommaso de Fernex）。
 <br><br>
@@ -131,6 +131,11 @@ export const heroContent = {
 };
 
 export const news: NewsItem[] = [
+  {
+    date: 'Jul 2026',
+    html: 'I was named a <strong>Yushan Young Fellow</strong> by Taiwan\'s Ministry of Education (Yushan Fellow Program).',
+    htmlZh: '獲選為教育部<strong>玉山青年學者</strong>（玉山學者計畫）。',
+  },
   {
     date: 'Jul 2026',
     html: 'I am <strong>actively recruiting undergraduate project students and MS/PhD students</strong> for my new lab at NTU CSIE. See <a href="/personal_website/handbook/join">Join the Lab</a> for openings and how to apply.',
