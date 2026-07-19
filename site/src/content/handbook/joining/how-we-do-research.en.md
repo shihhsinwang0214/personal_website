@@ -9,10 +9,9 @@ updated: 2026-07-18
 summary: "What we believe, how we operate day to day, what I promise you, and what I expect from you."
 ---
 
-> For students and postdocs joining the lab, and for people who want to collaborate with us.
+> For students and postdocs who may join — or have already joined — the lab, and for people who want to collaborate with us.
 
-This document is not about *what* we research — that's elsewhere on the site. This is about **how** we do research:
-what we believe, how we operate day to day, what we promise you, and what we expect you to do.
+This is about **how** we do research: what we believe, how we operate day to day, what we promise you, and what we expect you to do.
 
 ## 1. Six things we believe
 

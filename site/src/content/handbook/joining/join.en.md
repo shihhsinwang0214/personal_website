@@ -9,7 +9,7 @@ updated: 2026-07-18
 summary: "Actively recruiting undergraduate project students and MS/PhD students. This page covers who might fit and how to apply."
 ---
 
-> I am **actively recruiting** undergraduate project students and MS/PhD students. If you're considering joining, this page has everything you need.
+> I am **actively recruiting** undergraduate project students and MS/PhD students. Please read everything below.
 
 ## Current openings
 
@@ -18,7 +18,7 @@ I will join the Department of Computer Science and Information Engineering at Na
 - **Undergraduate project students** — undergrads interested in research and able to commit time consistently.
 - **MS and PhD students** — students who want to do deep, focused research.
 
-Research assistants and other forms of collaboration are also welcome to reach out. For research directions, go straight to [Publications](/personal_website/publications) and [Notes](/personal_website/notes) — they are more accurate than any summary.
+Research assistants and other forms of collaboration are also welcome to reach out. For research directions, please see [Publications](/personal_website/publications) and [Notes](/personal_website/notes).
 
 ## Is this lab right for you?
 
@@ -32,20 +32,22 @@ I care more about how you think than about what you already know. You may fit we
 - Like **discussing with people** and thinking things through together, rather than grinding alone.
 - Can honestly say "I don't know" — and treat figuring it out as fun rather than a burden.
 
-Conversely, if you prefer well-defined tasks with known answers, or want clear instructions every day, this may not be the best environment for you — that's not a flaw, just fit.
+Conversely, if you prefer problems that have already been clearly defined and have known answers, or want explicit instructions every day, this may not be the best environment for you — that's not a flaw, just a matter of fit.
 
-For a fuller picture of what we believe, how we operate day to day, and what we promise and expect of each other, read [How We Do Research](/personal_website/handbook/how-we-do-research) — it's also required reading before filling in the reflection questionnaire.
+To get a fuller picture of how I (we) do research, read [How We Do Research](/personal_website/handbook/how-we-do-research) — it will also help you fill in the reflection questionnaire.
 
 ## How to apply
 
 Just two steps:
 
-1. **Browse the rest of the site** — home, About, Publications, Notes — to see what we actually work on. An email that shows you know what you're applying to stands out immediately.
+1. **Browse the rest of the site** — home, About, Publications, Notes — to see what we actually work on. An email that shows you know what you're applying to, and what you want to research, stands out immediately.
 2. **Email shixinwang0214@gmail.com** with:
    - Your answers to the [Research Reflection Questionnaire](/personal_website/handbook/research-reflection-questionnaire) (as a PDF);
    - A short introduction: who you are, what you're curious about, and why you want to do research with me.
 
-The email doesn't need to be long — just specific.
+Please keep the email short and specific.
+
+I will do my best to reply within **5 days** of receiving your application. If you haven't heard back after **a week**, you're welcome to email again to remind me and check on your application — messages occasionally get lost due to filters or other issues, and I apologize in advance if that happens.
 
 ## Research Reflection Questionnaire
 

@@ -21,9 +21,9 @@ Please compile your answers into a PDF file and attach it to your first email. F
 
 Before answering, please also read [How We Do Research](/personal_website/handbook/how-we-do-research).
 
-As you write, please keep in mind:
+Suggestions for writing:
 
-* For most questions, one to three paragraphs is enough; questions that ask for a concrete experience can run somewhat longer.
+* For most questions, 5–10 sentences is enough; questions that ask for a concrete experience can run somewhat longer.
 * I will mainly look at whether your answers are clear, concrete, and thought through — longer answers do not receive higher regard.
 * The prompts under each question are there to help you think. You do not need to address every prompt, nor follow their order.
 * If you are currently unsure about a question, it is fine to say "I'm not sure yet" and describe your current understanding and considerations.
@@ -210,6 +210,6 @@ You might consider:
 * Is there anything that makes you think you might need a different research environment?
 * Before deciding whether to join, what else would you want to confirm with me or with lab members?
 
-Raising concerns will not be viewed negatively. On the contrary, specific and honest questions help us judge whether we are a good match, and avoid starting a collaboration on too little information.
+Raising concerns will not be viewed negatively. On the contrary, specific and honest questions help us judge whether we are a good match, may also give me feedback I can use to improve, and help both sides avoid starting a collaboration on too little information.
 
-That said, your answers will be used as material for understanding mutual fit. If there is a clear gap between what you need and what this lab can provide, that information may affect whether we are a good match to start working together — it does not mean your needs are unreasonable or your ability is lacking. The earlier we understand each other's needs and expectations, the more responsible a decision both sides can make.
+That said, your answers will be used as material for understanding our mutual fit. If there is a clear gap between what you need and what this lab can provide, that information may affect whether we are a good match to start working together — it does not mean your needs are unreasonable or your ability is lacking. The earlier we understand each other's needs and expectations, the more responsible a decision both sides can make.
