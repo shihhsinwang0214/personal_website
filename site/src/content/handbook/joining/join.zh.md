@@ -13,12 +13,15 @@ summary: "目前正在招收學士專題生與碩博士生。這一頁說明誰�
 
 ## 目前招募
 
-我將於 2026 年 8 月加入國立臺灣大學資訊工程學系。目前正在尋找：
+我將於 2026 年 8 月加入國立臺灣大學資訊工程學系。目前正在為剛成立的實驗室尋找：
 
 - **學士專題生**——對研究有興趣、願意穩定投入時間的大學部學生。
 - **碩士班與博士班學生**——想深入研究的碩博士生。
 
-研究助理或其他形式的合作，也歡迎來信詢問。研究方向請直接參考[Publications](/personal_website/publications)與[Notes](/personal_website/zh/notes)。
+
+研究助理或其他形式的合作，也歡迎來信詢問。
+
+研究方向請直接參考[Publications](/personal_website/publications)與[Notes](/personal_website/zh/notes)。
 
 ## 這個實驗室適合你嗎？
 

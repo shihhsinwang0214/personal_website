@@ -71,11 +71,9 @@ This is the thing we care about most, so it gets extra detail.
 
 ### Challenge ideas, not people
 
-We question each other's results hard. That's what research should look like.
-But the question is "why might this conclusion be wrong," never "how could you think that."
-
-To make this a role rather than a personal attack, when important results are presented we **assign a red team**:
-that person's job is to find the holes in the result. We rotate. That way, challenge is a duty, not hostility.
+We question each other's results hard — that's what research should look like.
+But the question is "why might this method or conclusion have a problem," never "how could you think that."
+We make sure the questioning stays about the work, not the person, and we help each other find the possible holes in a presentation or a result.
 
 ### "I don't know" beats bluffing — and proposing a next step is a perfect answer
 
@@ -83,14 +81,14 @@ When asked something you don't know, saying "I don't know, but I'll find out" is
 
 Also: if you notice I've said something wrong, say so on the spot. On the spot is far more useful than afterward.
 
-### Junior people speak first
+### Junior people give it a go first
 
-Group discussions always start with the most junior person. The reason is simple: if I speak first, I worry the people after me will find it hard to disagree — even when they're right.
+In group discussions, we encourage the most junior person to start, so that everyone gets used to exercising independent, critical thinking often, right from the beginning. Being wrong is fine — here, silence is the only thing that's harder to accept.
 
-### Criticism in private, praise in public
+### Criticism mostly in private; in public, recognition or gentle suggestions
 
-Criticism of an individual's work happens in our one-on-ones.
-In public, I only ask questions and give recognition. This is a deliberate rule.
+Harsher criticism of an individual's work happens in our one-on-ones.
+In public, I only ask questions, give recognition, or offer suggestions gently.
 
 ## 3. How the day-to-day works
 
@@ -161,7 +159,7 @@ High-impact work is built on others being able to use, reproduce, and extend it 
 ## 6. What I expect from you
 
 - **Communicate bad news proactively.** Good news can wait three days; bad news gets said the same day.
-- **Own your results.** Before showing anything to others, red-team it yourself first.
+- **Own your results.** Before showing anything to others, pick it apart yourself first.
 - **Respect shared resources.** Compute, data, other people's time.
 - **Help those more junior than you.** Everyone here has been helped by someone more senior — including me.
 - **Take care of your body and mind.** The pace of this field can make all-nighters look like a virtue. They aren't. Two years of steady output beats three months of burning bright and burning out. When you're on vacation, be on vacation — I won't message you.
