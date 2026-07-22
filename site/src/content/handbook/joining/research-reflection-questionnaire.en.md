@@ -11,7 +11,7 @@ summary: "Reflect, through concrete experiences, on your motivation for research
 
 > This questionnaire is not a test of expertise or research ability, and there is no single correct answer. It has two purposes: first, to help you think concretely — before applying — about why you want to do research, what kind of working style suits you, and what kind of guidance you currently need; second, to give both of us a fuller understanding of each other's expectations and fit before we start working together.
 >
-> What I want to understand is not whether you would describe yourself with words like "passionate," "independent," or "resilient." Rather than abstract self-evaluation, I hope to see, through concrete and reflective answers, how you think, learn, and face problems.
+> What I want to understand is not whether you would describe yourself with words like "passionate," "independent," or "resilient." Rather than abstract self-evaluation, I hope to see, through concrete and reflective answers, how you think, learn, and face problems. Whenever possible, draw on experiences that are relevant to research in your responses.
 >
 > Whether you are applying as an undergraduate project student, a research assistant, a master's student, or a PhD student, you will in principle answer the same core questions. I will do my best to interpret your answers in light of your stage of study, the opportunities you have had, and the role you are applying for.
 

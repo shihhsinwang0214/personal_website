@@ -52,10 +52,16 @@ summary: "目前正在招收學士專題生與碩博士生。這一頁說明誰�
 
 我會盡量於收到申請信後**5天內**回覆你的來信。若超過**一週**仍未收到回覆，歡迎再寄信提醒我，並追蹤申請進度；有時信件可能因系統或其他因素而遺漏，敬請見諒。
 
+如果我們安排面談，請再準備好你的履歷（CV）與歷年成績單。你也可以在第一封申請信中附上，但這不是必要條件。
+
 ## 研究反思問卷
 
-問卷是申請的一部分，但不是考試，也沒有標準答案。完整的說明與題目在[研究反思問卷](/personal_website/zh/handbook/research-reflection-questionnaire)。
+問卷是申請的重要部分。完整的說明與題目在[研究反思問卷](/personal_website/zh/handbook/research-reflection-questionnaire)。
 
 你可以直接下載 Word 檔填寫，完成後轉成 PDF 隨信附上：
 
 - [下載問卷（Word 檔）](/personal_website/assets/research-reflection-questionnaire-zh.docx)
+
+## 常見問題
+
+還有疑問嗎？先看看[常見問題](/personal_website/zh/handbook/joining-faq)——背景、數學與程式能力、工時、以及研究不順或發現不適合時怎麼辦等，都在裡面誠實回答。

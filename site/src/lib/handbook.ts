@@ -18,7 +18,6 @@ export const hiddenHandbookSlugs = new Set<string>([
   'who-should-apply',
   'what-i-look-for',
   'application-process',
-  'joining-faq',
   'is-this-lab-right-for-you',
   'lab-philosophy',
   'mentoring-philosophy',

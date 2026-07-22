@@ -3,9 +3,9 @@ slug: "joining-faq"
 lang: "zh"
 title: "常見問題"
 section: "joining"
-order: 6
+order: 4
 status: "available"
-updated: 2026-07-17
+updated: 2026-07-18
 summary: "準學生最常問的問題，誠實回答。"
 ---
 

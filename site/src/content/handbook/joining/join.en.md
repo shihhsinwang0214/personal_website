@@ -45,14 +45,20 @@ Just two steps:
    - Your answers to the [Research Reflection Questionnaire](/personal_website/handbook/research-reflection-questionnaire) (as a PDF);
    - A short introduction: who you are, what you're curious about, and why you want to do research with me.
 
-Please keep the email short and specific.
+Please keep your email concise, thoughtful, and specific. Quality matters much more than length.
 
-I will do my best to reply within **5 days** of receiving your application. If you haven't heard back after **a week**, you're welcome to email again to remind me and check on your application — messages occasionally get lost due to filters or other issues, and I apologize in advance if that happens.
+I will do my best to reply within five days of receiving your application. If you have not heard back after one week, please feel free to send a polite follow-up email. Occasionally, messages are filtered or lost, and I apologize in advance if that happens.
+
+If we schedule an interview, please have your CV and academic transcript ready. You are also welcome to include them in your initial email, although this is not required.
 
 ## Research Reflection Questionnaire
 
-The questionnaire is part of the application, but it is not an exam and there are no correct answers. The full instructions and questions are on the [Research Reflection Questionnaire](/personal_website/handbook/research-reflection-questionnaire) page.
+The questionnaire is the most important part of the application. The full instructions and questions are on the [Research Reflection Questionnaire](/personal_website/handbook/research-reflection-questionnaire) page.
 
 You can download the Word file, fill it in, convert it to PDF, and attach it to your email:
 
 - [Download the questionnaire (Word)](/personal_website/assets/research-reflection-questionnaire-en.docx)
+
+## FAQ
+
+Still have questions? Start with the [FAQ](/personal_website/handbook/joining-faq) — background, math and coding ability, working style, and what happens if research doesn't go well or you find it isn't for you, all answered honestly.

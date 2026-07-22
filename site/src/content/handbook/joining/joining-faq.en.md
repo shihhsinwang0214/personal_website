@@ -3,7 +3,7 @@ slug: "joining-faq"
 lang: "en"
 title: "FAQ"
 section: "joining"
-order: 6
+order: 4
 status: "available"
 updated: 2026-07-18
 summary: "Common questions from prospective students, answered honestly."
