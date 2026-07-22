@@ -54,7 +54,7 @@ This information is mainly used to understand your situation and to help match y
 
 Please try to go beyond answers like "I'm very interested in AI," "I want to learn more," or "I want to gain experience."
 
-You might consider:
+I want to see a more concrete motivation. You might consider:
 
 * What experience or reason first made you consider doing research?
 * What do you hope to understand, practice, or accomplish through research?
@@ -118,7 +118,7 @@ Please explain:
 
 Recognizing your own gaps will not be held against you. Compared to claiming you can already do everything, I care much more about whether you can accurately assess your own learning needs and propose a realistic way to improve.
 
-### 6. Choose one piece of work or research direction from this lab that interests you.
+### 6. Choose one paper from this lab that interests you, and tell me your understanding of it and why you're interested.
 
 To prepare your application, please actively read at least one of this lab's papers, or research on a related topic — not just the names of research areas or the short introductions on this website.
 
