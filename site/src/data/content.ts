@@ -138,6 +138,12 @@ export const news: NewsItem[] = [
   },
   {
     date: 'Jul 2026',
+    html: 'I am organizing two minisymposia on generative models, transport, and inverse problems at <strong>SIAM IS26 &amp; MDS26</strong> (Salt Lake City, Nov 2026).',
+    htmlZh: '我將在 <strong>SIAM IS26 與 MDS26</strong>（鹽湖城，2026 年 11 月）籌辦兩場關於 generative models、optimal transport 與 inverse problems 的 minisymposia。',
+    links: [{ label: '[Details]', href: 'experience' }],
+  },
+  {
+    date: 'Jul 2026',
     html: 'I am <strong>actively recruiting undergraduate project students and MS/PhD students</strong> for my new lab at NTU CSIE. See <a href="/personal_website/handbook/join">Join the Lab</a> for openings and how to apply.',
     htmlZh: '實驗室<strong>目前正在積極招收學士專題生與碩博士生</strong>。招募資訊與申請方式請見<a href="/personal_website/zh/handbook/join">加入實驗室</a>。',
   },
@@ -375,6 +381,10 @@ export const publications: PublicationGroup[] = [
 ];
 
 export const experience = {
+  organizing: [
+    '<strong>SIAM IS26 · MS30 — Generative Models, Transport, and Inverse Problems in Imaging Science</strong> (Salt Lake City, Tue Nov 17, 2026)<br>Speakers: Xiaoqun Zhang (Shanghai Jiao Tong University); Jiachen Liu &amp; Thomas Strohmer (UC Davis); Paul Hand (Northeastern University); Bao Wang (University of Utah).',
+    '<strong>SIAM MDS26 · MS204 — Generative Models for Scientific Computing and Inverse Problems</strong> (Salt Lake City, Fri Nov 20, 2026)<br>Speakers: Cristina Garcia Cardona (Los Alamos National Laboratory); Jingwei Hu (University of Washington); Yiming Ying (University of Sydney); Qiang Ye (University of Kentucky).',
+  ],
   recent: [
     '<strong>Visiting Graduate Researcher, UCLA</strong> (Mar 2025 – June 2025)<br>Initiating a pipeline for 3D RNA/DNA folding from secondary structure using flow-matching models, supervised by Andrea Bertozzi.',
     '<strong>Research Intern, Los Alamos National Lab</strong> (May – Aug 2024)<br>Developed a sparse, rigid, and hyperparameter-free graph representation for molecular structures, supervised by Qi Tang.',
