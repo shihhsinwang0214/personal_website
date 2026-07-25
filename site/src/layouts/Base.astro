@@ -1,7 +1,6 @@
 ---
 import '../styles/global.css';
 import 'katex/dist/katex.min.css';
-import { ClientRouter } from 'astro:transitions';
 import { withBase } from '../lib/url';
 import { profile } from '../data/content';
 import { analytics } from '../data/integrations';
@@ -116,7 +115,6 @@ const year = new Date().getFullYear();
         />
       )
     }
-    <ClientRouter />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -262,30 +260,9 @@ const year = new Date().getFullYear();
         });
       }
 
-      document.addEventListener('astro:after-swap', () => {
-        document.body.classList.remove('nav-open');
-        try {
-          let t = localStorage.getItem('theme');
-          if (t !== 'light' && t !== 'dark') {
-            t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-          }
-          document.documentElement.dataset.theme = t;
-        } catch (e) {}
-      });
-      document.addEventListener('astro:page-load', setup);
-
-      // GoatCounter: count SPA navigations (view transitions don't reload count.js).
-      let __firstLoad = true;
-      document.addEventListener('astro:page-load', () => {
-        if (__firstLoad) {
-          __firstLoad = false;
-          return;
-        }
-        const gc = (window as any).goatcounter;
-        if (gc && typeof gc.count === 'function') {
-          gc.count({ path: location.pathname + location.search });
-        }
-      });
+      // Full-page navigations (no view-transition router). Astro <script>
+      // modules are deferred, so the DOM is ready when this runs.
+      setup();
     </script>
   </body>
 </html>
