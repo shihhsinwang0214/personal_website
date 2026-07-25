@@ -138,6 +138,56 @@ export const roleCards: RoleCard[] = [
   },
 ];
 
+// Lab identity + philosophy shown on the landing page. The lab content
+// (name, description, philosophy, Why/How/What) stays in English on both
+// language versions; only framework labels are localized.
+// The lab NAME and technical terms stay in English on both languages; the
+// prose (description / philosophy / pillar text) is bilingual { en, zh }.
+export const labInfo = {
+  name: 'Structure-Aware Modeling Lab',
+  subtitle: 'SAM Lab · 格物致知實驗室',
+  nameGloss: {
+    en: 'Uncover the structure of things to expand the bounds of insight.',
+    zh: '窮究事物之結構，拓展無盡之理解。',
+  },
+  eyebrow: { en: 'Lab', zh: '研究實驗室' },
+  description: {
+    en: 'Structure-Aware Modeling Lab (SAM Lab) leverages the inherent structure of data and problems to build AI methods with rigorous mathematical foundations.  We bridge mathematical theory, computational intuition, and implementable methods to study geometric deep learning, generative modeling, sampling, test-time guidance, and scientific applications. Scientific discovery serves as a central proving ground for our work, without defining its full boundary.',
+    zh: '格物致知實驗室（SAM Lab）致力於利用數據與問題本身的結構，建立具嚴謹數學基礎的 AI 方法。我們串接直覺、數學與工程，研究 geometric deep learning、generative modeling、sampling、test-time guidance 與 scientific applications。我們將科學上的應用場景視為我們工作的核心試驗場，但不限於此應用。',
+  },
+  philosophyHeading: { en: 'Philosophy', zh: '理念' },
+  philosophy: {
+  en: "Our research begins with intuitions and observations, uses mathematics and theory to describe and analyze them, translates the resulting understanding into applicable methods, and uses empirical evidence to refine the intuitions and theories behind those methods.",
+  zh: "我們將直覺與觀察轉化為數學理解，將數學理解轉化為可應用的方法，再由實證結果深化原有的直覺與理解。",
+  },
+  pillars: [
+    {
+      key: 'why',
+      label: { en: 'Why', zh: '為什麼' },
+      text: {
+        en: 'Important scientific and engineering problems live in structured spaces shaped by geometry, symmetry, hierarchy, constraints, and measurable observables. We seek to build AI methods that can use these structures to move beyond data-driven methods toward meaningful generation, exploration, and discovery.',
+        zh: '重要的科學與工程問題，存在於由 geometry、symmetry、hierarchy、constraints 與可觀測之 observables 所構築的結構化空間裡。我們旨在打造能善用這些內在結構的 AI 方法，跨越單純的 data-driven methods，邁向具結構意義的生成、探索與發掘。',
+      },
+    },
+    {
+      key: 'how',
+      label: { en: 'How', zh: '怎麼做' },
+      text: {
+        en: 'We work in a loop connecting intuition, mathematics, computation, and evidence. Starting from structural intuitions and scientific observations, we use mathematics and theory to describe and analyze the underlying structures. We translate this understanding into implementable methods, and use empirical results to refine both the methods and the understanding behind them.',
+        zh: '我們透過一個貫通「直覺、數學、計算與實證」的循環來做研究。從對問題結構的直覺與科學觀察出發，我們運用數學與理論描述並分析其底層結構；再將這些理解轉化為可實作的方法，並以實證結果反過來修正方法及其背後的理解。',
+      },
+    },
+    {
+      key: 'what',
+      label: { en: 'What', zh: '做什麼' },
+      text: {
+        en: 'We develop foundations and algorithms for representing and generating data through structure-aware modeling. We evaluate our methods through demanding problems in scientific discovery and engineering.',
+        zh: '我們致力於建構以結構為核心的資料表徵與生成理論，並開發相應的演算法；並透過探索科學與工程領域中的前沿難題，來驗證我們研發的學習與生成方法',
+      },
+    },
+  ],
+};
+
 export const statusLabels: Record<HandbookEntry['data']['status'], Record<Lang, string>> = {
   available: { en: 'Living', zh: '持續維護' },
   draft: { en: 'Draft', zh: '草稿' },
