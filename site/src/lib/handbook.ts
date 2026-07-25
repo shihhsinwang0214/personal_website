@@ -144,16 +144,16 @@ export const roleCards: RoleCard[] = [
 // The lab NAME and technical terms stay in English on both languages; the
 // prose (description / philosophy / pillar text) is bilingual { en, zh }.
 export const labInfo = {
-  name: 'Structure-Aware Modeling Lab',
-  subtitle: 'SAM Lab · 格物建模實驗室',
+  name: 'Structure-Aware Learning and Modeling Lab',
+  subtitle: '結構導向學習與建模實驗室（別名：格物致知實驗室）',
   nameGloss: {
     en: 'Uncover the structure of things to expand the bounds of insight.',
-    zh: '格物致知 ── 窮究事物之結構，拓展無盡之理解。',
+    zh: '格物以察其構，致知以明其理；窮究事物之結構，拓展無盡之理解。',
   },
   eyebrow: { en: 'Lab', zh: '研究實驗室' },
   description: {
-    en: 'Structure-Aware Modeling Lab (SAM Lab) leverages the inherent structure of data and problems to build AI methods with rigorous mathematical foundations.  We bridge mathematical theory, computational intuition, and implementable methods to study geometric deep learning, generative modeling, sampling, test-time guidance, and scientific applications. Scientific discovery serves as a central proving ground for our work, without defining its full boundary.',
-    zh: '格物建模實驗室（SAM Lab）致力於利用數據與問題本身的結構，建立具數學基礎的 AI 方法。我們串接直覺、數學與工程，研究 geometric deep learning、generative modeling、sampling、test-time guidance 與 scientific applications。我們將科學上的應用場景視為我們工作的核心試驗場，但不限於此應用。',
+    en: 'Structure-Aware Learning and Modeling Lab leverages the inherent structure of data and problems to build AI methods with rigorous mathematical foundations.  We bridge mathematical theory, computational intuition, and implementable methods to advance research in geometric deep learning, generative modeling, sampling, test-time guidance, and scientific applications. Scientific discovery serves as a central proving ground for our work, without defining its full boundary.',
+    zh: '結構導向學習與建模實驗室致力於利用數據與問題本身的結構，建立具數學基礎的 AI 方法。我們串接直覺、數學與工程，深入研究 geometric deep learning、generative modeling、sampling、test-time guidance 與 scientific applications。我們將科學上的應用場景視為我們工作的核心試驗場，但不限於此應用。',
   },
   philosophyHeading: { en: 'Philosophy', zh: '理念' },
   philosophy: {
@@ -181,7 +181,7 @@ export const labInfo = {
       key: 'what',
       label: { en: 'What', zh: '做什麼' },
       text: {
-        en: 'We develop foundations and algorithms for representing and generating data through structure-aware modeling. We evaluate our methods through demanding problems in scientific discovery and engineering.',
+        en: 'We develop foundations and algorithms for representing and generating data through Structure-Aware Learning and Modeling. We evaluate our methods through demanding problems in scientific discovery and engineering.',
         zh: '我們致力於建構以結構為核心的資料表徵與生成理論，並開發相應的演算法；並透過探索科學與工程領域中的前沿難題，來驗證我們研發的學習與生成方法',
       },
     },
