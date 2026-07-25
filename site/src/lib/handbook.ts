@@ -158,7 +158,7 @@ export const labInfo = {
   philosophyHeading: { en: 'Philosophy', zh: '理念' },
   philosophy: {
   en: "Our research begins with intuitions and observations, uses mathematics and theory to describe and analyze them, translates the resulting understanding into applicable methods, and uses empirical evidence to refine the intuitions and theories behind those methods.",
-  zh: "我們將直覺與觀察轉化為數學理解，將數學理解轉化為可應用的方法，再由實證結果深化原有的直覺與理解。",
+  zh: "我們將直覺與觀察轉化為數學理解，將數學理解轉化為可應用的方法，再由實證深化原有的直覺與理解。",
   },
   pillars: [
     {
