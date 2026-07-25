@@ -15,8 +15,8 @@ summary: "Actively recruiting undergraduate project students and MS/PhD students
 
 I will join the Department of Computer Science and Information Engineering at National Taiwan University in August 2026. I am currently looking for:
 
-- **Undergraduate project students** — undergrads interested in research and able to commit time consistently.
-- **MS and PhD students** — students who want to do deep, focused research.
+- **Undergraduate project students** — primarily **NTU** undergrads (CSIE / Math and related departments) who are interested in research and able to commit time consistently; exceptional students from other schools with a strong topical fit are welcome to reach out and will be considered case by case.
+- **MS and PhD students** — students in the **Department of Computer Science and Information Engineering at NTU** who want to do deep, focused research.
 
 Research assistants and other forms of collaboration are also welcome to reach out. For research directions, please see [Publications](/personal_website/publications) and [Notes](/personal_website/notes).
 
