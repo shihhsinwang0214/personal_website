@@ -153,7 +153,7 @@ export const labInfo = {
   eyebrow: { en: 'Lab', zh: '研究實驗室' },
   description: {
     en: 'Structure-Aware Modeling Lab (SAM Lab) leverages the inherent structure of data and problems to build AI methods with rigorous mathematical foundations.  We bridge mathematical theory, computational intuition, and implementable methods to study geometric deep learning, generative modeling, sampling, test-time guidance, and scientific applications. Scientific discovery serves as a central proving ground for our work, without defining its full boundary.',
-    zh: '格物致知實驗室（SAM Lab）致力於利用數據與問題本身的結構，建立具嚴謹數學基礎的 AI 方法。我們串接直覺、數學與工程，研究 geometric deep learning、generative modeling、sampling、test-time guidance 與 scientific applications。我們將科學上的應用場景視為我們工作的核心試驗場，但不限於此應用。',
+    zh: '格物致知實驗室（SAM Lab）致力於利用數據與問題本身的結構，建立具數學基礎的 AI 方法。我們串接直覺、數學與工程，研究 geometric deep learning、generative modeling、sampling、test-time guidance 與 scientific applications。我們將科學上的應用場景視為我們工作的核心試驗場，但不限於此應用。',
   },
   philosophyHeading: { en: 'Philosophy', zh: '理念' },
   philosophy: {
