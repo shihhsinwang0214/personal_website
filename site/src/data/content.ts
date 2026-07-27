@@ -33,7 +33,8 @@ export interface NewsItem {
 export const profile = {
   name: 'Shih-Hsin Wang',
   nameZh: '王士欣',
-  photo: 'images/personal_photo.jpeg', // formal photo — brand avatar, About, og:image
+  photo: 'images/profile-halfbody.jpg', // half-body portrait — About page
+  avatar: 'images/profile-avatar.jpg', // head & shoulders — small round header avatar
   photoCasual: 'images/snowboard.jpg',
   subtitle: [
     'Assistant Professor',
