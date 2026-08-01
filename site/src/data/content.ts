@@ -38,12 +38,12 @@ export const profile = {
   photoCasual: 'images/snowboard.jpg',
   subtitle: [
     'Assistant Professor',
-    'CSIE, National Taiwan University (from Aug 2026)',
+    'CSIE & AICoRE, National Taiwan University',
     'Ph. D. in Mathematics, University of Utah (2021 – 2026)',
   ],
   subtitleZh: [
     '助理教授',
-    '國立臺灣大學資訊工程學系（2026 年 8 月起）',
+    '國立臺灣大學資訊工程學系、人工智慧頂尖研究中心',
     'Ph.D. in Mathematics, University of Utah (2021 – 2026)',
   ],
   contact: {
@@ -57,7 +57,7 @@ export const profile = {
 };
 
 export const aboutHtml = `
-I will join the Department of Computer Science and Information Engineering (CSIE) at National Taiwan University as an Assistant Professor in August 2026, with a joint appointment at the NTU AI Center of Research Excellence (AICoRE). I am also a <strong>Yushan Young Fellow</strong> (Yushan Fellow Program, Ministry of Education, Taiwan).
+I am an Assistant Professor in the Department of Computer Science and Information Engineering (CSIE) at National Taiwan University, with joint appointments at the <a href="https://www.inm.ntu.edu.tw/" target="_blank" rel="noopener">Graduate Institute of Networking and Multimedia (INM)</a> and the <a href="https://aicore.ntu.edu.tw/" target="_blank" rel="noopener">AI Center of Research Excellence (AICoRE)</a>. I am also a <strong>Yushan Young Fellow</strong> (Yushan Fellow Program, Ministry of Education, Taiwan).
 <br><br>
 I am also a graduate of the Department of Mathematics at National Taiwan University. I earned my PhD in Mathematics at the University of Utah (advised by Bao Wang and Tommaso de Fernex).
 <br><br>
@@ -65,7 +65,7 @@ My work spans <strong>geometric deep learning</strong>, <strong>generative model
 `;
 
 export const aboutHtmlZh = `
-我將於 2026 年 8 月加入<strong>國立臺灣大學資訊工程學系（CSIE）</strong>擔任助理教授，並於臺大人工智慧頂尖研究中心（NTU AI Center of Research Excellence, AICoRE）合聘。我亦獲選為教育部<strong>玉山青年學者</strong>。
+我目前任職於<strong>國立臺灣大學資訊工程學系（CSIE）</strong>，擔任助理教授，並於<a href="https://www.inm.ntu.edu.tw/" target="_blank" rel="noopener">資訊網路與多媒體研究所（INM）</a>與<a href="https://aicore.ntu.edu.tw/" target="_blank" rel="noopener">人工智慧頂尖研究中心（AICoRE）</a>合聘。我亦獲選為教育部<strong>玉山青年學者</strong>。
 <br><br>
 我畢業於國立臺灣大學數學系，並於美國 University of Utah 取得數學博士學位（指導教授為 Bao Wang 與 Tommaso de Fernex）。
 <br><br>
