@@ -2,7 +2,7 @@ import type { CollectionEntry } from 'astro:content';
 
 export type Lang = 'en' | 'zh';
 export type HandbookEntry = CollectionEntry<'handbook'>;
-export type SectionKey = 'joining' | 'getting-started' | 'research' | 'policies';
+export type SectionKey = 'joining' | 'practice' | 'research' | 'policies';
 
 // ── Publish toggle ───────────────────────────────────────────────────────────
 // The handbook pages are always built. This only controls whether the
@@ -19,11 +19,8 @@ export const hiddenHandbookSlugs = new Set<string>([
   'what-i-look-for',
   'application-process',
   'is-this-lab-right-for-you',
-  'lab-philosophy',
+  // Practice section — written but awaiting review before publishing.
   'mentoring-philosophy',
-  'expectations',
-  'research-workflow',
-  'meeting-guide',
   'ai-usage',
   'research-ethics',
   'reading-papers',
@@ -61,14 +58,14 @@ export const handbookSections: SectionDef[] = [
     start: 'join',
   },
   {
-    key: 'getting-started',
-    icon: '🎓',
-    label: { en: 'Getting Started', zh: '新人上手' },
+    key: 'practice',
+    icon: '🧭',
+    label: { en: 'How We Do Research', zh: '我們怎麼做研究' },
     blurb: {
-      en: 'Philosophy, expectations, workflow, and how we work day to day.',
-      zh: '理念、期待、工作流程，以及我們日常如何工作。',
+      en: 'What I believe, how we discuss, how the day-to-day works, and what we promise each other.',
+      zh: '我相信什麼、我們怎麼討論、日常怎麼運作，以及彼此的承諾與期待。',
     },
-    start: 'lab-philosophy',
+    start: 'how-we-do-research',
   },
   {
     key: 'research',
@@ -110,8 +107,8 @@ export const roleCards: RoleCard[] = [
     },
   },
   {
-    icon: '🎓',
-    section: 'getting-started',
+    icon: '🧭',
+    section: 'practice',
     title: { en: 'New Lab Member', zh: '新進成員' },
     desc: {
       en: 'Just joined? Learn how we think, what we expect, and how we work.',

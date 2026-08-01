@@ -41,7 +41,7 @@ const handbook = defineCollection({
     slug: z.string(),
     lang: z.enum(['en', 'zh']),
     title: z.string(),
-    section: z.enum(['joining', 'getting-started', 'research', 'policies']),
+    section: z.enum(['joining', 'practice', 'research', 'policies']),
     order: z.number(),
     status: z.enum(['available', 'draft']),
     updated: z.coerce.date(),
