@@ -57,20 +57,18 @@ export const profile = {
 };
 
 export const aboutHtml = `
-I am an Assistant Professor in the Department of Computer Science and Information Engineering (CSIE) at National Taiwan University, with joint appointments at the <a href="https://www.inm.ntu.edu.tw/" target="_blank" rel="noopener">Graduate Institute of Networking and Multimedia (INM)</a> and the <a href="https://aicore.ntu.edu.tw/" target="_blank" rel="noopener">AI Center of Research Excellence (AICoRE)</a>. I am also a <strong>Yushan Young Fellow</strong> (Yushan Fellow Program, Ministry of Education, Taiwan).
+I am an Assistant Professor in the Department of Computer Science and Information Engineering (CSIE) at National Taiwan University, with joint appointments in the <a href="https://www.inm.ntu.edu.tw/" target="_blank" rel="noopener">Graduate Institute of Networking and Multimedia (INM)</a> and the <a href="https://aicore.ntu.edu.tw/" target="_blank" rel="noopener">AI Center of Research Excellence (AICoRE)</a>. I am also a <strong>Yushan Young Fellow</strong>, supported by the Yushan Fellow Program of Taiwan’s Ministry of Education.
 <br><br>
-I am also a graduate of the Department of Mathematics at National Taiwan University. I earned my PhD in Mathematics at the University of Utah (advised by Bao Wang and Tommaso de Fernex).
+I received my B.S. in Mathematics from National Taiwan University and my Ph.D. in Mathematics from the University of Utah, where I was advised by Bao Wang and Tommaso de Fernex.
 <br><br>
-My work spans <strong>geometric deep learning</strong>, <strong>generative models</strong> (e.g., flow matching &amp; diffusion models), and <strong>AI for Science</strong>. I care about turning intuition into principled, reliable, and efficient tools, and applying them to problems in molecules, biology, and other sciences.
-`;
+My work spans <strong>geometric deep learning</strong>, <strong>generative models</strong> (e.g., flow matching &amp; diffusion models), and <strong>AI for Science</strong>. I care about turning intuition into principled, reliable, and efficient tools, and applying them to problems in molecules, biology, and other sciences.`;
 
 export const aboutHtmlZh = `
-我目前任職於<strong>國立臺灣大學資訊工程學系（CSIE）</strong>，擔任助理教授，並於<a href="https://www.inm.ntu.edu.tw/" target="_blank" rel="noopener">資訊網路與多媒體研究所（INM）</a>與<a href="https://aicore.ntu.edu.tw/" target="_blank" rel="noopener">人工智慧頂尖研究中心（AICoRE）</a>合聘。我亦獲選為教育部<strong>玉山青年學者</strong>。
+我目前任職於<strong>國立臺灣大學資訊工程學系（CSIE）</strong>，擔任助理教授，並合聘於<a href="https://www.inm.ntu.edu.tw/" target="_blank" rel="noopener">資訊網路與多媒體研究所（INM）</a>與<a href="https://aicore.ntu.edu.tw/" target="_blank" rel="noopener">人工智慧頂尖研究中心（AICoRE）</a>。我亦獲選為教育部<strong>玉山青年學者</strong>。
 <br><br>
-我畢業於國立臺灣大學數學系，並於美國 University of Utah 取得數學博士學位（指導教授為 Bao Wang 與 Tommaso de Fernex）。
+我畢業於國立臺灣大學數學系，並於美國猶他大學（University of Utah）取得數學博士學位 (Adivisors: Bao Wang 與 Tommaso de Fernex)。
 <br><br>
-我的研究涵蓋 <strong>geometric deep learning</strong>、<strong>生成模型</strong>（如 flow matching 與 diffusion models），以及 <strong>AI for Science</strong>。我關注如何將直覺轉化為有理論支撐、可靠且高效的工具，並應用於分子、生物與其他科學問題。
-`;
+我的研究涵蓋<strong>geometric deep learning</strong>、<strong>生成模型</strong>（包括 flow matching 與 diffusion models），以及 <strong>AI for Science</strong>。我習慣將直覺轉化為有理論支撐、可靠且高效的工具，並應用於分子、生物與其他科學問題。`;
 
 export const philosophy = [
   {
