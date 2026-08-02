@@ -50,7 +50,7 @@ export const profile = {
     email: 'shixinwang0214@gmail.com',
     scholar: 'https://scholar.google.com/citations?user=IoihdcYAAAAJ&hl=en',
     github: 'https://github.com/shihhsinwang0214',
-    linkedin: 'https://www.linkedin.com/in/shih-hsin-sam-wang-9803671a5',
+    linkedin: 'https://www.linkedin.com/in/shih-hsin-wang/',
   },
   cv: 'assets/shih-hsin-wang-cv.pdf',
   quoteLines: ["Guided by mathematics' might,", "the universe's truths come to light."],
