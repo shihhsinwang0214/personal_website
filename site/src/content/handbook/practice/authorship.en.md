@@ -18,4 +18,4 @@ summary: "Actual contribution is the sole principle for author ordering — and 
 * If you think there's anything unfair about an author ordering, please raise it directly. I believe honest, rational discussion won't hurt our relationship; what really causes misunderstanding is choosing silence.
 * I also value research output beyond papers. High-quality open-source tools, datasets, benchmarks, software systems, and research infrastructure are all valuable academic contributions, and they'll be clearly described in recommendation letters.
 
-If you're an external collaborator, see [For Collaborators](/personal_website/handbook/collaborators) for how we settle authorship and data usage.
+If you're an external collaborator, in addition to the above, please also see what's covered in [For Collaborators](/personal_website/handbook/collaborators).

@@ -9,9 +9,9 @@ updated: 2026-07-18
 summary: "Trying and debugging, toy examples, problem selection, fewer and deeper, intuitive thinking, and speaking up — the six beliefs behind how I do research."
 ---
 
-> These six beliefs are the source of everything else. For how they play out day to day, see [How the Day-to-Day Works](/personal_website/handbook/daily-practice).
+> These six beliefs are the source of everything else we do. For how they play out day to day, see [How the Day-to-Day Works](/personal_website/handbook/daily-practice).
 
-## 1. Most ideas won't work — but we're not afraid to try, fail, and debug
+## 1. Most ideas won't work, but we're not afraid to try and to debug
 
 What we work on is often something nobody has attempted or done before. So here, **a failed short-term result is a work product, not a total failure**.
 
@@ -28,22 +28,27 @@ So my habit is: for any new idea, run it first on a small-scale toy example, and
 
 We start from the point where existing methods do poorly, and design a toy example that they can't solve well. That way, once our new idea passes it, we have some confidence and experience with the idea — and a basis for finding suitable benchmarks that show the new method's advantages in realistic settings.
 
-## 3. A problem worth doing must be both important and attackable
+## 3. A problem worth doing must be both important and within reach
 
-An important problem you have no idea how to start on may not be your problem yet.
-Of course, we also try to avoid a problem you already know exactly how to solve — that one may not be important enough, or may be too easy.
+Even if a problem is important, if you have no idea at all how to start on it, it may not be the best problem for you right now.
 
-We look for the balance point. We'll walk through these together:
+Of course, we also try to avoid the kind of problem where you already know almost exactly what to do — that one may not be important enough, or may be too easy.
 
-> Is this an important, worthwhile problem? Is it representative of a whole class of problems? Is it broadly applicable? Or does it genuinely solve a specific field's pain point?
+What we're looking for is the balance point in between. We'll think through these together:
 
-> What are our advantages, tools, and ideas?
+> Is this an important, worthwhile problem?
+> Is it representative of a whole class of problems?
+> Is it broadly applicable? Or does it genuinely solve a pain point in a specific field?
 
-> Roughly how long will it take to finish? How do we set a stop-loss point?
+> What advantages, tools, or ideas do we have to approach it with?
 
-> Who will cite it in five years? (Can you name a specific community?)
+> Roughly how long will it take to finish? How should we set the stop-loss point?
 
-For a project that can't answer these, we can decide whether to shut it down. Shutting a project down is not a fatal loss — it gives the time back to us to do better, more impactful work.
+> Who will cite it in five years? Can we name a plausible community specifically?
+
+If a project keeps failing to answer these questions, we can discuss together whether to shelve it for now. Shelving isn't a failure or a loss — it gives the time back to work that's more worthwhile and more impactful.
+
+I'm not saying you can't try anything until you have an idea. I just don't want us stuck for a long time in a direction that doesn't suit us — especially when we have no clear advantage there.
 
 ## 4. We prefer fewer and deeper
 

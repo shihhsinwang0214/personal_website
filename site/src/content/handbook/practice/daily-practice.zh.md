@@ -6,7 +6,7 @@ section: "practice"
 order: 4
 status: "available"
 updated: 2026-07-18
-summary: "週會、一對一、除錯階梯、開跑前先寫一頁，以及程式碼開源與可重現性。"
+summary: "週會、一對一、實作階梯、先把問題回答清楚再開始做，以及程式碼開源與可重現性。"
 ---
 
 > 這頁是日常的操作面：開會怎麼進行、怎麼推進一個想法。背後的信念見[我相信的六件事](/personal_website/zh/handbook/research-principles)。

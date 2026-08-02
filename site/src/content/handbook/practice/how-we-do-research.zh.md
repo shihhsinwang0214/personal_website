@@ -28,7 +28,7 @@ summary: "我相信什麼、日常怎麼運作、我對你的承諾、以及我�
     - 先理解，再評價；先問清楚，再下結論
     - 新來的人請多發言
     - 比較嚴厲的回饋盡量私下給，公開場合以問題、肯定和建議為主
-- [日常怎麼運作](/personal_website/zh/handbook/daily-practice)——週會、一對一、除錯階梯、開跑前先寫一頁、程式碼開源。
+- [日常怎麼運作](/personal_website/zh/handbook/daily-practice)——週會、一對一、實作階梯、先把問題回答清楚再開始做、程式碼開源。
 - [掛名與研究貢獻](/personal_website/zh/handbook/authorship)——作者排序以實際貢獻為唯一原則。
 - [承諾與期待](/personal_website/zh/handbook/promises-and-expectations)——我對你的承諾，以及我對你的期待。
 - [新人的第一個月](/personal_website/zh/handbook/first-month)——剛加入的前期建議。

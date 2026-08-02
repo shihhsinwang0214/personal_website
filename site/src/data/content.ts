@@ -66,7 +66,7 @@ My work spans <strong>geometric deep learning</strong>, <strong>generative model
 export const aboutHtmlZh = `
 我目前任職於<strong>國立臺灣大學資訊工程學系（CSIE）</strong>，擔任助理教授，並合聘於<a href="https://www.inm.ntu.edu.tw/" target="_blank" rel="noopener">資訊網路與多媒體研究所（INM）</a>與<a href="https://aicore.ntu.edu.tw/" target="_blank" rel="noopener">人工智慧頂尖研究中心（AICoRE）</a>。我亦獲選為教育部<strong>玉山青年學者</strong>。
 <br><br>
-我畢業於國立臺灣大學數學系，並於美國猶他大學（University of Utah）取得數學博士學位 (Adivisors: Bao Wang 與 Tommaso de Fernex)。
+我畢業於國立臺灣大學數學系，並於美國猶他大學（University of Utah）取得數學博士學位 (Advisors: Bao Wang 與 Tommaso de Fernex)。
 <br><br>
 我的研究涵蓋<strong>geometric deep learning</strong>、<strong>生成模型</strong>（包括 flow matching 與 diffusion models），以及 <strong>AI for Science</strong>。我習慣將直覺轉化為有理論支撐、可靠且高效的工具，並應用於分子、生物與其他科學問題。`;
 
