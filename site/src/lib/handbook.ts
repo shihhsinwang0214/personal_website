@@ -2,41 +2,54 @@ import type { CollectionEntry } from 'astro:content';
 
 export type Lang = 'en' | 'zh';
 export type HandbookEntry = CollectionEntry<'handbook'>;
-export type SectionKey = 'joining' | 'practice' | 'research' | 'policies';
+export type SectionKey = 'joining' | 'practice' | 'getting-started' | 'craft';
 
 // ── Publish toggle ───────────────────────────────────────────────────────────
 // The handbook pages are always built. This only controls whether the
 // "Lab Handbook" item shows in the top navigation. Flip to `true` to reveal it.
 export const handbookInNav = true;
 
-// Per-article hide: these slugs stay in the repo but are excluded from the site
-// (no page is built, and they never appear in nav, landing, or prev/next).
-// Delete a slug from this set to publish that article.
-// Currently the handbook is simplified to a single recruiting page ("join")
-// plus the reflection questionnaire; everything else is kept but hidden.
-export const hiddenHandbookSlugs = new Set<string>([
+// Per-article hide: these slugs stay in the repo but are excluded from the
+// PRODUCTION site (no page is built, and they never appear in nav, landing, or
+// prev/next). Remove a slug from this list to publish that article.
+//
+// During `npm run dev` these pages ARE built and shown, so drafts can be
+// reviewed in the browser before they go live. `npm run build` hides them again,
+// so nothing here can reach the deployed site by accident.
+export const draftHandbookSlugs = new Set<string>([
   'who-should-apply',
   'what-i-look-for',
-  'application-process',
-  'is-this-lab-right-for-you',
-  // Practice section — written but awaiting review before publishing.
-  'mentoring-philosophy',
+  // Practice section — held back for now.
   'ai-usage',
   'research-ethics',
+  // Getting Started section — drafted from the onboarding guide, awaiting review.
+  'onboarding-overview',
+  'onboarding-setup',
+  'phase-shared-language',
+  'phase-reproduce',
+  'phase-first-question',
+  'phase-present-revise',
+  'getting-help',
+  'onboarding-templates',
+  // Research Craft section — first draft written, awaiting review.
   'reading-papers',
-  'finding-research-problems',
-  'running-experiments',
   'writing-papers',
-  'giving-presentations',
+  'rebuttals',
   'reviewing-papers',
-  'reproducibility',
-  'open-source-and-code-quality',
-  'authorship-policy',
-  'collaboration-guidelines',
-  'communication',
-  'data-management',
-  'feedback-culture',
+  'giving-presentations',
+  'career',
 ]);
+
+// Preview toggle for drafts.
+//   false → drafts are hidden everywhere, including `npm run dev` (default).
+//   true  → drafts are built and shown locally, so they can be reviewed in the
+//           browser. Only takes effect in `npm run dev`; the production build
+//           always hides drafts, so this can never leak to the live site.
+const PREVIEW_DRAFTS = false;
+
+const isDev = Boolean((import.meta as { env?: { DEV?: boolean } }).env?.DEV);
+export const hiddenHandbookSlugs: Set<string> =
+  isDev && PREVIEW_DRAFTS ? new Set<string>() : draftHandbookSlugs;
 
 export interface SectionDef {
   key: SectionKey;
@@ -68,24 +81,24 @@ export const handbookSections: SectionDef[] = [
     start: 'how-we-do-research',
   },
   {
-    key: 'research',
-    icon: '🔬',
-    label: { en: 'Research', zh: '研究' },
+    key: 'getting-started',
+    icon: '🎓',
+    label: { en: 'Getting Started', zh: '新人上手' },
     blurb: {
-      en: 'Reading, finding problems, experiments, writing, and talks.',
-      zh: '讀論文、找問題、跑實驗、寫作與報告。',
+      en: 'Your first month: setup, the four stages, how to ask for help, and the shared templates.',
+      zh: '第一個月：環境與支持網、四個階段、卡住時怎麼求助，以及共用模板。',
     },
-    start: 'reading-papers',
+    start: 'onboarding-overview',
   },
   {
-    key: 'policies',
-    icon: '🤝',
-    label: { en: 'Policies & Collaboration', zh: '制度與協作' },
+    key: 'craft',
+    icon: '🔬',
+    label: { en: 'Research Craft', zh: '研究技藝' },
     blurb: {
-      en: 'Authorship, communication, feedback, and data.',
-      zh: '署名、溝通、回饋與資料。',
+      en: 'Reading, writing, rebuttals, reviewing, talks, and career.',
+      zh: '讀論文、寫論文、回覆審稿、審稿、對外報告與職涯。',
     },
-    start: 'authorship-policy',
+    start: 'reading-papers',
   },
 ];
 
@@ -117,20 +130,11 @@ export const roleCards: RoleCard[] = [
   },
   {
     icon: '🔬',
-    section: 'research',
+    section: 'craft',
     title: { en: 'Current Researcher', zh: '現任研究者' },
     desc: {
       en: 'Doing the work — reading, experiments, writing, talks, and craft.',
       zh: '正在做研究——讀論文、實驗、寫作、報告與工藝。',
-    },
-  },
-  {
-    icon: '🤝',
-    section: 'policies',
-    title: { en: 'Collaboration & Policies', zh: '協作與制度' },
-    desc: {
-      en: 'Authorship, communication, feedback, and data — how we work together.',
-      zh: '署名、溝通、回饋與資料——我們如何一起工作。',
     },
   },
 ];
@@ -184,6 +188,27 @@ export const labInfo = {
     },
   ],
 };
+
+// ── Lab members ──────────────────────────────────────────────────────────────
+// Shown on the lab home page. Add `nameEn` when someone has a preferred
+// romanization; the Chinese name is used on its own when they don't.
+export interface MemberGroup {
+  label: Record<Lang, string>;
+  people: { name: string; nameEn?: string }[];
+}
+
+export const membersHeading: Record<Lang, string> = { en: 'Members', zh: '成員' };
+
+export const labMembers: MemberGroup[] = [
+  {
+    label: { en: "Master's Students", zh: '碩士生' },
+    people: [{ name: '鄭承櫸' }],
+  },
+  {
+    label: { en: 'Undergraduate & High School Researchers', zh: '專題生' },
+    people: [{ name: '吳宇傑' }, { name: '曾家振' }, { name: '胡允升' }, { name: 'Richard Mai' }],
+  },
+];
 
 export const statusLabels: Record<HandbookEntry['data']['status'], Record<Lang, string>> = {
   available: { en: 'Living', zh: '持續維護' },

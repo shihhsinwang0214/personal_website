@@ -1,0 +1,226 @@
+---
+slug: "academic-website-starter-prompt"
+lang: "en"
+title: "One Prompt to Grow an Academic Website with an Agent"
+category: "academic-skills"
+group: "Website & Tooling"
+status: "available"
+updated: 2026-08-10
+summary: "A prompt you can copy: it makes the agent interview you about style, existing material, and the academic features you need — and only then build a deployable Astro skeleton."
+demos: []
+references: []
+---
+# One Prompt to Grow an Academic Website with an Agent
+
+I built my own site together with a coding agent. The slow part wasn't writing code — it was working out what I actually wanted: colors, layout, whether to go bilingual, how publications should be grouped, what to carry over from the old site. If you don't settle those first, the agent will confidently decide for you, and you'll spend longer undoing it than you would have spent answering.
+
+So I turned the whole thing into the prompt below. What it does is simple: **it makes the agent interview you first, and forbids it from writing code until you've signed off on a spec.**
+
+A few colleagues have asked whether they can just clone my repo. You can, but you'd inherit my content, my layout preferences, and my deploy settings, and then delete them page by page. This prompt takes the opposite approach — it describes only the **skeleton and the rules**, contains no personal information at all, and requires every piece of content to come out of your own mouth.
+
+## What the prompt produces
+
+A **core academic site**, statically generated with Astro and deployable as-is:
+
+- Home, About, Publications, Experience / CV, 404
+- Bilingual or single-language depending on your answers: the primary language at the root, the second mirrored under `/<lang>/`
+- Content separated from presentation: name, affiliation, and the publication list live in `src/data/`, and no component hard-codes a single string of it
+- Design tokens in one file, with dark mode as a second set of the same tokens
+- An `npm run check` script covering frontmatter, duplicate ids, dead links, and structural drift between language pairs
+- A GitHub Actions workflow deploying to Pages
+- An `AGENT.md` saying what a future agent may and may not touch
+
+Everything else — notes or blog, math rendering, a lab handbook, full-text search, RSS, interactive demos, giscus comments, importing publications from BibTeX or ORCID — is an **optional module**. The agent asks which ones you want during the interview, and anything you didn't ask for never appears.
+
+I kept the core deliberately small. A skeleton that runs, that you can read end to end, and that you extend later is more useful than a fully featured site you're afraid to edit.
+
+## How to use it
+
+1. Start an empty git repo.
+2. Paste the whole prompt below into your coding agent (Claude Code, Codex, Cursor — any of them).
+3. Answer its questions. If you're unsure, say "use your defaults" — it offers one for every question.
+4. It hands back a one-page spec for you to approve. **Don't skip this.** Changing a sentence here is much cheaper than changing ten files later.
+5. Only then does it start building, stopping at the end of each phase to show you what changed.
+
+If you already have a site, give it the URL. The second block of questions is exactly about that: whether to fetch it, which structure and text to keep, and whether the old URLs need redirects.
+
+## The prompt
+
+````markdown
+You are helping someone build a personal academic website from scratch, in an
+empty repository. Your job is to ship a working, deployable **skeleton** — not a
+finished site. Every piece of personal content comes from the user. Invent nothing.
+
+## PHASE 0 — Interview the user. Write no code until this is done.
+
+Ask in batches of 3–5 questions. For every question, offer a recommended default
+so the user can answer "use your defaults". Restate uncertain answers back.
+
+### A. Identity and scope
+1. Display name, role/title, institution — or should I leave `TODO:` placeholders?
+2. Rank the site's purposes: academic profile / research portfolio / teaching and
+   notes / group onboarding / personal blog.
+3. Bilingual or multilingual? Which languages, and which is the default?
+4. Where will it live: GitHub Pages **project** site (needs a base path),
+   GitHub Pages user site, or a custom domain?
+
+### B. Importing what already exists
+5. Do you have an existing site? Give me the URL. Should I fetch it and extract
+   its structure and text, or start clean?
+6. Publications source: CV PDF, BibTeX file, Google Scholar / ORCID / Semantic
+   Scholar / DBLP profile, or typed by hand?
+7. Any old HTML you want kept under `legacy/` with redirects from the old URLs?
+8. Assets: profile photo, logo, favicon, OG image — will you supply them, or
+   should I ship obvious placeholders?
+
+### C. Look and feel
+9. Two or three reference sites you like, plus what specifically you like about
+   each (layout? typography? restraint? color?).
+10. Overall register: minimal-academic / editorial-magazine / technical-docs /
+    playful.
+11. Color: one accent color, or a full palette? Light only, dark only, or both
+    with a toggle?
+12. Typography: serif or sans for headings and for body? Any CJK or non-Latin
+    script that needs a specific font stack? Monospace for code only, or as an
+    accent?
+13. Density and layout: wide or narrow measure? Card grid or plain list for
+    publications? Top nav or sidebar? Sticky header or not?
+14. Imagery and motion: hero image, or text-only? Any animation, or none?
+
+### D. Academic features — mark each required / optional / skip
+15. Publications: group by year, topic, or type? Which fields (venue,
+    authors with self highlighted, PDF, arXiv, code, poster, slides, BibTeX,
+    teaser figure)? Separate preprints? A "selected" subset on the home page?
+16. News / updates feed, and an RSS feed for it.
+17. CV: a rendered page, a downloadable PDF, or both.
+18. Teaching: course pages, lecture notes, office hours.
+19. Notes or blog, with math rendering and figures.
+20. Group or lab handbook; a joining / recruiting page; an application form.
+21. Talks, awards, service (reviewing, organizing), students and mentees.
+22. Full-text search across the site.
+23. Contact and social links; should the email be obfuscated?
+24. Analytics, comments, sitemap, OG/Twitter cards, accessibility target.
+
+### E. Workflow after handover
+25. Who edits the content later — you, students, or an agent? (If anyone other
+    than the author edits it, we add a schema, a validation script, and an
+    `AGENT.md`.)
+26. Deployment: GitHub Actions to Pages, Netlify, Vercel, or manual upload.
+
+**Then write a one-page spec** — stack, routes, modules in and out, design
+tokens, open TODOs — and get an explicit OK before writing any code.
+
+## PHASE 1 — Build the core. Always these, regardless of the answers.
+
+Stack: Astro (static output), MDX, content collections with a zod schema. No UI
+framework unless the user asked for one. Keep the dependency list short.
+
+```
+site/
+  astro.config.mjs
+  package.json
+  src/
+    content.config.ts          zod schemas for every collection
+    data/
+      profile.ts               name, title, affiliation, links — single source of truth
+      publications.ts
+      experience.ts
+    layouts/Base.astro         head, nav, footer, language switch, theme toggle
+    components/
+    lib/url.ts                 withBase(): base-path-safe internal links
+    pages/
+      index.astro  about.astro  publications.astro  experience.astro  404.astro
+      rss.xml.ts
+      <second-lang>/           mirrored routes
+    styles/global.css          design tokens as CSS custom properties
+  public/
+    assets/  images/  favicon.svg
+  scripts/check-content.mjs
+.github/workflows/deploy.yml
+AGENT.md
+README.md
+```
+
+Hard rules — violating any of these is a bug, not a style preference:
+
+1. **Content–presentation separation.** No name, affiliation, paper title, or
+   date is hard-coded inside a component. It lives in `src/data/*` or a
+   collection, and the component renders whatever it is given.
+2. **Base-path safety.** Every internal link and asset path goes through
+   `withBase()`. A hard-coded `/about` silently breaks a project-site deploy,
+   and it breaks it only in production.
+3. **Bilingual by mirrored routes.** `/` and `/<lang>/`. Language files pair on
+   frontmatter `slug` + `lang`, and the collection id is `${lang}/${slug}` — not
+   the file path — so folders can be reorganised without changing any URL.
+4. **Design tokens only.** Colors, spacing, radii, and font stacks are CSS
+   custom properties defined in one place. Components never contain a hex value.
+   Dark mode is a second set of the same tokens, nothing else.
+5. **Schema everything.** Every collection has a zod schema with required
+   frontmatter. A missing field should fail the build, not render blank.
+6. **A validation script.** `npm run check` verifies: required frontmatter,
+   duplicate `lang/slug` ids, links pointing at pages that do not exist, and
+   heading-count drift between language pairs. It must run without a build.
+7. **Placeholders are obviously fake and greppable.** Prefix every one with
+   `TODO:`. Never invent a publication, affiliation, award, collaborator, or
+   student — not even a plausible-looking one to fill a layout.
+8. **Two sample entries per collection**, clearly marked as samples, so every
+   listing is visibly working on the first `npm run dev`.
+
+## PHASE 2 — Add only the optional modules the user selected.
+
+- **Notes / blog collection** — math via `remark-math` + `rehype-katex`; strip
+  the first `H1` in a remark plugin so the layout owns the page title.
+- **Handbook / onboarding collection** — sections, an explicit `order` per page,
+  and a set of hidden slugs excluded from `getStaticPaths`. A visible page
+  linking to a hidden slug renders a 404: validate that in `check`.
+- **Full-text search** — Pagefind as a post-build step over `dist`.
+- **RSS and sitemap** — the official Astro integrations.
+- **Interactive demos** — standalone HTML files in `public/`, embedded with an
+  iframe. This keeps demo dependencies out of the site build.
+- **Legacy redirects** — an explicit old-slug to new-slug map, one place only.
+- **Comments** — giscus, and it must degrade gracefully when it fails to load.
+- **Publication import** — from BibTeX or ORCID into `src/data/publications.ts`,
+  as a one-time generation script, not a runtime fetch.
+
+## PHASE 3 — Verify, then hand over.
+
+- `npm run build` passes, and `npm run check` is clean. If a command cannot run
+  in your environment, say so plainly. Never report a build you did not run.
+- Screenshot the home page and one inner page: desktop and mobile, light and
+  dark. Look at them.
+- Walk every internal link and every asset path in the built output.
+- Write `AGENT.md`: what this repo is, where content lives, how to add a page,
+  what a future agent may change and what it must not, and the landmines you hit
+  while building it.
+- Write `README.md`: install, dev, build, deploy — four commands.
+- List every `TODO:` placeholder still in the repo, as the user's homework.
+
+## How to behave throughout
+
+- Ask instead of assuming. An unanswered fact becomes a `TODO:` placeholder.
+- Prefer boring and stable over clever. Fewer dependencies, fewer abstractions.
+- Comment the *why* in config and lib files; the *what* is already in the code.
+- Stop at the end of each phase and show the user what changed before continuing.
+````
+
+## What the agent will ask you
+
+Phase 0 is around twenty-six questions, which looks like a lot, but most people get through it in five to ten minutes because every question ships with a default. Only three of them are worth slowing down for.
+
+**Question 9, the reference sites.** "Something clean" is not an answer an agent can act on. Give two or three URLs and say which specific thing you like about each — the whitespace, the typeface, the fact that there's no hero image, the way the publication list is arranged. A concrete reference beats any adjective.
+
+**Question 15, how publications are presented.** This is the one page on an academic site that really matters. By year or by topic? Teaser figures or not? Preprints listed separately? How do you mark co-first authorship? These are the hardest things to change later, because the data structure changes with them.
+
+**Question 25, who maintains it afterwards.** If you're the only editor, you can skip the schema and the check script. But the moment a second person touches the repo — a student, or a future agent — that seemingly redundant validation is the only thing standing between you and a quietly broken site. I added mine after breaking the site twice.
+
+## A few landmines I hit
+
+**The base path.** If you deploy to a GitHub Pages project site — a URL shaped like `username.github.io/repo-name/` — every hard-coded absolute path breaks. And it breaks only in production; local dev looks perfect. That's why `withBase()` is a hard rule in the prompt rather than a suggestion.
+
+**Don't let file paths become URLs.** I originally derived collection ids from file paths, so every time I reorganised a folder the URLs moved with it and inbound links died. Once the id came from frontmatter `lang` + `slug` instead, folders became purely organisational and I could move things freely.
+
+**Agents are very willing to write your content for you.** If you don't hand over a publication list, there's a real chance you'll get perfectly formatted, entirely plausible, non-existent papers. On an academic site that's serious, so the "never invent" rule is phrased more strongly than the others, and every placeholder is prefixed with `TODO:` so you can grep them all in one go.
+
+**Don't machine-translate the second language.** The two language versions are counterparts, not sentence-by-sentence translations. If one side isn't written yet, mark it honestly with a status rather than letting the agent fill it in. A missing translation is a to-do item; an auto-generated one you've never read is content you're now responsible for.
+
+**Turn the optional modules off at first.** I enabled search, comments, RSS, and demos all at once, and then spent a while working out which one was breaking the build each time. Get the core running and deployed first, then add them one at a time.

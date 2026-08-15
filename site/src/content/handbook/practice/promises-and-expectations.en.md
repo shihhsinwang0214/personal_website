@@ -11,6 +11,14 @@ summary: "A two-way agreement: what I promise you, and what I expect from you."
 
 > Promises and expectations go both ways. Here's how I see them:
 
+## How I mentor: a lot at first, deliberately less over time
+
+I think of mentoring as raising your **ceiling**, not managing your **tasks**.
+
+So early on I'm hands-on: we pick problems together, talk often, and I'll model how I think — how I use intuition to take a problem apart. As you build experience, I deliberately step back — fewer instructions, more questions — so that finding and framing problems becomes *your* skill, not mine.
+
+If it ever feels like I'm giving you less, that's usually a compliment, not a loss of interest. And if the level of support feels like too much or too little, tell me directly and we'll adjust.
+
 ## What I promise you
 
 * Although the choice is mostly still yours, I'll be strict about quality — assessing a topic's or idea's potential early, so you don't waste time on something with no value (and I'll give you my feedback and reasoning clearly).

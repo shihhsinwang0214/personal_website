@@ -43,7 +43,7 @@ summary: "目前正在招收學士專題生與碩博士生。這一頁說明誰�
 有兩步：
 
 1. **逛一下網站的其他部分**——首頁、About、Publications、Notes——了解我們實際在做什麼。
-2. **寄信到 shixinwang0214@gmail.com**，附上：
+2. **寄信到 shwang@csie.ntu.edu.tw**，附上：
    - [研究反思問卷](/personal_website/zh/handbook/research-reflection-questionnaire)的回答（PDF）；
    - 簡短的自我介紹：你是誰、你對什麼好奇、為什麼想和我做研究。
    - 如果你能在申請文件中，表現出你知道自己為什麼要做研究、為什麼選擇這個實驗室、為什麼覺得這裡適合你，你大概率會馬上脫穎而出。

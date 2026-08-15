@@ -41,7 +41,7 @@ To get a fuller picture of how I (we) do research, read [How We Do Research](/pe
 Just two steps:
 
 1. **Browse the rest of the site** — home, About, Publications, Notes — to see what we actually work on. An email that shows you know what you're applying to, and what you want to research, stands out immediately.
-2. **Email shixinwang0214@gmail.com** with:
+2. **Email shwang@csie.ntu.edu.tw** with:
    - Your answers to the [Research Reflection Questionnaire](/personal_website/handbook/research-reflection-questionnaire) (as a PDF);
    - A short introduction: who you are, what you're curious about, and why you want to do research with me.
 

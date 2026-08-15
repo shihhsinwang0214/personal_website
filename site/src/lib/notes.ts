@@ -52,6 +52,7 @@ export const noteSlugList = [
   'euclidean-equivariant-gnns-point-clouds',
   'frontiers-of-equivariant-learning',
   'writing-compelling-introduction',
+  'academic-website-starter-prompt',
 ] as const;
 
 const noteOrder = new Map(noteSlugList.map((slug, index) => [slug, index]));
@@ -78,6 +79,7 @@ const groupOrder = [
   'Lecture 10 · Review & Projects',
   // Academic Skills
   'Paper Writing',
+  'Website & Tooling',
 ];
 const groupOrderIndex = (group: string) => {
   const i = groupOrder.indexOf(group);
@@ -119,6 +121,12 @@ export const groupMeta: Record<string, GroupMeta> = {
     description: {
       zh: '學術論文寫作技巧。',
       en: 'Craft for academic paper writing.',
+    },
+  },
+  'Website & Tooling': {
+    description: {
+      zh: '學術網站與研究工具的搭建方式，可以直接複製去用。',
+      en: 'Building academic websites and research tooling — copy and reuse.',
     },
   },
 };
