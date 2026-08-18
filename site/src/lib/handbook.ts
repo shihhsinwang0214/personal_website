@@ -206,7 +206,13 @@ export const labMembers: MemberGroup[] = [
   },
   {
     label: { en: 'Undergraduate & High School Researchers', zh: '專題生' },
-    people: [{ name: '吳宇傑' }, { name: '曾家振' }, { name: '胡允升' }, { name: 'Richard Mai' }],
+    people: [
+      { name: '吳宇傑' },
+      { name: '曾家振' },
+      { name: '胡允升' },
+      { name: '陳澔樂' },
+      { name: 'Richard Mai' },
+    ],
   },
 ];
 
