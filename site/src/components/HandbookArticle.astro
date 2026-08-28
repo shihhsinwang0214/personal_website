@@ -1,18 +1,21 @@
 ---
 import { render } from 'astro:content';
 import Base from '../layouts/Base.astro';
+import HandbookSidebar from './HandbookSidebar.astro';
+import SelfCheck from './SelfCheck.astro';
 import { withBase } from '../lib/url';
 import type { HandbookEntry, Lang } from '../lib/handbook';
 import {
   findHandbook,
   formatHandbookDate,
-  handbookIndexRoute,
   handbookNav,
+  handbookTitleFormal,
   handbookRoute,
   handbookSiblings,
   sectionByKey,
   statusLabels,
 } from '../lib/handbook';
+import { bestiaryRoute, visibleMonsters } from '../lib/bestiary';
 
 interface Props {
   entry: HandbookEntry;
@@ -26,7 +29,13 @@ const alt = findHandbook(allEntries, entry.data.slug, otherLang);
 const nav = handbookNav(allEntries, lang);
 const { previous, next } = handbookSiblings(allEntries, entry, lang);
 const section = sectionByKey(entry.data.section);
+// Position within this section's visible pages — shown as a node counter.
+const sectionItems = nav.find((g) => g.section.key === entry.data.section)?.items ?? [];
+const nodeIndex = sectionItems.findIndex((e) => e.data.slug === entry.data.slug) + 1;
+const nodeTotal = sectionItems.length;
 const tocHeadings = headings.filter((h) => h.depth > 1 && h.depth <= 3);
+// Monsters whose counter-play lives on this page — shown as an encounter strip.
+const pageMonsters = visibleMonsters().filter((m) => m.link === entry.data.slug);
 
 const alternates = alt
   ? [
@@ -42,12 +51,12 @@ const articleJsonLd = {
   inLanguage: lang === 'zh' ? 'zh-Hant' : 'en',
   dateModified: entry.data.updated.toISOString().slice(0, 10),
   author: { '@type': 'Person', name: 'Shih-Hsin Wang' },
-  isPartOf: { '@type': 'CreativeWork', name: lang === 'zh' ? '實驗室手冊' : 'Lab Handbook' },
+  isPartOf: { '@type': 'CreativeWork', name: handbookTitleFormal[lang] },
 };
 ---
 
 <Base
-  title={`${entry.data.title} — ${lang === 'zh' ? '實驗室手冊' : 'Lab Handbook'}`}
+  title={`${entry.data.title} — ${handbookTitleFormal[lang]}`}
   description={entry.data.summary}
   active="handbook"
   lang={lang}
@@ -61,36 +70,17 @@ const articleJsonLd = {
   </button>
 
   <main class="handbook-shell" id="note-main">
-    <details class="handbook-sidebar">
-      <summary class="handbook-sidebar-head">
-        <a href={withBase(handbookIndexRoute(lang))}>{lang === 'zh' ? '實驗室手冊' : 'Lab Handbook'}</a>
-        <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 12.5 10 7 15.5" /></svg>
-      </summary>
-      <nav class="handbook-nav" aria-label={lang === 'zh' ? '手冊導覽' : 'Handbook navigation'}>
-        {nav.map((group) => (
-          <div class="handbook-nav-group">
-            <div class="handbook-nav-label"><span aria-hidden="true">{group.section.icon}</span> {group.section.label[lang]}</div>
-            <ul>
-              {group.items.map((item) => (
-                <li>
-                  <a
-                    href={withBase(handbookRoute(item.data.slug, lang))}
-                    aria-current={item.data.slug === entry.data.slug ? 'page' : undefined}
-                  >
-                    {item.data.title}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </nav>
-    </details>
+    <HandbookSidebar lang={lang} current={entry.data.slug} />
 
-    <article class="handbook-article">
+    <article class="handbook-article" data-slug={entry.data.slug}>
       <header class="note-header">
         <p class="note-meta">
-          {section.icon} {section.label[lang]} / {formatHandbookDate(entry.data.updated, lang)}
+          {section.icon} {section.label[lang]}
+          <span class="section-tag">{section.tag}</span>
+          {nodeTotal > 0 && nodeIndex > 0 && (
+            <span class="node-counter">NODE {nodeIndex}/{nodeTotal}</span>
+          )}
+          <span class="note-meta-date">{formatHandbookDate(entry.data.updated, lang)}</span>
         </p>
         <h1>{entry.data.title}</h1>
         <div class="note-header-actions">
@@ -119,16 +109,38 @@ const articleJsonLd = {
         </div>
       </div>
 
+      {entry.data.slug === 'join' && <SelfCheck lang={lang} />}
+
+      {pageMonsters.length > 0 && (
+        <aside class="encounter hud">
+          <div class="hud-tag">ENCOUNTER</div>
+          <p class="encounter-lead">
+            {lang === 'zh' ? '這一頁是這些怪物的打法：' : 'This page is the counter-play for:'}
+          </p>
+          <ul class="encounter-list">
+            {pageMonsters.map((m) => (
+              <li>
+                <a href={`${withBase(bestiaryRoute(lang))}#${m.id}`}>
+                  <span class={`encounter-tier encounter-${m.tier}`}>{m.tier.toUpperCase()}</span>
+                  <span class="encounter-name">{m.name[lang]}</span>
+                  <span class="encounter-symptom">{m.symptom[lang]}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </aside>
+      )}
+
       <nav class="note-prev-next" aria-label="Previous and next">
         {previous ? (
-          <a href={withBase(handbookRoute(previous.data.slug, lang))}>
-            <span>{lang === 'zh' ? '上一篇' : 'Previous'}</span>
+          <a class="nav-prev" href={withBase(handbookRoute(previous.data.slug, lang))}>
+            <span>◀ {lang === 'zh' ? '上一節點' : 'Prev node'}</span>
             {previous.data.title}
           </a>
         ) : (<span />)}
         {next ? (
-          <a href={withBase(handbookRoute(next.data.slug, lang))}>
-            <span>{lang === 'zh' ? '下一篇' : 'Next'}</span>
+          <a class="nav-next" href={withBase(handbookRoute(next.data.slug, lang))}>
+            <span>{lang === 'zh' ? '下一節點' : 'Next node'} ▶</span>
             {next.data.title}
           </a>
         ) : (<span />)}
@@ -137,6 +149,12 @@ const articleJsonLd = {
   </main>
 
   <script>
+    import { markVisited } from '../lib/visited';
+    // Remember that this node has been walked, so the skill tree on the lab
+    // home can light it up. Local to this browser; never sent anywhere.
+    const slugEl = document.querySelector('.handbook-article[data-slug]');
+    if (slugEl instanceof HTMLElement && slugEl.dataset.slug) markVisited(slugEl.dataset.slug);
+
     function initHandbook() {
       const progress = document.querySelector('.reading-progress > span');
       const backTop = document.querySelector('.back-to-top');

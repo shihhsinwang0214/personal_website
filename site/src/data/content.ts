@@ -36,8 +36,16 @@ export const profile = {
   photo: 'images/profile-halfbody.jpg', // half-body portrait — About page
   avatar: 'images/profile-avatar.jpg', // head & shoulders — small round header avatar
   photoCasual: 'images/snowboard.jpg',
+  // Square crop used on the lab People page — informal, and framed so the whole
+  // snowboard stays in shot. Re-crop from images/snowboard.jpg if it needs changing.
+  photoPeople: 'images/people/shwang-arches-card.jpg',
   subtitle: ['Assistant Professor', 'CSIE & AICoRE, National Taiwan University'],
   subtitleZh: ['助理教授', '國立臺灣大學資訊工程學系、人工智慧頂尖研究中心'],
+  // One-line role for compact places (People page card).
+  roleShort: {
+    en: 'Assistant Professor · NTU CSIE',
+    zh: '助理教授 · 臺大資工',
+  },
   contact: {
     email: 'shwang@csie.ntu.edu.tw',
     scholar: 'https://scholar.google.com/citations?user=IoihdcYAAAAJ&hl=en',
@@ -47,7 +55,7 @@ export const profile = {
   // Office / lab rooms, shown on the About page and the lab home.
   office: {
     en: 'Office: CSIE Building (德田館) R516 · Lab: CSIE Building R303',
-    zh: '辦公室：德田館 R516 ・ 實驗室：德田館 R303',
+    zh: '辦公室：德田館 R516 ・ 研究室：德田館 R303',
   },
   cv: 'assets/shih-hsin-wang-cv.pdf',
   quoteLines: ["Guided by mathematics' might,", "the universe's truths come to light."],
@@ -141,7 +149,7 @@ export const news: NewsItem[] = [
   {
     date: 'Jul 2026',
     html: 'I am <strong>actively recruiting undergraduate project students and MS/PhD students</strong> for my new lab at NTU CSIE. See <a href="/personal_website/handbook/join">Join the Lab</a> for openings and how to apply.',
-    htmlZh: '實驗室<strong>目前正在積極招收學士專題生與碩博士生</strong>。招募資訊與申請方式請見<a href="/personal_website/zh/handbook/join">加入實驗室</a>。',
+    htmlZh: '研究室<strong>目前正在積極招收學士專題生與碩博士生</strong>。招募資訊與申請方式請見<a href="/personal_website/zh/handbook/join">加入研究室</a>。',
   },
   {
     date: 'Jul 2026',

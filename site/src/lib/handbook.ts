@@ -55,6 +55,10 @@ export interface SectionDef {
   key: SectionKey;
   icon: string;
   label: Record<Lang, string>;
+  /** Mono tag shown beside the section label — the RPG reading of this section.
+   *  English on both languages, like the rest of the game vocabulary.
+   *  See docs/lab-rpg-rules.md for the mapping. */
+  tag: string;
   blurb: Record<Lang, string>;
   start: string; // slug of the first article in this section
 }
@@ -63,7 +67,8 @@ export const handbookSections: SectionDef[] = [
   {
     key: 'joining',
     icon: '🌱',
-    label: { en: 'Joining the Lab', zh: '加入實驗室' },
+    tag: 'RECRUITMENT QUEST',
+    label: { en: 'Joining the Lab', zh: '加入研究室' },
     blurb: {
       en: 'Current openings, who might fit, how to apply, and the reflection questionnaire.',
       zh: '目前招募、誰可能適合、如何申請，以及反思問卷。',
@@ -73,6 +78,7 @@ export const handbookSections: SectionDef[] = [
   {
     key: 'practice',
     icon: '🧭',
+    tag: 'HOW WE LEVEL UP',
     label: { en: 'How We Do Research', zh: '我們怎麼做研究' },
     blurb: {
       en: 'What I believe, how we discuss, how the day-to-day works, and what we promise each other.',
@@ -83,6 +89,7 @@ export const handbookSections: SectionDef[] = [
   {
     key: 'getting-started',
     icon: '🎓',
+    tag: 'TUTORIAL',
     label: { en: 'Getting Started', zh: '新人上手' },
     blurb: {
       en: 'Your first month: setup, the four stages, how to ask for help, and the shared templates.',
@@ -93,6 +100,7 @@ export const handbookSections: SectionDef[] = [
   {
     key: 'craft',
     icon: '🔬',
+    tag: 'SKILL MANUAL',
     label: { en: 'Research Craft', zh: '研究技藝' },
     blurb: {
       en: 'Reading, writing, rebuttals, reviewing, talks, and career.',
@@ -146,15 +154,15 @@ export const roleCards: RoleCard[] = [
 // prose (description / philosophy / pillar text) is bilingual { en, zh }.
 export const labInfo = {
   name: 'Structure-Aware Learning and Modeling Lab',
-  subtitle: '結構導向學習與建模實驗室（別名：格物致知實驗室）',
+  subtitle: '結構導向學習與建模研究室（別名：格物致知研究室）',
   nameGloss: {
     en: 'Uncover the structure of things to expand the bounds of insight.',
     zh: '格物以察其構，致知以明其理；窮究事物之結構，拓展無盡之理解。',
   },
-  eyebrow: { en: 'Lab', zh: '研究實驗室' },
+  eyebrow: { en: 'Lab', zh: '研究室' },
   description: {
     en: 'Structure-Aware Learning and Modeling Lab leverages the inherent structure of data and problems to build AI methods with rigorous mathematical foundations.  We bridge mathematical theory, computational intuition, and implementable methods to advance research in geometric deep learning, generative modeling, sampling, test-time guidance, and scientific applications. Scientific discovery serves as a central proving ground for our work, without defining its full boundary.',
-    zh: '結構導向學習與建模實驗室致力於利用數據與問題本身的結構，建立具數學基礎的 AI 方法。我們串接直覺、數學與工程，深入研究 geometric deep learning、generative modeling、sampling、test-time guidance 與 scientific applications。我們將科學上的應用場景視為我們工作的核心試驗場，但不限於此應用。',
+    zh: '結構導向學習與建模研究室致力於利用數據與問題本身的結構，建立具數學基礎的 AI 方法。我們串接直覺、數學與工程，深入研究 geometric deep learning、generative modeling、sampling、test-time guidance 與 scientific applications。我們將科學上的應用場景視為我們工作的核心試驗場，但不限於此應用。',
   },
   philosophyHeading: { en: 'Philosophy', zh: '理念' },
   philosophy: {
@@ -192,26 +200,115 @@ export const labInfo = {
 // ── Lab members ──────────────────────────────────────────────────────────────
 // Shown on the lab home page. Add `nameEn` when someone has a preferred
 // romanization; the Chinese name is used on its own when they don't.
-export interface MemberGroup {
-  label: Record<Lang, string>;
-  people: { name: string; nameEn?: string }[];
+export interface Person {
+  /** Display name. Chinese name for local members, English name otherwise. */
+  name: string;
+  /** Romanized / English name, shown next to `name` when present. */
+  nameEn?: string;
+  /** Optional per-person line under the name, e.g. "Summer Intern 2026". */
+  role?: string;
+  /** Path under public/ — e.g. 'images/people/chen.jpg'. Falls back to a monogram.
+   *  Non-ASCII and spaces are fine; the view percent-encodes the URL. */
+  photo?: string;
+  /** Optional second photo — the less serious one. Clicking the card photo
+   *  flips to it. Leave empty and no flip affordance is rendered. */
+  photoAlt?: string;
+  /** Gilded card frame. Marks the expedition leader, so the card says it by
+   *  its treatment instead of repeating what the ROLE line already states. */
+  foil?: boolean;
+  /** Research area, in a phrase — not a paragraph. English only, by design. */
+  focus?: string;
+  /** Optional personal interests, one short line. */
+  interests?: string;
+  /** Year they joined, shown as a stat row. */
+  since?: string;
+  links?: { email?: string; scholar?: string; github?: string; homepage?: string };
 }
 
-export const membersHeading: Record<Lang, string> = { en: 'Members', zh: '成員' };
+export interface MemberGroup {
+  label: Record<Lang, string>;
+  people: Person[];
+}
+
+/** Title of the handbook itself. Two forms on purpose:
+ *  - `handbookTitle` is what the sidebar shows — the in-world name.
+ *  - `handbookTitleFormal` is what carries wayfinding load: <title>, JSON-LD,
+ *    and the small second line under the sidebar head. Someone searching for
+ *    「研究室手冊」or "lab handbook" has to be able to find this.
+ *  When the two match (English), the second line is not rendered. */
+export const handbookTitle: Record<Lang, string> = { en: 'Lab Handbook', zh: '遠征攻略' };
+export const handbookTitleFormal: Record<Lang, string> = { en: 'Lab Handbook', zh: '研究室手冊' };
+
+export const peopleHeading: Record<Lang, string> = { en: 'People', zh: '遠征隊成員' };
+export const piHeading: Record<Lang, string> = {
+  en: 'Principal Investigator',
+  zh: '遠征隊隊長',
+};
+export const focusLabel: Record<Lang, string> = { en: 'Interests', zh: '興趣' };
+
+/** Mono stat-row labels on the member cards. English on both languages, the way
+ *  the technical vocabulary is elsewhere on the site.
+ *  ROLE rather than CLASS on purpose — "class" reads as social rank in Chinese. */
+export const statLabels = { role: 'ROLE', quest: 'QUEST', joined: 'JOINED', hobby: 'HOBBY' };
+
+/** Game-flavoured section labels for the People page.
+ *  The lab reads as an expedition: a group that goes out for a long time,
+ *  into terrain nobody has mapped, and comes back with something.
+ *  CSS class names still say `.party*` — internal only, not user-facing. */
+export const expeditionTag = 'EXPEDITION';
+/** Heading over the member roster — the people on the expedition, as distinct
+ *  from the expedition itself (which is the lab). */
+export const partyHeading: Record<Lang, string> = { en: 'The Expedition Party', zh: '遠征隊隊伍' };
+export const recruitingTag: Record<Lang, string> = { en: 'OPEN QUEST', zh: '招募中' };
+export const allMembersLabel: Record<Lang, string> = { en: 'All members →', zh: '所有成員 →' };
+
+export function peopleRoute(lang: Lang): string {
+  return lang === 'zh' ? 'zh/handbook/people' : 'handbook/people';
+}
 
 export const labMembers: MemberGroup[] = [
   {
     label: { en: "Master's Students", zh: '碩士生' },
-    people: [{ name: '鄭承櫸' }],
+    people: [{ name: '鄭承櫸', since: '2026 Fall' }],
   },
   {
     label: { en: 'Undergraduate & High School Researchers', zh: '專題生' },
     people: [
-      { name: '吳宇傑' },
-      { name: '曾家振' },
-      { name: '胡允升' },
-      { name: '陳澔樂' },
-      { name: 'Richard Mai' },
+      // `-card.jpg` files are square crops generated from the originals, which
+      // stay in the folder untouched. Re-crop with the script in
+      // docs/lab-interaction-plan.md if a source photo is replaced.
+      { name: '吳宇傑', since: '2026 Fall' },
+      {
+        name: '曾家振',
+        since: '2026 Fall',
+        photo: 'images/people/曾家振-card.jpg',
+      },
+      { name: '胡允升', since: '2026 Fall' },
+      {
+        name: '陳澔樂',
+        since: '2026 Fall',
+        photo: 'images/people/陳澔樂-card.jpg',
+        photoAlt: 'images/people/陳澔樂-反-card.jpg',
+      },
+      { name: '林育正', since: '2026 Fall' },
+      {
+        name: '范思緯',
+        since: '2026 Fall',
+        photo: 'images/people/范思緯-card.jpg',
+        photoAlt: 'images/people/范思緯-反-card.jpg',
+      },
+      {
+        name: '阮炫嘉',
+        since: '2026 Fall',
+        photo: 'images/people/阮炫嘉-card.jpg',
+        photoAlt: 'images/people/阮炫嘉-反-card.jpg',
+      },
+      {
+        name: 'Richard Mai',
+        since: '2026 Fall',
+        photo: 'images/people/Richard Mai-card.jpg',
+        photoAlt: 'images/people/Richard Mai-反-card.jpg',
+      },
     ],
   },
 ];

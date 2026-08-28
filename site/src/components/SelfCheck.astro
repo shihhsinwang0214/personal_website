@@ -1,0 +1,124 @@
+---
+/**
+ * SelfCheck.astro — the optional checklist at the bottom of the Join page.
+ *
+ * Progressive enhancement: without JS every prompt is already on the page as
+ * static text ("if this one is not you: …"), so the section is a useful
+ * document on its own. The script hides those, shows the answer buttons, and
+ * assembles the flagged prompts into one list. No score, no storage, no
+ * network. See src/lib/selfcheck.ts for the constraints.
+ */
+import type { Lang } from '../lib/handbook';
+import {
+  selfCheckAllClear,
+  selfCheckAnswers,
+  selfCheckIntro,
+  selfCheckItems,
+  selfCheckNote,
+  selfCheckReset,
+  selfCheckResultHeading,
+  selfCheckStaticLead,
+  selfCheckTitle,
+} from '../lib/selfcheck';
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+---
+
+<details class="selfcheck">
+  <summary>
+    <span class="selfcheck-tag">OPTIONAL</span>
+    {selfCheckTitle[lang]}
+  </summary>
+
+  <p class="selfcheck-intro">{selfCheckIntro[lang]}</p>
+
+  <ol class="selfcheck-list">
+    {selfCheckItems.map((item) => (
+      <li class="selfcheck-item" data-id={item.id}>
+        <p class="selfcheck-statement">{item.statement[lang]}</p>
+        <div class="selfcheck-opts" hidden>
+          <button type="button" data-a="yes" aria-pressed="false">{selfCheckAnswers.yes[lang]}</button>
+          <button type="button" data-a="no" aria-pressed="false">{selfCheckAnswers.no[lang]}</button>
+          <button type="button" data-a="unsure" aria-pressed="false">{selfCheckAnswers.unsure[lang]}</button>
+        </div>
+        <p class="selfcheck-if">
+          <span>{selfCheckStaticLead[lang]}</span> {item.prompt[lang]}
+        </p>
+      </li>
+    ))}
+  </ol>
+
+  <div class="selfcheck-result" hidden>
+    <p class="selfcheck-result-head"></p>
+    <ul class="selfcheck-result-list"></ul>
+    <button type="button" class="selfcheck-reset">{selfCheckReset[lang]}</button>
+  </div>
+
+  <p class="selfcheck-note" hidden>{selfCheckNote[lang]}</p>
+</details>
+
+<script define:vars={{
+  items: selfCheckItems.map((i) => ({ id: i.id, prompt: i.prompt[lang] })),
+  headingText: selfCheckResultHeading[lang],
+  allClearText: selfCheckAllClear[lang],
+}}>
+  (() => {
+    const root = document.querySelector('.selfcheck');
+    if (!root) return;
+    const lis = Array.from(root.querySelectorAll('.selfcheck-item'));
+    if (!lis.length) return;
+
+    // Upgrade: hide the static prompts, reveal the buttons.
+    root.querySelectorAll('.selfcheck-if').forEach((p) => { p.hidden = true; });
+    root.querySelectorAll('.selfcheck-opts').forEach((d) => { d.hidden = false; });
+    const note = root.querySelector('.selfcheck-note');
+    if (note) note.hidden = false;
+
+    const result = root.querySelector('.selfcheck-result');
+    const head = root.querySelector('.selfcheck-result-head');
+    const list = root.querySelector('.selfcheck-result-list');
+    const answers = new Map();
+
+    const render = () => {
+      if (!result || !head || !list) return;
+      if (answers.size === 0) { result.hidden = true; return; }
+      result.hidden = false;
+      const flagged = items.filter((i) => {
+        const a = answers.get(i.id);
+        return a === 'no' || a === 'unsure';
+      });
+      list.replaceChildren();
+      if (flagged.length === 0) {
+        head.textContent = allClearText;
+        return;
+      }
+      head.textContent = headingText;
+      flagged.forEach((i) => {
+        const li = document.createElement('li');
+        li.textContent = i.prompt;
+        list.appendChild(li);
+      });
+    };
+
+    lis.forEach((li) => {
+      const id = li.dataset.id;
+      const btns = Array.from(li.querySelectorAll('.selfcheck-opts button'));
+      btns.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          answers.set(id, btn.dataset.a);
+          btns.forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+          render();
+        });
+      });
+    });
+
+    root.querySelector('.selfcheck-reset')?.addEventListener('click', () => {
+      answers.clear();
+      root.querySelectorAll('.selfcheck-opts button').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+      render();
+    });
+  })();
+</script>

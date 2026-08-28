@@ -4,7 +4,7 @@
 
 ## 1. 背景
 
-- 名稱:Structure-Aware Modeling Lab(SAM Lab)· 格物致知實驗室
+- 名稱:Structure-Aware Modeling Lab(SAM Lab)· 格物致知研究室
 - 標語:Uncover the structure of things to expand the bounds of insight / 窮究事物之結構,拓展無盡之理解
 - 理念關鍵詞:structure(geometry、symmetry、hierarchy、constraints)、研究循環「直覺 → 數學 → 計算 → 實證」、generative modeling / sampling(從 noise 到 structure)、科學發現作為試驗場
 - 網站視覺(必須沿用):
@@ -30,7 +30,7 @@
 - 交付變體:
   1. `mark.svg` — 所有 fill/stroke 用 `currentColor`(CSS 可換色,首選)
   2. 檢查 16px 與 32px favicon 縮圖:若「偏離點+曲線」在 16px 不可辨,簡化為只留 3×3 點 + S 連線
-- 橫式 lockup(`lockup.svg`):mark + `SAM Lab`(monospace,medium weight)+ 次行小字 `Structure-Aware Modeling Lab · 格物致知實驗室`(可選,小尺寸時省略次行)
+- 橫式 lockup(`lockup.svg`):mark + `SAM Lab`(monospace,medium weight)+ 次行小字 `Structure-Aware Modeling Lab · 格物致知研究室`(可選,小尺寸時省略次行)
 
 ## 4. Hero 圖規格
 

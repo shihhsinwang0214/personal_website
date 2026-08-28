@@ -32,4 +32,4 @@ summary: "我們能提供什麼、需要你提供什麼、時程的現實，以�
 
 ## 掛名
 
-- 開始合作前就把作者權與資料使用談清楚寫下來。這是對雙方的保護。實驗室內部的作者排序原則見[掛名與研究貢獻](/personal_website/zh/handbook/authorship)。
+- 開始合作前就把作者權與資料使用談清楚寫下來。這是對雙方的保護。研究室內部的作者排序原則見[掛名與研究貢獻](/personal_website/zh/handbook/authorship)。

@@ -6,14 +6,60 @@ import { withBase } from '../lib/url';
 <Base title="Page not found — Shih-Hsin Wang" description="The page you are looking for could not be found." active="home">
   <main class="content notfound">
     <p class="notfound-code">404</p>
-    <h1>Page not found</h1>
-    <p>The page you’re looking for doesn’t exist or may have moved.</p>
-    <div class="notfound-actions">
-      <a href={withBase('')}>← Home</a>
-      <a href={withBase('notes')}>Notes &amp; Guides</a>
+
+    {/* Default view. A 404 is already a failure state, so it is the one place
+        on the site where personality costs nothing — but only for lab URLs,
+        and only after JS confirms where the visitor was headed. */}
+    <div data-nf="general">
+      <h1>Page not found</h1>
+      <p>The page you’re looking for doesn’t exist or may have moved.</p>
+      <div class="notfound-actions">
+        <a href={withBase('')}>← Home</a>
+        <a href={withBase('notes')}>Notes &amp; Guides</a>
+      </div>
+    </div>
+
+    <div data-nf="lab" hidden>
+      <h1>Route not open yet</h1>
+      <p class="notfound-tag">NO PATH</p>
+      <p>
+        This node isn’t on the map — either it hasn’t been written yet, or it moved.
+        The handbook index is the safest place to re-enter.
+      </p>
+      <div class="notfound-actions">
+        <a href={withBase('handbook')}>← Lab Handbook</a>
+        <a href={withBase('handbook/bestiary')}>Bestiary</a>
+      </div>
+    </div>
+
+    <div data-nf="lab-zh" hidden lang="zh-Hant">
+      <h1>這條路線尚未開通</h1>
+      <p class="notfound-tag">NO PATH</p>
+      <p>
+        地圖上沒有這個節點——可能還沒寫，也可能搬走了。從攻略首頁重新進入最安全。
+      </p>
+      <div class="notfound-actions">
+        <a href={withBase('zh/handbook')}>← 遠征攻略</a>
+        <a href={withBase('zh/handbook/bestiary')}>怪物圖鑑</a>
+      </div>
     </div>
   </main>
 </Base>
+
+<script is:inline>
+  (() => {
+    const path = location.pathname;
+    if (!path.includes('/handbook')) return;
+    const zh = path.includes('/zh/');
+    const show = (k) => {
+      const el = document.querySelector('[data-nf="' + k + '"]');
+      if (el) el.hidden = false;
+    };
+    const general = document.querySelector('[data-nf="general"]');
+    if (general) general.hidden = true;
+    show(zh ? 'lab-zh' : 'lab');
+  })();
+</script>
 
 <style>
   .notfound {
@@ -34,6 +80,13 @@ import { withBase } from '../lib/url';
     margin: 12px 0 8px;
   }
   .notfound p { color: var(--text-muted); }
+  .notfound-tag {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    margin: 0 0 10px;
+  }
   .notfound-actions {
     display: flex;
     flex-wrap: wrap;

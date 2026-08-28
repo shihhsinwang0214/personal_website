@@ -39,7 +39,7 @@ const LOCALE = {
     out: 'research-reflection-questionnaire-zh.docx',
     font: 'Microsoft JhengHei',
     title: '研究反思問卷',
-    subtitle: '王士欣實驗室 — 申請文件',
+    subtitle: '王士欣研究室 — 申請文件',
     note:
       '每題的思考面向、填寫注意事項與 AI 工具使用規範，請見網站「研究反思問卷」頁面。多數題目以 5–10 句回答即可；回答空間不足時，請自行延伸段落。完成後請將本文件轉成 PDF，隨申請信一起寄出。',
     basicHeading: '基本資料',

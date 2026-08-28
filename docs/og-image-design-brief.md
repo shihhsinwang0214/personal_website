@@ -2,7 +2,7 @@
 
 ## 背景
 目前全站 `og:image` 指向 `images/personal_photo.jpeg`（`site/src/layouts/Base.astro:41`），
-所以貼連結給別人時預覽都是大頭照。目標：改用一張符合實驗室理念的品牌圖卡。
+所以貼連結給別人時預覽都是大頭照。目標：改用一張符合研究室理念的品牌圖卡。
 
 ## 交付物
 1. **og-card.png**（必要）：1200 × 630 px，PNG 或 JPG，檔案 < 300 KB。
@@ -12,7 +12,7 @@
 3. （可選）og-card 深色版，供未來筆記頁使用。
 
 ## 品牌內容（圖卡上的文字）
-- 主標：**Shih-Hsin Wang 王士欣**（或未來實驗室名稱，待定）
+- 主標：**Shih-Hsin Wang 王士欣**（或未來研究室名稱，待定）
 - 副標：Geometric Deep Learning · Generative Models · AI for Science
 - 小字：CSIE, National Taiwan University
 - 不放照片、不放 email。

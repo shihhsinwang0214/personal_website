@@ -1,8 +1,10 @@
 ---
 import { getCollection } from 'astro:content';
+import HandbookSidebar from './HandbookSidebar.astro';
 import { withBase } from '../lib/url';
 import type { Lang } from '../lib/handbook';
-import { handbookNav, handbookRoute, handbookIndexRoute, labInfo, labMembers, membersHeading } from '../lib/handbook';
+import { handbookNav, handbookRoute, labInfo, roleCards } from '../lib/handbook';
+import { bestiaryHeading, bestiaryRoute, visibleMonsters } from '../lib/bestiary';
 import { profile } from '../data/content';
 
 interface Props {
@@ -11,29 +13,14 @@ interface Props {
 const { lang } = Astro.props;
 const all = await getCollection('handbook');
 const nav = handbookNav(all, lang);
+// Only offer a role whose section actually has visible pages right now.
+const liveSections = new Set(nav.map((g) => g.section.key));
+const visibleRoles = roleCards.filter((r) => liveSections.has(r.section));
+const codex = visibleMonsters();
 ---
 
 <main class="handbook-shell" id="note-main">
-  <details class="handbook-sidebar">
-    <summary class="handbook-sidebar-head">
-      <a href={withBase(handbookIndexRoute(lang))} aria-current="page">{lang === 'zh' ? '實驗室手冊' : 'Lab Handbook'}</a>
-      <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 12.5 10 7 15.5" /></svg>
-    </summary>
-    <nav class="handbook-nav" aria-label={lang === 'zh' ? '手冊導覽' : 'Handbook navigation'}>
-      {nav.map((group) => (
-        <div class="handbook-nav-group">
-          <div class="handbook-nav-label"><span aria-hidden="true">{group.section.icon}</span> {group.section.label[lang]}</div>
-          <ul>
-            {group.items.map((item) => (
-              <li>
-                <a href={withBase(handbookRoute(item.data.slug, lang))}>{item.data.title}</a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-    </nav>
-  </details>
+  <HandbookSidebar lang={lang} current="index" />
 
   <article class="handbook-article lab-home">
     <section class="lab-hero">
@@ -61,24 +48,116 @@ const nav = handbookNav(all, lang);
       </div>
     </section>
 
-    <section class="lab-members">
-      <h2>{membersHeading[lang]}</h2>
-      <div class="lab-member-groups">
-        {labMembers.map((g) => (
-          <div class="lab-member-group">
-            <div class="lab-member-label">{g.label[lang]}</div>
-            <ul>
-              {g.people.map((p) => (
-                <li>
-                  {p.name}
-                  {p.nameEn && <span class="lab-member-en"> {p.nameEn}</span>}
+    <section class="lab-tree">
+      <div class="lab-section-head">
+        <h2>{lang === 'zh' ? '手冊路線' : 'Handbook paths'}</h2>
+        <span class="lab-tree-hint">{lang === 'zh' ? '選一條開始' : 'pick a path'}</span>
+      </div>
+
+      {/* Role picker. Anchors, so it works with JS off; the script upgrades it
+          to a highlight. Cards live in `roleCards` in lib/handbook.ts. */}
+      <nav class="lab-roles" aria-label={lang === 'zh' ? '路線建議' : 'Suggested paths'}>
+        <span class="lab-roles-q">{lang === 'zh' ? '你是誰？' : 'Who are you?'}</span>
+        {visibleRoles.map((r) => (
+          <a class="lab-role" href={`#path-${r.section}`} data-section={r.section} title={r.desc[lang]}>
+            <span aria-hidden="true">{r.icon}</span> {r.title[lang]}
+          </a>
+        ))}
+      </nav>
+
+      <div class="lab-tree-paths">
+        {nav.map((group) => (
+          <div class="lab-tree-path" id={`path-${group.section.key}`} data-section={group.section.key}>
+            <div class="lab-tree-head">
+              <span class="lab-tree-icon" aria-hidden="true">{group.section.icon}</span>
+              <span class="lab-tree-title">{group.section.label[lang]}</span>
+              <span class="lab-tree-tag">{group.section.tag}</span>
+            </div>
+            <ol class="lab-tree-nodes">
+              {group.items.map((item) => (
+                <li data-slug={item.data.slug}>
+                  <a href={withBase(handbookRoute(item.data.slug, lang))}>
+                    <span class="lab-tree-dot" aria-hidden="true"></span>
+                    {item.data.title}
+                  </a>
                 </li>
               ))}
-            </ul>
+            </ol>
           </div>
         ))}
       </div>
-      <p class="lab-location">{profile.office[lang]}</p>
+
+      {/* Revealed by script only — with JS off there is nothing to explain. */}
+      <p class="lab-tree-legend" hidden>
+        <span class="lab-tree-swatch" aria-hidden="true"></span>
+        <span>
+          {lang === 'zh'
+            ? '亮起來的是這台瀏覽器讀過的頁。這筆紀錄只留在你的裝置上，不會傳出去，我也看不到。'
+            : 'Lit nodes are pages this browser has opened. That record stays on your device — it is never sent, and I cannot see it.'}
+        </span>
+        <button type="button" class="lab-tree-clear">{lang === 'zh' ? '清除紀錄' : 'Clear'}</button>
+      </p>
     </section>
+
+    {codex.length > 0 && (
+    <a class="lab-codex hud" href={withBase(bestiaryRoute(lang))}>
+      <span class="lab-codex-icon" aria-hidden="true">👾</span>
+      <span class="lab-codex-body">
+        <span class="lab-codex-title">{bestiaryHeading[lang]}<span class="lab-codex-count">{codex.length}</span></span>
+        <span class="lab-codex-text">
+          {lang === 'zh'
+            ? '研究路上會遇到的困難，以及手冊裡對應的打法。'
+            : 'The difficulties you will meet, and where the handbook deals with each.'}
+        </span>
+      </span>
+      <span class="lab-codex-go" aria-hidden="true">▸</span>
+    </a>
+    )}
+
+    <p class="lab-location">{profile.office[lang]}</p>
   </article>
 </main>
+
+<script>
+  import { readVisited, clearVisited } from '../lib/visited';
+
+  /* Light up the nodes this browser has already read. Coverage of the content,
+     never a score: no percentage, no "N of M", no total anywhere. */
+  const legend = document.querySelector<HTMLElement>('.lab-tree-legend');
+  const nodes = Array.from(document.querySelectorAll<HTMLElement>('.lab-tree-nodes li[data-slug]'));
+  const paint = () => {
+    const seen = readVisited();
+    let any = false;
+    nodes.forEach((li) => {
+      const on = Boolean(li.dataset.slug && seen.has(li.dataset.slug));
+      li.classList.toggle('is-visited', on);
+      if (on) any = true;
+    });
+    if (legend) legend.hidden = !any;
+  };
+  if (nodes.length) {
+    paint();
+    document.querySelector('.lab-tree-clear')?.addEventListener('click', () => {
+      clearVisited();
+      paint();
+    });
+  }
+
+  /* Role picker: the anchors already jump to the right path without JS. Here we
+     add the highlight so the choice is visible after landing. */
+  const roles = Array.from(document.querySelectorAll<HTMLAnchorElement>('.lab-role'));
+  const paths = Array.from(document.querySelectorAll<HTMLElement>('.lab-tree-path'));
+  const focusPath = (key: string) => {
+    roles.forEach((r) => r.classList.toggle('is-active', r.dataset.section === key));
+    paths.forEach((p) => {
+      p.classList.toggle('is-focus', p.dataset.section === key);
+      p.classList.toggle('is-dim', p.dataset.section !== key);
+    });
+  };
+  roles.forEach((r) => {
+    r.addEventListener('click', () => {
+      if (r.dataset.section) focusPath(r.dataset.section);
+    });
+  });
+  if (location.hash.startsWith('#path-')) focusPath(location.hash.slice(6));
+</script>

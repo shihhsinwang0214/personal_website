@@ -1,0 +1,92 @@
+---
+import { getCollection } from 'astro:content';
+import { withBase } from '../lib/url';
+import type { Lang } from '../lib/handbook';
+import {
+  expeditionTag,
+  handbookNav,
+  handbookRoute,
+  handbookIndexRoute,
+  handbookTitle,
+  handbookTitleFormal,
+  peopleHeading,
+  peopleRoute,
+} from '../lib/handbook';
+import { bestiaryHeading, bestiaryRoute, visibleMonsters } from '../lib/bestiary';
+
+interface Props {
+  lang: Lang;
+  /** Article slug, or 'people' / 'bestiary' / 'index' for the standalone pages. */
+  current?: string;
+}
+const { lang, current } = Astro.props;
+const all = await getCollection('handbook');
+const nav = handbookNav(all, lang);
+// The codex only appears once at least one entry is published.
+const codexOpen = visibleMonsters().length > 0;
+---
+
+<details class="handbook-sidebar">
+  <summary class="handbook-sidebar-head">
+    <a
+      href={withBase(handbookIndexRoute(lang))}
+      aria-current={current === 'index' ? 'page' : undefined}
+    >
+      {handbookTitle[lang]}
+      {handbookTitleFormal[lang] !== handbookTitle[lang] && (
+        <span class="handbook-sidebar-sub">{handbookTitleFormal[lang]}</span>
+      )}
+    </a>
+    <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 12.5 10 7 15.5" /></svg>
+  </summary>
+  <nav class="handbook-nav" aria-label={lang === 'zh' ? '手冊導覽' : 'Handbook navigation'}>
+    <div class="handbook-nav-group">
+      <div class="handbook-nav-label">
+        <span aria-hidden="true">👥</span> {peopleHeading[lang]}
+        <span class="handbook-nav-tag">{expeditionTag}</span>
+      </div>
+      <ul>
+        <li>
+          <a href={withBase(peopleRoute(lang))} aria-current={current === 'people' ? 'page' : undefined}>
+            {peopleHeading[lang]}
+          </a>
+        </li>
+      </ul>
+    </div>
+    {codexOpen && (
+      <div class="handbook-nav-group">
+        <div class="handbook-nav-label">
+          <span aria-hidden="true">👾</span> {bestiaryHeading[lang]}
+          <span class="handbook-nav-tag">CODEX</span>
+        </div>
+        <ul>
+          <li>
+            <a href={withBase(bestiaryRoute(lang))} aria-current={current === 'bestiary' ? 'page' : undefined}>
+              {bestiaryHeading[lang]}
+            </a>
+          </li>
+        </ul>
+      </div>
+    )}
+    {nav.map((group) => (
+      <div class="handbook-nav-group">
+        <div class="handbook-nav-label">
+          <span aria-hidden="true">{group.section.icon}</span> {group.section.label[lang]}
+          <span class="handbook-nav-tag">{group.section.tag}</span>
+        </div>
+        <ul>
+          {group.items.map((item) => (
+            <li>
+              <a
+                href={withBase(handbookRoute(item.data.slug, lang))}
+                aria-current={item.data.slug === current ? 'page' : undefined}
+              >
+                {item.data.title}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    ))}
+  </nav>
+</details>

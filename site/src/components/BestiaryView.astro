@@ -1,0 +1,219 @@
+---
+import { getCollection } from 'astro:content';
+import HandbookSidebar from './HandbookSidebar.astro';
+import { withBase } from '../lib/url';
+import type { Lang } from '../lib/handbook';
+import { handbookRoute, hiddenHandbookSlugs } from '../lib/handbook';
+import {
+  bestiaryHeading,
+  bestiaryIntro,
+  clearFiltersLabel,
+  lockedLabel,
+  bestiaryClosed,
+  monsterFieldLabels,
+  noMatchLabel,
+  searchPlaceholder,
+  symptomFilters,
+  tierLabels,
+  triageHeading,
+  triageHint,
+  visibleMonsters,
+} from '../lib/bestiary';
+import type { MonsterTier } from '../lib/bestiary';
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+
+// A counter-play link is only rendered when its handbook page is actually
+// published. Drafts show the counter text without a link, so the bestiary never
+// points at a 404 — and entries light up on their own as pages go live.
+const all = await getCollection('handbook');
+const publishedSlugs = new Set(
+  all.filter((e) => !hiddenHandbookSlugs.has(e.data.slug)).map((e) => e.data.slug),
+);
+const titleFor = new Map<string, string>();
+for (const e of all) {
+  if (e.data.lang === lang) titleFor.set(e.data.slug, e.data.title);
+}
+for (const e of all) {
+  if (!titleFor.has(e.data.slug)) titleFor.set(e.data.slug, e.data.title);
+}
+
+// Only published entries reach the page; the rest are listed in
+// `draftMonsterIds` and behave exactly like draft handbook pages.
+const shown = visibleMonsters();
+const tiers: MonsterTier[] = ['common', 'elite', 'boss'];
+const grouped = tiers
+  .map((tier) => ({ tier, entries: shown.filter((m) => m.tier === tier) }))
+  .filter((g) => g.entries.length > 0);
+---
+
+<main class="handbook-shell" id="note-main">
+  <HandbookSidebar lang={lang} current="bestiary" />
+
+  <article class="handbook-article bestiary">
+    <header class="note-header">
+      <p class="note-meta">
+        👾 {bestiaryHeading[lang]}
+        {shown.length > 0 && <span class="node-counter">{shown.length} ENTRIES</span>}
+      </p>
+      <h1>{bestiaryHeading[lang]}</h1>
+    </header>
+
+    <p class="bestiary-intro">{shown.length > 0 ? bestiaryIntro[lang] : bestiaryClosed[lang]}</p>
+
+    {shown.length > 0 && (
+    <section class="triage" hidden id="triage">
+      <div class="triage-head">
+        <strong>{triageHeading[lang]}</strong>
+        <span class="triage-hint">{triageHint[lang]}</span>
+      </div>
+      <div class="triage-row">
+        {symptomFilters.map((f) => (
+          <button type="button" class="triage-btn" data-tag={f.id} aria-pressed="false">
+            {f.label[lang]}
+          </button>
+        ))}
+      </div>
+      <div class="triage-row triage-row-search">
+        <input
+          type="search"
+          class="triage-search"
+          id="triage-search"
+          placeholder={searchPlaceholder[lang]}
+          aria-label={searchPlaceholder[lang]}
+          autocomplete="off"
+        />
+        <button type="button" class="triage-reset" hidden>{clearFiltersLabel[lang]}</button>
+      </div>
+    </section>
+    )}
+
+    <p class="bestiary-nomatch" hidden>{noMatchLabel[lang]}</p>
+
+    {grouped.map((group) => (
+      <section class="bestiary-tier">
+        <div class="bestiary-tier-head">
+          <h2>{tierLabels[group.tier][lang]}</h2>
+          <span class="bestiary-tier-tag">{group.tier.toUpperCase()}</span>
+        </div>
+        <div class="bestiary-grid">
+          {group.entries.map((m) => {
+            const open = publishedSlugs.has(m.link);
+            const target = titleFor.get(m.link) ?? m.link;
+            return (
+              <article
+                class={`monster hud monster-${group.tier}`}
+                id={m.id}
+                data-tags={m.tags.join(' ')}
+                data-search={[m.name.en, m.name.zh, m.symptom[lang], m.why[lang], m.counter[lang], target]
+                  .join(' ')
+                  .toLowerCase()}
+              >
+                <div class="hud-tag">{group.tier.toUpperCase()}</div>
+                <h3 class="monster-name">
+                  {m.name[lang]}
+                  {lang === 'zh' && m.name.en !== m.name.zh && (
+                    <span class="monster-name-en">{m.name.en}</span>
+                  )}
+                </h3>
+                <dl class="monster-fields">
+                  <div class="monster-field">
+                    <dt>{monsterFieldLabels.symptom[lang]}</dt>
+                    <dd>{m.symptom[lang]}</dd>
+                  </div>
+                  <div class="monster-field">
+                    <dt>{monsterFieldLabels.why[lang]}</dt>
+                    <dd>{m.why[lang]}</dd>
+                  </div>
+                  <div class="monster-field">
+                    <dt>{monsterFieldLabels.counter[lang]}</dt>
+                    <dd>{m.counter[lang]}</dd>
+                  </div>
+                </dl>
+                <p class="monster-link">
+                  {open ? (
+                    <a href={withBase(handbookRoute(m.link, lang))}>▸ {target}</a>
+                  ) : (
+                    <span class="monster-link-locked">▸ {target}<em>{lockedLabel[lang]}</em></span>
+                  )}
+                </p>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    ))}
+
+    {shown.length > 0 && (
+      <p class="bestiary-foot">
+        {lang === 'zh'
+          ? '有一隻沒被寫進來的怪嗎？在週會提出來，我們會把牠加進圖鑑。'
+          : 'Met one that is not in here? Bring it to the group meeting and we will add it.'}
+      </p>
+    )}
+  </article>
+</main>
+
+<script>
+  /* Triage: filter the codex by "what is wrong right now" plus free text.
+     The controls start hidden and are revealed here, so without JS the page is
+     simply the full list — nothing broken, nothing inert. Nothing is stored. */
+  (() => {
+    const triage = document.getElementById('triage');
+    const cards = Array.from(document.querySelectorAll<HTMLElement>('.monster'));
+    if (!triage || !cards.length) return;
+    triage.hidden = false;
+
+    const buttons = Array.from(triage.querySelectorAll<HTMLButtonElement>('.triage-btn'));
+    const search = document.getElementById('triage-search') as HTMLInputElement | null;
+    const reset = triage.querySelector<HTMLButtonElement>('.triage-reset');
+    const noMatch = document.querySelector<HTMLElement>('.bestiary-nomatch');
+    const tiers = Array.from(document.querySelectorAll<HTMLElement>('.bestiary-tier'));
+    const active = new Set<string>();
+
+    const apply = () => {
+      const q = (search?.value ?? '').trim().toLowerCase();
+      let shown = 0;
+      cards.forEach((card) => {
+        const tags = (card.dataset.tags ?? '').split(' ');
+        const byTag = active.size === 0 || tags.some((t) => active.has(t));
+        const byText = !q || (card.dataset.search ?? '').includes(q);
+        const show = byTag && byText;
+        card.hidden = !show;
+        if (show) shown += 1;
+      });
+      // Hide a tier heading when everything under it is filtered out.
+      tiers.forEach((t) => {
+        const any = Array.from(t.querySelectorAll<HTMLElement>('.monster')).some((c) => !c.hidden);
+        t.hidden = !any;
+      });
+      if (noMatch) noMatch.hidden = shown > 0;
+      const filtering = active.size > 0 || q.length > 0;
+      if (reset) reset.hidden = !filtering;
+    };
+
+    buttons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const tag = btn.dataset.tag;
+        if (!tag) return;
+        const on = active.has(tag);
+        if (on) active.delete(tag);
+        else active.add(tag);
+        btn.setAttribute('aria-pressed', on ? 'false' : 'true');
+        apply();
+      });
+    });
+    search?.addEventListener('input', apply);
+    reset?.addEventListener('click', () => {
+      active.clear();
+      buttons.forEach((b) => b.setAttribute('aria-pressed', 'false'));
+      if (search) search.value = '';
+      apply();
+      search?.focus();
+    });
+    apply();
+  })();
+</script>
