@@ -2045,40 +2045,6 @@ nav.site-nav a[aria-current=page] {
   right:7px;
   border-width:0 2px 2px 0}
 
-/* Party screen — detail panel + roster */
-.party {
-  display:grid;
-  grid-template-columns:1fr;
-  gap:16px;
-  align-items:start}
-@media(min-width:760px) {
-  .party {
-  grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}
-}
-.party-detail {
-  display:flex;
-  flex-direction:column;
-  gap:14px;
-  border:1px solid var(--border);
-  border-radius:var(--radius-lg);
-  background:var(--surface);
-  padding:18px}
-@media(min-width:460px) {
-  .party-detail {
-  flex-direction:row;
-  align-items:flex-start}
-}
-.party-photo {
-  width:100%;
-  max-width:150px;
-  aspect-ratio:1/1;
-  object-fit:cover;
-  border-radius:var(--radius);
-  border:1px solid var(--border);
-  flex:none}
-.party-detail-body {
-  min-width:0;
-  flex:1}
 .hud-class {
   font-family:var(--font-mono);
   font-size:.72rem;
@@ -2108,8 +2074,6 @@ nav.site-nav a[aria-current=page] {
   color:var(--text);
   text-align:right;
   line-height:1.45}
-.party-roster-group + .party-roster-group {
-  margin-top:16px}
 .party-roster-label {
   display:flex;
   align-items:center;
@@ -2121,56 +2085,6 @@ nav.site-nav a[aria-current=page] {
   margin-bottom:8px}
 .party-count {
   color:var(--accent)}
-.party-roster ul {
-  list-style:none;
-  margin:0;
-  padding:0;
-  display:grid;
-  gap:4px}
-.party-roster-item {
-  width:100%;
-  display:flex;
-  align-items:center;
-  gap:10px;
-  padding:6px 10px 6px 6px;
-  border:1px solid transparent;
-  border-radius:var(--radius);
-  background:none;
-  cursor:pointer;
-  text-align:left;
-  font:inherit;
-  color:var(--text);
-  transition:background var(--dur-fast),border-color var(--dur-fast)}
-.party-roster-item:hover {
-  background:var(--surface-2);
-  border-color:var(--border)}
-.party-roster-item[aria-pressed="true"] {
-  background:var(--box-math-bg);
-  border-color:var(--accent)}
-.party-roster-item[aria-pressed="true"] .party-roster-name::before {
-  content:"▸ ";
-  color:var(--accent)}
-.party-roster-avatar {
-  width:34px;
-  height:34px;
-  border-radius:6px;
-  object-fit:cover;
-  flex:none}
-.party-roster-mono {
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background:var(--box-math-bg);
-  color:var(--accent);
-  font-family:var(--font-mono);
-  font-size:.95rem;
-  font-weight:700}
-.party-roster-name {
-  font-size:.92rem;
-  min-width:0;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap}
 .lab-member-groups {
   display:grid;
   grid-template-columns:1fr;
@@ -2725,49 +2639,53 @@ nav.site-nav a[aria-current=page] {
   font-size:.76rem;
   color:var(--text-muted)}
 
-/* ── Expedition screen: one card layout for everyone, PI included ────────────
-   The detail panel sticks on desktop so a long roster can be scrolled while
-   the selected card stays in view. */
-@media(min-width:760px) {
-  .party-detail {
-  position:sticky;
-  top:88px}
-  .party-roster {
-  max-height:min(70vh,640px);
-  overflow-y:auto;
-  padding-right:4px}
-}
-.party-detail .hud-tag {
-  margin-bottom:6px}
-.party-detail .person-links {
-  margin-top:12px}
+/* ── Expedition screen: every member card on the page ───────────────────────
+   Grid rather than a roster + detail panel: a People page is read for the
+   overview, and one card per person also means Ctrl+F works and each card has
+   its own anchor. */
+.member-block + .member-block {
+  margin-top:26px}
+.member-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
+  gap:16px}
+.member-card {
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  background:var(--surface);
+  padding:14px;
+  scroll-margin-top:96px}
+.member-card:target {
+  border-color:var(--accent)}
+.member-photo-wrap {
+  position:relative;
+  perspective:600px;
+  margin-bottom:12px}
+.member-photo {
+  display:block;
+  width:100%;
+  height:auto;
+  aspect-ratio:3/4;
+  object-fit:cover;
+  border-radius:var(--radius);
+  border:1px solid var(--border)}
+.member-photo-wrap:has(.party-flip:not([hidden])) .member-photo {
+  cursor:pointer}
+.member-body {
+  min-width:0}
+.member-card .person-name {
+  font-size:1rem}
+.member-card .hud-stats {
+  margin-top:10px}
+.member-card .person-links {
+  margin-top:10px}
 
 /* Photo flip. The affordance only appears for people who actually have a
    second photo, and the button is revealed by script — so with JS off the
    photo is just a photo. */
-.party-photo-wrap {
-  position:relative;
-  flex:none;
-  width:100%;
-  max-width:170px;
-  perspective:600px}
-/* One stable 3:4 portrait box. Earlier this stretched to the height of the text
-   column, which meant `cover` re-cropped the photo differently on every card —
-   it looked like the image was being trimmed after load. Fixed ratio instead. */
-.party-photo-wrap .party-photo {
-  max-width:none;
-  width:100%;
-  aspect-ratio:3/4;
-  display:block}
-/* Any class that sets `display:` beats the browser's own `[hidden]` rule, so an
-   element toggled with `hidden` in JS can stay on screen. That is what left an
-   empty placeholder tile under the member photo. Several other things on these
-   pages are toggled the same way (the flip button, the links row, the answer
-   buttons, the skill-tree legend), so fix the whole class of bug once. */
-[hidden] {
-  display:none !important}
-.party-photo-wrap:has(.party-flip:not([hidden])) .party-photo {
-  cursor:pointer}
 .party-flip {
   position:absolute;
   right:6px;
@@ -2794,10 +2712,10 @@ nav.site-nav a[aria-current=page] {
   50%  { transform:rotateY(90deg) }
   100% { transform:rotateY(0) }
 }
-.party-photo-wrap.is-flipping {
+.member-photo-wrap.is-flipping {
   animation:party-photo-flip .3s ease}
 @media(prefers-reduced-motion:reduce) {
-  .party-photo-wrap.is-flipping { animation:none }
+  .member-photo-wrap.is-flipping { animation:none }
 }
 
 /* ── Gilded card ─────────────────────────────────────────────────────────────
@@ -2811,19 +2729,19 @@ nav.site-nav a[aria-current=page] {
   --foil: #d8a44a;
   --foil-soft: rgba(216, 164, 74, .16)}
 
-.party-detail.is-foil {
+.member-card.is-foil {
   border-color:var(--foil);
   background:
     linear-gradient(158deg, var(--foil-soft) 0%, transparent 42%),
     var(--surface);
   box-shadow:0 0 0 1px var(--foil-soft), var(--shadow-md)}
 /* The plain HUD brackets would collide with the filigree corners. */
-.party-detail.is-foil.hud::before,
-.party-detail.is-foil.hud::after {
+.member-card.is-foil.hud::before,
+.member-card.is-foil.hud::after {
   opacity:0}
-.party-detail.is-foil .person-name {
+.member-card.is-foil .person-name {
   color:var(--foil)}
-.party-detail.is-foil .hud-class {
+.member-card.is-foil .hud-class {
   border-bottom-color:var(--foil-soft)}
 
 .foil-frame {
@@ -2832,7 +2750,7 @@ nav.site-nav a[aria-current=page] {
   inset:0;
   pointer-events:none;
   color:var(--foil)}
-.party-detail.is-foil > .foil-frame {
+.member-card.is-foil > .foil-frame {
   display:block}
 .foil-sprite {
   position:absolute;
@@ -2849,3 +2767,188 @@ nav.site-nav a[aria-current=page] {
 .foil-tr { top:4px;    right:4px;  transform:rotate(90deg) }
 .foil-br { bottom:4px; right:4px;  transform:rotate(180deg) }
 .foil-bl { bottom:4px; left:4px;   transform:rotate(270deg) }
+
+/* ── Expedition console ──────────────────────────────────────────────────────
+   The lab homepage as a dashboard of panels. Every panel is rendered only when
+   it has real content, so the grid is allowed to be uneven — that is honest.
+   Rules: docs/lab-expedition-redesign.md */
+.console {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+  gap:16px;
+  margin-top:30px}
+.panel {
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  background:var(--surface);
+  padding:16px 18px 18px;
+  display:flex;
+  flex-direction:column}
+.panel-wide {
+  grid-column:1 / -1}
+.panel-head {
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+  padding-bottom:10px;
+  margin-bottom:12px;
+  border-bottom:1px solid var(--border)}
+.panel-label {
+  font-family:var(--font-mono);
+  font-size:.72rem;
+  font-weight:700;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--accent)}
+.panel-count,
+.panel-stamp,
+.panel-status {
+  font-family:var(--font-mono);
+  font-size:.64rem;
+  letter-spacing:.08em;
+  color:var(--text-muted);
+  margin-left:auto;
+  white-space:nowrap}
+.panel-status {
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  padding:1px 6px}
+.panel-link {
+  font-family:var(--font-mono);
+  font-size:.74rem;
+  letter-spacing:.04em;
+  margin-top:auto;
+  padding-top:12px}
+.panel .lab-statement {
+  margin:0}
+.panel .lab-pillars {
+  margin-top:16px}
+
+/* Quest list on the console — parallel entries, never numbered as steps. */
+.quest-list {
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:grid;
+  gap:8px}
+.quest-list a {
+  display:block;
+  padding:8px 10px;
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  text-decoration:none;
+  color:inherit}
+.quest-list a:hover {
+  border-color:var(--accent)}
+.quest-code {
+  display:block;
+  font-family:var(--font-mono);
+  font-size:.6rem;
+  letter-spacing:.1em;
+  color:var(--text-muted)}
+.quest-name {
+  font-size:.92rem;
+  font-weight:600}
+
+.panel-leader {
+  display:flex;
+  align-items:center;
+  gap:12px}
+.panel-leader-photo {
+  width:64px;
+  height:auto;
+  aspect-ratio:3/4;
+  object-fit:cover;
+  border-radius:var(--radius);
+  border:1px solid var(--border);
+  flex:none}
+.crew-strip {
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-bottom:12px}
+.crew-strip img {
+  width:34px;
+  height:34px;
+  border-radius:6px;
+  object-fit:cover}
+.crew-groups {
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:grid;
+  gap:6px;
+  font-size:.86rem;
+  color:var(--text-muted)}
+.crew-groups li {
+  display:flex;
+  align-items:baseline;
+  gap:8px}
+.dispatch-body {
+  margin:0;
+  font-size:.9rem;
+  line-height:1.7;
+  color:var(--text-muted)}
+
+/* ── Mission board ─────────────────────────────────────────────────────────── */
+.mission-statement {
+  border:1px solid var(--border);
+  border-left:3px solid var(--accent);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;
+  background:var(--surface);
+  padding:16px 18px;
+  margin-bottom:22px}
+.mission-lab-name {
+  margin:0 0 10px;
+  font-family:var(--font-mono);
+  font-size:.9rem;
+  font-weight:700;
+  letter-spacing:.02em}
+.quest-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+  gap:16px}
+.quest-card {
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  background:var(--surface);
+  padding:16px 18px 18px;
+  scroll-margin-top:96px}
+.quest-card:target {
+  border-color:var(--accent)}
+.quest-title {
+  margin:0 0 8px;
+  font-size:1.05rem;
+  border:0}
+.quest-desc {
+  margin:0;
+  font-size:.9rem;
+  line-height:1.7;
+  color:var(--text-muted)}
+.quest-field {
+  margin-top:14px;
+  padding-top:12px;
+  border-top:1px solid var(--border)}
+.quest-field-label {
+  font-family:var(--font-mono);
+  font-size:.6rem;
+  letter-spacing:.12em;
+  color:var(--text-muted);
+  margin-bottom:6px}
+.quest-field p {
+  margin:0;
+  font-size:.9rem;
+  line-height:1.7}
+.quest-notes {
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:grid;
+  gap:5px;
+  font-size:.88rem}
+.quest-notes a::before {
+  content:"▸ ";
+  color:var(--accent)}
+.quest-empty {
+  color:var(--text-muted);
+  font-size:.86rem}

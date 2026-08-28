@@ -1,11 +1,35 @@
 ---
+/**
+ * HandbookLanding.astro — the lab homepage, as an expedition command dashboard.
+ *
+ * Rules this page follows (docs/lab-expedition-redesign.md):
+ *   - Every panel is backed by real current content. No placeholder panels: if
+ *     the data is not there, the panel is not rendered. A dashboard of empty
+ *     boxes reads as a dead lab, which is worse than a document.
+ *   - Game language lives in the mono labels, the panel chrome and the status
+ *     indicators. The content itself stays in academic language.
+ *   - Static first. The only script is the visited-node highlight and the role
+ *     picker, both of which are enhancements over links that already work.
+ */
 import { getCollection } from 'astro:content';
 import HandbookSidebar from './HandbookSidebar.astro';
 import { withBase } from '../lib/url';
 import type { Lang } from '../lib/handbook';
-import { handbookNav, handbookRoute, labInfo, roleCards } from '../lib/handbook';
+import {
+  handbookNav,
+  handbookRoute,
+  labInfo,
+  labMembers,
+  peopleHeading,
+  peopleRoute,
+  piHeading,
+  recruitingTag,
+  recruitmentStatus,
+  roleCards,
+} from '../lib/handbook';
 import { bestiaryHeading, bestiaryRoute, visibleMonsters } from '../lib/bestiary';
-import { profile } from '../data/content';
+import { missionText, missionsRoute, visibleQuests } from '../lib/mission';
+import { profile, news } from '../data/content';
 
 interface Props {
   lang: Lang;
@@ -17,6 +41,27 @@ const nav = handbookNav(all, lang);
 const liveSections = new Set(nav.map((g) => g.section.key));
 const visibleRoles = roleCards.filter((r) => liveSections.has(r.section));
 const codex = visibleMonsters();
+
+const crewCount = labMembers.reduce((n, g) => n + g.people.length, 0);
+const crewAvatars = labMembers
+  .flatMap((g) => g.people)
+  .filter((p) => p.photo)
+  .slice(0, 6);
+const latest = news[0];
+// The board is hidden until quests are reviewed; Main Mission stays either way.
+const quests = visibleQuests();
+
+const t = {
+  leader: piHeading[lang],
+  crew: { en: 'Crew', zh: '隊伍' }[lang],
+  dispatch: { en: 'Latest Dispatch', zh: '最新動態' }[lang],
+  recruitment: { en: 'Recruitment', zh: '招募狀態' }[lang],
+  joinLink: { en: 'Join the expedition →', zh: '加入研究室 →' }[lang],
+  crewLink: { en: 'Full crew →', zh: '所有成員 →' }[lang],
+  leaderLink: { en: 'Profile →', zh: '個人頁 →' }[lang],
+  manual: { en: 'Field Manual', zh: '遠征攻略' }[lang],
+  manualHint: { en: 'pick a path', zh: '選一條開始' }[lang],
+};
 ---
 
 <main class="handbook-shell" id="note-main">
@@ -28,30 +73,116 @@ const codex = visibleMonsters();
       <h1 class="lab-title">{labInfo.name}</h1>
       <p class="lab-subtitle">{labInfo.subtitle}</p>
       <p class="lab-gloss">{labInfo.nameGloss[lang]}</p>
-      <div class="lab-rule"></div>
-      <p class="lab-lead">{labInfo.description[lang]}</p>
-      <div class="lab-brand">
-        <img src={withBase('images/lab-logo-banner-v3.png')} alt={labInfo.name} loading="lazy" />
-      </div>
     </section>
 
-    <section class="lab-philosophy">
-      <h2>{labInfo.philosophyHeading[lang]}</h2>
-      <blockquote class="lab-statement">{labInfo.philosophy[lang]}</blockquote>
-      <div class="lab-pillars">
-        {labInfo.pillars.map((p) => (
-          <div class="lab-pillar">
-            <div class="lab-pillar-label">{p.label[lang]}</div>
-            <p>{p.text[lang]}</p>
+    <div class="console">
+      {/* ── Main Mission — the conceptual centre, spanning the console ── */}
+      <section class="panel panel-wide hud" id="main-mission">
+        <div class="panel-head">
+          <span class="panel-label">{missionText.mainMission[lang]}</span>
+        </div>
+        <blockquote class="lab-statement">{labInfo.philosophy[lang]}</blockquote>
+        <div class="lab-pillars">
+          {labInfo.pillars.map((p) => (
+            <div class="lab-pillar">
+              <div class="lab-pillar-label">{p.label[lang]}</div>
+              <p>{p.text[lang]}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Active main quests — parallel, not a roadmap. Rendered only when
+             quests are published; see `draftQuestIds` in lib/mission.ts. ── */}
+      {quests.length > 0 && (
+        <section class="panel hud">
+          <div class="panel-head">
+            <span class="panel-label">{missionText.activeQuests[lang]}</span>
+            <span class="panel-count">{quests.length}</span>
           </div>
-        ))}
-      </div>
-    </section>
+          <ol class="quest-list">
+            {quests.map((q) => (
+              <li>
+                <a href={`${withBase(missionsRoute(lang))}#${q.id}`}>
+                  <span class="quest-code">{q.code}</span>
+                  <span class="quest-name">{q.title}</span>
+                </a>
+              </li>
+            ))}
+          </ol>
+          <a class="panel-link" href={withBase(missionsRoute(lang))}>{missionText.viewBoard[lang]}</a>
+        </section>
+      )}
+
+      {/* ── Expedition leader ── */}
+      <section class="panel hud">
+        <div class="panel-head">
+          <span class="panel-label">{t.leader}</span>
+        </div>
+        <div class="panel-leader">
+          <img
+            class="panel-leader-photo"
+            src={encodeURI(withBase(profile.photoPeople ?? profile.avatar))}
+            alt={profile.name}
+            width="720"
+            height="960"
+            loading="lazy"
+          />
+          <div>
+            <div class="person-name">{profile.name} <span class="person-name-zh">{profile.nameZh}</span></div>
+            <div class="person-role">{profile.roleShort[lang]}</div>
+          </div>
+        </div>
+        <a class="panel-link" href={withBase(peopleRoute(lang))}>{t.leaderLink}</a>
+      </section>
+
+      {/* ── Crew ── */}
+      <section class="panel hud">
+        <div class="panel-head">
+          <span class="panel-label">{t.crew}</span>
+          <span class="panel-count">{crewCount}</span>
+        </div>
+        {crewAvatars.length > 0 && (
+          <div class="crew-strip">
+            {crewAvatars.map((p) => (
+              <img src={encodeURI(withBase(p.photo!))} alt={p.name} width="720" height="960" loading="lazy" />
+            ))}
+          </div>
+        )}
+        <ul class="crew-groups">
+          {labMembers.map((g) => (
+            <li><span>{g.label[lang]}</span><span class="panel-count">{g.people.length}</span></li>
+          ))}
+        </ul>
+        <a class="panel-link" href={withBase(peopleRoute(lang))}>{t.crewLink}</a>
+      </section>
+
+      {/* ── Latest dispatch ── */}
+      {latest && (
+        <section class="panel hud">
+          <div class="panel-head">
+            <span class="panel-label">{t.dispatch}</span>
+            <span class="panel-stamp">{latest.date}</span>
+          </div>
+          <p class="dispatch-body" set:html={lang === 'zh' ? latest.htmlZh ?? latest.html : latest.html} />
+        </section>
+      )}
+
+      {/* ── Recruitment status ── */}
+      <section class="panel hud">
+        <div class="panel-head">
+          <span class="panel-label">{t.recruitment}</span>
+          <span class="panel-status">{recruitingTag[lang]}</span>
+        </div>
+        <p class="dispatch-body">{recruitmentStatus[lang]}</p>
+        <a class="panel-link" href={withBase(handbookRoute('join', lang))}>{t.joinLink}</a>
+      </section>
+    </div>
 
     <section class="lab-tree">
       <div class="lab-section-head">
-        <h2>{lang === 'zh' ? '手冊路線' : 'Handbook paths'}</h2>
-        <span class="lab-tree-hint">{lang === 'zh' ? '選一條開始' : 'pick a path'}</span>
+        <h2>{t.manual}</h2>
+        <span class="lab-tree-hint">{t.manualHint}</span>
       </div>
 
       {/* Role picker. Anchors, so it works with JS off; the script upgrades it

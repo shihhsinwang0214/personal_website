@@ -2,13 +2,15 @@
 /**
  * PeopleView.astro — the expedition screen.
  *
- * One screen, not two: the PI is simply the first entry in the roster, under
- * his own group heading. Same detail panel for everyone, because the leader is
- * on the expedition too — and because one mental model survives the roster
- * growing to thirty people.
+ * Every card is on the page at once, grouped by role. An earlier version used a
+ * roster menu plus one detail panel; it looked more like a game UI, but it hid
+ * nine people behind nine clicks. A People page is read for the overview, so
+ * the overview wins. Card-per-person also means: Ctrl+F finds everyone, every
+ * card has its own anchor, and the page needs no JavaScript at all.
  *
- * Per-person extras (quote, links, tag, second photo) are optional fields on
- * the same record, so anyone can have them later without another layout.
+ * The PI is simply the first group — the leader is on the expedition too.
+ * Per-person extras (second photo, links, gilded frame) are optional fields on
+ * the same record, so nobody needs a second layout.
  */
 import HandbookSidebar from './HandbookSidebar.astro';
 import { withBase } from '../lib/url';
@@ -20,6 +22,7 @@ import {
   statLabels,
   partyHeading,
   recruitingTag,
+  recruitmentStatus,
 } from '../lib/handbook';
 import { profile } from '../data/content';
 
@@ -28,26 +31,12 @@ interface Props {
 }
 const { lang } = Astro.props;
 
-/** Corners of the gilded frame. One motif in a <symbol>, referenced four times
- *  and rotated by CSS. (Astro frontmatter is TypeScript, not JSX — markup
- *  cannot be stored in a variable here.) */
-const foilCorners = ['tl', 'tr', 'br', 'bl'] as const;
-
 /** First character of a name — the placeholder when there is no photo. */
 const monogram = (name: string) => Array.from(name)[0] ?? '?';
 /** Photo filenames include CJK and spaces; encode so every host serves them. */
 const photoUrl = (p?: string) => (p ? encodeURI(withBase(p)) : '');
-
-// The PI, expressed as a roster entry so there is only one card layout.
-const piPerson: Person = {
-  name: profile.name,
-  nameEn: profile.nameZh,
-  photo: profile.photoPeople ?? profile.avatar,
-  photoAlt: 'images/people/shwang-snowboard-card.jpg',
-  since: '2026 Fall',
-  interests: 'Snowboarding, bartending',
-  foil: true,
-};
+/** Stable per-person anchor, so a card can be linked to directly. */
+const anchorFor = (p: Person) => `m-${p.nameEn || p.name}`;
 
 /** Optional links on a card. Members will mostly use `homepage`; the rest are
  *  here so the same field works for anyone who has them. */
@@ -61,30 +50,37 @@ const linkList = (p: Person) => {
   ].filter((x): x is { label: string; href: string } => x !== null);
 };
 
+/** Only the stat rows that have something in them — a card of em-dashes reads
+ *  as neglect, and most members have not filled these in yet. */
+const statsFor = (p: Person) =>
+  [
+    p.focus ? { label: statLabels.quest, value: p.focus } : null,
+    p.since ? { label: statLabels.joined, value: p.since } : null,
+    p.interests ? { label: statLabels.hobby, value: p.interests } : null,
+  ].filter((x): x is { label: string; value: string } => x !== null);
+
+// The PI, expressed as a roster entry so there is only one card layout.
+const piPerson: Person = {
+  name: profile.name,
+  nameEn: profile.nameZh,
+  photo: profile.photoPeople ?? profile.avatar,
+  photoAlt: 'images/people/shwang-snowboard-card.jpg',
+  since: '2026 Fall',
+  interests: 'Snowboarding, bartending',
+  foil: true,
+};
+
 const groups: { label: string; people: Person[] }[] = [
   { label: piHeading[lang], people: [piPerson] },
   ...labMembers.map((g) => ({ label: g.label[lang], people: g.people })),
 ];
+const total = groups.reduce((n, g) => n + g.people.length, 0);
 
-// Flat roster: the panel addresses members by index, the list keeps its groups.
-const roster = groups.flatMap((g) => g.people.map((p) => ({ ...p, group: g.label })));
-const rosterData = roster.map((p) => {
-  return {
-    name: p.name,
-    nameEn: p.nameEn ?? '',
-    group: p.group,
-    foil: Boolean(p.foil),
-    photo: photoUrl(p.photo),
-    photoAlt: photoUrl(p.photoAlt),
-    mono: monogram(p.name),
-    focus: p.focus ?? '',
-    interests: p.interests ?? '',
-    since: p.since ?? '',
-    role: p.role ?? '',
-    links: linkList(p),
-  };
-});
-const first = rosterData[0];
+/** Corners of the gilded frame. One motif in a <symbol>, referenced four times
+ *  and rotated by CSS. (Astro frontmatter is TypeScript, not JSX — markup
+ *  cannot be stored in a variable here.) */
+const foilCorners = ['tl', 'tr', 'br', 'bl'] as const;
+const anyFoil = groups.some((g) => g.people.some((p) => p.foil));
 ---
 
 <main class="handbook-shell" id="note-main">
@@ -94,7 +90,7 @@ const first = rosterData[0];
     <header class="note-header">
       <p class="note-meta">
         👥 {peopleHeading[lang]}
-        <span class="node-counter">{roster.length} MEMBERS</span>
+        <span class="node-counter">{total} MEMBERS</span>
       </p>
       <h1>{peopleHeading[lang]}</h1>
     </header>
@@ -102,214 +98,145 @@ const first = rosterData[0];
     <section class="people-group">
       <h2>{partyHeading[lang]}</h2>
 
-      <div class="party">
-        <div class={`party-detail hud${first?.foil ? ' is-foil' : ''}`} id="pd-card">
-          <div class="foil-frame" aria-hidden="true">
-            <svg width="0" height="0" class="foil-sprite">
-              <symbol id="foil-corner" viewBox="0 0 36 36">
-                <g fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round">
-                  <path d="M4 24 Q4 4 24 4" />
-                  <path d="M10 24 Q10 10 24 10" />
-                  <path d="M4 12 L10 12" />
-                  <path d="M12 4 L12 10" />
-                  <circle cx="7" cy="7" r="1.5" fill="currentColor" stroke="none" />
-                </g>
-              </symbol>
-            </svg>
-            {foilCorners.map((c) => (
-              <svg class={`foil-corner foil-${c}`} viewBox="0 0 36 36"><use href="#foil-corner" /></svg>
-            ))}
-          </div>
+      {anyFoil && (
+        <svg width="0" height="0" class="foil-sprite" aria-hidden="true">
+          <symbol id="foil-corner" viewBox="0 0 36 36">
+            <g fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round">
+              <path d="M4 24 Q4 4 24 4" />
+              <path d="M10 24 Q10 10 24 10" />
+              <path d="M4 12 L10 12" />
+              <path d="M12 4 L12 10" />
+              <circle cx="7" cy="7" r="1.5" fill="currentColor" stroke="none" />
+            </g>
+          </symbol>
+        </svg>
+      )}
 
-          <div class="party-photo-wrap" id="pd-photowrap">
-            <img
-              class="party-photo"
-              id="pd-photo"
-              src={first?.photo || withBase('images/lab-logo-mark.png')}
-              alt={first?.name ?? ''}
-              hidden={!first?.photo}
-              loading="lazy"
-            />
-            <div class="party-photo person-monogram" id="pd-mono" hidden={Boolean(first?.photo)} aria-hidden="true">
-              {first?.mono ?? '?'}
-            </div>
-            {/* Revealed by script, and only for people who have a second photo. */}
-            <button type="button" class="party-flip" id="pd-flip" hidden aria-pressed="false">
-              <span aria-hidden="true">⇄</span>
-              <span class="visually-hidden">{lang === 'zh' ? '切換另一張照片' : 'Show the other photo'}</span>
-            </button>
+      {groups.map((group) => (
+        <div class="member-block">
+          <div class="party-roster-label">
+            {group.label}<span class="party-count">{group.people.length}</span>
           </div>
+          <div class="member-grid">
+            {group.people.map((p) => {
+              const stats = statsFor(p);
+              const links = linkList(p);
+              const photo = photoUrl(p.photo);
+              const photoAlt = photoUrl(p.photoAlt);
+              return (
+                <article
+                  class={`member-card hud${p.foil ? ' is-foil' : ''}`}
+                  id={anchorFor(p)}
+                  data-photo={photo || undefined}
+                  data-photo-alt={photoAlt || undefined}
+                >
+                  {p.foil && (
+                    <div class="foil-frame" aria-hidden="true">
+                      {foilCorners.map((c) => (
+                        <svg class={`foil-corner foil-${c}`} viewBox="0 0 36 36"><use href="#foil-corner" /></svg>
+                      ))}
+                    </div>
+                  )}
 
-          <div class="party-detail-body">
-            <div class="person-name">
-              <span id="pd-name">{first?.name}</span>
-              <span class="person-name-zh" id="pd-name-en">{first?.nameEn}</span>
-            </div>
-            <div class="hud-class" id="pd-class">{statLabels.role} · {first?.group}</div>
-            <dl class="hud-stats">
-              <div class="hud-stat"><dt>{statLabels.quest}</dt><dd id="pd-focus">{first?.focus || '—'}</dd></div>
-              <div class="hud-stat"><dt>{statLabels.joined}</dt><dd id="pd-since">{first?.since || '—'}</dd></div>
-              <div class="hud-stat"><dt>{statLabels.hobby}</dt><dd id="pd-likes">{first?.interests || '—'}</dd></div>
-            </dl>
-            <ul class="person-links" id="pd-links" hidden>
-              {first?.links.map((l) => (
-                <li><a href={l.href} target={l.href.startsWith('mailto:') ? undefined : '_blank'} rel="noopener">{l.label}</a></li>
-              ))}
-            </ul>
+                  <div class="member-photo-wrap">
+                    {photo ? (
+                      <img class="member-photo" src={photo} alt={p.name} width="720" height="960" loading="lazy" />
+                    ) : (
+                      <div class="member-photo person-monogram" aria-hidden="true">{monogram(p.name)}</div>
+                    )}
+                    {photoAlt && (
+                      <button type="button" class="party-flip" hidden aria-pressed="false">
+                        <span aria-hidden="true">⇄</span>
+                        <span class="visually-hidden">
+                          {lang === 'zh' ? '切換另一張照片' : 'Show the other photo'}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div class="member-body">
+                    <div class="person-name">
+                      {p.name}
+                      {p.nameEn && <span class="person-name-zh">{p.nameEn}</span>}
+                    </div>
+                    {p.role && <div class="person-role">{p.role}</div>}
+
+                    {stats.length > 0 && (
+                      <dl class="hud-stats">
+                        {stats.map((s) => (
+                          <div class="hud-stat"><dt>{s.label}</dt><dd>{s.value}</dd></div>
+                        ))}
+                      </dl>
+                    )}
+
+                    {links.length > 0 && (
+                      <ul class="person-links">
+                        {links.map((l) => (
+                          <li>
+                            <a
+                              href={l.href}
+                              target={l.href.startsWith('mailto:') ? undefined : '_blank'}
+                              rel="noopener"
+                            >{l.label}</a>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </div>
-
-        <div class="party-roster">
-          {groups.map((group) => (
-            <div class="party-roster-group">
-              <div class="party-roster-label">
-                {group.label}<span class="party-count">{group.people.length}</span>
-              </div>
-              <ul>
-                {group.people.map((p) => (
-                  <li>
-                    <button
-                      type="button"
-                      class="party-roster-item"
-                      data-index={rosterData.findIndex((r) => r.name === p.name)}
-                      aria-pressed={p.name === first?.name ? 'true' : 'false'}
-                    >
-                      {p.photo ? (
-                        <img class="party-roster-avatar" src={photoUrl(p.photo)} alt="" loading="lazy" />
-                      ) : (
-                        <span class="party-roster-avatar party-roster-mono" aria-hidden="true">{monogram(p.name)}</span>
-                      )}
-                      <span class="party-roster-name">{p.name}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </div>
+      ))}
     </section>
 
     <div class="quest-banner hud">
       <span class="quest-banner-tag">▸ {recruitingTag[lang]}</span>
       <p>
+        {recruitmentStatus[lang]}{' '}
         {lang === 'zh' ? (
-          <>我們正在招收新成員，詳見<a href={withBase('zh/handbook/join')}>加入研究室</a>。</>
+          <>目前狀況見<a href={withBase('zh/handbook/join')}>加入研究室</a>。</>
         ) : (
-          <>We are recruiting — see <a href={withBase('handbook/join')}>Join the Lab</a>.</>
+          <>See <a href={withBase('handbook/join')}>Join the Lab</a>.</>
         )}
       </p>
     </div>
   </article>
 </main>
 
-<script is:inline define:vars={{ people: rosterData, roleWord: statLabels.role }}>
+<script>
+  /* Photo flip, per card. The button is rendered only for people who have a
+     second photo and revealed only here, so with JS off a photo is just a
+     photo. Everything else on this page is static. */
   (() => {
-    const buttons = Array.from(document.querySelectorAll('.party-roster-item'));
-    if (!buttons.length || !people.length) return;
-    const byId = (id) => document.getElementById(id);
-
-    const img = byId('pd-photo');
-    const mono = byId('pd-mono');
-    const wrap = byId('pd-photowrap');
-    const flipBtn = byId('pd-flip');
-    let current = 0;
-    let flipped = false;
-
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    const paintPhoto = () => {
-      const p = people[current];
-      const src = flipped && p.photoAlt ? p.photoAlt : p.photo;
-      if (src) {
-        img.src = src;
-        img.alt = p.name;
-        img.hidden = false;
-        mono.hidden = true;
-      } else {
-        mono.textContent = p.mono;
-        mono.hidden = false;
-        img.hidden = true;
-      }
-      flipBtn.hidden = !(p.photo && p.photoAlt);
-      flipBtn.setAttribute('aria-pressed', String(flipped));
-    };
+    document.querySelectorAll<HTMLElement>('.member-card[data-photo-alt]').forEach((card) => {
+      const front = card.dataset.photo ?? '';
+      const back = card.dataset.photoAlt ?? '';
+      const img = card.querySelector<HTMLImageElement>('.member-photo');
+      const wrap = card.querySelector<HTMLElement>('.member-photo-wrap');
+      const btn = card.querySelector<HTMLButtonElement>('.party-flip');
+      if (!front || !back || !img || !wrap || !btn) return;
 
-    const flip = () => {
-      const p = people[current];
-      if (!p.photo || !p.photoAlt) return;
-      flipped = !flipped;
-      if (reduceMotion) { paintPhoto(); return; }
-      wrap.classList.add('is-flipping');
-      setTimeout(paintPhoto, 140);
-      setTimeout(() => wrap.classList.remove('is-flipping'), 300);
-    };
+      btn.hidden = false;
+      let flipped = false;
 
-    const select = (i) => {
-      const p = people[i];
-      if (!p) return;
-      current = i;
-      flipped = false;
-      byId('pd-name').textContent = p.name;
-      byId('pd-name-en').textContent = p.nameEn;
-      byId('pd-class').textContent = roleWord + ' · ' + p.group;
-      byId('pd-focus').textContent = p.focus || '—';
-      byId('pd-since').textContent = p.since || '—';
-      byId('pd-likes').textContent = p.interests || '—';
+      const swap = () => {
+        img.src = flipped ? back : front;
+        btn.setAttribute('aria-pressed', String(flipped));
+      };
+      const flip = () => {
+        flipped = !flipped;
+        if (reduceMotion) { swap(); return; }
+        wrap.classList.add('is-flipping');
+        setTimeout(swap, 140);
+        setTimeout(() => wrap.classList.remove('is-flipping'), 300);
+      };
 
-      byId('pd-card').classList.toggle('is-foil', Boolean(p.foil));
-
-      const links = byId('pd-links');
-      links.replaceChildren();
-      p.links.forEach((l) => {
-        const li = document.createElement('li');
-        const a = document.createElement('a');
-        a.href = l.href;
-        a.textContent = l.label;
-        if (!l.href.startsWith('mailto:')) { a.target = '_blank'; a.rel = 'noopener'; }
-        li.appendChild(a);
-        links.appendChild(li);
-      });
-      links.hidden = p.links.length === 0;
-
-      paintPhoto();
-      buttons.forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.index) === i)));
-    };
-
-    // Put the selection in the URL so a card can be linked to directly — people
-    // do want to send their own card to someone. Name-based, not index-based,
-    // so the link survives the roster growing.
-    const slugFor = (p) => 'm-' + encodeURIComponent(p.nameEn || p.name);
-    const selectAndRemember = (i) => {
-      if (!people[i]) return;
-      select(i);
-      history.replaceState(null, '', '#' + slugFor(people[i]));
-    };
-
-    buttons.forEach((btn) => btn.addEventListener('click', () => selectAndRemember(Number(btn.dataset.index))));
-    flipBtn.addEventListener('click', flip);
-    img.addEventListener('click', flip);
-
-    // Menu-style keyboard movement while the roster has focus.
-    document.querySelector('.party-roster')?.addEventListener('keydown', (e) => {
-      const step = { ArrowDown: 1, ArrowUp: -1, j: 1, k: -1 }[e.key];
-      if (!step) return;
-      const at = buttons.findIndex((b) => b.getAttribute('aria-pressed') === 'true');
-      const next = Math.min(buttons.length - 1, Math.max(0, (at < 0 ? 0 : at) + step));
-      if (next === at) return;
-      e.preventDefault();
-      buttons[next].focus();
-      selectAndRemember(Number(buttons[next].dataset.index));
+      btn.addEventListener('click', flip);
+      img.addEventListener('click', flip);
     });
-
-    // Open straight to a linked member.
-    if (location.hash.startsWith('#m-')) {
-      const want = decodeURIComponent(location.hash.slice(3));
-      const i = people.findIndex((p) => (p.nameEn || p.name) === want);
-      if (i >= 0) select(i);
-      else select(0);
-    } else {
-      select(0);
-    }
   })();
 </script>

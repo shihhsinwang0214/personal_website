@@ -134,7 +134,12 @@ export const heroContent = {
   },
 };
 
-export const news: NewsItem[] = [
+const newsItems: NewsItem[] = [
+  {
+    date: 'Aug 2026',
+    html: 'Undergraduate project places are <strong>full for now</strong>; MS/PhD depends on capacity. See <a href="/personal_website/handbook/join">Join the Lab</a> for where things stand and how to apply.',
+    htmlZh: '學士專題生名額<strong>目前已滿</strong>，碩博士生視情況而定。目前狀況與申請方式請見<a href="/personal_website/zh/handbook/join">加入研究室</a>。',
+  },
   {
     date: 'Jul 2026',
     html: 'I was named a <strong>Yushan Young Fellow</strong> by Taiwan\'s Ministry of Education (Yushan Fellow Program).',
@@ -145,11 +150,6 @@ export const news: NewsItem[] = [
     html: 'I am organizing two minisymposia on generative models, transport, and inverse problems at <strong>SIAM IS26 &amp; MDS26</strong> (Salt Lake City, Nov 2026).',
     htmlZh: '我將在 <strong>SIAM IS26 與 MDS26</strong>（鹽湖城，2026 年 11 月）籌辦兩場關於 generative models、optimal transport 與 inverse problems 的 minisymposia。',
     links: [{ label: '[Details]', href: 'experience' }],
-  },
-  {
-    date: 'Jul 2026',
-    html: 'I am <strong>actively recruiting undergraduate project students and MS/PhD students</strong> for my new lab at NTU CSIE. See <a href="/personal_website/handbook/join">Join the Lab</a> for openings and how to apply.',
-    htmlZh: '研究室<strong>目前正在積極招收學士專題生與碩博士生</strong>。招募資訊與申請方式請見<a href="/personal_website/zh/handbook/join">加入研究室</a>。',
   },
   {
     date: 'Jul 2026',
@@ -196,6 +196,20 @@ export const news: NewsItem[] = [
     htmlZh: '在 Andrea Bertozzi 指導下開始訪問 UCLA，研究 flow matching 及其在 RNA/DNA 3D folding 上的應用。',
   },
 ];
+
+
+/** `date` is written as "MMM YYYY". Sorted newest first so a new entry can be
+ *  added anywhere in the list above without the home page going out of order.
+ *  An unparseable date keeps its position rather than jumping to the end. */
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function newsRank(item: NewsItem): number {
+  const [mon, year] = item.date.trim().split(/\s+/);
+  const m = MONTHS.indexOf(mon);
+  const y = Number(year);
+  if (m < 0 || !Number.isFinite(y)) return Number.NEGATIVE_INFINITY;
+  return y * 12 + m;
+}
+export const news: NewsItem[] = [...newsItems].sort((a, b) => newsRank(b) - newsRank(a));
 
 export const publications: PublicationGroup[] = [
   {

@@ -259,7 +259,16 @@ export const expeditionTag = 'EXPEDITION';
 /** Heading over the member roster — the people on the expedition, as distinct
  *  from the expedition itself (which is the lab). */
 export const partyHeading: Record<Lang, string> = { en: 'The Expedition Party', zh: '遠征隊隊伍' };
-export const recruitingTag: Record<Lang, string> = { en: 'OPEN QUEST', zh: '招募中' };
+/** Banner tag on the People page. `OPEN QUEST` would overstate things while
+ *  undergraduate places are full — the banner now reports status, not a call. */
+export const recruitingTag: Record<Lang, string> = { en: 'PARTY STATUS', zh: '隊伍狀態' };
+
+/** One source for the recruiting line. It appears on the People banner and on
+ *  the lab dashboard; the two drifting apart would be worse than either. */
+export const recruitmentStatus: Record<Lang, string> = {
+  en: 'Undergraduate project places are full for now; MS/PhD depends on capacity.',
+  zh: '專題生名額目前已滿，碩博士生視情況而定。',
+};
 export const allMembersLabel: Record<Lang, string> = { en: 'All members →', zh: '所有成員 →' };
 
 export function peopleRoute(lang: Lang): string {
@@ -269,12 +278,19 @@ export function peopleRoute(lang: Lang): string {
 export const labMembers: MemberGroup[] = [
   {
     label: { en: "Master's Students", zh: '碩士生' },
-    people: [{ name: '鄭承櫸', since: '2026 Fall' }],
+    people: [
+      {
+        name: '鄭承櫸',
+        since: '2026 Fall',
+        photo: 'images/people/鄭承櫸-card.jpg',
+        photoAlt: 'images/people/鄭承櫸-反-card.jpg',
+      },
+    ],
   },
   {
     label: { en: 'Undergraduate & High School Researchers', zh: '專題生' },
     people: [
-      // `-card.jpg` files are square crops generated from the originals, which
+      // `-card.jpg` files are 3:4 crops generated from the originals, which
       // stay in the folder untouched. Re-crop with the script in
       // docs/lab-interaction-plan.md if a source photo is replaced.
       { name: '吳宇傑', since: '2026 Fall' },
@@ -283,7 +299,12 @@ export const labMembers: MemberGroup[] = [
         since: '2026 Fall',
         photo: 'images/people/曾家振-card.jpg',
       },
-      { name: '胡允升', since: '2026 Fall' },
+      {
+        name: '胡允升',
+        since: '2026 Fall',
+        photo: 'images/people/胡允升-card.jpg',
+        photoAlt: 'images/people/胡允升-反-card.jpg',
+      },
       {
         name: '陳澔樂',
         since: '2026 Fall',

@@ -1,0 +1,106 @@
+---
+/**
+ * MissionBoard.astro — the lab's research directions as parallel main quests.
+ *
+ * Design constraints (see docs/lab-expedition-redesign.md):
+ *   - Parallel, never sequential. No roadmap, no progression tree, no
+ *     milestones. The `MAIN QUEST 01` codes are identifiers, not ranks.
+ *   - Only fields that have a value are rendered. `question`, `status` and
+ *     `crew` are unset for now; a card missing them should look unfinished,
+ *     not be padded with placeholders.
+ *   - Field notes are resolved from the real notes collection, so a direction
+ *     with no notes says so instead of linking nowhere.
+ */
+import { getCollection } from 'astro:content';
+import HandbookSidebar from './HandbookSidebar.astro';
+import { withBase } from '../lib/url';
+import type { Lang } from '../lib/handbook';
+import { labInfo } from '../lib/handbook';
+import { missionText, visibleQuests } from '../lib/mission';
+import { noteRoute, notesIndexRoute } from '../lib/notes';
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+
+const allNotes = await getCollection('notes');
+/** Notes for this language, indexed by the `group` a quest points at. */
+const notesByGroup = new Map<string, { slug: string; title: string }[]>();
+for (const n of allNotes) {
+  if (n.data.lang !== lang) continue;
+  const list = notesByGroup.get(n.data.group) ?? [];
+  list.push({ slug: n.data.slug, title: n.data.title });
+  notesByGroup.set(n.data.group, list);
+}
+
+const quests = visibleQuests().map((q) => ({
+  ...q,
+  notes: q.noteGroups.flatMap((g) => (notesByGroup.get(g) ?? []).slice(0, 4)),
+}));
+---
+
+<main class="handbook-shell" id="note-main">
+  <HandbookSidebar lang={lang} current="missions" />
+
+  <article class="handbook-article">
+    <header class="note-header">
+      <p class="note-meta">
+        🗺 {missionText.boardHeading[lang]}
+        {quests.length > 0 && <span class="node-counter">{quests.length} QUESTS</span>}
+      </p>
+      <h1>{missionText.boardHeading[lang]}</h1>
+    </header>
+
+    <section class="mission-statement hud">
+      <div class="hud-tag">{missionText.mainMission[lang].toUpperCase()}</div>
+      <p class="mission-lab-name">{labInfo.name}</p>
+      <blockquote class="lab-statement">{labInfo.philosophy[lang]}</blockquote>
+    </section>
+
+    <p class="bestiary-intro">{quests.length > 0 ? missionText.boardIntro[lang] : missionText.boardClosed[lang]}</p>
+
+    <div class="quest-grid">
+      {quests.map((q) => (
+        <article class="quest-card hud" id={q.id}>
+          <div class="hud-tag">{q.code}</div>
+          <h2 class="quest-title">{q.title}</h2>
+          <p class="quest-desc">{q.desc[lang]}</p>
+
+          {q.question && (
+            <div class="quest-field">
+              <div class="quest-field-label">{missionText.question[lang]}</div>
+              <p>{q.question[lang]}</p>
+            </div>
+          )}
+
+          {q.status && (
+            <div class="quest-field">
+              <div class="quest-field-label">{missionText.status[lang]}</div>
+              <p>{q.status[lang]}</p>
+            </div>
+          )}
+
+          <div class="quest-field">
+            <div class="quest-field-label">{missionText.fieldNotes[lang]}</div>
+            {q.notes.length > 0 ? (
+              <ul class="quest-notes">
+                {q.notes.map((n) => (
+                  <li><a href={withBase(noteRoute(n.slug, lang))}>{n.title}</a></li>
+                ))}
+              </ul>
+            ) : (
+              <p class="quest-empty">{missionText.noNotesYet[lang]}</p>
+            )}
+          </div>
+        </article>
+      ))}
+    </div>
+
+    {quests.length > 0 && (
+      <p class="bestiary-foot">
+        <a href={withBase(notesIndexRoute(lang))}>{missionText.allNotes[lang]}</a>
+      </p>
+    )}
+  </article>
+</main>

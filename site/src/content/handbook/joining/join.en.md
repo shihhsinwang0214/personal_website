@@ -6,17 +6,17 @@ section: "joining"
 order: 1
 status: "available"
 updated: 2026-07-18
-summary: "Actively recruiting undergraduate project students and MS/PhD students. This page covers who might fit and how to apply."
+summary: "Undergraduate project places are full for now; MS/PhD depends on capacity. This page covers who might fit and how to apply."
 ---
 
-> I am **actively recruiting** undergraduate project students and MS/PhD students. Please read everything below.
+> **Undergraduate project places are full for now**, and MS/PhD depends on where things stand. Please read everything below before writing to me.
 
 ## Current openings
 
-I will join the Department of Computer Science and Information Engineering at National Taiwan University in August 2026. I am currently looking for:
+I will join the Department of Computer Science and Information Engineering at National Taiwan University in August 2026. The lab is just starting, and here is where things stand:
 
-- **Undergraduate project students** — primarily **NTU** undergrads (CSIE / Math and related departments) who are interested in research and able to commit time consistently; exceptional students from other schools with a strong topical fit are welcome to reach out and will be considered case by case.
-- **MS and PhD students** — students in the **Department of Computer Science and Information Engineering at NTU** who want to do deep, focused research.
+- **Undergraduate project students** — **not taking new ones for now.** The people already here need enough of my time, and I would rather not take someone on without being able to advise them properly. I will update this page if that changes.
+- **MS and PhD students** — **depends on capacity.** If your direction fits ours, do write — I will tell you honestly whether there is room. Department of Computer Science and Information Engineering at NTU.
 
 Research assistants and other forms of collaboration are also welcome to reach out. For research directions, please see [Publications](/personal_website/publications) and [Notes](/personal_website/notes).
 
