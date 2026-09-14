@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ridge 與提早停止走的是同一條路徑</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：限制容量（ridge 的 λ）與限制時間（提早停止的步數 t）不是兩個不同的想法。用 <b>λ = 1/(2ηt)</b> 把兩個刻度對齊之後，兩條真實風險曲線<b>疊在一起</b>。而且兩者都只在 variance 還有東西可壓的時候才賺——把次數調到 2，正則化就變成純虧。</p>
+  <canvas id="fit" style="aspect-ratio:5/3" aria-label="散點＝訓練資料；灰虛線＝真值；紅線＝ridge 的解；綠線＝提早停止在對應步數的解"></canvas>
+  <p class="cap">散點＝訓練資料；灰虛線＝真值；紅線＝ridge 的解；綠線＝提早停止在對應步數的解</p>
+  <canvas id="curve" style="aspect-ratio:5/2" aria-label="縱軸＝真實風險，橫軸＝對齊後的 λ（log，由大到小）。紅＝ridge、綠＝提早停止（用 λ=1/(2ηt) 換算）"></canvas>
+  <p class="cap">縱軸＝真實風險，橫軸＝對齊後的 λ（log，由大到小）。紅＝ridge、綠＝提早停止（用 λ=1/(2ηt) 換算）</p>
+  <div class="controls">
+    <div class="row">
+      <label for="lam">λ（10^）</label><input id="lam" type="range" min="-8" max="0" step="0.1" value="-4" />
+      <label for="d">次數 d</label><input id="d" type="range" min="2" max="20" step="1" value="14" />
+    </div>
+    <div class="row">
+      <label for="n">n</label><input id="n" type="range" min="15" max="120" step="5" value="30" />
+      <label for="eta">η（相對 η*）</label><input id="eta" type="range" min="-1.5" max="-0.05" step="0.05" value="-0.1" />
+    </div>
+    <div class="stats"><span>λ = <b id="vl">—</b></span> <span>對應步數 t = <b id="vt">—</b></span> <span>ridge 真實風險 = <b id="v1">—</b></span> <span>提早停止真實風險 = <b id="v2">—</b></span> <span>兩者之差 = <b id="v3">—</b></span></div>
+  </div>
+  <p class="observe">觀察：兩條曲線<b>幾乎完全重合</b>（預設設定下 ridge 0.0313、提早停止 0.0308，差 0.0005），而且改 η 之後綠色那條在<b>對齊後的 λ 刻度上仍然不動</b>——它只在 t 的刻度上左右平移。這就是等價成立的證據。在這組設定下最低點落在<b>左端</b>（λ 越小越好，和筆記裡量到的 λ=10⁻⁸ 一致）；把 n 調小或把次數調大，谷底才會往右移進畫面。而把次數調到 2，<b>兩條曲線都變成單調上升</b>：bias 已經主導的時候，正則化是純虧。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var G = 240, NL = 26;
+  var el = function (i) { return document.getElementById(i); };
+  var dF = MLF.hiDPICanvas(el('fit')), dC = MLF.hiDPICanvas(el('curve'));
+  var pal = MLF.palette(), gx = MLF.grid(G), S = null;
+
+  /* 標準化後的多項式基底上，ridge 與梯度下降都寫得出來 */
+  function setup() {
+    var n = +el('n').value, d = +el('d').value, sg = 0.15;
+    var t = MLF.toy1d(n, sg, 4), A = [], mu = [], sd = [], i, j;
+    for (i = 0; i < n; i++) { A.push([]); for (j = 0; j <= d; j++) A[i].push(Math.pow(t.x[i], j)); }
+    for (j = 0; j <= d; j++) {
+      var m = 0; for (i = 0; i < n; i++) m += A[i][j]; m /= n;
+      var v = 0; for (i = 0; i < n; i++) v += (A[i][j] - m) * (A[i][j] - m); v = Math.sqrt(v / n) || 1;
+      if (j === 0) { m = 0; v = 1; }
+      mu.push(m); sd.push(v);
+      for (i = 0; i < n; i++) A[i][j] = (A[i][j] - m) / v;
+    }
+    var GB = [];
+    for (i = 0; i < G; i++) { GB.push([]); for (j = 0; j <= d; j++) GB[i].push((Math.pow(gx[i], j) - mu[j]) / sd[j]); }
+    // Hessian 的最大特徵值（冪迭代）決定 eta*
+    var v0 = new Array(d + 1).fill(1), lmax = 1, it;
+    for (it = 0; it < 80; it++) {
+      var u = new Array(d + 1).fill(0);
+      for (i = 0; i < n; i++) {
+        var pr = 0; for (j = 0; j <= d; j++) pr += A[i][j] * v0[j];
+        for (j = 0; j <= d; j++) u[j] += 2 * A[i][j] * pr / n;
+      }
+      lmax = Math.sqrt(u.reduce(function (a, b) { return a + b * b; }, 0)) || 1;
+      for (j = 0; j <= d; j++) v0[j] = u[j] / lmax;
+    }
+    S = { A: A, y: t.y, GB: GB, n: n, d: d, sg: sg, x: t.x, lmax: lmax, etaStar: 2 / lmax };
+  }
+  function riskOf(w) {
+    var s = 0, i, j;
+    for (i = 0; i < G; i++) { var p = 0; for (j = 0; j <= S.d; j++) p += w[j] * S.GB[i][j]; var e = p - MLF.truth(gx[i]); s += e * e; }
+    return s / G + S.sg * S.sg;
+  }
+  function ridge(lam) {
+    var d = S.d, p = d + 1, M = [], b = [], i, j, k;
+    for (j = 0; j < p; j++) {
+      M.push(new Array(p).fill(0)); b.push(0);
+      for (i = 0; i < S.n; i++) b[j] += S.A[i][j] * S.y[i];
+    }
+    for (j = 0; j < p; j++) for (k = 0; k < p; k++) {
+      var s = 0; for (i = 0; i < S.n; i++) s += S.A[i][j] * S.A[i][k];
+      M[j][k] = s + (j === k ? lam * S.n + 1e-12 : 0);
+    }
+    return MLF.solveSym(M, b);
+  }
+  function gdTo(T, eta) {
+    var w = new Array(S.d + 1).fill(0), k, i, j;
+    for (k = 0; k < T; k++) {
+      var g = new Array(S.d + 1).fill(0);
+      for (i = 0; i < S.n; i++) {
+        var p = 0; for (j = 0; j <= S.d; j++) p += w[j] * S.A[i][j];
+        var e = p - S.y[i];
+        for (j = 0; j <= S.d; j++) g[j] += 2 * e * S.A[i][j] / S.n;
+      }
+      for (j = 0; j <= S.d; j++) w[j] -= eta * g[j];
+    }
+    return w;
+  }
+  function tOf(lam, eta) { return Math.max(1, Math.round(1 / (2 * eta * lam))); }
+
+  function curves() {
+    var eta = S.etaStar * Math.pow(10, +el('eta').value), i;
+    var lams = [], R = { lam: [], ridge: [], es: [] };
+    for (i = 0; i < NL; i++) lams.push(Math.pow(10, -8 + 8 * i / (NL - 1)));
+    // 提早停止：一次跑到最大步數，沿途在需要的 t 記錄
+    var want = lams.map(function (l) { return tOf(l, eta); });
+    var maxT = Math.min(120000, Math.max.apply(null, want));
+    var w = new Array(S.d + 1).fill(0), k, j, m = 0;
+    var order = want.map(function (t, idx) { return [t, idx]; }).sort(function (a, b) { return a[0] - b[0]; });
+    var esR = new Array(NL).fill(NaN);
+    for (k = 1; k <= maxT; k++) {
+      var g = new Array(S.d + 1).fill(0);
+      for (i = 0; i < S.n; i++) {
+        var p = 0; for (j = 0; j <= S.d; j++) p += w[j] * S.A[i][j];
+        var e = p - S.y[i];
+        for (j = 0; j <= S.d; j++) g[j] += 2 * e * S.A[i][j] / S.n;
+      }
+      for (j = 0; j <= S.d; j++) w[j] -= eta * g[j];
+      while (m < order.length && order[m][0] <= k) { esR[order[m][1]] = riskOf(w); m++; }
+    }
+    while (m < order.length) { esR[order[m][1]] = riskOf(w); m++; }
+    for (i = 0; i < NL; i++) { R.lam.push(lams[i]); R.ridge.push(riskOf(ridge(lams[i]))); R.es.push(esR[i]); }
+    R.eta = eta;
+    return R;
+  }
+
+  function draw() {
+    setup();
+    var C = curves();
+    var lam = Math.pow(10, +el('lam').value), eta = C.eta, T = tOf(lam, eta);
+    var wr = ridge(lam), we = gdTo(Math.min(T, 120000), eta);
+    el('vl').textContent = lam.toExponential(2);
+    el('vt').textContent = T;
+    el('v1').textContent = riskOf(wr).toFixed(4);
+    el('v2').textContent = riskOf(we).toFixed(4);
+    el('v3').textContent = Math.abs(riskOf(wr) - riskOf(we)).toFixed(4);
+
+    var s = dF.resize(), ctx = dF.ctx; MLF.clear(ctx, s, pal);
+    var ax = MLF.axes(ctx, s, { x: [0, 1], y: [-2.2, 2.2], pal: pal,
+      xticks: [0, 0.5, 1], yticks: [-2, -1, 0, 1, 2], xlab: 'x', ylab: 'y' });
+    var i, j, t = [], pr = [], pe = [];
+    for (i = 0; i < G; i++) {
+      t.push([gx[i], MLF.truth(gx[i])]);
+      var a = 0, b = 0;
+      for (j = 0; j <= S.d; j++) { a += wr[j] * S.GB[i][j]; b += we[j] * S.GB[i][j]; }
+      pr.push([gx[i], Math.max(-3, Math.min(3, a))]);
+      pe.push([gx[i], Math.max(-3, Math.min(3, b))]);
+    }
+    MLF.line(ctx, ax, t, MLF.rgb(pal.a, 0.5), 1.6, [5, 4]);
+    for (i = 0; i < S.x.length; i++) MLF.dot(ctx, ax, S.x[i], S.y[i], MLF.rgb(pal.b, 0.65), 2.3);
+    MLF.line(ctx, ax, pr, MLF.rgb(pal.d), 2.2);
+    MLF.line(ctx, ax, pe, MLF.rgb(pal.c), 2, [6, 4]);
+    MLF.legend(ctx, ax, [{ t: 'ridge', c: MLF.rgb(pal.d) }, { t: '提早停止', c: MLF.rgb(pal.c) }], 'tl', pal);
+
+    var s2 = dC.resize(), c2 = dC.ctx; MLF.clear(c2, s2, pal);
+    var hi = 0;
+    C.ridge.concat(C.es).forEach(function (v) { if (isFinite(v)) hi = Math.max(hi, v); });
+    hi = Math.min(hi * 1.1, 3);
+    var ax2 = MLF.axes(c2, s2, { x: [1e-8, 1], y: [0, hi], logx: true, pal: pal,
+      xticks: [1e-8, 1e-6, 1e-4, 1e-2, 1], yticks: [0, hi / 2, hi],
+      fmtx: function (v) { return v.toExponential(0); }, fmty: function (v) { return v.toFixed(3); },
+      xlab: '對齊後的 λ（log；右邊＝強正則化）' });
+    MLF.ref(c2, ax2, { y: S.sg * S.sg, color: MLF.rgb(pal.a, 0.7) });
+    MLF.line(c2, ax2, C.lam.map(function (l, i) { return [l, Math.min(hi, C.ridge[i])]; }), MLF.rgb(pal.d), 2.2);
+    MLF.line(c2, ax2, C.lam.map(function (l, i) { return [l, Math.min(hi, C.es[i])]; }), MLF.rgb(pal.c), 2, [6, 4]);
+    MLF.ref(c2, ax2, { x: lam, color: pal.accent, dash: [] });
+    MLF.legend(c2, ax2, [{ t: 'ridge（對 λ）', c: MLF.rgb(pal.d) },
+      { t: '提早停止（t → λ=1/(2ηt)）', c: MLF.rgb(pal.c) }], 'tl', pal);
+  }
+  ['lam', 'd', 'n', 'eta'].forEach(function (i) { el(i).onchange = draw; });
+  window.addEventListener('resize', draw);
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  draw();
+
+})();
+</script>
+</body>
+</html>

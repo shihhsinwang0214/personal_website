@@ -22,15 +22,14 @@ export const draftHandbookSlugs = new Set<string>([
   // Practice section — held back for now.
   'ai-usage',
   'research-ethics',
-  // Getting Started section — drafted from the onboarding guide, awaiting review.
-  'onboarding-overview',
-  'onboarding-setup',
-  'phase-shared-language',
-  'phase-reproduce',
-  'phase-first-question',
-  'phase-present-revise',
-  'getting-help',
-  'onboarding-templates',
+  // Finding Your Research Question — first draft of the six steps, awaiting review.
+  'question-overview',
+  'q1-context',
+  'q2-existing-methods',
+  'q3-analyze',
+  'q4-evaluate',
+  'q5-your-question',
+  'q6-next-step',
   // Research Craft section — first draft written, awaiting review.
   'reading-papers',
   'writing-papers',
@@ -41,11 +40,15 @@ export const draftHandbookSlugs = new Set<string>([
 ]);
 
 // Preview toggle for drafts.
-//   false → drafts are hidden everywhere, including `npm run dev` (default).
-//   true  → drafts are built and shown locally, so they can be reviewed in the
-//           browser. Only takes effect in `npm run dev`; the production build
-//           always hides drafts, so this can never leak to the live site.
-const PREVIEW_DRAFTS = false;
+//   true  → drafts are built and shown in `npm run dev`, so they can be read in
+//           the browser while being written. This is the default, because a
+//           draft you cannot see is a draft you cannot review — twice now the
+//           answer to "why don't I see the new pages?" was this flag.
+//   false → drafts are hidden even in dev.
+// Either way `npm run build` always hides them, so this cannot reach the live
+// site. Draft pages carry a visible DRAFT badge in dev so preview is never
+// mistaken for published.
+const PREVIEW_DRAFTS = true;
 
 const isDev = Boolean((import.meta as { env?: { DEV?: boolean } }).env?.DEV);
 export const hiddenHandbookSlugs: Set<string> =
@@ -90,12 +93,12 @@ export const handbookSections: SectionDef[] = [
     key: 'getting-started',
     icon: '🎓',
     tag: 'TUTORIAL',
-    label: { en: 'Getting Started', zh: '新人上手' },
+    label: { en: 'Finding Your Research Question', zh: '找到你的研究問題' },
     blurb: {
-      en: 'Your first month: setup, the four stages, how to ask for help, and the shared templates.',
-      zh: '第一個月：環境與支持網、四個階段、卡住時怎麼求助，以及共用模板。',
+      en: 'Six steps from reading papers to a question of your own — and how to tell when each step is done.',
+      zh: '從讀論文走到自己的研究問題，六個步驟，以及每一步怎麼判斷自己做到了。',
     },
-    start: 'onboarding-overview',
+    start: 'question-overview',
   },
   {
     key: 'craft',
@@ -110,17 +113,20 @@ export const handbookSections: SectionDef[] = [
   },
 ];
 
-// Role-based entry points on the landing page (map to sections).
+// Role-based entry points on the landing page.
+// A role can point at more than one section — "new member" needs both how we
+// work and how to find a question, and those are different sections. The first
+// entry is where the anchor jumps to; all of them light up.
 export interface RoleCard {
   icon: string;
-  section: SectionKey;
+  sections: SectionKey[];
   title: Record<Lang, string>;
   desc: Record<Lang, string>;
 }
 export const roleCards: RoleCard[] = [
   {
     icon: '🌱',
-    section: 'joining',
+    sections: ['joining', 'practice'],
     title: { en: 'Prospective Student', zh: '準學生' },
     desc: {
       en: 'Thinking about applying? Start with who thrives here and what I look for.',
@@ -129,7 +135,7 @@ export const roleCards: RoleCard[] = [
   },
   {
     icon: '🧭',
-    section: 'practice',
+    sections: ['practice', 'getting-started'],
     title: { en: 'New Lab Member', zh: '新進成員' },
     desc: {
       en: 'Just joined? Learn how we think, what we expect, and how we work.',
@@ -138,7 +144,7 @@ export const roleCards: RoleCard[] = [
   },
   {
     icon: '🔬',
-    section: 'craft',
+    sections: ['craft', 'getting-started'],
     title: { en: 'Current Researcher', zh: '現任研究者' },
     desc: {
       en: 'Doing the work — reading, experiments, writing, talks, and craft.',
@@ -293,7 +299,11 @@ export const labMembers: MemberGroup[] = [
       // `-card.jpg` files are 3:4 crops generated from the originals, which
       // stay in the folder untouched. Re-crop with the script in
       // docs/lab-interaction-plan.md if a source photo is replaced.
-      { name: '吳宇傑', since: '2026 Fall' },
+      {
+        name: '吳宇傑',
+        since: '2026 Fall',
+        photo: 'images/people/吳宇傑-card.jpg',
+      },
       {
         name: '曾家振',
         since: '2026 Fall',
@@ -311,7 +321,11 @@ export const labMembers: MemberGroup[] = [
         photo: 'images/people/陳澔樂-card.jpg',
         photoAlt: 'images/people/陳澔樂-反-card.jpg',
       },
-      { name: '林育正', since: '2026 Fall' },
+      {
+        name: '林育正',
+        since: '2026 Fall',
+        photo: 'images/people/林育正-card.jpg',
+      },
       {
         name: '范思緯',
         since: '2026 Fall',
@@ -329,6 +343,12 @@ export const labMembers: MemberGroup[] = [
         since: '2026 Fall',
         photo: 'images/people/Richard Mai-card.jpg',
         photoAlt: 'images/people/Richard Mai-反-card.jpg',
+      },
+      {
+        name: '謝昆廷',
+        since: '2026 Fall',
+        photo: 'images/people/謝昆廷-card.jpg',
+        photoAlt: 'images/people/謝昆廷-反-card.jpg',
       },
     ],
   },

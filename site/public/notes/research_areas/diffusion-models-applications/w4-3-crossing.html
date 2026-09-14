@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>交叉、彎曲，與要走幾步</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 450px; aspect-ratio: 1/1; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
+  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：條件路徑<b>每一條都是直線</b>，但只要它們互相交叉，平均出來的邊際軌跡就一定是<b>彎的</b>——而彎的軌跡，少步數的 Euler 走不準。</p>
+
+  <canvas id="cv" width="560" height="560" aria-label="條件直線與邊際軌跡"></canvas>
+  <p class="cap">綠細線＝條件直線（每組配對一條）　靛／金粗線＝從同一批起點解出的邊際 ODE 軌跡　藍點＝起點分布　橘點＝資料分布</p>
+
+  <div class="controls">
+    <div class="row"><span class="lab">配對方式</span>
+      <button data-c="rand" class="on">隨機配對</button>
+      <button data-c="sorted">依位置配對</button>
+    </div>
+    <div class="row"><span class="lab">顯示</span>
+      <button data-m="both" class="on">兩者疊起來</button>
+      <button data-m="cond">只看條件直線</button>
+      <button data-m="marg">只看邊際軌跡</button>
+    </div>
+    <div class="row"><span class="lab">Euler 步數</span>
+      <button data-k="4">4</button>
+      <button data-k="8">8</button>
+      <button data-k="20" class="on">20</button>
+      <button data-k="200">200</button>
+      <button id="dice">🎲 重抽</button>
+    </div>
+    <div class="stats">
+      <span>彎曲度（軌跡長 ÷ 直線距離）= <b id="vb">—</b></span>
+      <span>這個步數的終點誤差 = <b id="ve">—</b></span>
+    </div>
+  </div>
+
+  <p class="observe">按「<b>依位置配對</b>」：條件直線不再交叉，邊際軌跡跟著變直（彎曲度掉到 1.00 附近），這時候連 4 步 Euler 的終點誤差都幾乎是 0。切回「隨機配對」：一半的直線在中間交叉，軌跡被迫繞開，彎曲度上去，步數一少誤差就出來。<b>兩種配對的 p₀ 與 p₁ 完全一樣</b>——差別只在誰配誰。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var NP = 200, M = 14, SPAN = 5.6, H = 0.18, REF = 400;
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var vb = document.getElementById('vb'), ve = document.getElementById('ve');
+  var pal = NDFlow.palette();
+  var coupling = 'rand', mode = 'both', K = 20;
+  var x0s = [], x1s = [], pairs = [], starts = [], trajK = [], trajRef = [];
+
+  // p0：左下、右下兩團；p1：右上、左上兩團
+  var P0 = [[-1.55, -1.15], [1.55, -1.15]], P1 = [[1.55, 1.15], [-1.55, 1.15]], SD = 0.20;
+
+  function sampleMix(C, n) {
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var c = i % 2;                       // 兩團各半，避免比例抖動
+      out.push({ c: c, p: [C[c][0] + NDFlow.randn() * SD, C[c][1] + NDFlow.randn() * SD] });
+    }
+    return out;
+  }
+  function rebuildPoints() {
+    x0s = sampleMix(P0, NP); x1s = sampleMix(P1, NP);
+    starts = [];
+    for (var i = 0; i < M; i++) {
+      var c = i % 2;
+      starts.push([P0[c][0] + NDFlow.randn() * SD, P0[c][1] + NDFlow.randn() * SD]);
+    }
+  }
+  function rebuildPairs() {
+    // 隨機配對：直接照抽樣順序配（兩邊都是隨機的，所以一半會交叉）
+    // 依位置配對：左下 → 左上、右下 → 右上（團編號 0↔1 對調）
+    var byC = [[], []], i;
+    for (i = 0; i < NP; i++) byC[x1s[i].c].push(i);
+    pairs = [];
+    for (i = 0; i < NP; i++) {
+      var j;
+      if (coupling === 'rand') j = i;
+      else {
+        // x0 的第 0 團（左下）要配 x1 的第 1 團（左上）
+        var want = x0s[i].c === 0 ? 1 : 0;
+        j = byC[want][Math.floor(i / 2) % byC[want].length];
+      }
+      pairs.push({ a: x0s[i].p, b: x1s[j].p, v: [x1s[j].p[0] - x0s[i].p[0], x1s[j].p[1] - x0s[i].p[1]] });
+    }
+  }
+
+  // u_t(x) = Σ w_i (x1_i − x0_i)，w_i ∝ exp(−|x − x_t^{(i)}|²/2H²)
+  function u(px, py, t) {
+    var ls = [], mx = -Infinity, i, s2 = 2 * H * H;
+    for (i = 0; i < NP; i++) {
+      var mxi = t * pairs[i].b[0] + (1 - t) * pairs[i].a[0];
+      var myi = t * pairs[i].b[1] + (1 - t) * pairs[i].a[1];
+      var dx = px - mxi, dy = py - myi, l = -(dx * dx + dy * dy) / s2;
+      ls.push(l); if (l > mx) mx = l;
+    }
+    var sum = 0, ux = 0, uy = 0;
+    for (i = 0; i < NP; i++) { ls[i] = Math.exp(ls[i] - mx); sum += ls[i]; }
+    for (i = 0; i < NP; i++) { var w = ls[i] / sum; ux += w * pairs[i].v[0]; uy += w * pairs[i].v[1]; }
+    return [ux, uy];
+  }
+  function integrate(n) {
+    var out = [], h = 1 / n;
+    for (var m = 0; m < M; m++) {
+      var x = [starts[m][0], starts[m][1]], path = [[x[0], x[1]]];
+      for (var k = 0; k < n; k++) {
+        var vv = u(x[0], x[1], k * h);
+        x = [x[0] + h * vv[0], x[1] + h * vv[1]];
+        path.push([x[0], x[1]]);
+      }
+      out.push(path);
+    }
+    return out;
+  }
+  function recompute() {
+    trajRef = integrate(REF);
+    trajK = (K === REF) ? trajRef : integrate(K);
+    var bend = 0, err = 0;
+    for (var m = 0; m < M; m++) {
+      var p = trajRef[m], L = 0;
+      for (var k = 1; k < p.length; k++) L += Math.hypot(p[k][0] - p[k - 1][0], p[k][1] - p[k - 1][1]);
+      var chord = Math.hypot(p[p.length - 1][0] - p[0][0], p[p.length - 1][1] - p[0][1]);
+      bend += L / Math.max(1e-6, chord);
+      var e1 = trajK[m][trajK[m].length - 1], e2 = p[p.length - 1];
+      err += Math.hypot(e1[0] - e2[0], e1[1] - e2[1]);
+    }
+    vb.textContent = (bend / M).toFixed(3);
+    ve.textContent = (err / M).toFixed(3);
+  }
+
+  function T2(s) {
+    var k = Math.min(s.w, s.h) / SPAN;
+    return { k: k, x: function (v) { return s.w / 2 + v * k; }, y: function (v) { return s.h / 2 - v * k; } };
+  }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx, tr = T2(s), i;
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+
+    if (mode === 'both' || mode === 'cond') {
+      ctx.strokeStyle = 'rgba(96,186,130,' + (mode === 'cond' ? 0.30 : 0.16) + ')';
+      ctx.lineWidth = mode === 'cond' ? 1.4 : 1.1;
+      for (i = 0; i < NP; i++) {
+        ctx.beginPath();
+        ctx.moveTo(tr.x(pairs[i].a[0]), tr.y(pairs[i].a[1]));
+        ctx.lineTo(tr.x(pairs[i].b[0]), tr.y(pairs[i].b[1]));
+        ctx.stroke();
+      }
+    }
+
+    ctx.fillStyle = 'rgba(' + pal.noise[0] + ',' + pal.noise[1] + ',' + pal.noise[2] + ',0.30)';
+    for (i = 0; i < NP; i++) { ctx.beginPath(); ctx.arc(tr.x(x0s[i].p[0]), tr.y(x0s[i].p[1]), 1.4, 0, 6.284); ctx.fill(); }
+    ctx.fillStyle = 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',0.34)';
+    for (i = 0; i < NP; i++) { ctx.beginPath(); ctx.arc(tr.x(x1s[i].p[0]), tr.y(x1s[i].p[1]), 1.4, 0, 6.284); ctx.fill(); }
+
+    if (mode === 'both' || mode === 'marg') {
+      // 參考解（細）
+      ctx.strokeStyle = pal.dark ? 'rgba(216,164,74,0.30)' : 'rgba(42,78,163,0.28)';
+      ctx.lineWidth = 1.2;
+      trajRef.forEach(function (p) {
+        ctx.beginPath();
+        for (var k = 0; k < p.length; k++) k ? ctx.lineTo(tr.x(p[k][0]), tr.y(p[k][1])) : ctx.moveTo(tr.x(p[k][0]), tr.y(p[k][1]));
+        ctx.stroke();
+      });
+      // 目前步數的折線（粗）
+      ctx.strokeStyle = pal.accent; ctx.lineWidth = 2.1; ctx.lineJoin = 'round';
+      trajK.forEach(function (p) {
+        ctx.beginPath();
+        for (var k = 0; k < p.length; k++) k ? ctx.lineTo(tr.x(p[k][0]), tr.y(p[k][1])) : ctx.moveTo(tr.x(p[k][0]), tr.y(p[k][1]));
+        ctx.stroke();
+      });
+      ctx.fillStyle = pal.accent;
+      trajK.forEach(function (p) {
+        for (var k = 0; k < p.length; k++) { ctx.beginPath(); ctx.arc(tr.x(p[k][0]), tr.y(p[k][1]), 1.9, 0, 6.284); ctx.fill(); }
+      });
+    }
+  }
+
+  function go() { rebuildPairs(); recompute(); draw(); }
+  function seg(sel, attr, set) {
+    Array.prototype.forEach.call(document.querySelectorAll(sel), function (b) {
+      b.onclick = function () {
+        Array.prototype.forEach.call(document.querySelectorAll(sel), function (o) { o.classList.remove('on'); });
+        b.classList.add('on'); set(b.dataset[attr]); go();
+      };
+    });
+  }
+  seg('[data-c]', 'c', function (v) { coupling = v; });
+  seg('[data-m]', 'm', function (v) { mode = v; });
+  seg('[data-k]', 'k', function (v) { K = parseInt(v, 10); });
+  document.getElementById('dice').onclick = function () { rebuildPoints(); go(); };
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  rebuildPoints(); rebuildPairs(); recompute(); applyTheme();
+})();
+</script>
+</body>
+</html>

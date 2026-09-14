@@ -1,0 +1,258 @@
+---
+slug: "ml-l4-5-conditioning-and-time"
+label: "ml-conditioning"
+prereqs:
+  - math-taylor
+  - math-conditional-expectation
+lang: "zh"
+title: "同一台機器要依指令做不同的事，指令從哪裡餵進去？"
+category: "courses"
+group: "L4 · 常見架構：結構對應歸納偏置"
+status: "available"
+updated: 2026-09-11
+summary: "把條件接成輸入的一個維度是最直覺的做法，而它有一個很具體的問題：一個純量要靠網路自己長出高頻的依賴，而 MLP 對高頻很不友善。實測同一個網路、同一個預算，純量 t 給 0.0018、正弦嵌入給 0.0004，而把網路加寬兩倍（四倍參數）只到 0.0010——嵌入比加寬便宜也有效。另一件事更硬：如果訓練時條件永遠在，那個「沒有條件」的輸入從來沒被看過，用它推論會得到比輸出零還差的結果（1.39 對 0.66）；10% 的條件 dropout 就把它降到 0.066。"
+demos: []
+references:
+  - label: "Perez, Strub, de Vries, Dumoulin, Courville, FiLM: Visual Reasoning with a General Conditioning Layer (AAAI 2018)"
+    href: "https://arxiv.org/abs/1709.07871"
+  - label: "Tancik et al., Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains (NeurIPS 2020)"
+    href: "https://arxiv.org/abs/2006.10739"
+  - label: "Ho & Salimans, Classifier-Free Diffusion Guidance (NeurIPS 2021 Workshop)"
+    href: "https://arxiv.org/abs/2207.12598"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Ask from '../../../components/Ask.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Remark from '../../../components/Remark.astro';
+import Bridge from '../../../components/Bridge.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 同一台機器要依指令做不同的事，指令從哪裡餵進去？
+
+<Objectives>
+- **說出「把條件接成一個輸入維度」為什麼在純量條件上特別吃虧，並量出嵌入買到多少。** 對照同一個預算下純量、正弦嵌入、加寬兩倍三者的誤差。
+- **分清三種注入方式各自改變了什麼。** concat 改輸入、FiLM 改每一層的尺度與偏移、cross-attention 改「要看哪裡」——說出它們各自適合什麼形狀的條件。
+- **說出「沒有條件」必須是一個被訓練過的輸入。** 量出條件 dropout 從 $0$ 改成 $0.1$ 時，null token 的誤差差幾倍。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 起點：同一台機器，不同的指令
+
+到目前為止每一個模型都只做一件事：給 $x$，回答 $y$。
+
+但實務上更常見的是一台**可以被指揮**的機器：同一個模型，依照一個額外的指令做不同的事。
+
+- 「把這張圖**修成夜景**」——條件是一個類別。
+- 「照這段文字生成」——條件是一串 token。
+- 「現在是流程的**第 300 步**，請做這一步該做的事」——條件是一個純量。
+
+最後一種特別值得注意，因為它不是使用者給的指令，而是**演算法自己的狀態**。同一組權重要在很多個不同的階段各做一件不同的事，於是「現在是第幾步」必須被餵進去。
+
+接法看起來很自由：接在輸入、接在中間某一層、或讓網路自己去查。但這幾種接法**不是同一件事的幾種寫法**——它們對不同形狀的條件有非常不同的成本。
+
+<Ask>
+指令要從哪裡餵進去？<br />
+接在輸入的一個維度上就好了嗎？<br />
+如果那個指令是一個純量，會不會特別吃虧？
+</Ask>
+
+<Question id="Q1">
+把「依指令做不同的事」翻成數學：條件模型和無條件模型差在哪裡？把一個純量條件接成輸入的第二個維度，網路必須自己長出什麼東西——那件事對它來說容易嗎？
+
+<Answer>
+**寫下來。** 無條件模型學的是一個函數 $f_\theta(x)$；條件模型學的是一族函數，用 $c$ 索引：
+
+$$
+f_\theta(x,c)\ \approx\ \mathbb E[Y\mid X=x,\,C=c].
+$$
+
+用 <Ref to="math-conditional-expectation" mode="title"/> 的語言：**多了一個條件，桶子被切得更細了**。理想上這讓每個桶子裡的散佈更小（預測更準）；代價是同一組參數要同時服務所有的 $c$。
+
+**接成輸入維度之後，網路要自己長出什麼。** 若 $f$ 對 $c$ 的依賴是高頻的——例如流程的第 3 步和第 4 步該做的事差很多——那麼把 $c$ 當成一個普通的輸入座標，就是要求網路在那個座標上表現出高頻的變化。
+
+而 <Ref to="ml-mlp" mode="title"/> 的頻率實驗量過這件事：同一個 $64\times64$ 的網路，目標從 1 個週期換到 32 個週期，訓練 MSE 從 $0.0000$ 變成 $0.3875$。**MLP 對高頻很不友善，而這個不友善不分輸入座標**——$x$ 這一維吃虧，$c$ 這一維一樣吃虧。
+
+**兩條出路，方向不同。**
+
+- **把頻率直接給它**：不要接 $c$，接 $\big(\sin(2\pi f_j c),\cos(2\pi f_j c)\big)_j$ 這一組不同頻率的特徵。網路要高頻時，它已經在輸入裡了，只需要線性組合。
+- **不要讓 $c$ 走同一條路**：讓它去改變**每一層的行為**（尺度與偏移），而不是當成一個和 $x$ 平起平坐的座標。
+
+本篇會把第一條量出來（嵌入比加寬便宜也有效），並說清楚第二條在什麼形狀的條件上才划算。
+</Answer>
+</Question>
+
+## 三種注入方式，三種「改變什麼」
+
+把接法按照「它改變了網路的哪一部分」排開：
+
+- **concat（接在輸入）**：$f([x,c])$。最簡單，而且在條件和輸入是同一種東西時很自然（例如都是影像的像素）。缺點是條件的影響必須一路經過所有層才擴散開，而且它和 $x$ 共用同一條路。
+- **FiLM（每一層的尺度與偏移）**：由 $c$ 算出一組 $(\gamma_\ell,\beta_\ell)$，在第 $\ell$ 層做 $h\leftarrow\gamma_\ell\odot h+\beta_\ell$。條件不再是一個座標，而是**直接調整每一層的行為**。這對「全域性、影響整張圖」的條件特別合適——類別、時間步、風格。
+- **cross-attention（查表）**：條件是一串長度可變的東西（一段文字、一組 token），讓每個位置自己去問「我該看這串裡的哪幾個」。它處理的是 concat 與 FiLM 都處理不了的形狀：**條件的長度不固定，而且不同位置需要看不同的部分**。
+
+三者不互斥，實務上常常同時出現（時間用 FiLM、文字用 cross-attention、低階的輔助輸入用 concat）。挑的依據是**條件的形狀**：
+
+| 條件長什麼樣 | 適合的注入方式 |
+| --- | --- |
+| 一個純量（時間、強度） | 嵌入 → FiLM（或 concat 嵌入） |
+| 一個類別（有限選項） | 查一個 embedding 表 → FiLM |
+| 一張同尺寸的圖（遮罩、邊緣圖） | concat 在通道上 |
+| 一串長度可變的 token | cross-attention |
+
+<VizPlan id="ml-l4-5-three-ways" title="同一個條件，三個注入的位置" type="static">
+- **檔名**：`l4-architectures/imgs/l4-5-1.svg`（16:9，上下兩排）。
+- **上排**：三格並排，每格是同一個網路的示意（輸入 → 三層 → 輸出）。左：**concat**，條件 $c$ 畫成一條和 $x$ 並排的箭頭一起進第一層。中：**FiLM**，$c$ 走一條旁路進一個小網路，分出三組 $(\gamma_\ell,\beta_\ell)$ 分別接到三層的側邊。右：**cross-attention**，$c$ 是一排 token，三層各拉出虛線去查那排 token（虛線粗細不同，標「查誰、查多重由內容決定」）。
+- **下排**：一條橫軸「條件的形狀」，由左到右是「純量 → 類別 → 同尺寸的圖 → 長度可變的序列」，上方標出各段適合的方法，並在「純量」那一段額外畫一個小插圖：一條低頻正弦與一條高頻正弦，標「純量接成座標時，高頻那條學不動——所以先做嵌入」。
+- **圖說**：「三種接法不是同一件事的三種寫法。挑哪一個由條件的形狀決定，而純量條件有一個特有的坑：頻率。」
+</VizPlan>
+
+## 為什麼純量條件要先做嵌入
+
+正弦嵌入把一個純量 $c\in[0,1]$ 換成一組不同頻率的三角函數：
+
+$$
+\mathrm{emb}(c)=\big(\sin(2\pi f_jc),\ \cos(2\pi f_jc)\big)_{j=0}^{J-1},
+\qquad f_j=2^{\,j}.
+$$
+
+**它在做的事可以用一句話說清楚：把「網路要自己長出高頻」換成「高頻已經在輸入裡，只需要把它們線性組合起來」。**
+
+為什麼這會有效，可以從 <Ref to="math-taylor" mode="title"/> 的角度看。一個網路對輸入的局部行為，是由它在那一點的一階（與高階）變化決定的；要在 $[0,1]$ 上做出 $k$ 個週期，第一層的權重必須大到 $O(k)$，而那會同時把激發函數推進飽和區（<Ref to="ml-loss-landscape" mode="title"/> 的 gain 掃描量過：太大的尺度讓訓練變差且不穩）。嵌入把這個張力拆開——**頻率由固定的、不需要學的 $f_j$ 提供，網路只負責挑哪幾個、各要多少。**
+
+$f_j=2^j$ 這個幾何級數也不是隨便挑的：它讓不同尺度的變化都被覆蓋到，而且只要 $J$ 個維度就涵蓋 $2^{J}$ 倍的頻率範圍。
+
+<Remark label="補充" summary="這和 Transformer 的位置編碼是同一個東西">
+Transformer 的位置編碼用的是同一條式子（$\sin/\cos$ 配上幾何級數的頻率），解決的也是同一個問題：**位置是一個純量，而網路需要對它有多尺度的敏感度**。差別只在那裡的純量是「第幾個 token」，這裡是「第幾步」或「條件的強度」。
+
+同一個技巧在座標型網路（用網路表示一張圖或一個 3D 場景）上叫 **Fourier features**（參考文獻 2），那篇論文把「為什麼沒有嵌入就學不到高頻」用 neural tangent kernel 講清楚了：沒有嵌入時，網路的等效核對高頻成分的響應以指數衰減，於是那些成分在任何合理的訓練時間內都學不到。
+
+三個名字、三個領域、同一件事——值得把它記成一個通用的手法：**當一個純量需要高頻的影響力時，先把它展開成多個頻率。**
+</Remark>
+
+## 回到情境：三種接法在同一個任務上
+
+任務刻意設計成「對條件的依賴是高頻的」：
+
+$$
+y=\sin\big(2\pi x+2\pi\cdot 8\cdot t\big),\qquad x,t\sim U(0,1),\ n=800 .
+$$
+
+對 $x$ 的依賴是 1 個週期（很容易），對 $t$ 的依賴是 **8 個週期**（照 <Ref to="ml-mlp" mode="title"/> 的頻率表，這是要花點力氣的區域）。三個設定跑同樣的 6000 步、同樣的 Adam $\eta=0.01$：
+
+```
+  concat 純量 t            輸入維度   2  h= 64  訓練 MSE 0.0018
+  concat 正弦嵌入 t         輸入維度  13  h= 64  訓練 MSE 0.0004
+  concat 純量 t（寬兩倍）    輸入維度   2  h=128  訓練 MSE 0.0010
+```
+
+**嵌入把誤差降到四分之一（$0.0018\to0.0004$），而它只多了 11 個輸入維度。** 對照組更有說服力：把網路加寬兩倍（參數變成約四倍）只從 $0.0018$ 改善到 $0.0010$——**四倍的參數買到的，還不如 11 個不需要學的輸入維度。**
+
+> **嵌入不是在增加容量，是在把網路不擅長的那件事移出去。**
+
+這也解釋了為什麼幾乎每一個需要「時間步」的模型都有一個正弦嵌入層，而且那一層通常沒有參數：它不是模型的一部分，是**輸入的一種座標選擇**——和 <Ref to="ml-gradient-descent" mode="title"/> 裡「標準化改的是碗的形狀」是同一類的動作。
+
+## 回到情境：「沒有條件」也必須被訓練過
+
+條件模型有一個很容易被忽略的需求：有時候你要它**不要**依照條件做事。
+
+- 想知道模型在「什麼都不指定」時的預設行為。
+- 想比較「有條件」與「無條件」的輸出差在哪裡（很多引導式的取樣做法都需要這兩個）。
+- 使用者就是沒有給條件。
+
+直覺的做法是留一個 **null token**：一個代表「沒有條件」的特殊輸入（例如把 one-hot 全部設成零）。問題是——**如果訓練時條件永遠都在，那個 null token 從來沒有出現在訓練資料裡。**
+
+把它量出來。任務是 $y=\sin(2\pi x)+0.8c$，$c\in\{0,1\}$，條件用 one-hot 接進輸入；「沒有條件」就是把 one-hot 設成全零。真正的無條件答案是兩類的平均 $\sin(2\pi x)+0.4$。訓練時用機率 $p$ 把條件隨機丟掉（換成全零）：
+
+```python
+def feats(x, c, mask):                      # mask=0 表示這一筆的條件被丟掉
+    oh = np.zeros((len(x), 2)); oh[np.arange(len(x)), c] = 1.0
+    return np.c_[x, oh*mask[:,None]]
+
+mask = (rng.random(N) > p).astype(float)    # p 是條件 dropout 的機率
+```
+
+```
+  條件 dropout p=0.0   用 null token 預測「兩類平均」的 MSE 中位數 1.3908
+  條件 dropout p=0.1   用 null token 預測「兩類平均」的 MSE 中位數 0.0660
+  條件 dropout p=0.3   用 null token 預測「兩類平均」的 MSE 中位數 0.0225
+  （對照：直接輸出 0 的 MSE = 0.6575）
+```
+
+**$p=0$ 那一列比「什麼都不算、直接輸出零」還差兩倍多**（$1.39$ 對 $0.66$）。這不是「精度差一點」——是**模型在一個從未見過的輸入上任意外推**，而外推的方向沒有任何理由是對的（這正是 <Ref to="ml-empirical-risk" mode="title"/> 那個 $8113$ 的小型版本：訓練分佈之外沒有定義）。
+
+**只要 $10\%$ 的條件 dropout，誤差就掉到 $0.066$——二十一倍。** $p=0.3$ 再降到 $0.0225$，但代價是三成的訓練樣本沒有用到條件資訊，條件本身的品質會開始下降。實務上 $10\%$ 左右是常見的折衷。
+
+> **「沒有條件」不是一個預設狀態，它是一個要被訓練的輸入。**
+
+**刻意違反：把 null token 換成一個「沒用過的」向量。** 如果不是用全零，而是隨便挑一個訓練時沒出現過的向量（例如 one-hot 的第三格），結果和 $p=0$ 那一列一樣糟——**問題不在「用哪個向量代表沒有條件」，而在「那個向量有沒有被訓練過」。** 這也是為什麼實務上一律用「訓練時真的餵過的那個」當 null，而不是任何看起來比較中性的東西。
+
+**這一切依賴什麼。** 一，上面的數字是在一個純量／類別條件、小網路上量的；條件是長序列時 dropout 的做法不同（丟整串、還是丟其中幾個 token，會影響模型學到的東西）。二，$p$ 是一個要調的超參數，而它同時影響「無條件有多準」與「有條件有多準」——兩者用同一組權重。三，這裡量的是「無條件輸出對不對」，不是「有條件輸出有沒有變差」；完整的評估要兩個都看。
+
+## 三種接法、一個頻率旋鈕、一個 dropout 旋鈕
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/machine-learning-foundations/l4-architectures/l4-5-2.html" class="demo-frame" title="三種接法、一個頻率旋鈕、一個 dropout 旋鈕：互動 demo" style="height: 914px; width: 100%; border: none;"></iframe>
+
+**互動 demo：把條件頻率 k 拉大，「純量」那條訓練曲線整條抬高而「嵌入」那條幾乎不動。**
+
+## 先消化一下
+
+<QuizBlock id="ml-l4-5-a">
+一個模型需要知道「現在是流程的第幾步」，團隊把步數除以總步數變成一個 $[0,1]$ 的純量接在輸入上，發現模型在相鄰步數之間的行為幾乎一樣。最直接的處方是：
+<Option>把網路加寬，讓它有足夠容量區分不同的步數。</Option>
+<Option correct>先把那個純量做正弦嵌入。模型「分不出相鄰步數」就是對條件的高頻依賴學不到，而 <Ref to="ml-mlp" mode="title"/> 的頻率實驗顯示那是 MLP 本身的偏好；實測嵌入把誤差降到四分之一，而加寬兩倍（四倍參數）只降了一半不到。</Option>
+<Option>把步數改成整數直接接進去，不要正規化。</Option>
+<Explanation>
+第一個選項不是完全沒用（加寬確實從 $0.0018$ 改善到 $0.0010$），但它的性價比差很多——這正是本篇實測的重點。第三個選項更糟：不正規化的大數值輸入會直接撞上 <Ref to="ml-gradient-descent" mode="title"/> 那個「換單位就毀掉訓練」的問題。真正對症的是把頻率搬到輸入裡。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l4-5-b">
+一個條件模型在訓練時每一筆資料都有條件。上線後有人問「不給條件時模型會輸出什麼」，團隊把條件向量設成全零去問。根據本篇的實測，最可能的結果是：
+<Option>得到兩個類別的平均，因為全零在幾何上是中點。</Option>
+<Option correct>得到一個沒有意義的外推。全零這個輸入從未出現在訓練資料裡，實測它的誤差是 $1.39$——比「直接輸出零」的 $0.66$ 還差兩倍。要讓它有意義，訓練時就必須用某個機率把條件丟掉（$p=0.1$ 就降到 $0.066$）。</Option>
+<Option>會得到其中一個類別的輸出，因為模型會挑一個。</Option>
+<Explanation>
+第一個選項的直覺很自然但錯得徹底：「輸入空間的中點」和「輸出空間的平均」沒有關係，因為中間隔著一個非線性的網路。這題的一般形狀是 <Ref to="ml-empirical-risk" mode="title"/> 那件事——**訓練分佈之外沒有定義**，而 null token 若沒被訓練過，它就在分佈之外。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l4-5-c">
+關於 FiLM（用條件算出每一層的 $\gamma_\ell,\beta_\ell$）與 concat，下列哪一個判斷比較合理？
+<Option>FiLM 永遠比 concat 好，因為它影響每一層。</Option>
+<Option correct>要看條件的形狀。全域性、影響整個輸出的條件（類別、時間步、風格）適合 FiLM，因為它要改變的正是「每一層怎麼做事」；而和輸入同尺寸、位置對位置對應的條件（遮罩、邊緣圖）適合 concat 在通道上，那裡的空間對應關係是要保留的資訊。</Option>
+<Option>concat 永遠比較好，因為它最簡單而且不增加參數。</Option>
+<Explanation>
+把選擇的依據放在「條件的形狀」而不是「哪個比較先進」，是這一篇想留下的判斷方式。順帶一提第三個選項的後半也不對：concat 會讓第一層的權重矩陣變大，所以它也增加參數，只是增加得少。實務上三種方式常常同時出現在同一個模型裡，各自處理一種形狀的條件。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l4-5-d">
+下列哪一句**不對**？
+<Option>正弦嵌入本身沒有參數，它改變的是輸入的座標，不是模型的容量。</Option>
+<Option>Transformer 的位置編碼與座標型網路的 Fourier features 解決的是同一個問題：一個純量需要多尺度的影響力。</Option>
+<Option correct>條件 dropout 的 $p$ 越大越好，因為模型能更準地給出無條件的輸出。</Option>
+<Explanation>
+第三句只看了一半的帳。$p$ 從 $0.1$ 加到 $0.3$ 確實讓 null token 的誤差從 $0.066$ 降到 $0.0225$，但代價是三成的樣本沒有用到條件資訊——**有條件的那一側會變差**，而兩者共用同一組權重。本篇只量了無條件那一側，所以它不足以支持「越大越好」；完整的評估要兩側都看，而實務上 $10\%$ 左右是常見的折衷。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="ml-maximum-likelihood">
+這一篇把「指令從哪裡餵進去」拆成三種注入方式，並量出兩件事：純量條件先做正弦嵌入，比把網路加寬兩倍更有效也更便宜（$0.0004$ 對 $0.0010$，而後者是四倍參數）；而「沒有條件」必須是一個被訓練過的輸入——沒有條件 dropout 時 null token 的誤差比直接輸出零還差兩倍，$10\%$ 的 dropout 就把它降到二十一分之一。
+
+L4 到這裡，架構與怎麼指揮它都有了，但整個系列一直只在做一件事：**給 $x$ 猜一個 $y$**。下一個 class 換一個目標——不是猜一個數字，而是把整個分佈寫下來。最大似然、潛在變數與下界、自回歸分解，以及一個比前面任何一篇都難回答的問題：**怎麼判斷一個生成模型好不好。**
+</Bridge>
+
+## 參考文獻
+
+1. Perez, E. et al. [*FiLM: Visual Reasoning with a General Conditioning Layer.*](https://arxiv.org/abs/1709.07871) AAAI 2018.（把「條件改變每一層的尺度與偏移」抽象成一個通用層，並比較它與 concat 的差別。）
+2. Tancik, M. et al. [*Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains.*](https://arxiv.org/abs/2006.10739) NeurIPS 2020.（用 NTK 說明沒有嵌入時高頻為什麼學不到——本篇 Remark 的來源。）
+3. Ho, J., Salimans, T. [*Classifier-Free Diffusion Guidance.*](https://arxiv.org/abs/2207.12598) 2022.（條件 dropout 與 null token 的標準做法；本篇最後一段實驗的實務對應。）

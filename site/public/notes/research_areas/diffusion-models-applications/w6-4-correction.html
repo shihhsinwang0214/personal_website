@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>翻錯的字，之後改得回來嗎？</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 560px; aspect-ratio: 16/9; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
+  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：同一份資料、同一個（完美的）網路，只換 forward chain。<b>absorbing 翻開就固定</b>——像 ODE；<b>uniform 每一步都能改任何字</b>——像 SDE。但 uniform 的代價是模型<b>分不清哪些字是噪聲</b>。</p>
+
+  <canvas id="cv" width="640" height="360" aria-label="absorbing 與 uniform 的反向取樣"></canvas>
+  <p class="cap">兩排是同一條長度 16 的 0/1 序列（資料：相鄰格以機率 0.9 相同）。灰＝[MASK]　橘／藍＝0／1　<b>紅框＝被植入的錯誤</b>　綠框＝那個錯誤已經被改掉</p>
+
+  <div class="controls">
+    <div class="row"><span class="lab">步數</span>
+      <button data-n="8" class="on">8</button>
+      <button data-n="16">16</button>
+      <span class="lab">視角</span>
+      <button id="view">顯示哪些字是噪聲</button>
+    </div>
+    <div class="row">
+      <button id="next">下一步</button>
+      <button id="all">跑完</button>
+      <button id="reset">重來</button>
+      <button id="kick">在第 2 步植入一個錯誤</button>
+      <button id="many">跑 200 次看修正率</button>
+    </div>
+    <div class="stats">
+      <span>已走 <b id="vk">0</b> 步</span>
+      <span>absorbing 修正率 = <b id="va">—</b></span>
+      <span>uniform 修正率 = <b id="vu">—</b></span>
+    </div>
+  </div>
+
+  <p class="observe">按「植入錯誤」再一路按「下一步」：<b>absorbing 那排的紅框永遠不變</b>（已翻開的位置不再被碰）；<b>uniform 那排的紅框常常在後面幾步被改掉</b>，變成綠框。跑 200 次，absorbing 的修正率<b>恆為 0%</b>。代價在「視角」那顆按鈕：打開它，你會看到 uniform 的 x<sub>t</sub> 裡<b>噪聲字和原字長得一模一樣</b>（模型看不到那些標記，得自己猜）；absorbing 的 [MASK] 一眼可辨，所有不確定性都集中在那裡。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var L = 16, K = 2, P_SAME = 0.9;
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var pal = NDFlow.palette();
+  var vk = document.getElementById('vk'), va = document.getElementById('va'), vu = document.getElementById('vu');
+  var N = 8, step = 0, showNoise = false, kickOn = false;
+  var A = { x: [], noise: [], kicked: -1, fixed: false },   // absorbing：x[i] = null 表示 MASK
+      U = { x: [], noise: [], kicked: -1, fixed: false };
+  var rateA = null, rateU = null;
+
+  function abar(t) { return 1 - t; }
+  // 前向後向：給定觀測，算每個位置 x_0 的後驗 marginal（K=2）
+  function posterior(obs, kind, ab) {
+    // emis[i][a] = P(觀測 | x0_i = a)
+    var emis = [], i, a;
+    for (i = 0; i < L; i++) {
+      var e = [1, 1], v = obs[i];
+      if (kind === 'abs') {
+        if (v !== null) { e = [v === 0 ? 1 : 0, v === 1 ? 1 : 0]; }
+      } else {
+        for (a = 0; a < K; a++) e[a] = ab * (a === v ? 1 : 0) + (1 - ab) / K;
+      }
+      emis.push(e);
+    }
+    var T = [[P_SAME, 1 - P_SAME], [1 - P_SAME, P_SAME]];
+    var f = [], b = [];
+    var cur = [0.5 * emis[0][0], 0.5 * emis[0][1]];
+    f.push(norm(cur));
+    for (i = 1; i < L; i++) {
+      var nx = [0, 0];
+      for (a = 0; a < K; a++) for (var p = 0; p < K; p++) nx[a] += f[i - 1][p] * T[p][a];
+      nx = [nx[0] * emis[i][0], nx[1] * emis[i][1]];
+      f.push(norm(nx));
+    }
+    b[L - 1] = [1, 1];
+    for (i = L - 2; i >= 0; i--) {
+      var bb = [0, 0];
+      for (a = 0; a < K; a++) for (var q = 0; q < K; q++) bb[a] += T[a][q] * emis[i + 1][q] * b[i + 1][q];
+      b[i] = norm(bb);
+    }
+    var out = [];
+    for (i = 0; i < L; i++) out.push(norm([f[i][0] * b[i][0], f[i][1] * b[i][1]])[1]);  // P(x0=1)
+    return out;
+  }
+  function norm(v) { var s = v[0] + v[1]; return s > 0 ? [v[0] / s, v[1] / s] : [0.5, 0.5]; }
+
+  function sampleData() {
+    var x = [Math.random() < 0.5 ? 0 : 1];
+    for (var i = 1; i < L; i++) x.push(Math.random() < P_SAME ? x[i - 1] : 1 - x[i - 1]);
+    return x;
+  }
+  function reset() {
+    step = 0;
+    A = { x: new Array(L).fill(null), noise: new Array(L).fill(false), kicked: -1, fixed: false };
+    var u = [];
+    for (var i = 0; i < L; i++) u.push(Math.random() < 0.5 ? 0 : 1);
+    U = { x: u, noise: new Array(L).fill(true), kicked: -1, fixed: false };
+    draw();
+  }
+  function stepOnce(S, kind, doKick) {
+    var t = 1 - step / N, s = 1 - (step + 1) / N;
+    var abT = abar(t), abS = abar(s), i;
+    var post = posterior(S.x, kind, abT);
+    if (kind === 'abs') {
+      var p = (abS - abT) / (1 - abT);
+      if (step === N - 1) p = 1;
+      for (i = 0; i < L; i++) if (S.x[i] === null && Math.random() < p) {
+        S.x[i] = Math.random() < post[i] ? 1 : 0; S.noise[i] = false;
+      }
+    } else {
+      var ap = abS > 0 ? Math.min(1, abT / abS) : 1;
+      for (i = 0; i < L; i++) {
+        var xi = S.x[i], w = [0, 0];
+        for (var x0 = 0; x0 < K; x0++) {
+          var px0 = (x0 === 1) ? post[i] : 1 - post[i];
+          for (var j = 0; j < K; j++) {
+            var kern = ap * (j === xi ? 1 : 0) + (1 - ap) / K;
+            var back = abS * (j === x0 ? 1 : 0) + (1 - abS) / K;
+            w[j] += px0 * kern * back;
+          }
+        }
+        var wn = norm(w), nv = Math.random() < wn[1] ? 1 : 0;
+        if (step === N - 1) nv = Math.random() < post[i] ? 1 : 0;
+        if (nv !== xi) S.noise[i] = false;
+        S.x[i] = nv;
+      }
+    }
+    if (doKick) {
+      // 找一個已經有值、而且鄰居一致的位置，強制填反
+      for (i = 1; i < L - 1; i++) {
+        var l = S.x[i - 1], r = S.x[i + 1];
+        if (l !== null && r !== null && l === r) { S.x[i] = 1 - l; S.noise[i] = false; S.kicked = i; S.kickVal = S.x[i]; break; }
+      }
+    }
+    if (S.kicked >= 0 && !S.fixed && S.x[S.kicked] !== S.kickVal) S.fixed = true;
+  }
+  function step1() {
+    if (step >= N) return;
+    var doKick = kickOn && step === 1;
+    stepOnce(A, 'abs', doKick);
+    stepOnce(U, 'uni', doKick);
+    step++;
+    draw();
+  }
+  function runMany() {
+    var R = 200, okA = 0, okU = 0, cntA = 0, cntU = 0;
+    for (var r = 0; r < R; r++) {
+      step = 0;
+      var a = { x: new Array(L).fill(null), noise: new Array(L).fill(false), kicked: -1, fixed: false };
+      var uu = []; for (var i = 0; i < L; i++) uu.push(Math.random() < 0.5 ? 0 : 1);
+      var u = { x: uu, noise: new Array(L).fill(true), kicked: -1, fixed: false };
+      while (step < N) {
+        var dk = (step === 1);
+        stepOnce(a, 'abs', dk); stepOnce(u, 'uni', dk); step++;
+      }
+      if (a.kicked >= 0) { cntA++; if (a.fixed) okA++; }
+      if (u.kicked >= 0) { cntU++; if (u.fixed) okU++; }
+    }
+    rateA = cntA ? okA / cntA : 0; rateU = cntU ? okU / cntU : 0;
+    reset(); kickOn = true; document.getElementById('kick').classList.add('on'); draw();
+  }
+  function lay(s) {
+    var pad = 24, h = s.h;
+    return { pad: pad, cw: (s.w - 2 * pad) / L, ch: 0.19 * h, cy: [0.16 * h, 0.62 * h], lab: [0.11 * h, 0.57 * h] };
+  }
+  function rrect(ctx, x, y, w, h, rr) {
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y); ctx.lineTo(x + w - rr, y); ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+    ctx.lineTo(x + w, y + h - rr); ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    ctx.lineTo(x + rr, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+    ctx.lineTo(x, y + rr); ctx.quadraticCurveTo(x, y, x + rr, y); ctx.closePath();
+  }
+  function drawRow(ctx, s, Y, row, S, name) {
+    var i;
+    ctx.font = '700 12px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.78)'; ctx.textAlign = 'left';
+    ctx.fillText(name, Y.pad, Y.lab[row]);
+    var ORANGE = 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',0.9)';
+    var BLUE = 'rgba(' + pal.noise[0] + ',' + pal.noise[1] + ',' + pal.noise[2] + ',0.85)';
+    var GREY = 'rgba(255,255,255,0.18)';
+    for (i = 0; i < L; i++) {
+      var x = Y.pad + i * Y.cw, w = Y.cw - 3, v = S.x[i];
+      ctx.fillStyle = (v === null) ? GREY : (v === 0 ? ORANGE : BLUE);
+      rrect(ctx, x, Y.cy[row], w, Y.ch, 4); ctx.fill();
+      if (showNoise && S.noise[i] && v !== null) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1;
+        ctx.setLineDash([2, 2]); ctx.stroke(); ctx.setLineDash([]);
+      }
+      if (i === S.kicked) {
+        ctx.strokeStyle = S.fixed ? 'rgb(96,186,130)' : '#d94f4f';
+        ctx.lineWidth = 2.6; ctx.stroke();
+      }
+      ctx.fillStyle = (v === null) ? 'rgba(255,255,255,0.5)' : '#15161a';
+      ctx.font = '700 13px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(v === null ? '▨' : String(v), x + w / 2, Y.cy[row] + Y.ch / 2 + 4.5);
+    }
+    ctx.font = '500 10px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.textAlign = 'left';
+    var msg = (S.kicked < 0) ? '（還沒植入錯誤）'
+      : (S.fixed ? '第 ' + step + ' 步之前錯誤已被修正' : '植入的錯誤還在（第 ' + (S.kicked + 1) + ' 格）');
+    ctx.fillText(msg, Y.pad, Y.cy[row] + Y.ch + 15);
+    if (showNoise && row === 1) {
+      ctx.fillText('虛線框＝這一格目前是噪聲字（模型看不到這個標記）', Y.pad, Y.cy[row] + Y.ch + 29);
+    }
+  }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx, Y = lay(s);
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    drawRow(ctx, s, Y, 0, A, 'absorbing：翻開就固定');
+    drawRow(ctx, s, Y, 1, U, 'uniform：每一步都可以改');
+    vk.textContent = step;
+    va.textContent = rateA === null ? '—' : (100 * rateA).toFixed(1) + '%';
+    vu.textContent = rateU === null ? '—' : (100 * rateU).toFixed(1) + '%';
+  }
+  document.getElementById('next').onclick = step1;
+  document.getElementById('all').onclick = function () { while (step < N) step1(); };
+  document.getElementById('reset').onclick = function () { rateA = rateU = null; reset(); };
+  document.getElementById('kick').onclick = function () { kickOn = !kickOn; this.classList.toggle('on'); reset(); };
+  document.getElementById('view').onclick = function () { showNoise = !showNoise; this.classList.toggle('on'); draw(); };
+  document.getElementById('many').onclick = runMany;
+  Array.prototype.forEach.call(document.querySelectorAll('[data-n]'), function (b) {
+    b.onclick = function () {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-n]'), function (o) { o.classList.remove('on'); });
+      b.classList.add('on'); N = parseInt(b.dataset.n, 10); rateA = rateU = null; reset();
+    };
+  });
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  reset(); applyTheme();
+})();
+</script>
+</body>
+</html>

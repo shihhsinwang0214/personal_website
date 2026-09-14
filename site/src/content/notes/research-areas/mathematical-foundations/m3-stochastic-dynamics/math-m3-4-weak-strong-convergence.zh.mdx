@@ -1,0 +1,224 @@
+---
+slug: "math-m3-4-weak-strong-convergence"
+label: "math-weak-strong-convergence"
+prereqs:
+  - math-sde
+  - math-euler-error
+  - math-random-walk-brownian
+lang: "zh"
+title: "每條路徑對，還是最後的分佈對：Weak 與 Strong Convergence"
+category: "courses"
+group: "M3 · Stochastic Dynamics"
+status: "available"
+updated: 2026-09-06
+summary: "模擬一百次股價，你關心的是「每一條路徑都跟真實走法一樣」還是「一年後價格的分佈一樣」？兩種要求對應兩種誤差：strong error 逐路徑比、weak error 只比分佈的平均。Euler–Maruyama 的 strong order 只有 1/2，weak order 卻是 1——同一個方法，換一個問題就快一倍。只要目標是「抽樣本」，看的永遠是 weak error。"
+demos: []
+references:
+  - label: "Kloeden & Platen, Numerical Solution of Stochastic Differential Equations (Springer, 1992)"
+    href: "https://doi.org/10.1007/978-3-662-12616-5"
+  - label: "Higham, An Algorithmic Introduction to Numerical Simulation of Stochastic Differential Equations (SIAM Review 2001)"
+    href: "https://doi.org/10.1137/S0036144500378302"
+  - label: "Särkkä & Solin, Applied Stochastic Differential Equations (Cambridge University Press, 2019)"
+    href: "https://users.aalto.fi/~ssarkka/pub/sde_book.pdf"
+  - label: "Milstein & Tretyakov, Stochastic Numerics for Mathematical Physics (Springer, 2004)"
+    href: "https://doi.org/10.1007/978-3-662-10063-9"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+
+# 每條路徑對，還是最後的分佈對：Weak 與 Strong Convergence
+
+<Objectives>
+- 分清 strong error（逐路徑、同一組噪聲下比終點）與 weak error（只比終點分佈的平均），並寫出兩者的定義。
+- 說出 Euler–Maruyama 的 strong order 是 $1/2$、weak order 是 $1$，並解釋為什麼同一個方法會有兩個不同的速率。
+- 對一個模擬情境判斷該用哪一種誤差來衡量「模擬夠不夠準」、說出這個判斷依賴的假設（是否共用噪聲、被比較的量是否光滑），並用實驗驗證階數。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 一百條假的股價
+
+你寫了一個程式模擬股價：每天的漲跌有一個平均趨勢，加上隨機波動——就是 <Ref to="math-sde"/> 的 SDE，用 Euler–Maruyama 一天一步跑一年。老闆問：「這個模擬準不準？」
+
+你跑了一百條路徑，畫出來像一百條真的股價圖。但「準」是什麼意思？有兩種可能的回答，它們聽起來差不多、要求卻差很多：
+
+1. **每一條路徑都對。** 如果真實世界擲出了某一串隨機的漲跌（同一組硬幣），我的模擬走出來的那條線，要跟「用同一串硬幣、但以無限小的步長算出來」的真實路徑幾乎重合。
+2. **最後的分佈對。** 我不在乎哪一條線對哪一條，只在乎一年後價格的分佈——平均、變異、超過某個門檻的機率——跟真實的一樣。
+
+先用直覺想：這兩個要求哪個比較嚴格？「一天一步」對哪一個來說夠？如果要把誤差減半，兩個要求各需要把步長縮小多少？寫下你有多確定。
+
+<Question id="Q1">
+把兩個要求翻成數學。「同一串硬幣」在 SDE 的語言裡是什麼？兩個要求各在比較哪個量？
+
+<Answer>
+最容易卡住的是「同一串硬幣」這個說法。<Ref to="math-random-walk-brownian"/> 說 SDE 裡的隨機性是一條 Brownian motion $W_t$；「同一串硬幣」就是**同一條 $W_t$ 的實現**。真實路徑 $x_T$ 是用這條 $W$ 走出來的極限，模擬路徑 $\hat x_T^{(h)}$ 是用同一條 $W$ 在步長 $h$ 下、每步只看 $\Delta W=W_{t+h}-W_t$ 走出來的。兩者共用噪聲，所以可以逐條相減。
+
+**要求一**（strong）比較的是同一條噪聲下的終點差距，取期望：
+
+$$
+e_{\text{strong}}(h)=\mathbb E\big[\,|x_T-\hat x^{(h)}_T|\,\big].
+$$
+
+**要求二**（weak）不共用噪聲——真實與模擬各自抽自己的樣本，只比較某個統計量：
+
+$$
+e_{\text{weak}}(h)=\big|\,\mathbb E[\varphi(x_T)]-\mathbb E[\varphi(\hat x^{(h)}_T)]\,\big|,
+$$
+
+對一類夠光滑的測試函數 $\varphi$（平均是 $\varphi(x)=x$、二階動差是 $x^2$、超過門檻的機率是一個平滑化的階梯函數）。weak 說的是**分佈**接近，strong 說的是**路徑**接近。
+
+兩者的關係一句話：strong 蘊含 weak（路徑都對了，分佈當然對），反之不成立——分佈對了，每條路徑可以完全對不上。
+</Answer>
+</Question>
+
+## 先看畫面：兩把尺
+
+想像兩位評審在看你的模擬。
+
+第一位拿著真實路徑的描圖紙，把你的每一條線疊上去比，量每一對線終點的差距，取平均。這是 **strong** 的尺——它在意「這一條對這一條」。
+
+第二位根本不看哪條對哪條。她把你的一百個終點倒進一個直方圖，把真實的一百個終點倒進另一個直方圖，比兩個直方圖像不像。這是 **weak** 的尺。
+
+第二位評審寬鬆得多：只要你的路徑「在統計上」走得像，就算每一條都跟真實的錯開，她也給滿分。而寬鬆的尺會給出**更快的收斂**——同樣的步長縮小一半，weak 誤差減半，strong 誤差只減到原來的 $1/\sqrt2$。
+
+<VizPlan id="m3-4-two-rulers" title="兩把尺：逐路徑比，還是比直方圖" type="static">
+- **檔名**：`m3-stochastic-dynamics/imgs/m3-4-1.svg`，16:9，左右兩格。
+- **左格「strong」**：同一條 Brownian motion 下，真實路徑（細實線，用步長極小算）與 Euler–Maruyama 路徑（粗虛線，$h$ 明顯較大），兩條線起點相同、大致同向、局部錯開；終點之間畫一段標 $|x_T-\hat x_T|$ 的紅色距離；下方小字「共用同一條 $W_t$，逐條相減，再取平均」。
+- **右格「weak」**：兩個並排的直方圖（真實 vs 模擬各 $10^4$ 個終點），形狀幾乎重合，中央一條標 $\mathbb E[\varphi(x_T)]-\mathbb E[\varphi(\hat x_T)]$ 的細箭頭；下方小字「不共用噪聲，只比分佈的平均」。
+- **中間**一條大箭頭「strong ⟹ weak」與反向劃掉的箭頭「weak ⇏ strong」。
+- **圖說**：「strong error 逐路徑比、weak error 只比分佈。路徑對了分佈一定對；分佈對了路徑可以完全對不上。寬鬆的尺會給出更快的收斂速度。」
+</VizPlan>
+
+## 寫成數學：一個方法，兩個階數
+
+<Ref to="math-euler-error"/> 對 ODE 說 Euler 的全域誤差是 $O(h)$。對 SDE，Euler–Maruyama 的結論是 [1, 2]：
+
+$$
+e_{\text{strong}}(h)\le C\,h^{1/2},\qquad e_{\text{weak}}(h)\le C'\,h^{1} .
+$$
+
+我們說 Euler–Maruyama 有 **strong order $\tfrac12$**、**weak order $1$**。同一個演算法，兩個速率。這不是兩個定理巧合地不一樣，而是同一件事的兩面，可以在一個小例子裡看清楚。
+
+看最簡單的 SDE $dx=\sigma\,x\,dW_t$（沒有 drift，噪聲乘在 $x$ 上——這正是股價模型的骨架）。Euler–Maruyama 一步是 $\hat x_{t+h}=\hat x_t(1+\sigma\Delta W)$。真實的一步（用 Itô 的結果，這門課只引用）是 $x_{t+h}=x_t\exp(\sigma\Delta W-\tfrac12\sigma^2h)$。把指數展開到二階：
+
+$$
+x_{t+h}=x_t\Big(1+\sigma\Delta W+\tfrac12\sigma^2\big[(\Delta W)^2-h\big]+\dots\Big).
+$$
+
+Euler 少掉的那一項是 $\tfrac12\sigma^2x_t\big[(\Delta W)^2-h\big]$。現在用兩把尺量它：
+
+- **Strong 的尺**看它的大小。$(\Delta W)^2$ 的典型大小是 $h$（<Ref to="math-random-walk-brownian"/>：$\Delta W\sim\sqrt h$），所以 $(\Delta W)^2-h$ 的標準差是 $\sqrt2\,h$。每步漏掉的量 $\sim h$，但這些漏掉的量是**隨機的、正負互相獨立**，$N=T/h$ 步累積起來像 random walk：總和 $\sim\sqrt N\cdot h=\sqrt{T/h}\cdot h=\sqrt{Th}$。這就是 $h^{1/2}$。
+- **Weak 的尺**看它的**平均**。$\mathbb E[(\Delta W)^2-h]=0$——這一項在平均下**完全消失**。剩下的偏差來自更高階的項，每步 $O(h^2)$，$N$ 步累積成 $O(h)$。這就是 $h^1$。
+
+一句話：**Euler 每步漏掉的主要誤差是一個零均值的隨機量。** 逐路徑比，它累積成 $\sqrt h$；只比分佈，它平均掉了，剩下的是 $h$。
+
+<Details summary="一般 SDE 的版本：為什麼 strong 是 1/2、weak 是 1（Kloeden & Platen 的兩個定理）">
+一般 dx = f(x)dt + g(x)dW。Euler–Maruyama 的單步展開比真實解少掉的首項是 ½ g(x)g′(x)[(ΔW)² − h]（Itô–Taylor 展開的下一項；補上它就是 Milstein 方法，strong order 升到 1）。
+
+Strong：這一項的 L² 大小是 O(h)，各步近乎獨立，N = T/h 步以「平方和開根號」累積 → O(√(N h²)) = O(h^\{1/2\})。若 g 是常數（additive noise），這一項恆為零，Euler–Maruyama 的 strong order 直接變成 1。
+
+Weak：對光滑的 φ，令 u(t,x) = E[φ(x_T) | x_t = x]（它滿足向後的 Kolmogorov 方程）。單步的 weak 誤差是 E[u(t+h, x̂_\{t+h\})] − E[u(t+h, x_\{t+h\})]；把 u 對 x 展開，零均值的隨機項全部被期望消掉，剩下的首項是 O(h²)；N 步累積成 O(h)。條件：φ、f、g 要夠光滑（一般要求 φ 有四階以上的有界導數）；φ 是不光滑的指標函數時，weak order 可能掉到 1/2。這門課只用結論，證明見 Kloeden & Platen [1] 第 10 與 14 章、Milstein & Tretyakov [4]。
+</Details>
+
+## 回到股價：該拿哪把尺
+
+回答老闆。「準不準」取決於他要拿模擬做什麼：
+
+- 若他要的是**一年後價格的分佈**——平均報酬、風險值、超過某門檻的機率——那是 weak 的問題。一天一步（$h=1/252$）給 $O(h)$ 的偏差，通常已經遠小於這些統計量本身的抽樣誤差（一百條路徑的 Monte Carlo 誤差 $\sim1/\sqrt{100}=10\%$）。把步長縮小一半，偏差減半。
+- 若他要的是**逐日對照某條真實走勢**——例如拿模擬去對沖一條特定路徑、或做路徑相依的產品定價時需要每條路徑本身準——那是 strong 的問題。一天一步的誤差是 $O(\sqrt h)$，要減半得把步長縮到四分之一。
+
+多數「模擬」的目的其實都是第一種：**我們要的是樣本，不是某一條特定的路徑**。這時 strong error 是過度嚴格的尺——你為一個沒人要求的目標付出了四倍的計算。這就是為什麼「用 SDE 抽樣本」的世界裡，看的永遠是 weak error。
+
+這個判斷依賴兩個假設。第一，**被比較的統計量夠光滑**——weak order $1$ 是對光滑 $\varphi$ 說的，若你要的是「價格恰好超過 100 的機率」這種階梯函數，階數會掉。第二，**你不需要共用噪聲**——一旦你的用途要求「同一組隨機數下模擬與真實對上」（例如把模擬拿去和真實資料逐日對比），你就回到了 strong 的世界。
+
+## 回到股價：把兩條斜率量出來
+
+```python
+import numpy as np
+rng = np.random.default_rng(1)
+sigma, T, M = 1.0, 1.0, 20000                              # M = 路徑數（步數在下面叫 N = T/h）
+W_fine = np.cumsum(np.sqrt(1/4096) * rng.standard_normal((M, 4096)), axis=1)   # 一條「真實」Brownian motion
+x_true = np.exp(sigma * W_fine[:, -1] - 0.5 * sigma**2 * T)                     # dx = σ x dW 的精確解（Itô）
+for h in [1/16, 1/64, 1/256]:
+    k = int(4096 * h)
+    dW = np.diff(np.concatenate([np.zeros((M, 1)), W_fine[:, k-1::k]], axis=1), axis=1)  # 同一條 W，粗步長
+    x_em = np.prod(1 + sigma * dW, axis=1)
+    strong = np.abs(x_em - x_true).mean()                       # 共用噪聲，逐路徑比
+    weak_exact = abs((1 + sigma**2 * h)**(T/h) - np.exp(sigma**2 * T))   # φ(x)=x²：E[x̂²] 有 closed form，真值是 e
+    weak_mc    = abs((x_em**2).mean() - np.exp(sigma**2 * T))   # 同一個量用 20000 條路徑估
+    print(f"h={h:.4f}  strong={strong:.3f}  weak(exact)={weak_exact:.4f}  weak(MC)={weak_mc:.3f}")
+# 期待：h 縮 4 倍，strong 約減半（order 1/2）、weak(exact) 約減 4 倍（order 1）；weak(MC) 被抽樣誤差蓋住
+```
+
+三個步長下，strong error 大約是 $0.145\to0.071\to0.035$——步長每縮 4 倍誤差減半，斜率 $\tfrac12$。weak error 對 $\varphi(x)=x^2$ 可以精確算（$\mathbb E[\hat x_T^2]=(1+\sigma^2h)^{T/h}$，真值是 $e^{\sigma^2T}=e$）：$0.085\to0.021\to0.0053$，每次減 4 倍，斜率 $1$。把兩條線畫在 log–log 圖上，一條 $\tfrac12$、一條 $1$。
+
+順帶看 `weak(MC)` 那一欄：用兩萬條路徑估同一個量，數字大約在 $0.03$–$0.08$ 之間跳、幾乎不隨 $h$ 下降——因為 $x_T^2$ 的抽樣誤差（$\approx20/\sqrt{20000}\approx0.14$）早就大過離散化偏差。這正是後面 quiz 要問的事：瓶頸已經不在步長。
+
+（為什麼不用 $\varphi(x)=x$？因為 $\mathbb E[\hat x_T]=1$ 對任何 $h$ 都**精確**成立——Euler–Maruyama 保住了這個 SDE 的平均，weak error 恰為零。挑一個會出錯的 $\varphi$ 才量得到斜率。）
+
+**刻意違反一個假設。** 把 $\varphi(x)=x$ 換成 $\varphi(x)=\mathbf 1[x>1]$（超過起始價的機率）。weak error 的斜率會從 1 掉下來——階梯函數不光滑，展開框裡「把 $u$ 對 $x$ 展開」的步驟失效。再把 $dW$ 換成模擬與真實**各自獨立抽**的噪聲：strong error 不再隨 $h$ 下降（兩條路徑本來就不該對上），只剩 weak error 有意義。
+
+<VizPlan id="m3-4-orders" title="兩條斜率：strong 1/2、weak 1" type="interactive">
+- **位置**：本節之後。**檔名**：`m3-stochastic-dynamics/m3-4-1.html`。
+- **版面**：左格是路徑圖：一條 Brownian motion 下的真實路徑（極細步長）與 Euler–Maruyama 路徑，共 8 對，同色配對；右格是 log–log 的誤差圖，橫軸 $h$、縱軸誤差，兩條線 strong / weak，旁邊畫參考斜率 $\tfrac12$ 與 $1$。
+- **控制項**：滑桿「步長 $h$」（$2^{-2}$–$2^{-10}$，拖動時左格的粗路徑即時重算、右格亮出對應的兩個點）；下拉「SDE」：$dx=\sigma x\,dW$（multiplicative）、$dx=-x\,dt+dW$（additive，Ornstein–Uhlenbeck）；下拉「測試函數 $\varphi$」：$x$、$x^2$、$\mathbf 1[x>1]$；開關「共用噪聲」（關掉後 strong 的線變成一條不下降的水平線並標「不共用噪聲時 strong error 沒有意義」）。
+- **行為**：切到 additive noise，strong 的斜率從 $\tfrac12$ 變成 $1$（$g'=0$，Milstein 修正項消失），畫面標「additive noise：Euler 的 strong order 也是 1」；切到 $\varphi=\mathbf 1[x>1]$，weak 的斜率下降並標「不光滑的 $\varphi$，weak order 掉」。
+- **Hover** 右格任一點：顯示該 $h$ 下的路徑數、Monte Carlo 標準誤差（灰色誤差棒），讓讀者看到 weak error 很快小於抽樣誤差。
+- **底部觀察句**：「觀察：Euler 每步漏掉的首項是零均值的隨機量——逐路徑比它累積成 $\sqrt h$，只比分佈它平均掉、剩 $h$。要的是樣本就看 weak；要逐路徑對上才需要 strong。」
+- **匯出 PNG**：左右併成 16:9，含當前 $h$、SDE、$\varphi$ 與兩個誤差值。
+</VizPlan>
+
+## 先消化一下
+
+<QuizBlock id="m3-4-a">
+氣象局用 SDE 模擬明天氣溫，跑一萬次，只發布「明天氣溫超過 30 度的機率」。衡量這個模擬準不準，該看：
+<Option>strong error，因為每一次模擬都要跟真實的明天一樣。</Option>
+<Option correct>weak error（對 $\varphi=\mathbf 1[x>30]$ 或它的平滑版本）——發布的是一個分佈的統計量，沒有任何一條模擬路徑需要對上真實的那一條。</Option>
+<Option>兩者都要，缺一不可。</Option>
+<Explanation>
+真實的明天只有一條路徑，而且它的隨機性不會跟你的隨機數產生器共用——strong error 在這裡連定義都不成立。要的是「超過 30 度的機率」這個分佈量，就是 weak。注意 $\mathbf 1[x>30]$ 不光滑，階數可能低於 1，實務上會用平滑化的門檻或直接比較分佈函數。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m3-4-b">
+你把 $dx=\sigma x\,dW$ 換成 additive noise 的 $dx=-x\,dt+dW$，再量 Euler–Maruyama 的 strong error。斜率會：
+<Option>仍是 $\tfrac12$，因為 Euler 的 strong order 永遠是 $\tfrac12$。</Option>
+<Option correct>變成 $1$——每步漏掉的首項 $\tfrac12 g g'[(\Delta W)^2-h]$ 在 $g$ 是常數時恆為零，Euler 與 Milstein 在這裡是同一個方法。</Option>
+<Option>變成 $0$，因為 additive noise 沒有誤差。</Option>
+<Explanation>
+strong order $\tfrac12$ 來自噪聲係數 $g(x)$ 隨 $x$ 變化那一項；$g$ 是常數時它消失，剩下的誤差來自 drift 的離散化，是 $O(h)$。但誤差不會是零——drift $-x$ 仍然被 Euler 近似。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m3-4-c">
+「weak error 已經小於 Monte Carlo 的抽樣誤差」這句話的正確解讀是：
+<Option>模擬已經完全正確，不必再改進。</Option>
+<Option>應該繼續縮小步長，直到 weak error 為零。</Option>
+<Option correct>繼續縮小步長對最後的估計幾乎沒有幫助——瓶頸已經不在離散化，而在樣本數；要更準，該增加路徑數而不是步數。</Option>
+<Explanation>
+最後的估計有兩個誤差來源：離散化偏差（隨 $h$ 下降）與抽樣誤差（隨 $1/\sqrt M$ 下降，$M$ 是路徑數——別和步數 $N=T/h$ 混在一起）。當前者已遠小於後者，計算預算該花在 $M$ 上。這是理論（階數）與實作（實際數字）合起來才能做的判斷。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="math-markov-chain">
+本篇把「模擬準不準」拆成兩把尺：strong 逐路徑比、weak 只比分佈；Euler–Maruyama 每步漏掉的首項是零均值的隨機量，所以 strong 只有 $\tfrac12$ 階、weak 有 $1$ 階——要的是樣本就看 weak。到這裡，連續狀態的隨機動力學（random walk → SDE → Fokker–Planck → Langevin → 誤差）走完了。下一個 class 把狀態空間換成有限個格子：明天的天氣只跟今天有關，矩陣乘法就能算出一百天後晴天的比例。
+</Bridge>
+
+## 參考文獻
+
+1. Kloeden, P. E., Platen, E. [*Numerical Solution of Stochastic Differential Equations.*](https://doi.org/10.1007/978-3-662-12616-5) Springer, 1992.（第 9.6 節 strong convergence 定義、第 9.7 節 weak convergence 定義；第 10.2 節 Euler 的 strong order 1/2；第 14.1 節 weak order 1。）
+2. Higham, D. J. [*An Algorithmic Introduction to Numerical Simulation of Stochastic Differential Equations.*](https://doi.org/10.1137/S0036144500378302) SIAM Review 43(3), 2001.（用 $dx=\lambda x\,dt+\mu x\,dW$ 逐段實作並量出兩個階數的教學文章；本篇程式的原型。）
+3. Särkkä, S., Solin, A. [*Applied Stochastic Differential Equations.*](https://users.aalto.fi/~ssarkka/pub/sde_book.pdf) Cambridge University Press, 2019.（第 8 章：Euler–Maruyama、Milstein、strong 與 weak order。）
+4. Milstein, G. N., Tretyakov, M. V. [*Stochastic Numerics for Mathematical Physics.*](https://doi.org/10.1007/978-3-662-10063-9) Springer, 2004.（weak approximation 的一般理論與對 $\varphi$ 光滑性的要求。）

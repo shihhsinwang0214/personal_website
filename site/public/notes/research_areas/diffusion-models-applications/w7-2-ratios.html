@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>一個 x_t 的所有鄰居：比值長條圖</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 560px; aspect-ratio: 16/10; height: auto; display: block; margin: 0 auto; border-radius: 10px; cursor: pointer; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  input[type=range] { width: 190px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
+  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：離散空間沒有梯度，取代它的是<b>鄰居之間的比值</b> p<sub>t</sub>(y)/p<sub>t</sub>(x<sub>t</sub>)。比值大於 1 的鄰居就是「往那邊改會更像資料」。這裡的 p<sub>t</sub> 是<b>用前向演算法精確算</b>的，不是網路。</p>
+
+  <canvas id="cv" width="640" height="400" aria-label="鄰居比值長條圖"></canvas>
+  <p class="cap">上排＝當前的 x<sub>t</sub>（灰＝[MASK]）　下方＝每個位置的鄰居比值。absorbing 下把共同因子 ᾱ/(1−ᾱ) 除掉之後<b>就是一個機率分布</b>（線性刻度 0–1）；uniform 下畫原始比值（對數刻度，虛線＝1）。空槽＝那個位置沒有鄰居。<b>點格子</b>可手動改那一格</p>
+
+  <div class="controls">
+    <div class="row"><span class="lab">forward</span>
+      <button data-c="abs" class="on">absorbing</button>
+      <button data-c="uni">uniform</button>
+    </div>
+    <div class="row">
+      <span class="lab">t</span><input id="t" type="range" min="0.05" max="0.95" step="0.05" value="0.5" /><b id="vt">0.50</b>
+      <button id="draw2">抽一個 x_t</button>
+    </div>
+    <div class="stats">
+      <span>最大比值 = <b id="vmx">—</b></span>
+      <span>最小比值 = <b id="vmn">—</b></span>
+      <span id="hov"></span>
+      <span id="vsum"></span>
+    </div>
+  </div>
+
+  <p class="observe">資料是「相鄰格以機率 0.9 相同」的鏈。absorbing 下每個 [MASK] 有兩根柱子（填 0 或填 1），而<b>把共同因子 ᾱ/(1−ᾱ) 除掉之後，兩根的和剛好是 1</b>（看下面那個數字）——因為 p<sub>t</sub>(y)/p<sub>t</sub>(x<sub>t</sub>) = [ᾱ/(1−ᾱ)] · p(x₀<sup>ℓ</sup>=v | x<sub>t</sub>)，比值和上週那個網路只差一個<b>已知的係數</b>。填成和鄰居一致的字那根明顯高，填成相反的字那根幾乎是 0。沒被遮的位置<b>畫成空槽</b>：forward 沒有「字換成字」這條管子，反向也就沒有，那些比值根本不用學。切到 uniform：每個位置都有一根柱子，比值要學的數量整個變多，而且<b>沒有那個乾淨的化簡</b>。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var L = 16, P_SAME = 0.9, MASK = 2;
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var tEl = document.getElementById('t');
+  var vt = document.getElementById('vt'), vmx = document.getElementById('vmx'), vmn = document.getElementById('vmn'), hov = document.getElementById('hov');
+  var pal = NDFlow.palette();
+  var chain = 'abs', xt = [], ratios = [];
+
+  // p_t(x) = Σ_{x0} p_data(x0) Π_ℓ q(x_ℓ | x0_ℓ)：前向演算法，O(L·K²)
+  function logPtFull(x, ab) {
+    // 完整版（含第一步的正規化）
+    var T = [[P_SAME, 1 - P_SAME], [1 - P_SAME, P_SAME]], i, a;
+    function emis(i, a) {
+      var v = x[i];
+      if (chain === 'abs') return (v === MASK) ? (1 - ab) : (v === a ? ab : 0);
+      return ab * (v === a ? 1 : 0) + (1 - ab) / 2;
+    }
+    var f = [0.5 * emis(0, 0), 0.5 * emis(0, 1)], z0 = f[0] + f[1];
+    if (z0 <= 0) return -Infinity;
+    var logs = Math.log(z0); f = [f[0] / z0, f[1] / z0];
+    for (i = 1; i < L; i++) {
+      var nx = [0, 0];
+      for (a = 0; a < 2; a++) { var sm = 0; for (var p = 0; p < 2; p++) sm += f[p] * T[p][a]; nx[a] = sm * emis(i, a); }
+      var z = nx[0] + nx[1];
+      if (z <= 0) return -Infinity;
+      logs += Math.log(z); f = [nx[0] / z, nx[1] / z];
+    }
+    return logs;
+  }
+  function sampleXt() {
+    var ab = 1 - parseFloat(tEl.value);
+    var x0 = [Math.random() < 0.5 ? 0 : 1];
+    for (var i = 1; i < L; i++) x0.push(Math.random() < P_SAME ? x0[i - 1] : 1 - x0[i - 1]);
+    xt = x0.map(function (v) {
+      if (Math.random() < ab) return v;
+      return chain === 'abs' ? MASK : (Math.random() < 0.5 ? 0 : 1);
+    });
+  }
+  function compute() {
+    var ab = 1 - parseFloat(tEl.value);
+    var base = logPtFull(xt, ab);
+    ratios = [];
+    for (var i = 0; i < L; i++) {
+      var list = [];
+      var cands = (chain === 'abs') ? (xt[i] === MASK ? [0, 1] : []) : [1 - xt[i]];
+      for (var c = 0; c < cands.length; c++) {
+        var y = xt.slice(); y[i] = cands[c];
+        var lp = logPtFull(y, ab);
+        list.push({ v: cands[c], r: Math.exp(lp - base) });
+      }
+      ratios.push(list);
+    }
+  }
+  function lay(s) {
+    var pad = 26, h = s.h;
+    return { pad: pad, cw: (s.w - 2 * pad) / L, cy: 0.07 * h, ch: 0.14 * h, by: 0.32 * h, bh: 0.54 * h };
+  }
+  function rrect(ctx, x, y, w, h, rr) {
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y); ctx.lineTo(x + w - rr, y); ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+    ctx.lineTo(x + w, y + h - rr); ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    ctx.lineTo(x + rr, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+    ctx.lineTo(x, y + rr); ctx.quadraticCurveTo(x, y, x + rr, y); ctx.closePath();
+  }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx, Y = lay(s), i;
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    var ORANGE = 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',0.9)';
+    var BLUE = 'rgba(' + pal.noise[0] + ',' + pal.noise[1] + ',' + pal.noise[2] + ',0.85)';
+    var GREY = 'rgba(255,255,255,0.18)';
+    for (i = 0; i < L; i++) {
+      var x = Y.pad + i * Y.cw, w = Y.cw - 3, v = xt[i];
+      ctx.fillStyle = v === MASK ? GREY : (v === 0 ? ORANGE : BLUE);
+      rrect(ctx, x, Y.cy, w, Y.ch, 4); ctx.fill();
+      ctx.fillStyle = v === MASK ? 'rgba(255,255,255,0.55)' : '#15161a';
+      ctx.font = '700 12px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(v === MASK ? '▨' : String(v), x + w / 2, Y.cy + Y.ch / 2 + 4);
+    }
+    var ab = 1 - parseFloat(tEl.value);
+    var fac = ab / (1 - ab);                 // absorbing 的共同因子 ᾱ/(1−ᾱ)
+    var isAbs = (chain === 'abs');
+    var LR = 4, mid = Y.by + Y.bh / 2, base = Y.by + Y.bh;
+    ctx.font = '500 9px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.textAlign = 'right';
+    if (isAbs) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(Y.pad, base); ctx.lineTo(s.w - Y.pad, base); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(Y.pad, Y.by); ctx.lineTo(s.w - Y.pad, Y.by); ctx.stroke();
+      ctx.fillText('1', Y.pad - 4, Y.by + 4); ctx.fillText('0', Y.pad - 4, base + 3);
+    } else {
+      ctx.strokeStyle = 'rgba(255,255,255,0.30)'; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(Y.pad, mid); ctx.lineTo(s.w - Y.pad, mid); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillText('比值 1', Y.pad - 4, mid + 3);
+      ctx.fillText('e⁴', Y.pad - 4, Y.by + 5); ctx.fillText('e⁻⁴', Y.pad - 4, base + 3);
+    }
+    var mxr = 0, mnr = Infinity, sumOne = null;
+    for (i = 0; i < L; i++) {
+      var list = ratios[i], x2 = Y.pad + i * Y.cw, w2 = Y.cw - 3;
+      if (list.length === 0) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.13)'; ctx.lineWidth = 1;
+        ctx.setLineDash([2, 3]);
+        ctx.strokeRect(x2 + 1, Y.by + Y.bh * 0.32, w2 - 2, Y.bh * 0.36);
+        ctx.setLineDash([]);
+        continue;
+      }
+      var tot = 0;
+      for (var c = 0; c < list.length; c++) {
+        var r = list[c].r;
+        mxr = Math.max(mxr, r); mnr = Math.min(mnr, r);
+        var bw = (w2 - 2) / list.length, bx = x2 + 1 + c * bw;
+        if (isAbs) {
+          var pr = r / fac; tot += pr;
+          var hgt = Math.max(1, Math.min(1, pr) * Y.bh);
+          ctx.fillStyle = pr >= 0.5 ? 'rgb(96,186,130)' : '#d94f4f';
+          ctx.fillRect(bx, base - hgt, bw - 1, hgt);
+          if (bw > 13) {
+            ctx.font = '600 8px "Plus Jakarta Sans", system-ui, sans-serif';
+            ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.textAlign = 'center';
+            ctx.fillText(String(list[c].v), bx + bw / 2, base + 10);
+          }
+        } else {
+          var lr = Math.max(-LR, Math.min(LR, Math.log(Math.max(1e-9, r))));
+          var hg2 = Math.abs(lr) / LR * (Y.bh / 2);
+          ctx.fillStyle = lr >= 0 ? 'rgb(96,186,130)' : '#d94f4f';
+          ctx.fillRect(bx, lr >= 0 ? mid - hg2 : mid, bw - 1, Math.max(1, hg2));
+        }
+      }
+      if (isAbs && list.length === 2 && sumOne === null) sumOne = tot;
+    }
+    vt.textContent = parseFloat(tEl.value).toFixed(2);
+    vmx.textContent = mxr === 0 ? '—' : mxr.toFixed(2);
+    vmn.textContent = mnr === Infinity ? '—' : mnr.toExponential(1);
+    var vsum = document.getElementById('vsum');
+    vsum.textContent = (chain === 'abs' && sumOne !== null)
+      ? ('同一格兩根的和 = ' + sumOne.toFixed(4) + '（＝1，因為那就是一個機率分布）') : '';
+    ctx.font = '600 10px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.textAlign = 'left';
+    ctx.fillText(isAbs
+      ? '柱高 = 比值 ÷ ᾱ/(1−ᾱ) = p(x₀ = 那個字 | x_t)——這就是上週那個網路的輸出'
+      : '綠＝把這一格改成另一個字會更像資料（比值 > 1）　紅＝更不像',
+      Y.pad, Y.by + Y.bh + (isAbs ? 24 : 18));
+  }
+  cv.addEventListener('click', function (ev) {
+    var s = d.resize(), Y = lay(s), r = cv.getBoundingClientRect();
+    var px = (ev.clientX - r.left) * (s.w / r.width);
+    var i = Math.floor((px - Y.pad) / Y.cw);
+    if (i < 0 || i >= L) return;
+    if (chain === 'abs') xt[i] = (xt[i] === MASK) ? 0 : (xt[i] === 0 ? 1 : MASK);
+    else xt[i] = 1 - xt[i];
+    compute(); draw();
+  });
+  tEl.oninput = function () { compute(); draw(); };
+  document.getElementById('draw2').onclick = function () { sampleXt(); compute(); draw(); };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-c]'), function (b) {
+    b.onclick = function () {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-c]'), function (o) { o.classList.remove('on'); });
+      b.classList.add('on'); chain = b.dataset.c; sampleXt(); compute(); draw();
+    };
+  });
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  sampleXt(); compute(); applyTheme();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>同一個物件，兩套座標；不同路徑，不同軌跡</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 450px; aspect-ratio: 1/1; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
+  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：在高斯路徑上，<b>速度場與 score 是同一個物件的兩套座標</b>（下面那個「兩套座標的差」永遠是 0）；但換一條路徑，<b>軌跡的彎曲程度就不一樣</b>——而哪一條比較直，要量過才知道。</p>
+
+  <canvas id="cv" width="560" height="560" aria-label="兩種路徑的 ODE 軌跡"></canvas>
+  <p class="cap">橘點＝資料　藍點＝起點　細線＝參考解（200 步）　粗折線＋節點＝目前步數的 Euler 解　（速度場由資料精確算出，相當於一個訓到最佳的網路）</p>
+
+  <div class="controls">
+    <div class="row"><span class="lab">路徑</span>
+      <button data-p="vp" class="on">VP（diffusion）</button>
+      <button data-p="lin">線性（FM）</button>
+    </div>
+    <div class="row"><span class="lab">資料</span>
+      <button data-s="two_moons" class="on">雙月</button>
+      <button data-s="two_gaussians">雙峰</button>
+      <button data-s="ring">環形</button>
+    </div>
+    <div class="row"><span class="lab">Euler 步數</span>
+      <button data-k="4">4</button>
+      <button data-k="8" class="on">8</button>
+      <button data-k="20">20</button>
+      <button data-k="200">200</button>
+      <button id="dice">🎲 重抽起點</button>
+    </div>
+    <div class="stats">
+      <span>彎曲度（軌跡長 ÷ 直線距離）= <b id="vb">—</b></span>
+      <span>終點誤差 = <b id="ve">—</b></span>
+      <span>兩套座標的差 = <b id="vd">—</b></span>
+    </div>
+  </div>
+
+  <p class="observe">「兩套座標的差」是把 u<sub>t</sub> 用 E[x₁|x] 與 E[ε|x] 算一次、再用 x 與 score 的線性組合算一次，兩者相減的最大值——它<b>一直是 0</b>（1e-15 是浮點誤差），這就是「同一個物件」的意思。切換路徑看彎曲度：在這個 2D toy 裡<b>線性路徑反而比 VP 彎</b>（雙月大約 2.1 對 1.5），8 步 Euler 的終點誤差也比較大。<b>條件路徑是直的，不代表邊際軌跡就直。</b></p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var N = 220, M = 14, SPAN = 5.6, REF = 200, EPS = 0.02, TEND = 0.995;
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var vb = document.getElementById('vb'), ve = document.getElementById('ve'), vd = document.getElementById('vd');
+  var pal = NDFlow.palette();
+  var path = 'vp', shape = 'two_moons', K = 8;
+  var x1s = [], starts = [], trajK = [], trajRef = [];
+
+  function sch(t) {
+    // FM 慣例：t=0 是噪聲、t=1 是資料
+    if (path === 'lin') return { a: Math.max(EPS, t), s: Math.max(EPS, 1 - t), da: 1, ds: -1 };
+    var h = Math.PI / 2;
+    return { a: Math.max(EPS, Math.sin(h * t)), s: Math.max(EPS, Math.cos(h * t)),
+             da: h * Math.cos(h * t), ds: -h * Math.sin(h * t) };
+  }
+  function rebuildData() { x1s = NDFlow.sampleTarget(shape, N); }
+  function rebuildStarts() {
+    starts = [];
+    for (var i = 0; i < M; i++) starts.push([NDFlow.randn(), NDFlow.randn()]);
+  }
+
+  // 精確的條件期望：w_i ∝ exp(−|x − α x1_i|² / 2σ²)
+  function post(px, py, a, s) {
+    var ls = [], mx = -Infinity, i, s2 = 2 * s * s;
+    for (i = 0; i < N; i++) {
+      var dx = px - a * x1s[i][0], dy = py - a * x1s[i][1];
+      var l = -(dx * dx + dy * dy) / s2;
+      ls.push(l); if (l > mx) mx = l;
+    }
+    var sum = 0, ex = 0, ey = 0;
+    for (i = 0; i < N; i++) { ls[i] = Math.exp(ls[i] - mx); sum += ls[i]; }
+    for (i = 0; i < N; i++) { var w = ls[i] / sum; ex += w * x1s[i][0]; ey += w * x1s[i][1]; }
+    return [ex, ey];
+  }
+  // 座標一：u = α̇ E[x1|x] + σ̇ E[ε|x]
+  function uA(px, py, t) {
+    var c = sch(t), m = post(px, py, c.a, c.s);
+    var e = [(px - c.a * m[0]) / c.s, (py - c.a * m[1]) / c.s];
+    return [c.da * m[0] + c.ds * e[0], c.da * m[1] + c.ds * e[1]];
+  }
+  // 座標二：u = (α̇/α) x − σ(σ̇ − (α̇/α)σ) ∇log p_t，其中 ∇log p_t = −E[ε|x]/σ
+  function uB(px, py, t) {
+    var c = sch(t), m = post(px, py, c.a, c.s);
+    var e = [(px - c.a * m[0]) / c.s, (py - c.a * m[1]) / c.s];
+    var sc = [-e[0] / c.s, -e[1] / c.s], r = c.da / c.a, k = -c.s * (c.ds - r * c.s);
+    return [r * px + k * sc[0], r * py + k * sc[1]];
+  }
+
+  function integrate(n) {
+    var out = [], h = TEND / n;
+    for (var m = 0; m < M; m++) {
+      var x = [starts[m][0], starts[m][1]], p = [[x[0], x[1]]];
+      for (var k = 0; k < n; k++) {
+        var v = uA(x[0], x[1], k * h);
+        x = [x[0] + h * v[0], x[1] + h * v[1]];
+        p.push([x[0], x[1]]);
+      }
+      out.push(p);
+    }
+    return out;
+  }
+  function recompute() {
+    trajRef = integrate(REF);
+    trajK = (K === REF) ? trajRef : integrate(K);
+    var bend = 0, err = 0, m, k;
+    for (m = 0; m < M; m++) {
+      var p = trajRef[m], L = 0;
+      for (k = 1; k < p.length; k++) L += Math.hypot(p[k][0] - p[k - 1][0], p[k][1] - p[k - 1][1]);
+      var ch = Math.hypot(p[p.length - 1][0] - p[0][0], p[p.length - 1][1] - p[0][1]);
+      bend += L / Math.max(1e-6, ch);
+      var e1 = trajK[m][trajK[m].length - 1], e2 = p[p.length - 1];
+      err += Math.hypot(e1[0] - e2[0], e1[1] - e2[1]);
+    }
+    // 兩套座標的差：在網格上取最大值
+    var worst = 0;
+    for (var ti = 1; ti <= 4; ti++) {
+      var t = ti * 0.2;
+      for (var gy = -2; gy <= 2; gy++) for (var gx = -2; gx <= 2; gx++) {
+        var a = uA(gx * 0.8, gy * 0.8, t), b = uB(gx * 0.8, gy * 0.8, t);
+        worst = Math.max(worst, Math.hypot(a[0] - b[0], a[1] - b[1]));
+      }
+    }
+    vb.textContent = (bend / M).toFixed(3);
+    ve.textContent = (err / M).toFixed(3);
+    vd.textContent = worst.toExponential(1);
+  }
+
+  function T2(s) {
+    var k = Math.min(s.w, s.h) / SPAN;
+    return { k: k, x: function (v) { return s.w / 2 + v * k; }, y: function (v) { return s.h / 2 - v * k; } };
+  }
+  function poly(ctx, tr, p) {
+    ctx.beginPath();
+    for (var k = 0; k < p.length; k++) k ? ctx.lineTo(tr.x(p[k][0]), tr.y(p[k][1])) : ctx.moveTo(tr.x(p[k][0]), tr.y(p[k][1]));
+    ctx.stroke();
+  }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx, tr = T2(s), i;
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+
+    ctx.fillStyle = 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',0.32)';
+    for (i = 0; i < N; i++) { ctx.beginPath(); ctx.arc(tr.x(x1s[i][0]), tr.y(x1s[i][1]), 1.5, 0, 6.284); ctx.fill(); }
+
+    ctx.strokeStyle = 'rgba(96,186,130,0.45)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    trajRef.forEach(function (p) { poly(ctx, tr, p); });
+
+    ctx.strokeStyle = pal.accent; ctx.lineWidth = 2.1; ctx.lineJoin = 'round';
+    trajK.forEach(function (p) { poly(ctx, tr, p); });
+    ctx.fillStyle = pal.accent;
+    trajK.forEach(function (p) {
+      for (var k = 0; k < p.length; k++) { ctx.beginPath(); ctx.arc(tr.x(p[k][0]), tr.y(p[k][1]), 1.9, 0, 6.284); ctx.fill(); }
+    });
+    ctx.fillStyle = 'rgba(' + pal.noise[0] + ',' + pal.noise[1] + ',' + pal.noise[2] + ',0.85)';
+    starts.forEach(function (a) { ctx.beginPath(); ctx.arc(tr.x(a[0]), tr.y(a[1]), 2.4, 0, 6.284); ctx.fill(); });
+  }
+
+  function go() { recompute(); draw(); }
+  function seg(sel, attr, set) {
+    Array.prototype.forEach.call(document.querySelectorAll(sel), function (b) {
+      b.onclick = function () {
+        Array.prototype.forEach.call(document.querySelectorAll(sel), function (o) { o.classList.remove('on'); });
+        b.classList.add('on'); set(b.dataset[attr]); go();
+      };
+    });
+  }
+  seg('[data-p]', 'p', function (v) { path = v; });
+  seg('[data-s]', 's', function (v) { shape = v; rebuildData(); });
+  seg('[data-k]', 'k', function (v) { K = parseInt(v, 10); });
+  document.getElementById('dice').onclick = function () { rebuildStarts(); go(); };
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  rebuildData(); rebuildStarts(); recompute(); applyTheme();
+})();
+</script>
+</body>
+</html>

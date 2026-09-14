@@ -1,0 +1,213 @@
+---
+slug: "math-m1-4-tweedie"
+label: "math-tweedie"
+prereqs:
+  - math-conditional-expectation
+  - math-bayes-posterior
+  - math-total-derivative
+lang: "zh"
+title: "去噪就是取 Posterior Mean（Tweedie）"
+category: "courses"
+group: "M1 · 機率與 Conditional Expectation"
+status: "available"
+updated: 2026-09-06
+summary: "體重計讀 72.3 kg、雜訊 ±1 kg、全班體重分佈已知——最佳猜測是 72.3 嗎？不是：最佳猜測是 posterior mean，而 Tweedie 公式說它等於 y + σ² ∇log p_Y(y)：讀數往「讀數分佈密度高的方向」修正 σ² 倍的相對斜率。推導只用三件事：微分穿過積分、Gaussian 的 ∇log、Bayes。"
+demos: []
+references:
+  - label: "Robbins, An Empirical Bayes Approach to Statistics (Proc. Third Berkeley Symposium on Mathematical Statistics and Probability, 1956)"
+  - label: "Efron, Tweedie's Formula and Selection Bias (JASA 2011)"
+    href: "https://doi.org/10.1198/jasa.2011.tm11181"
+  - label: "Stein, Estimation of the Mean of a Multivariate Normal Distribution (Annals of Statistics 1981)"
+    href: "https://doi.org/10.1214/aos/1176345632"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 去噪就是取 Posterior Mean（Tweedie）
+
+<Objectives>
+- 說出「看到帶雜訊的讀數、猜真實值」的最佳答案是 posterior mean $\mathbb E[X\mid Y=y]$，並解釋為什麼它一般**不等於**讀數本身。
+- 推導 Tweedie 公式 $\mathbb E[X\mid Y=y]=y+\sigma^2\,\nabla_y\log p_Y(y)$，指出每一步用到哪個工具，並說出它只需要**讀數的分佈**、不需要真實值的分佈這件事為什麼重要。
+- 對「讀數就是最佳猜測」這個直覺，判斷它在什麼假設下差得不多、什麼時候差很多（雜訊大、密度斜率大），並用模擬驗證，包括雜訊不是 Gaussian 或 $\sigma$ 估錯時公式如何失準。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 起點：讀數是 72.3
+
+全班量體重。用的體重計雜訊已知：每次讀數是真實體重加上一個標準差 1 kg 的 Gaussian 抖動，沒有系統偏差。全班的體重分佈也已知——老師去年量過，大致是平均 62 kg、標準差 8 kg 的鐘形。
+
+某位同學站上去，讀數 **72.3 kg**。
+
+**你對他真實體重的最佳猜測是幾公斤？**
+
+多數人會說「72.3，還能是什麼？雜訊是對稱的，往上往下機率一樣。」寫下你的答案與確定程度。
+
+這一篇會算出：最佳猜測是 **72.14**，比讀數低一點。差得不多——但這個「一點」有一條精確的公式，而且當體重計更差時（雜訊 ±3 kg），最佳猜測會變成 **71.0**，差超過一公斤。直覺「雜訊對稱所以不用修正」漏掉了一件事，而那件事正是前面幾篇準備好的工具要處理的。
+
+<Question id="Q1">
+把情境翻成數學：隨機變數是什麼？「最佳猜測」的標準是什麼？「全班分佈已知」在這個問題裡扮演什麼角色？
+
+<Answer>
+最直覺的答案是「猜 72.3，因為雜訊平均是零」。這句話**對了一半**：它正確描述了 $Y$ 給定 $X$ 的分佈，卻回答錯了問題。
+
+**兩個隨機變數。** 這位同學是從全班隨機挑出來的一個人，他的真實體重 $X$ 因此是隨機的，分佈 $p_X$ 就是全班的分佈（這是 prior）。讀數 $Y=X+\sigma\varepsilon$，$\varepsilon\sim\mathcal N(0,1)$、$\sigma=1$——這是 likelihood：**已知 $X=x$**，讀數落在 $y$ 的密度是 $\varphi_\sigma(y-x)$，一個以 $x$ 為中心的鐘形。
+
+**最佳猜測的標準。** 用平方誤差計分，<Ref to="math-mse-conditional-expectation"/> 說最佳猜測是 $\mathbb E[X\mid Y=y]$：**已知讀數是 $y$**，真實體重的桶內平均。注意方向：直覺說的「雜訊平均是零」是 $\mathbb E[Y\mid X]=X$——已知真實值，讀數的平均；我們要的是反過來，$\mathbb E[X\mid Y]$。這兩個條件方向相反，正是 <Ref to="math-bayes-posterior"/> 那個「有病的人裡多少陽性」與「陽性的人裡多少有病」的差別。
+
+**全班分佈的角色。** 反過來的條件需要 prior。「讀到 72.3」的人，有的是 71 kg 的人加了 $+1.3$ 的雜訊，有的是 74 kg 的人加了 $-1.7$——而全班裡 71 kg 的人比 74 kg 的人**多**（62 是中心，離得越遠越少），所以「讀到 72.3」的人裡偏輕的佔多數。桶內平均因此略低於 72.3。問題變成：這個修正量到底是多少、有沒有一條不必逐一算 posterior 的公式？
+</Answer>
+</Question>
+
+## 站在密度的斜坡上
+
+想像全班的體重密度是一座山，山頂在 62。讀數 72.3 落在山的**右坡**上——往左（更輕）人比較多，往右（更重）人比較少。
+
+雜訊把每個人的真實體重往左右隨機推 1 kg 左右。站在 72.3 這個位置往回看：從左邊被推過來的人（本來更輕）比從右邊被推過來的人（本來更重）多，因為左邊本來就人多。所以「讀到 72.3」這一群人的真實體重，重心在 72.3 的**左邊**——往山頂方向。
+
+這就是修正的方向：**往密度高的方向修正**。修正多少取決於兩件事：坡有多斜（斜坡越陡，左右兩邊的人數差越大），以及雜訊推得多遠（推得越遠，越多遠處的人混進來）。山頂上坡度為零，讀數不用修；山腳下坡很陡、修得多。
+
+<VizPlan id="m1-4-slope" title="站在密度的斜坡上：讀數往山頂修正" type="static">
+- **檔名**：`m1-probability/imgs/m1-4-1.svg`（16:9，上下兩排）。
+- **上排**：全班體重密度 $p_X$（鐘形，山頂 62），在 72.3 處畫一條垂直虛線。左右各畫一小群人形圖示（左邊較多、右邊較少），各有一支指向 72.3 的箭頭，標「本來 71，抖到 72.3」「本來 74，抖到 72.3」。在 72.3 下方畫一個小重心符號略偏左，標 $\mathbb E[X\mid Y=72.3]\approx72.1$。
+- **下排**：三個小圖並排，分別是讀數在山頂（62）、右坡中段（72.3）、右坡遠端（85），每個小圖畫出該讀數的 posterior $p(x\mid y)$（窄鐘形）與它的重心；箭頭長度依次為 $0$、短、長，標「坡越陡，修正越多」。
+- **圖說**：「讀數往密度高的方向修正；山頂不修，坡越陡修越多，雜訊越大修越多。」
+</VizPlan>
+
+## 三個工具接起來：Tweedie 公式
+
+把「讀數」的密度寫出來。$Y=X+\sigma\varepsilon$，所以
+
+$$
+p_Y(y)=\int p_X(x)\,\varphi_\sigma(y-x)\,dx,\qquad \varphi_\sigma(u)=\frac{1}{\sqrt{2\pi}\sigma}e^{-u^2/(2\sigma^2)} .
+$$
+
+現在對 $y$ 微分，三步。
+
+**第一步（微分穿過積分，<Ref to="math-total-derivative"/>）。** 積分變數是 $x$、微分變數是 $y$，Leibniz 法則讓 $\frac{d}{dy}$ 直接進到被積函數：
+$$
+p_Y'(y)=\int p_X(x)\,\partial_y\varphi_\sigma(y-x)\,dx .
+$$
+
+**第二步（Gaussian 的 $\nabla\log$，<Ref to="math-gradient"/>）。** $\partial_y\varphi_\sigma(y-x)=-\dfrac{y-x}{\sigma^2}\,\varphi_\sigma(y-x)$。代入並把 $y$ 提出：
+$$
+\sigma^2\,p_Y'(y)=\int(x-y)\,p_X(x)\varphi_\sigma(y-x)\,dx=\int x\,p_X(x)\varphi_\sigma(y-x)\,dx\;-\;y\,p_Y(y).
+$$
+
+**第三步（Bayes，<Ref to="math-bayes-posterior"/>）。** posterior 是 $p(x\mid y)=\dfrac{p_X(x)\varphi_\sigma(y-x)}{p_Y(y)}$。兩邊除以 $p_Y(y)$，第一項就變成用 posterior 加權的平均：
+$$
+\sigma^2\,\frac{p_Y'(y)}{p_Y(y)}=\int x\,p(x\mid y)\,dx-y=\mathbb E[X\mid Y=y]-y .
+$$
+
+整理，就是 **Tweedie 公式**：
+
+$$
+\boxed{\ \mathbb E[X\mid Y=y]=y+\sigma^2\,\frac{d}{dy}\log p_Y(y)\ }
+$$
+
+多維時一字不改，$\frac{d}{dy}$ 換成 gradient：$\mathbb E[X\mid Y=y]=y+\sigma^2\nabla_y\log p_Y(y)$。
+
+讀法：**最佳猜測＝讀數＋（雜訊的 variance）×（讀數密度的相對斜率）。** 「往密度高處修正」是 $\nabla\log p_Y$ 的方向；「坡越陡修越多」是它的大小；「雜訊越大修越多」是前面的 $\sigma^2$。三個直覺各對應公式的一個因子。
+
+<Details summary="兩件值得多看一眼的事：只需要 p_Y；以及 ∇log 不在乎正規化">
+**只需要讀數的分佈。** 公式右邊出現的是 $p_Y$——**讀數**的密度——而不是 $p_X$。這表示你其實不需要老師去年量的那張表：只要有夠多的**讀數**（帶雜訊的那種），畫出它們的 histogram、估出斜率，就能算出每個讀數該修多少。Robbins [1] 把這個想法叫 empirical Bayes：prior 不用假設，從資料的邊際分佈裡「借」出來。Efron [2] 在這篇文章裡把它正式命名為 Tweedie's formula，並用它解釋為什麼「被選出來的最大值」通常高估（selection bias）——被選中的讀數多半站在密度稀疏的坡上，該往回修。
+
+**$\nabla\log$ 不在乎正規化。** <Ref to="math-gradient"/> 說過 $\nabla\log(cf)=\nabla\log f$。所以估 $p_Y$ 時不需要它的積分等於 1，只要形狀對就夠——這在實務上省掉了一個最難算的量。
+</Details>
+
+## 回到情境：72.14，還是 71.0
+
+**代數字。** 全班 $X\sim\mathcal N(62,8^2)$、雜訊 $\sigma=1$。讀數 $Y=X+\varepsilon$ 是兩個獨立 Gaussian 的和，由 <Ref to="math-gaussian"/>，$Y\sim\mathcal N(62,\,64+1)$。它的 $\frac{d}{dy}\log p_Y(y)=-\dfrac{y-62}{65}$。代 $y=72.3$：
+
+$$
+\mathbb E[X\mid Y=72.3]=72.3-1\times\frac{10.3}{65}=72.3-0.16=72.14\ \text{kg}.
+$$
+
+換一台雜訊 $\sigma=3$ 的體重計：$Y\sim\mathcal N(62,73)$，修正 $=-9\times\dfrac{10.3}{73}=-1.27$，最佳猜測 **71.03 kg**。
+
+**對照直覺。** 「72.3 就是最佳猜測」隱含的假設是 **$p_X$ 是平的**——全班每個體重的人一樣多，斜率為零，修正為零。真實的班級不是這樣。在 $\sigma=1$ 時直覺只差 0.16 kg，因為雜訊小、$\sigma^2$ 這個因子壓住了修正；換到 $\sigma=3$ 時 $\sigma^2$ 變九倍，直覺就差了一公斤以上。**直覺什麼時候夠好：雜訊的 variance 相對於 prior 的寬度很小的時候。** 什麼時候不夠好：體重計差、或這位同學的讀數落在全班分佈很稀疏的尾端。
+
+**這個結論依賴什麼。** 第一，**雜訊是 Gaussian**——第二步用了 Gaussian 的 $\nabla\log$ 是線性的；換別種雜訊，公式的形狀會變。第二，**$\sigma$ 要對**——修正乘的是 $\sigma^2$，所以 $\sigma$ 估成一半，修正只剩四分之一。第三，**prior 要是這個人所屬的母體**——如果站上去的是來訪的老師，全班的分佈就不是他的 prior，公式會把他往學生的體重拉。第四，這是**平方誤差**下的最佳猜測；換計分方式，答案不再是 posterior mean（<Ref to="math-mse-conditional-expectation"/>）。
+
+## 回到情境：模擬全班兩百萬次
+
+```python
+import numpy as np
+rng = np.random.default_rng(4); n = 2_000_000
+def run(noise, sigma=1.0, ys=(66.0, 72.3, 78.0)):
+    X = rng.normal(62, 8, n)                                          # 全班體重（prior）
+    if noise == "gauss": eps = rng.normal(0, 1, n)
+    else: eps = np.where(rng.random(n) < 0.95, rng.normal(0, 1, n), rng.normal(0, 10, n))  # 5% 機率跳格
+    Y = X + sigma*eps
+    emp = [X[np.abs(Y - y) < 0.1].mean() for y in ys]                 # 標準答案：讀數≈y 的人的平均真實體重
+    hist, edges = np.histogram(Y, bins=350, range=(30, 100), density=True)
+    c = 0.5*(edges[1:] + edges[:-1]); dlogp = np.gradient(np.log(hist + 1e-12), c)
+    tweedie = np.array(ys) + sigma**2*np.interp(ys, c, dlogp)         # Tweedie：只用讀數的 histogram
+    print(f"{noise:6s} σ={sigma}: 分桶平均 {np.round(emp, 2)}  Tweedie {np.round(tweedie, 2)}")
+run("gauss", 1.0); run("gauss", 3.0); run("glitch", 1.0)
+```
+
+第一行：讀數 72.3 的分桶平均約 72.14、Tweedie 也給 72.14——公式在沒看過 $p_X$ 的情況下，只靠讀數的 histogram 就算出了正確的修正；讀數 78 修得更多（$-0.25$），66 修得少（$-0.06$），「坡越陡修越多」兌現。第二行 $\sigma=3$：72.3 修到約 71.0。第三行是刻意違反「雜訊是 Gaussian」：體重計有 5% 的機率跳出 $\pm10$ kg 的離譜值。這時分桶平均（標準答案）與 Tweedie 分岔——讀數 78 的人有相當比例其實是跳格的普通同學，標準答案把他們大幅往回拉，而 Tweedie 用 $\sigma^2=1$ 只修一點點。公式沒有錯，是它的前提沒了。
+
+<VizPlan id="m1-4-tweedie" title="讀數往哪修、修多少：拖 σ、換 prior、換雜訊、估錯 σ" type="interactive">
+- **位置**：本節之後。**檔名**：`site/public/notes/research_areas/mathematical-foundations/m1-probability/m1-4-2.html`。這是本篇的核心互動，也是本 class 的收尾圖。
+- **版面**：上格同一條橫軸（體重 30–100 kg）上疊三條曲線：prior $p_X$（淡色）、讀數密度 $p_Y$（實線）、以及 $\sigma^2\frac{d}{dy}\log p_Y$ 畫成沿橫軸的小箭頭場（每 2 kg 一支，長度＝修正量、方向＝修正方向）。一條可拖動的垂直線是「讀數 $y$」；它右側顯示 posterior $p(x\mid y)$ 的窄曲線與其重心，並用一支粗箭頭從 $y$ 指到 $\mathbb E[X\mid Y=y]$，旁邊寫出「$y+\sigma^2\nabla\log p_Y(y)=$ …」的數字。下格是「修正量對讀數」的曲線：Tweedie 公式（實線）與模擬分桶平均（點），兩者重合時顯示綠色。
+- **控制項**：滑桿 $\sigma$（$0.2$–$5$ kg）——拉大時箭頭場整體變長、$p_Y$ 變寬；下拉「prior」：單峰 Gaussian／雙峰（男女兩群 70±6、55±5）／均勻——均勻時箭頭場全為零、粗箭頭消失（「直覺對的情形」），雙峰時兩峰之間的讀數會被推向較近較高的那一峰、谷底附近箭頭反向；下拉「雜訊」：Gaussian／5% 跳格／均勻 $\pm\sqrt3\sigma$——非 Gaussian 時下格的點偏離實線並標紅「前提：Gaussian 雜訊」；滑桿「你以為的 $\sigma$」獨立於真實 $\sigma$——估錯時實線整體縮放、與點分離，標「$\sigma$ 估錯：修正差 $(\hat\sigma/\sigma)^2$ 倍」；開關「只用讀數估 $p_Y$」：把 $p_Y$ 換成 histogram＋平滑，讓讀者看到不需要 prior 也能得到幾乎一樣的箭頭場。
+- **Hover** 上格任一位置顯示該讀數的 $p_Y$、$\nabla\log p_Y$、修正量、posterior mean。
+- **底部觀察句**：「觀察：最佳猜測不是讀數，是讀數往密度高處修正 $\sigma^2\nabla\log p_Y$。山頂不修、坡越陡修越多、雜訊越大修越多；而且只需要讀數的分佈。雜訊非 Gaussian 或 $\sigma$ 估錯時，公式與標準答案分岔。」
+- **匯出 PNG**：上下兩格併成 16:9，含當前參數。
+</VizPlan>
+
+## 先消化一下
+
+<QuizBlock id="m1-4-a">
+一個線上遊戲用玩家最近 20 場的平均分數當「實力估計」。排行榜前十名的玩家，下一個月的平均分數幾乎都會**下降**。用本篇的工具，最好的解釋是：
+<Option>前十名的玩家變懶了。</Option>
+<Option correct>20 場平均是帶雜訊的讀數；排行榜前十名站在實力分佈很稀疏的右坡上，Tweedie 說最佳估計要往密度高處（往下）修正——他們的真實實力多半低於顯示的分數，下個月的分數只是回到那裡。</Option>
+<Option>遊戲的計分系統有 bug。</Option>
+<Explanation>
+這是 Efron 談的 selection bias：被選出來的極端讀數，多半是「實力不錯＋運氣好」而不是「實力極頂」，因為前者的人數多得多。$\nabla\log p_Y$ 在右尾是負的、且越遠越陡，所以修正向下、越前面修越多。「變懶」「bug」不能解釋為什麼**每個月**、**每種**排行榜都會這樣。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m1-4-b">
+Tweedie 公式的推導裡，哪一步**必須**用到「雜訊是 Gaussian」？
+<Option>Leibniz 法則：微分穿過積分。</Option>
+<Option correct>$\partial_y\varphi_\sigma(y-x)=-\frac{y-x}{\sigma^2}\varphi_\sigma(y-x)$——雜訊密度的 $\nabla\log$ 是 $(x-y)$ 的線性函數，才能把積分變成「posterior mean 減 $y$」。</Option>
+<Option>Bayes 定理：$p(x\mid y)\propto p_X(x)\varphi_\sigma(y-x)$。</Option>
+<Explanation>
+Leibniz 法則與 Bayes 對任何（夠 smooth 的）雜訊分佈都成立。關鍵在第二步：Gaussian 的 $\nabla\log$ 恰好是線性的，微分後冒出來的 $(x-y)$ 正好湊成 $\mathbb E[X\mid Y]-y$。換成別的雜訊，$\nabla\log$ 不是線性的，積分不會塌成 posterior mean，公式的形狀就變了——這也是為什麼跳格雜訊會讓模擬與公式分岔。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m1-4-c">
+承起點的例子（全班 $\mathcal N(62,8^2)$、$\sigma=1$）。若站上體重計的是一位讀數 72.3 的來訪老師，而你仍用全班分佈套公式，會發生什麼事？
+<Option>公式仍然給出最佳猜測 72.14，因為它只用到讀數的分佈。</Option>
+<Option>公式會自動偵測 prior 不對並回傳讀數本身。</Option>
+<Option correct>公式會把他往學生的體重分佈拉（給出 72.14），但這不是他的最佳猜測——他不是從這個 prior 抽出來的，正確的 prior 應是「來訪老師」那群人的分佈。</Option>
+<Explanation>
+$\mathbb E[X\mid Y]$ 是相對於**某個聯合分佈**定義的；公式的 $p_Y$ 是「全班讀數」的分佈，套用的前提是這個人來自全班。prior 錯了，posterior 就錯了，公式不會知道。這與 <Ref to="math-bayes-posterior"/> 裡「門診的 prior 不能搬到全民篩檢」是同一件事。「只用到讀數的分佈」是說不必另外知道 $p_X$，不是說可以隨便用哪一群人的讀數。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="math-vector-field-ode">
+本篇把前面準備的工具接成一條公式：最佳猜測是 posterior mean，而 posterior mean 等於讀數往密度高處修正 $\sigma^2\nabla\log p_Y$——推導只用了微分穿過積分、Gaussian 的 $\nabla\log$、以及 Bayes。這個 class 的五篇到此收尾：Gaussian 怎麼合併、猜測是分桶平均、平方誤差選它、posterior 是它的權重、Tweedie 把它算出來。下一個 class 換一種問題：不是「猜一個看不見的數」，而是「一個東西沿著一片箭頭場會漂到哪裡」。
+</Bridge>
+
+## 參考文獻
+
+1. Robbins, H. *An Empirical Bayes Approach to Statistics.* Proceedings of the Third Berkeley Symposium on Mathematical Statistics and Probability, Vol. 1, 1956.（公式的出處之一；Robbins 將其歸功於 M. C. K. Tweedie 的私人通訊。全文在 Project Euclid 的 Berkeley Symposium 專輯裡，這裡不附連結——那個站的網址結構常變。）
+2. Efron, B. [*Tweedie's Formula and Selection Bias.*](https://doi.org/10.1198/jasa.2011.tm11181) Journal of the American Statistical Association 2011.（正式命名「Tweedie's formula」、empirical Bayes 的估法、以及 selection bias 的解釋。）
+3. Stein, C. M. [*Estimation of the Mean of a Multivariate Normal Distribution.*](https://doi.org/10.1214/aos/1176345632) Annals of Statistics 1981.（Stein's lemma——Gaussian 下「微分穿過期望」的同一個代數——與多維的收縮估計。）

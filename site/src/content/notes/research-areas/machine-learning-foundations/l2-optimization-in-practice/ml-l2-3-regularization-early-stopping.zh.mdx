@@ -1,0 +1,313 @@
+---
+slug: "ml-l2-3-regularization-early-stopping"
+label: "ml-regularization"
+prereqs:
+  - math-conditional-expectation
+  - math-gradient
+lang: "zh"
+title: "限制筆記頁數，或考前一天停止補習：正則化與提早停止"
+category: "courses"
+group: "L2 · 實務中的最佳化"
+status: "available"
+updated: 2026-09-10
+summary: "不想讓學生死背，可以限制筆記頁數，也可以考前一天就停止補習。兩種做法看起來完全不同，數學上卻幾乎是同一件事：共用 toy 上 ridge 的最佳風險是 0.0288、提早停止是 0.0289，而用 λ ≈ 1/(2ηt) 把兩條路徑配對之後，後段對到小數第三位。三種正則化都在同一個方向上動 bias–variance，所以它們共享同一個失效模式——對一個欠擬合的模型，每一個 λ>0 都讓它更差。"
+demos: []
+references:
+  - label: "Hoerl & Kennard, Ridge Regression: Biased Estimation for Nonorthogonal Problems (Technometrics 1970)"
+    href: "https://doi.org/10.1080/00401706.1970.10488634"
+  - label: "Yao, Rosasco, Caponnetto, On Early Stopping in Gradient Descent Learning (Constructive Approximation 2007)"
+    href: "https://doi.org/10.1007/s00365-006-0663-2"
+  - label: "Srivastava et al., Dropout: A Simple Way to Prevent Neural Networks from Overfitting (JMLR 2014)"
+    href: "https://jmlr.org/papers/v15/srivastava14a.html"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Ask from '../../../components/Ask.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Remark from '../../../components/Remark.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 限制筆記頁數，或考前一天停止補習：正則化與提早停止
+
+<Objectives>
+- **寫出三種正則化各自在限制什麼，並說出它們都往同一個方向動 bias–variance。** 用 toy 的 $\lambda$ 掃描把「$\lambda$ 太大就是欠擬合」量出來。
+- **推導 ridge 與提早停止的對應關係。** 說出 $\lambda\approx1/(2\eta t)$ 的來源，並在實測上驗證兩條路徑後段對到小數第三位。
+- **判斷什麼時候不該加正則化。** 在一個欠擬合的模型上算出每一個 $\lambda>0$ 都讓真實風險變差。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 起點：兩種不讓學生死背的方法
+
+<Ref to="ml-overfitting-underfitting" mode="title"/> 裡那個把考古題全背下來的學生，有兩種完全不同的干預方式。
+
+**限制筆記頁數。** 考試允許帶一張 A4 的手寫筆記。一張紙塞不下五年的題目與答案，所以他被迫寫下**規則**而不是**答案**。限制的是「他能記住多少」。
+
+**考前一天就停止補習。** 課照上、筆記照抄，但在他開始逐題背答案之前就把時間切斷。限制的是「他有多少時間去記」。
+
+兩件事的作用點看起來毫無關係——一個限制容量，一個限制時間。但它們的效果是同一個方向：**都在阻止模型把有限的資料吃到最後一滴。**
+
+這一篇要做兩件事：把三種常見的做法（weight decay、提早停止、dropout）放在同一個座標上比較，然後證明前兩者不只是「效果類似」，而是幾乎同一條式子。
+
+<Ask>
+限制容量與限制時間，<br />
+為什麼會有同樣的效果？<br />
+它們的失效方式也一樣嗎？
+</Ask>
+
+<Question id="Q1">
+把「限制筆記頁數」翻成數學：加一項懲罰之後，最小化的東西變成什麼？那一項是怎麼影響解的——它把解往哪裡拉？以及，為什麼「懲罰參數的大小」會讓函數變平滑？
+
+<Answer>
+**寫下來。** 原本的目標是經驗風險 $\widehat R_n(f_w)$；加上一項對參數大小的懲罰：
+
+$$
+\widehat R_n(f_w)+\lambda\lVert w\rVert^2 .
+$$
+
+$\lambda$ 是「一頁筆記值多少分」的兌換率。$\lambda=0$ 就是原本的 ERM，$\lambda\to\infty$ 把所有參數壓成零。
+
+**它把解往哪裡拉。** 平方損失下有 closed form。令 $V$ 是設計矩陣，$H=\frac1nV^\top V$，最小點滿足
+
+$$
+(H+\lambda I)\,w=\frac1nV^\top y
+\quad\Longrightarrow\quad
+w_\lambda=(H+\lambda I)^{-1}\tfrac1nV^\top y .
+$$
+
+把它投影到 $H$ 的特徵向量上（$H$ 的特徵值 $\mu_j$），第 $j$ 個分量是
+
+$$
+w_\lambda^{(j)}=\frac{\mu_j}{\mu_j+\lambda}\cdot w_{0}^{(j)},
+$$
+
+也就是把無正則化的解逐方向乘上一個介於 $0$ 與 $1$ 的縮放。**關鍵在那個縮放依賴 $\mu_j$**：曲率大的方向（$\mu_j\gg\lambda$）幾乎不動，曲率小的方向（$\mu_j\ll\lambda$）幾乎被砍掉。
+
+**為什麼這會讓函數變平滑。** 曲率小的方向正是「資料沒怎麼約束的方向」——那裡有很多個 $w$ 在訓練點上一樣好（<Ref to="ml-overfitting-underfitting" mode="title"/> 說過這就是過擬合的來源）。$\lambda$ 在那些方向上選了**範數最小**的那一個，而範數小的多項式係數對應的函數振盪小。所以「懲罰參數」不是直接懲罰不平滑，而是**在資料無法區分的方向上挑一個保守的答案**。
+
+這也已經預告了本篇的第二個結果：梯度下降從 $w=0$ 出發，也是**先把曲率大的方向學好、曲率小的方向要很久才動**（<Ref to="ml-gradient-descent" mode="title"/> 的每步收縮率是 $1-\eta\mu_j$）。兩件事在同一組方向上做同一種取捨——難怪它們的效果會一樣。
+</Answer>
+</Question>
+
+## 三種做法，同一個座標
+
+把三種常見的正則化放在「它限制了什麼」這一欄上：
+
+- **weight decay（$L_2$／ridge）**：限制參數的**大小**。逐方向的縮放 $\mu_j/(\mu_j+\lambda)$，資料約束強的方向留著、弱的方向砍掉。
+- **提早停止**：限制**訓練時間**。梯度下降 $t$ 步之後，第 $j$ 個方向被學到的比例是 $1-(1-\eta\mu_j)^t$——同樣是強的先學好、弱的還沒動。
+- **dropout**：訓練時隨機把一部分單元設成零，限制模型**依賴任何單一路徑**的程度。在線性模型上它可以被算成一個與輸入尺度相關的 $L_2$ 懲罰；在深層網路上它的效果更接近「同時訓練指數多個共享權重的子網路再平均」。
+
+三者在 <Ref to="ml-bias-variance" mode="title"/> 的座標上都往同一邊走：**bias² 上升、variance 下降**。所以它們共享同一個判準——只有當你目前是 variance 主導時，加它們才會賺；bias 主導時，加多少都是純虧。這一點在本篇最後會被量出來。
+
+<VizPlan id="ml-l2-3-two-knobs" title="限制容量與限制時間，走的是同一條路" type="static">
+- **檔名**：`l2-optimization-in-practice/imgs/l2-3-1.svg`（16:9，左右兩格）。
+- **左格**：一個二維參數空間。畫出無正則化解 $w_0$ 的位置、原點、以及兩條路徑：（一）ridge 路徑——$\lambda$ 從 $\infty$ 降到 $0$ 時 $w_\lambda$ 從原點走到 $w_0$ 的那條曲線；（二）GD 路徑——從原點出發、$t$ 從 $0$ 到 $\infty$ 的軌跡。兩條路幾乎重合（用兩種色與不同虛實線畫，並在幾個對應的 $(\lambda,t)$ 點之間拉細虛線標「$\lambda\approx1/(2\eta t)$」）。背景畫損失的等高線，並用箭頭標出「曲率大的方向」與「曲率小的方向」。
+- **右格**：縱軸真實風險，橫軸用兩個對齊的刻度：上緣是 $\lambda$（由大到小），下緣是 $t$（由小到大）。兩條 U 形曲線疊在一起，谷底標 $0.0288$ 與 $0.0289$。
+- **圖說**：「兩條路都是從原點往無正則化解走，而且都是曲率大的方向先到。所以『限制容量』與『限制時間』在這個問題上是同一個旋鈕的兩種刻度。」
+</VizPlan>
+
+## 為什麼提早停止就是 ridge
+
+把兩者都投影到 $H$ 的特徵向量上，逐方向比較「學到了多少比例」。
+
+**Ridge**（上面 Q1 算過）：
+
+$$
+\text{比例}_j^{\text{ridge}}=\frac{\mu_j}{\mu_j+\lambda}.
+$$
+
+**梯度下降 $t$ 步**（從 $w=0$ 出發，二次損失）：每一步誤差乘上 $1-\eta\mu_j$，所以
+
+$$
+\text{比例}_j^{\text{GD}}=1-(1-\eta\mu_j)^t\approx1-e^{-\eta\mu_j t}.
+$$
+
+兩個函數的形狀非常像：都在 $\mu_j$ 大的時候趨近 $1$、$\mu_j$ 小的時候趨近 $0$，而轉折點分別在 $\mu_j\approx\lambda$ 與 $\mu_j\approx1/(\eta t)$。把兩個轉折點對起來（並注意 $\lVert w\rVert^2$ 的導數帶一個 2）：
+
+$$
+\boxed{\ \lambda\approx\frac{1}{2\eta t}\ }
+$$
+
+> **提早停止不是「來不及訓練完」，它是一個隱含的 $L_2$ 正則化，強度由 $1/(2\eta t)$ 給。**
+
+這條對應有三個立刻可用的推論。**一**，提早停止的「正則化強度」和學習率綁在一起：同樣停在第 1000 步，$\eta$ 大兩倍等於 $\lambda$ 小兩倍。**二**，先大後小的學習率 schedule 同時在改變這個隱含的 $\lambda$，所以「調 schedule」與「調 weight decay」不是兩個獨立的旋鈕。**三**，如果你已經用了明確的 weight decay，提早停止能再多買到的東西就有限了。
+
+<Details summary="兩個比例函數的差別在哪裡，以及它對「谷底很平」的意義">
+$\frac{\mu}{\mu+\lambda}$ 與 $1-e^{-\eta\mu t}$ 不完全相同：前者在 $\mu\ll\lambda$ 時像 $\mu/\lambda$（線性趨零），後者像 $\eta\mu t$（也線性趨零，斜率不同）；在 $\mu\gg$ 轉折點時前者趨近 $1$ 的速度是 $1-\lambda/\mu$，後者是指數的 $1-e^{-\eta\mu t}$，**後者收得快得多**。
+
+實務上的意思是：提早停止在「已經學好的方向」上比 ridge 更接近無正則化解，在「還沒學到的方向」上兩者行為類似。所以兩條 U 形曲線的**谷底高度**幾乎一樣（本篇實測 $0.0288$ 對 $0.0289$），但曲線的形狀不完全重合——本篇最後那張配對表在 $t$ 小的時候差得比較多（$0.1312$ 對 $0.1131$），$t$ 大之後對到小數第三位。
+
+另一個附帶的結論：既然兩條路的谷底幾乎一樣高，而 U 形的谷底通常很平，那麼「$\lambda$ 或停止步數要調得多精準」的答案是**不太需要**。這和 <Ref to="ml-learning-curves" mode="title"/> 裡「提早停止不需要精準」是同一件事。
+</Details>
+
+<Remark label="注意" summary="weight decay 在 Adam 上不是同一件事">
+上面的等價是在**梯度下降**上推的。用 Adam 時，如果把 weight decay 實作成「加在梯度上的一項」$g\leftarrow g+\lambda w$，那一項也會被 Adam 的 $\sqrt{\hat s}$ 分母除掉——於是梯度大的座標，實際受到的衰減比較小。**衰減強度變成隱含地依賴梯度尺度**，而那不是任何人想要的。
+
+AdamW 的修法是把衰減直接寫在更新上，不經過那個分母：
+
+$$
+w\leftarrow w-\eta\,\frac{\hat m}{\sqrt{\hat s}+\epsilon}-\eta\lambda w .
+$$
+
+這也是為什麼同一個 $\lambda$ 在 SGD 與 Adam 之間不能直接搬——兩者的有效衰減強度差一個與梯度尺度有關的因子。細節見 <Ref to="ml-optimizers" mode="title"/> 的 `<Details>`。
+</Remark>
+
+## 回到情境：什麼時候該加，什麼時候是純虧
+
+**判準只有一個：你現在是 variance 主導嗎？** <Ref to="ml-bias-variance" mode="title"/> 的三項分解說得很清楚——正則化壓 variance、抬 bias²，所以它只在 variance 那一欄還有東西可壓的時候賺。判斷方法就是 <Ref to="ml-learning-curves" mode="title"/> 的兩條曲線：間距大 → 有得賺；兩線已經重合在高原 → 加什麼都是虧。
+
+**三者怎麼挑。** weight decay 幾乎沒有額外成本，是預設值；提早停止是免費的（只要有一份驗證集），而且它同時省訓練時間；dropout 在全連接層上有效，在有正規化層的卷積／注意力架構上常常被正規化層取代。實務上三者混用，而且**混用之後每一個的最佳強度都會變小**——它們在壓同一個東西。
+
+**這一切依賴什麼。** 一，上面的 closed form 與等價是**平方損失＋線性模型**的結果；非線性模型上只剩「同一個方向」這個定性結論。二，$\lVert w\rVert^2$ 對所有座標一視同仁，所以它**依賴特徵的尺度**——沒有標準化過的特徵，同一個 $\lambda$ 對不同座標的實際強度差好幾個數量級（又一次回到 <Ref to="ml-gradient-descent" mode="title"/> 的那件事）。三，bias 項通常不該被衰減（它不控制平滑度，只控制平移）。
+
+## 回到情境：把兩條路徑量出來
+
+共用 toy（$n=30$）、**二十次**多項式（刻意選在過擬合區），特徵每欄標準化。
+
+**第一段：ridge 的 $\lambda$ 掃描。**
+
+```python
+import numpy as np
+from ml_toy import toy_1d, truth, NOISE
+
+xs, ys = truth(); x, y = toy_1d(n=30, seed=0); n = len(x); D = 20
+mx = np.abs(np.vander(np.linspace(0,1,80), D+1, increasing=True)).max(0)
+B = lambda X: np.vander(X, D+1, increasing=True)/mx
+A, As = B(x), B(xs)
+risk = lambda w: ((As@w - ys)**2).mean() + NOISE**2
+
+for lam in (0, 1e-8, 1e-6, 1e-4, 1e-3, 1e-2, 1e-1, 1, 10):
+    w = np.linalg.solve(A.T@A + lam*n*np.eye(D+1), A.T@y)
+    print(f"  λ={lam:<8} 訓練 {((A@w-y)**2).mean():.4f}   真實風險 {risk(w):.4f}")
+```
+
+```
+  λ=0        訓練 0.0106   真實風險 0.0321
+  λ=1e-08    訓練 0.0129   真實風險 0.0288
+  λ=1e-06    訓練 0.0134   真實風險 0.0292
+  λ=0.0001   訓練 0.0208   真實風險 0.0406
+  λ=0.001    訓練 0.0578   真實風險 0.0831
+  λ=0.01     訓練 0.1246   真實風險 0.1709
+  λ=0.1      訓練 0.1898   真實風險 0.2902
+  λ=1        訓練 0.3139   真實風險 0.4439
+  λ=10       訓練 0.3929   真實風險 0.5001
+```
+
+**又是一個 U 形，谷底在 $\lambda=10^{-8}$（$0.0288$）。** **訓練誤差單調上升**（$0.0106\to0.3929$）——這是必然的，因為 $\lambda>0$ 時我們不再最小化訓練誤差。而真實風險先降後升：$\lambda$ 從 $0$ 到 $10^{-8}$ 買到 $10\%$ 的改善，之後每加一個數量級都在變差，$\lambda=10$ 已經比只用一條直線還糟（<Ref to="ml-overfitting-underfitting" mode="title"/> 的 $d=1$ 是 $0.2679$）。**$\lambda$ 太大就是欠擬合**，而且是自己造出來的。
+
+**第二段：提早停止，同一個模型、$\lambda=0$。**
+
+```python
+w = np.zeros(D+1); eta = 1.8/np.linalg.eigvalsh(A.T@A/n)[-1]
+for t in range(1, 1000001):
+    w -= eta*(A.T@(A@w - y))/n
+```
+
+```
+  第      30 步   訓練 0.1397   真實風險 0.1896
+  第     100 步   訓練 0.1265   真實風險 0.1617
+  第     300 步   訓練 0.1008   真實風險 0.1312
+  第   1,000 步   訓練 0.0546   真實風險 0.0787
+  第   3,000 步   訓練 0.0294   真實風險 0.0526
+  第  10,000 步   訓練 0.0194   真實風險 0.0404
+  第 100,000 步   訓練 0.0137   真實風險 0.0301
+  第 1,000,000 步 訓練 0.0134   真實風險 0.0289
+```
+
+**最好的風險是 $0.0289$**——對照 ridge 的 $0.0288$。**兩個完全不同的干預，最佳風險差在小數第四位。**
+
+**第三段：把兩條路徑逐點配對。** 用 $\lambda\approx1/(2\eta t)$（這裡 $\eta=0.7634$）：
+
+```
+  t=    300  提早停止 0.1312   ridge λ=2.18e-03 → 0.1131
+  t=  3,000  提早停止 0.0526   ridge λ=2.18e-04 → 0.0493
+  t= 30,000  提早停止 0.0319   ridge λ=2.18e-05 → 0.0323
+  t=300,000  提早停止 0.0293   ridge λ=2.18e-06 → 0.0294
+```
+
+**後兩列對到小數第三位**（$0.0319$／$0.0323$，$0.0293$／$0.0294$）。前兩列差得比較多（$0.1312$／$0.1131$），原因寫在上面的 `<Details>` 裡：兩個比例函數在「已經學好的方向」上收斂速度不同，$t$ 小的時候那個差別還沒被抹平。
+
+> **提早停止與 weight decay 不是兩個獨立的正則化，是同一條路徑的兩種刻度。**
+
+**刻意違反：對一個欠擬合的模型加 weight decay。**
+
+```
+  degree  2: λ=0  0.2668   λ=1e-06 0.2668   λ=0.001 0.2673   λ=0.1  0.3456
+  degree 20: λ=0  0.0320   λ=1e-06 0.0292   λ=0.001 0.0831   λ=0.1  0.2902
+```
+
+**degree 2 那一列沒有任何 $\lambda>0$ 能改善**：$0.2668\to0.2668\to0.2673\to0.3456$，單調變差。degree 20 那一列則有一個真的谷底（$0.0320\to0.0292$）。
+
+原因是 <Ref to="ml-bias-variance" mode="title"/> 的三項分解：degree 2 的 variance 只有 $0.0022$，而 bias² 是 $0.2004$。正則化能壓的是那 $0.0022$，代價是抬高那已經很大的 $0.2004$——**要壓的東西幾乎不存在，要付的代價卻照付。**
+
+這就是實務上最貴的一種誤診：模型表現不好 → 加正則化 → 更差 → 加更多。**加正則化之前先做 <Ref to="ml-learning-curves" mode="title"/> 的兩條曲線**，看間距還有沒有東西可以壓。
+
+## 兩個刻度，一條路徑
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/machine-learning-foundations/l2-optimization-in-practice/l2-3-2.html" class="demo-frame" title="兩個刻度，一條路徑：互動 demo" style="height: 880px; width: 100%; border: none;"></iframe>
+
+**互動 demo：ridge 的 λ 與提早停止的步數走的是同一條路徑，對應關係大約是 λ ≈ 1/(ηt)。**
+
+## 先消化一下
+
+<QuizBlock id="ml-l2-3-a">
+一個團隊的模型訓練誤差 $0.19$、驗證誤差 $0.20$（任務的不可約誤差約 $0.02$）。他們決定「加強 weight decay」。根據本篇的實測，最可能的結果是：
+<Option>驗證誤差下降，因為正則化總是有幫助。</Option>
+<Option correct>驗證誤差變差。兩個誤差接近且都遠高於噪聲水準是 bias 主導，這時 variance 幾乎沒有東西可壓（degree 2 那一列：$0.2668\to0.2673\to0.3456$，單調變差），而 bias² 照樣被抬高。</Option>
+<Option>沒有變化，因為 weight decay 只影響訓練誤差。</Option>
+<Explanation>
+這題把 <Ref to="ml-overfitting-underfitting" mode="title"/> 的四格診斷與本篇接起來：正則化是一個**只在特定格子裡有效**的處方。degree 2 那一列給了它的失效樣子——不是「效果有限」，是每一個 $\lambda>0$ 都更差。這也是為什麼「模型不好就加正則化」是一個代價很高的反射動作。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l2-3-b">
+兩個團隊在同一個問題上得到幾乎相同的驗證分數：A 用了 weight decay $\lambda=10^{-8}$ 且訓練到收斂，B 完全不用 weight decay 但在第三十萬步停下。最合理的解讀是：
+<Option>巧合，兩個做法沒有關係。</Option>
+<Option correct>不是巧合。提早停止是隱含的 $L_2$ 正則化，強度約 $1/(2\eta t)$；本篇實測 $t=300{,}000$ 對應 $\lambda\approx2.2\times10^{-6}$，兩條路徑在那一段的風險是 $0.0293$ 與 $0.0294$。他們在同一條路徑上停在幾乎同一個位置。</Option>
+<Option>B 的做法比較好，因為它省了訓練時間。</Option>
+<Explanation>
+這個等價的實務價值在於：它告訴你這兩個旋鈕**不要同時亂調**。如果已經有明確的 weight decay，再加提早停止能多買到的有限；反過來，改學習率 schedule 就已經在改動那個隱含的 $\lambda$。第三個選項不算錯（省時間是真的），但它沒有回答「為什麼分數一樣」。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l2-3-c">
+在 ridge 的逐方向縮放 $\mu_j/(\mu_j+\lambda)$ 裡，$\lambda$ 主要影響的是：
+<Option>所有方向被等比例縮小。</Option>
+<Option correct>只有曲率小的方向（$\mu_j\ll\lambda$）被大幅砍掉，曲率大的方向幾乎不動。而曲率小的方向正是「資料沒怎麼約束」的方向——所以 $\lambda$ 在那些方向上替你挑了一個保守的答案。</Option>
+<Option>bias 項（截距）被縮小得最多。</Option>
+<Explanation>
+「等比例縮小」是對 $\lambda$ 最常見的誤解，而它會讓人以為 ridge 只是把整個函數壓平。真正發生的是**逐方向的篩選**，這也解釋了為什麼它和提早停止等價——梯度下降也是強的方向先學好。第三個選項則指出一個實作細節：截距通常**不該**被衰減（它不控制平滑度），多數函式庫預設把它排除在懲罰之外。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l2-3-d">
+下列哪一句**不對**？
+<Option>ridge 的 $\lambda$ 掃描裡訓練誤差單調上升，是必然的，因為 $\lambda>0$ 時最小化的已經不是訓練誤差。</Option>
+<Option>同一個 $\lambda$ 在 SGD 與 Adam 上的有效衰減強度不同，這是 AdamW 存在的理由。</Option>
+<Option correct>只要 $\lambda$ 選得夠小，weight decay 對任何模型都至少不會有害。</Option>
+<Explanation>
+第三句被實測否證：degree 2 那一列裡 $\lambda=10^{-6}$ 的風險與 $\lambda=0$ 相同（$0.2668$），但 $\lambda=10^{-3}$ 已經更差（$0.2673$）——「夠小」的門檻本身依賴問題，而且在 bias 主導時最好的 $\lambda$ 就是 $0$。前兩句都對；第一句是一個好用的檢查（訓練誤差沒有隨 $\lambda$ 上升，表示 $\lambda$ 沒有真的生效，通常是實作把它加錯地方了）。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="ml-loss-landscape">
+這一篇把三種正則化放在同一個座標上：它們都在壓 variance、抬 bias²，所以共享同一個判準與同一個失效模式（bias 主導時每一個 $\lambda>0$ 都是純虧）。而 weight decay 與提早停止不只效果類似——用 $\lambda\approx1/(2\eta t)$ 配對之後，兩條路徑的風險在後段對到小數第三位（$0.0293$ 對 $0.0294$）。
+
+L2 到目前為止的每一個結論，都建立在一個沒有講出來的假設上：**損失曲面是一個碗，最小點只有一個。** 二次問題確實如此，但真實網路不是。下一篇處理這件事：同一張地圖從不同地方出發會不會到同一個谷底、初始化的尺度為什麼是一個要調的旋鈕，以及「深就會梯度消失」這個說法在實測上站不站得住。
+</Bridge>
+
+## 參考文獻
+
+1. Hoerl, A. E., Kennard, R. W. [*Ridge Regression: Biased Estimation for Nonorthogonal Problems.*](https://doi.org/10.1080/00401706.1970.10488634) Technometrics 1970.（ridge 的原始論文與逐方向縮放 $\mu/(\mu+\lambda)$ 的來源。）
+2. Yao, Y., Rosasco, L., Caponnetto, A. [*On Early Stopping in Gradient Descent Learning.*](https://doi.org/10.1007/s00365-006-0663-2) Constructive Approximation 2007.（提早停止作為隱含正則化的嚴格版本，含收斂率與 $\lambda\leftrightarrow1/(\eta t)$ 的對應。）
+3. Srivastava, N. et al. [*Dropout: A Simple Way to Prevent Neural Networks from Overfitting.*](https://jmlr.org/papers/v15/srivastava14a.html) JMLR 2014.（dropout 的原始論文；線性模型上與 $L_2$ 的關係、以及「訓練指數多個子網路」的解讀都在這裡。）

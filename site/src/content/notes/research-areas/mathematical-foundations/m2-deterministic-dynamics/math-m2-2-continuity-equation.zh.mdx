@@ -1,0 +1,201 @@
+---
+slug: "math-m2-2-continuity-equation"
+label: "math-continuity-equation"
+prereqs:
+  - math-divergence
+  - math-pushforward-flow-map
+  - math-total-derivative
+lang: "zh"
+title: "站內人數變化 = 進 − 出：Continuity Equation"
+category: "courses"
+group: "M2 · Deterministic Dynamics"
+status: "available"
+updated: 2026-09-06
+summary: "捷運站內人數的變化等於進站減出站——把這句話寫在河面上每一個小方格上，就得到密度自己滿足的方程式 ∂ₜp + ∇·(pu) = 0。有了它，不必追任何一片葉子就能預測整個分佈怎麼走；也會看到同一條分佈路徑可以由無限多個不同的速度場產生。"
+demos: []
+references:
+  - label: "Evans, Partial Differential Equations (AMS Graduate Studies in Mathematics 19, 2nd ed. 2010)"
+  - label: "Villani, Topics in Optimal Transportation (AMS Graduate Studies in Mathematics 58, 2003)"
+  - label: "Ambrosio, Gigli & Savaré, Gradient Flows in Metric Spaces and in the Space of Probability Measures (Birkhäuser, 2nd ed. 2008)"
+    href: "https://doi.org/10.1007/978-3-7643-8722-8"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+
+# 站內人數變化 = 進 − 出：Continuity Equation
+
+<Objectives>
+- 從「一個小方格裡的質量變化 = 流進 − 流出」推出 continuity equation $\partial_t p+\nabla\cdot(pu)=0$，並說出每一項的意思。
+- 說出這條方程式能預測什麼（給 $p_0$ 與 $u$，直接得到所有 $p_t$）、依賴什麼假設（質量守恆、$u$ 夠 smooth），以及它和 pushforward 是同一件事的兩種寫法。
+- 對「知道每個閘門的人流，預測站內人數分佈」這類情境，判斷用 continuity equation 是否恰當、說出它會漏掉什麼，並用一個一維例子代入驗證。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 捷運站，再看一次
+
+<Ref to="math-divergence"/> 用捷運站問過一個問題：每個閘門的進出人數都知道，站內人數是在增加還是減少？答案是把所有閘門的淨流量加起來，這個總和就是 divergence 的積分。
+
+現在把問題推遠一步。站內不是一個點，是一整片大廳：有人往月台走、有人往出口走、有人在售票機前停下來。假設你有一張「人流地圖」——大廳每個位置、每個時刻，人往哪個方向走、走多快。你也知道此刻大廳裡人群的分佈：哪裡擠、哪裡空。**十分鐘後，人群的分佈會變成什麼樣？**
+
+直覺的答案通常是「每個人順著人流地圖走，所以分佈就是被搬過去」——這正是上一篇（<Ref to="math-pushforward-flow-map"/>）的 pushforward。它是對的，但要用它就得先算出每個起點的終點 $\Phi_t$。這一篇問一個不同的問題：能不能**不追任何一個人**，直接寫下「分佈本身」隨時間變化的規則？請先寫下你覺得可不可以、依據是什麼。
+
+<Question id="Q1">
+把「站內人數變化 = 進 − 出」這句話，從整個車站縮小到大廳裡一塊 $1\text{ m}\times1\text{ m}$ 的地磚上。這塊地磚上的人數怎麼變？「進」與「出」由哪些量決定？
+
+<Answer>
+最直覺的想法是「看有多少人踩進來、多少人踩出去」，接著就能推得很順：
+
+地磚上的人數 $\approx p(x,t)\cdot(1\text{ m}^2)$，$p$ 是人群的密度（每平方公尺幾個人）。人怎麼進出？沿著地磚的四條邊。看左邊那條邊：邊上的人以速度 $u(x,t)$ 走，所以每秒穿過這條邊的人數是「密度 × 速度的垂直分量 × 邊長」——這個量叫 **flux**（單位時間穿過單位邊長的質量），寫成 $p\,u$。
+
+**進 − 出就是四條邊的 flux 的淨和。** 左邊進、右邊出：淨流入是 $(pu_1)|_{\text{左}}-(pu_1)|_{\text{右}}$；上下同理。地磚很小時，「右邊的值減左邊的值」就是 $\partial_x(pu_1)\cdot\Delta x$，所以淨流入 $=-\big[\partial_x(pu_1)+\partial_y(pu_2)\big]\cdot\text{面積}=-\nabla\cdot(pu)\cdot\text{面積}$。
+
+這就把 <Ref to="math-divergence"/> 的結論搬到了每一塊地磚上：**地磚上人數的變化率，等於 flux $pu$ 的 divergence 取負號。** 這裡的隨機變數是「隨機抓一個人，他在哪」，我們想知道的量是它的密度 $p(x,t)$ 隨時間的變化。
+</Answer>
+</Question>
+
+## 先看畫面：每塊地磚都在記帳
+
+把大廳鋪滿地磚，每塊地磚上站一個記帳員。他不需要知道任何人從哪來、要去哪；他只盯著自己四條邊，數每秒有幾個人跨進來、幾個人跨出去，然後更新自己這塊的人數。
+
+一千個記帳員各自記帳，加起來就是整個分佈的演化。沒有任何一個記帳員追蹤過任何一個人。這就是 continuity equation 的視角：**從「每個人走到哪」（Lagrangian，追粒子）換成「每個位置有多少」（Eulerian，守著格子）**。兩種視角描述的是同一件事——上一篇的 flow map 是追粒子，這一篇是守格子。
+
+<VizPlan id="m2-2-tiles" title="地磚記帳員：一格的進出" type="static">
+- **檔名**：`m2-deterministic-dynamics/imgs/m2-2-1.svg`，16:9。
+- **版面**：左格放大畫一塊方形地磚 $[x,x+\Delta x]\times[y,y+\Delta y]$，四條邊各畫一支穿過邊的箭頭，箭頭旁標 flux：左邊 $(pu_1)(x)$ 向內、右邊 $(pu_1)(x+\Delta x)$ 向外、上下同理；地磚中央寫「人數 $=p\,\Delta x\Delta y$」；下方一行「變化率 $=$ 進 $-$ 出 $= -[\partial_x(pu_1)+\partial_y(pu_2)]\,\Delta x\Delta y$」。
+- 右格：整片大廳鋪成 $8\times5$ 地磚，每塊地磚顏色深淺代表 $p$，疊上人流 vector field 的短箭頭；三塊地磚被框出來，各附一個小標籤「$+$」「$-$」「$0$」表示該處 $-\nabla\cdot(pu)$ 的正負（人數在增加、減少、不變）。
+- **圖說**：「每塊地磚的人數變化只由四條邊的 flux 決定。不追任何一個人，只在每個位置記帳，就能寫出整個分佈的演化。」
+</VizPlan>
+
+## 寫成數學：一個方塊，十行推導
+
+設 $p(x,t)$ 是密度，$u(x,t)$ 是 vector field（<Ref to="math-vector-field-ode"/>），**flux** 是 $J=p\,u$。取一個固定的小區域 $B$（不隨時間動），裡面的質量是 $\int_B p\,dx$。假設質量**守恆**——沒有人憑空出現或消失——那麼質量變化只能來自穿過邊界 $\partial B$ 的 flux：
+
+$$
+\frac{d}{dt}\int_B p\,dx\;=\;-\oint_{\partial B} p\,u\cdot n\,dS\;=\;-\int_B \nabla\cdot(pu)\,dx .
+$$
+
+第一個等號是守恆（$n$ 是向外的法向量，向外流為正，所以取負號）；第二個等號是 <Ref to="math-divergence"/> 的 Gauss 定理。左邊因為 $B$ 不動，微分可以穿過積分（<Ref to="math-total-derivative"/>），變成 $\int_B\partial_t p\,dx$。於是對**任何**小區域 $B$ 都有
+
+$$
+\int_B\Big[\partial_t p+\nabla\cdot(pu)\Big]dx=0 .
+$$
+
+一個 continuous 的函數若在每個小區域上積分都是零，它本身必為零。所以
+
+$$
+\boxed{\;\partial_t p+\nabla\cdot(p\,u)=0\;}
+$$
+
+這就是 **continuity equation**。讀法：密度的變化率 $=-$ flux 的 divergence；flux 往外散的地方密度下降，往內收的地方密度上升。$\square$
+
+它是一條 **PDE**（partial differential equation：同時對 $t$ 與 $x$ 微分）。要用它，給定 $p_0$ 與 $u$，就能往前解出所有 $p_t$——不需要 flow map。
+
+**和 pushforward 的關係。** 若 $u$ 是 Lipschitz 的，這條 PDE 的解**就是** $(\Phi_t)_\#p_0$（[3] 第 8 章）。兩種寫法、同一個 $p_t$。可以在一維例子上直接驗證：<Ref to="math-pushforward-flow-map"/> 算過 $\dot x=-x$、$p_0=\mathcal N(0,1)$ 給出 $p_t=\mathcal N(0,e^{-2t})$，把它代進 $\partial_t p+\partial_x(-x\,p)$，兩項恰好相消（推導放在展開框）。
+
+<Details summary="一維代入驗證：p_t = N(0, σ²)，σ² = e^(−2t)，u = −x">
+記 p = (2πσ²)^(−1/2) exp(−x²/(2σ²))。先算對 x 的導數：∂ₓp = −(x/σ²)p，所以
+∂ₓ(u p) = ∂ₓ(−x p) = −p − x·∂ₓp = −p + (x²/σ²) p。
+再算對 t 的導數。log p = −½ log(2πσ²) − x²/(2σ²)，對 t 微分得
+∂ₜ log p = −½·(σ²)′/σ² + (x²/2)·(σ²)′/σ⁴。
+代入 (σ²)′ = −2σ²：第一項是 1，第二項是 −x²/σ²，所以 ∂ₜ log p = 1 − x²/σ²，即 ∂ₜp = (1 − x²/σ²) p。
+相加：∂ₜp + ∂ₓ(up) = (1 − x²/σ²)p + (−1 + x²/σ²)p = 0 ✓。
+
+順帶一提，把 continuity equation 沿著一片葉子的軌跡展開（用全導數 d/dt p(x(t),t) = ∂ₜp + u·∇p，並注意 ∇·(pu) = u·∇p + p∇·u），會得到 d/dt log p(x(t),t) = −∇·u(x(t),t)：跟著葉子走，密度的對數變化率就是 divergence 取負。這是 change of variables 裡 log|det ∇Φ_t| 的微分版本。
+</Details>
+
+## 回到大廳：直覺對了，但它給的比你想的多
+
+回到起點問題。「分佈被搬過去」是對的，而 continuity equation 告訴我們**不追人也能算**——只要 $u$ 已知，$p_t$ 由一條 PDE 決定。它依賴的假設就兩個：**質量守恆**（人不會憑空消失；出口要另外當成「吸走質量」的邊界條件處理）、**$u$ 夠 smooth**（否則 divergence 沒定義，要退回集合版的 pushforward）。
+
+但這條方程式還說了一件直覺說不出的事。給定一條分佈的路徑 $p_t$，產生它的 $u$ **不唯一**。設 $u$ 滿足方程式，再任取一個 vector field $w$ 使 $\nabla\cdot(p\,w)=0$，那麼 $u+w$ 也滿足：
+
+$$
+\partial_t p+\nabla\cdot\big(p(u+w)\big)=\underbrace{\partial_t p+\nabla\cdot(pu)}_{=0}+\underbrace{\nabla\cdot(pw)}_{=0}=0 .
+$$
+
+這樣的 $w$ 有無限多個——例如任何讓 $p$ 沿著等高線打轉的場（<Ref to="math-pushforward-flow-map"/> 最後一題的旋轉場就是一個）。**人怎麼走，與人群的分佈怎麼變，是兩件不同的事**：分佈只看得到淨流量，看不到人在同一密度的地方互換位置。反過來說，若你只關心 $p_t$，就有很大的自由去挑一個對你方便的 $u$。
+
+## 回到大廳：算一次，再弄壞一次
+
+一維版本 $\partial_t p+\partial_x(pu)=0$ 可以用幾行程式往前解（有限差分，upwind 格式）。用 $u=-x$、$p_0=\mathcal N(0,1)$ 對答案：
+
+```python
+import numpy as np
+x = np.linspace(-4, 4, 801); dx = x[1]-x[0]; dt = 0.002
+p = np.exp(-x**2/2)/np.sqrt(2*np.pi); u = -x
+for _ in range(int(1.0/dt)):            # 解到 t = 1
+    J = p*u                              # flux
+    dJ = np.where(u > 0, np.diff(J, prepend=J[0]),
+                          np.diff(J, append=J[-1])) / dx   # upwind 差分
+    p = p - dt*dJ
+s2 = np.exp(-2.0)                        # 理論：N(0, e^{-2t})
+print(np.abs(p - np.exp(-x**2/(2*s2))/np.sqrt(2*np.pi*s2)).max())
+```
+
+數值解與理論的 $\mathcal N(0,e^{-2})$ 對得上（差距隨 $\Delta x$、$\Delta t$ 縮小）。接著故意違反假設：把 $u$ 換成在 $x=0$ 跳躍的 $\mathrm{sign}(x)$（人流在中央分兩邊走）。divergence 在 $x=0$ 沒定義，方程式在那裡不成立；數值解會在中央挖出一個越來越深的洞，而兩側各自被搬走——質量仍守恆，但「$p$ 是 smooth 密度」這件事壞了。
+
+<VizPlan id="m2-2-continuity" title="Continuity equation：不追人，直接演化分佈" type="interactive">
+- **位置**：本節之後。這是本 class 的**核心互動**。**檔名**：`m2-deterministic-dynamics/m2-2-1.html`。
+- **版面**：左右兩格。左格「追粒子」：2D 俯視的大廳，$N=2000$ 個點從 $p_0$ 抽出，隨時間滑桿被 $u$ 搬走，並疊上其 KDE 的等高線（虛線）。右格「守格子」：同一個 $p_0$ 在 $80\times80$ 格上用 continuity equation 往前解，畫成 heatmap 加等高線（實線）。兩格共用時間滑桿 $t\in[0,10]$。
+- **控制項**：下拉選單「人流地圖 $u$」：(a) 收攏場 $u=-x$、(b) 往出口的平移場、(c) 旋轉場 $(-y,x)$、(d) 有跳躍的分流場 $u=(\mathrm{sign}(x),0)$。滑桿 $N$。開關「疊上左格等高線到右格」：兩組等高線重合，讀者看到追粒子與守格子給的是同一個 $p_t$。
+- **加一個 $w$**：滑桿 $\lambda\in[-2,2]$，把 $u$ 換成 $u+\lambda w$，$w$ 是沿著當前等高線打轉的場：取 $w=(-\partial_y\psi,\;\partial_x\psi)$，$\psi=\psi(p)$ 是 $p$ 的任一函數，則 $\nabla\cdot(pw)=\psi'(p)\,\nabla p\cdot(-\partial_yp,\partial_xp)=0$ 自動成立。拖動 $\lambda$：左格的**粒子**明顯繞圈、軌跡完全不同，右格的 **heatmap 一動不動**。畫面上方一行大字「同一個 $p_t$，不同的 $u$」。
+- **Hover** 右格任一格：顯示該格的 $p$、$\nabla\cdot(pu)$，並在格子四邊畫出四支 flux 箭頭與數值（進 − 出）。
+- **違反假設**：選 (d) 時，右格中央一條線亮起警示「$\nabla\cdot u$ 在此無定義」，heatmap 在中線挖洞；同時顯示總質量 $\int p$ 的數值仍為 1。
+- **底部觀察句**：「觀察：分佈的演化只需要每個位置的淨流量。追粒子與守格子算出同一個 $p_t$；但加一個繞等高線打轉的 $w$，粒子的路完全變了、分佈卻不變——密度看不見同密度處的互換。」
+- **匯出 PNG**：兩格併成 16:9，含當前 $t$、$u$ 的名字與 $\lambda$。
+</VizPlan>
+
+## 先消化一下
+
+<QuizBlock id="m2-2-a">
+一條高速公路上每個位置的車速 $u(x,t)$ 都由感測器測到，且此刻每公里有幾輛車 $p(x,0)$ 也知道。要預測一小時後哪裡塞車，最直接的工具是：
+<Option>對每輛車解一條 ODE，再數車。</Option>
+<Option>算 $u$ 的 Jacobian 行列式。</Option>
+<Option correct>解一維的 continuity equation $\partial_t p+\partial_x(pu)=0$，車流密度就是 $p$、flux $pu$ 就是每小時通過的車輛數。</Option>
+<Explanation>
+逐車追是 Lagrangian 做法，可行但要知道每輛車的起點、且車數很多時很慢；Jacobian 是 flow map 的性質，還得先算出 flow map。守恆律直接給出密度的演化，而且高速公路上的車流量正是交通工程裡 flux 的原始例子。若車速 $u$ 本身取決於密度（塞車時變慢），方程式就變成 nonlinear，但形式相同。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m2-2-b">
+大廳裡有一個出口，人走到那裡就離開車站。若你直接套 $\partial_t p+\nabla\cdot(pu)=0$ 而不做任何修改，會發生什麼？
+<Option>方程式自動處理，因為 divergence 會在出口變負。</Option>
+<Option correct>總質量 $\int p$ 會一直是 1，人群會在出口堆積——因為方程式假設質量守恆，而出口違反了它；要在出口加上「吸收」的邊界條件或一個 sink 項。</Option>
+<Option>方程式會發散，得不到解。</Option>
+<Explanation>
+continuity equation 的第一個等號就是守恆；出口是質量離開系統的地方，屬於邊界條件而非方程式本身能推出的東西。方程式不會發散，它只是老實地把人堆在牆邊。divergence 為負表示該處密度在上升，不是質量消失。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m2-2-c">
+兩位工程師各給出一個人流地圖 $u_1$ 與 $u_2$，兩者的差 $w=u_2-u_1$ 滿足 $\nabla\cdot(p_t w)=0$（對所有 $t$）。從 $p_0$ 出發：
+<Option>兩個地圖產生不同的 $p_t$，因為每個人的路徑不同。</Option>
+<Option>兩個地圖產生相同的 flow map $\Phi_t$。</Option>
+<Option correct>兩個地圖產生相同的分佈路徑 $p_t$，但每個人的軌跡（flow map）不同。</Option>
+<Explanation>
+continuity equation 對 $u$ 是線性的，$\nabla\cdot(pw)=0$ 的 $w$ 加進去不改變方程式，$p_t$ 不變；flow map 卻是逐點順著 $u$ 走出來的，$u$ 變了它就變。「路徑不同所以分佈不同」是這一篇要拆掉的直覺：分佈只看淨流量。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="math-euler-error">
+本篇用「每塊地磚進 − 出」推出 continuity equation，並看到它與 pushforward 是同一個 $p_t$ 的兩種寫法、以及同一條分佈路徑有無限多個 $u$。到這裡我們知道葉子與分佈「理論上」往哪走；下一篇回到電腦上那個「每隔一小段看一次箭頭」的做法，問它到底差多遠。
+</Bridge>
+
+## 參考文獻
+
+1. Evans, L. C. *Partial Differential Equations.* AMS Graduate Studies in Mathematics 19, 2nd ed., 2010.（第 3 章：一階 PDE 與守恆律的基本理論。）
+2. Villani, C. *Topics in Optimal Transportation.* AMS Graduate Studies in Mathematics 58, 2003.（第 8 章：continuity equation 與 Benamou–Brenier 公式；pushforward 與 continuity equation 的等價在此脈絡下使用。）
+3. Ambrosio, L., Gigli, N., Savaré, G. [*Gradient Flows in Metric Spaces and in the Space of Probability Measures.*](https://doi.org/10.1007/978-3-7643-8722-8) Birkhäuser, 2nd ed., 2008.（第 8 章：continuity equation 的解與 flow map 的 pushforward 相同（superposition principle）。）

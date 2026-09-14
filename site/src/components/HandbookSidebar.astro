@@ -1,4 +1,13 @@
 ---
+/**
+ * HandbookSidebar.astro — navigation for the whole lab area.
+ *
+ * Each group is a native <details>, so collapsing works with no JavaScript and
+ * is keyboard-operable for free. Groups start open: the sidebar is the only way
+ * to see what the handbook contains, and a nav that hides itself by default
+ * costs more than the scrolling it saves. The script only adds memory — which
+ * groups you closed, kept in this browser.
+ */
 import { getCollection } from 'astro:content';
 import { withBase } from '../lib/url';
 import type { Lang } from '../lib/handbook';
@@ -17,13 +26,13 @@ import { missionsRoute, missionText, visibleQuests } from '../lib/mission';
 
 interface Props {
   lang: Lang;
-  /** Article slug, or 'people' / 'bestiary' / 'index' for the standalone pages. */
+  /** Article slug, or 'people' / 'bestiary' / 'missions' / 'index'. */
   current?: string;
 }
 const { lang, current } = Astro.props;
 const all = await getCollection('handbook');
 const nav = handbookNav(all, lang);
-// The codex only appears once at least one entry is published.
+// The codex and the board only appear once something in them is published.
 const codexOpen = visibleMonsters().length > 0;
 const boardOpen = visibleQuests().length > 0;
 ---
@@ -42,11 +51,14 @@ const boardOpen = visibleQuests().length > 0;
     <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 12.5 10 7 15.5" /></svg>
   </summary>
   <nav class="handbook-nav" aria-label={lang === 'zh' ? '手冊導覽' : 'Handbook navigation'}>
-    <div class="handbook-nav-group">
-      <div class="handbook-nav-label">
-        <span aria-hidden="true">👥</span> {peopleHeading[lang]}
+    <details class="handbook-nav-group" data-group="people" open>
+      <summary class="handbook-nav-label">
+        <span class="nav-label-row">
+          <span aria-hidden="true">👥</span> {peopleHeading[lang]}
+          <svg class="nav-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 12.5 10 7 15.5" /></svg>
+        </span>
         <span class="handbook-nav-tag">{expeditionTag}</span>
-      </div>
+      </summary>
       <ul>
         <li>
           <a href={withBase(peopleRoute(lang))} aria-current={current === 'people' ? 'page' : undefined}>
@@ -54,13 +66,17 @@ const boardOpen = visibleQuests().length > 0;
           </a>
         </li>
       </ul>
-    </div>
+    </details>
+
     {boardOpen && (
-      <div class="handbook-nav-group">
-        <div class="handbook-nav-label">
+      <details class="handbook-nav-group" data-group="missions" open>
+        <summary class="handbook-nav-label">
+          <span class="nav-label-row">
           <span aria-hidden="true">🗺</span> {missionText.boardHeading[lang]}
-          <span class="handbook-nav-tag">MISSIONS</span>
-        </div>
+          <svg class="nav-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 12.5 10 7 15.5" /></svg>
+        </span>
+        <span class="handbook-nav-tag">MISSIONS</span>
+        </summary>
         <ul>
           <li>
             <a href={withBase(missionsRoute(lang))} aria-current={current === 'missions' ? 'page' : undefined}>
@@ -68,14 +84,18 @@ const boardOpen = visibleQuests().length > 0;
             </a>
           </li>
         </ul>
-      </div>
+      </details>
     )}
+
     {codexOpen && (
-      <div class="handbook-nav-group">
-        <div class="handbook-nav-label">
+      <details class="handbook-nav-group" data-group="codex" open>
+        <summary class="handbook-nav-label">
+          <span class="nav-label-row">
           <span aria-hidden="true">👾</span> {bestiaryHeading[lang]}
-          <span class="handbook-nav-tag">CODEX</span>
-        </div>
+          <svg class="nav-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 12.5 10 7 15.5" /></svg>
+        </span>
+        <span class="handbook-nav-tag">CODEX</span>
+        </summary>
         <ul>
           <li>
             <a href={withBase(bestiaryRoute(lang))} aria-current={current === 'bestiary' ? 'page' : undefined}>
@@ -83,14 +103,18 @@ const boardOpen = visibleQuests().length > 0;
             </a>
           </li>
         </ul>
-      </div>
+      </details>
     )}
+
     {nav.map((group) => (
-      <div class="handbook-nav-group">
-        <div class="handbook-nav-label">
+      <details class="handbook-nav-group" data-group={group.section.key} open>
+        <summary class="handbook-nav-label">
+          <span class="nav-label-row">
           <span aria-hidden="true">{group.section.icon}</span> {group.section.label[lang]}
-          <span class="handbook-nav-tag">{group.section.tag}</span>
-        </div>
+          <svg class="nav-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 12.5 10 7 15.5" /></svg>
+        </span>
+        <span class="handbook-nav-tag">{group.section.tag}</span>
+        </summary>
         <ul>
           {group.items.map((item) => (
             <li>
@@ -103,7 +127,50 @@ const boardOpen = visibleQuests().length > 0;
             </li>
           ))}
         </ul>
-      </div>
+      </details>
     ))}
   </nav>
 </details>
+
+<script>
+  /* Remember which nav groups were collapsed, so the choice survives navigating
+     to another page. Local to this browser, never sent anywhere. The group
+     holding the current page is always opened — otherwise you would lose sight
+     of where you are. */
+  (() => {
+    const KEY = 'slam:navclosed';
+    const groups = Array.from(document.querySelectorAll<HTMLDetailsElement>('.handbook-nav-group[data-group]'));
+    if (!groups.length) return;
+
+    const read = (): Set<string> => {
+      try {
+        const raw = localStorage.getItem(KEY);
+        const parsed: unknown = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? new Set(parsed.filter((s): s is string => typeof s === 'string')) : new Set();
+      } catch {
+        return new Set();
+      }
+    };
+    const write = (closed: Set<string>) => {
+      try {
+        localStorage.setItem(KEY, JSON.stringify([...closed]));
+      } catch {
+        /* private mode — collapsing still works, it just will not be remembered */
+      }
+    };
+
+    const closed = read();
+    groups.forEach((g) => {
+      const key = g.dataset.group;
+      if (!key) return;
+      const hasCurrent = Boolean(g.querySelector('[aria-current="page"]'));
+      g.open = hasCurrent || !closed.has(key);
+      g.addEventListener('toggle', () => {
+        const next = read();
+        if (g.open) next.delete(key);
+        else next.add(key);
+        write(next);
+      });
+    });
+  })();
+</script>

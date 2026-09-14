@@ -1,0 +1,71 @@
+---
+/**
+ * Ref.astro — cross-reference to another note by its stable `label` (or slug).
+ * Renders the note's *current* position code and/or title with a link, so renumbering
+ * weeks or reordering notes never breaks prose. HARD RULE: prose never hard-codes "W3.3".
+ *
+ *   <Ref to="dma-tweedie"/>                → W3.3
+ *   <Ref to="dma-tweedie" mode="full"/>    → W3.3 Tweedie 公式：去噪器就是 Score
+ *   <Ref to="dma-tweedie" mode="title"/>   → Tweedie 公式：去噪器就是 Score
+ *   <Ref to="dma-tweedie">那一篇</Ref>      → 那一篇   (custom text, still linked)
+ *   <Ref week="dma-week-interpolants"/>    → W5       (whole lecture / class)
+ *
+ * A key listed in `plannedNotes` renders as a muted, unlinked chip ("規劃中"); any other
+ * unknown key renders visibly as ⟦?key⟧ so a broken label is caught in review.
+ */
+import { resolveNoteRef, resolveWeekRef, langFromUrl } from '../../lib/noteRefs';
+import type { Lang } from '../../lib/notes';
+
+interface Props {
+  to?: string;
+  week?: string;
+  mode?: 'code' | 'title' | 'full';
+  lang?: Lang;
+  /** Hover summary (title attribute). Default: the target note's summary. */
+  hint?: boolean;
+}
+const { to, week, mode = 'code', hint = true } = Astro.props;
+const lang: Lang = Astro.props.lang ?? langFromUrl(Astro.url);
+
+// MDX wrappers always forward a (possibly empty) default slot, so test the rendered text.
+const custom = Astro.slots.has('default') ? (await Astro.slots.render('default')).trim() : '';
+
+let href = '';
+let text = '';
+let title: string | undefined;
+let missing = false;
+let planned = false;
+
+if (week) {
+  const w = await resolveWeekRef(week, lang);
+  if (w) {
+    href = w.href;
+    text = w.code;
+    title = w.group;
+  } else missing = true;
+} else if (to) {
+  const r = await resolveNoteRef(to, lang);
+  if (r) {
+    planned = Boolean(r.planned);
+    href = r.href;
+    text = mode === 'full' ? (r.code ? `${r.code} ${r.shortTitle}` : r.title) : mode === 'title' ? r.shortTitle : r.code || r.shortTitle;
+    title = hint ? (r.code ? `${r.code} ${r.shortTitle}` : r.title) : undefined;
+  } else missing = true;
+}
+---
+{missing ? (
+  <span class="note-ref note-ref-missing" title="unresolved reference">⟦?{to ?? week}⟧</span>
+) : planned ? (
+  <span class="note-ref note-ref-planned" title={lang === 'zh' ? `${title}（規劃中）` : `${title} (planned)`}>
+    {custom ? <Fragment set:html={custom} /> : text}
+  </span>
+) : (
+  <a class="note-ref" href={href} title={title} data-code={text}>{custom ? <Fragment set:html={custom} /> : text}</a>
+)}
+
+<style>
+  .note-ref { font-weight: 600; text-decoration: none; color: var(--accent); border-bottom: 1px dotted currentColor; }
+  .note-ref:hover { border-bottom-style: solid; }
+  .note-ref-missing { color: #c0392b; font-weight: 700; background: rgba(192, 57, 43, 0.08); padding: 0 4px; border-radius: 4px; }
+  .note-ref-planned { font-weight: 600; color: var(--text-muted); border-bottom: 1px dashed currentColor; cursor: help; }
+</style>

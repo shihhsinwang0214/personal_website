@@ -5,7 +5,7 @@ title: "Generation as Transporting a Distribution"
 category: "research-areas"
 group: "Diffusion & Flow Models"
 status: "missing"
-updated: 2026-06-26
+updated: 2026-09-04
 summary: "English translation in progress; content-agent task."
 demos: []
 references: []

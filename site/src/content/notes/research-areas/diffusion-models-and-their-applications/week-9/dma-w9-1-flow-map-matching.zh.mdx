@@ -1,0 +1,203 @@
+---
+slug: "dma-w9-1-flow-map-matching"
+label: "dma-flow-map-matching"
+prereqs:
+  - math-total-derivative
+  - math-pushforward-flow-map
+  - math-conditional-expectation
+lang: "zh"
+title: "Flow Map Matching：三條恆等式，三種損失"
+category: "courses"
+group: "Week 9 · Flow Maps 與分佈匹配"
+status: "available"
+updated: 2026-09-06
+summary: "把 flow map 的條件寫成三條可微分的恆等式——Lagrangian（沿目標時間微分，速度在輸出點）、Eulerian（沿起始時間微分，速度在輸入點）、progressive（半群，兩小步等於一大步）——每一條都能當損失。差別在「速度場在哪裡被需要」，這決定了能不能拿掉 teacher。上週與本週的所有方法排進同一張表。"
+demos: []
+references:
+  - label: "Boffi, Albergo & Vanden-Eijnden, Flow Map Matching (2024)"
+    href: "https://arxiv.org/abs/2406.07507"
+  - label: "Salimans & Ho, Progressive Distillation for Fast Sampling of Diffusion Models (ICLR 2022)"
+    href: "https://arxiv.org/abs/2202.00512"
+  - label: "Song, Dhariwal, Chen & Sutskever, Consistency Models (ICML 2023)"
+    href: "https://arxiv.org/abs/2303.01469"
+  - label: "Kim et al., Consistency Trajectory Models (ICLR 2024)"
+    href: "https://arxiv.org/abs/2310.02279"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+
+# Flow Map Matching：三條恆等式，三種損失
+
+<Objectives>
+- 寫出 flow map 的 Lagrangian、Eulerian、progressive 三條恆等式，並說出每一條在幾何上是什麼畫面。
+- 對每一條說出「速度場在哪一個點被需要」，並由此判斷能不能用條件速度代替、能不能拿掉 teacher。
+- 把 <Ref week="dma-week-consistency"/> 與本週的方法填進「哪條恆等式 + 哪個估計量」的表，認出它們是同一個物件的不同訓練方式。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 從條件到損失
+
+上一篇的四個條件是**判準**：拿一個 $\psi_\theta$ 來，能檢查它合不合格。要拿它們訓練，得把「合格」變成一個可以對 $\theta$ 微分的數。Boffi、Albergo 與 Vanden-Eijnden 的 *Flow Map Matching* [1] 把這件事做得很系統：條件四有兩種微分方式，條件三本身就是一條等式，於是有三條恆等式、三種損失。這一篇逐一看它們，重點放在一個問題上——**速度場 $v$ 在哪一個點被需要？** 因為這決定了能不能用 <Ref to="dma-conditional-flow-matching"/> 的條件速度代替，也就決定了要不要 teacher。
+
+## 第一條：Lagrangian——跟著輸出點走
+
+條件四寫的是 $\partial_s\psi_{t\to s}(x)=v_s\big(\psi_{t\to s}(x)\big)$。固定輸入 $(x,t)$，讓目標時間 $s$ 動，輸出點 $\psi_{t\to s}(x)$ 就像一顆粒子沿軌跡前進，它的速度必須等於那一點的速度場。這是**粒子的觀點**——跟著它走——所以叫 Lagrangian。損失：
+
+$$
+\mathcal L_{\text{Lag}}=\mathbb E\Big\|\,\partial_s\psi_\theta(x_t,t\to s)-v_s\big(\psi_\theta(x_t,t\to s)\big)\Big\|^2 .
+$$
+
+速度場在**輸出點**被需要。這是麻煩的地方：$\psi_\theta(x_t,t\to s)$ 是網路算出來的一個位置，我們手上沒有任何一組 $(x_0,x_1)$ 的直線恰好經過它——<Ref to="dma-linear-path"/> Q1 說過邊際軌跡不是任何一條條件直線。所以這裡的 $v_s$ 只能來自一個已經訓好的速度場：**Lagrangian 損失是 distillation 專用的**。
+
+## 第二條：Eulerian——固定輸出，讓輸入沿軌跡動
+
+換一個角度微分。取一條軌跡 $x_t$，看 $\psi_{t\to s}(x_t)$：不論從軌跡上哪一點出發，跳到 $s$ 都是同一個位置。所以沿著軌跡對 $t$ 的**全導數**是零：
+
+$$
+\frac{d}{dt}\,\psi_{t\to s}(x_t)=\partial_t\psi_{t\to s}(x)\Big|_{x=x_t}+\nabla_x\psi_{t\to s}(x_t)\,v_t(x_t)=0 .
+$$
+
+（全導數的展開是 <Ref week="dma-week-consistency"/> 用 JVP 算 $\tfrac{d}{dt}f_\theta$ 時的同一條式子：$x_t$ 隨 $t$ 動，速度是 $v_t(x_t)$。）這次是**場的觀點**——把 $\psi_{\cdot\to s}$ 看成定義在 $(x,t)$ 上的一個場，要求它沿著每條軌跡是常數，就像 <Ref to="dma-flows-and-continuity"/> 把「粒子怎麼走」翻成「密度怎麼變」那樣——所以叫 Eulerian。
+
+速度場在**輸入點** $x_t$ 被需要。而輸入點是我們自己造的：$x_t=(1-t)x_0+t\,x_1$，手上就有這組 $(x_0,x_1)$，條件速度 $x_1-x_0$ 現成可用。這就是 consistency training 能拿掉 teacher 的原因，這一週從頭訓練的方法也全部走這條路。**Eulerian 是能夠不要 teacher 的那一條。** 怎麼代替才在期望上精確，下面的展開框先說一半，下一篇 <Ref to="dma-meanflow"/> 的 Q1 說完。
+
+<Details summary="用條件速度代替時的一個陷阱：squared loss 直接代會多出一項">
+把 $v_t(x_t)$ 直接換成 $x_1-x_0$ 塞進 squared loss：
+$\mathbb E\big\|\partial_t\psi_\theta+\nabla\psi_\theta\,(x_1-x_0)\big\|^2$。
+記 $\delta=(x_1-x_0)-v_t(x_t)$，它給定 $x_t$ 的條件期望是零——那正是邊際速度 $v_t$ 的定義（<Ref to="dma-conditional-flow-matching"/> 定理 2 的交叉項用的也是這一條）。展開：
+
+$$
+\mathbb E\big\|\underbrace{\partial_t\psi_\theta+\nabla\psi_\theta\,v_t}_{\text{真正的 Eulerian 殘差}}+\nabla\psi_\theta\,\delta\big\|^2
+=\mathbb E\|\text{殘差}\|^2+\mathbb E\|\nabla\psi_\theta\,\delta\|^2 ,
+$$
+
+交叉項因 $\mathbb E[\delta\mid x_t]=0$ 消失，但第二項**依賴 $\theta$**——它在懲罰 $\psi_\theta$ 的 Jacobian，會把最小值拉偏。這和 <Ref to="dma-conditional-flow-matching"/> 的情形不同：那裡的 $v_\theta$ 是「被回歸的量」，條件速度是「目標」，變異數項不含 $\theta$；這裡 $v$ 卻乘在 $\nabla\psi_\theta$ 上。
+
+解法是把含 $v$ 的部分**移到 stop-gradient 的目標裡**，讓目標對 $v$ 是線性的。<Ref to="dma-cd-vs-ct"/> 的 consistency training、<Ref to="dma-ict-scm"/> 的 sCM 都是這個結構：把 $\tfrac{d}{dt}\psi_\theta$（用條件速度算的）整個當成不回傳梯度的目標。這時 squared loss 對隨機目標取期望，等於對目標的條件期望回歸再加一個與 $\theta$ 無關的常數——這就是 <Ref to="dma-denoising-regression"/> 的 **conditional trick**，代換在期望上精確。下一篇 MeanFlow 的 Q1 會把這句話說完整。
+</Details>
+
+<Question id="Q1">
+三條恆等式都在說同一件事（$\psi_{t\to s}$ 沿軌跡不變），但只有 Eulerian 那一條可以不用 teacher。
+
+**差別到底在哪裡？從「速度場在哪一個點被需要」去看。**
+
+<Answer>
+把三條並排，只看 $v$ 出現在哪個位置：
+
+| 恆等式 | $v$ 被需要的位置 | 那個點是誰造的 |
+|---|---|---|
+| Lagrangian | **輸出點** $\psi_{t\to s}(x_t)$ | 網路的輸出——我們沒有它的 $(x_0,x_1)$ |
+| Eulerian | **輸入點** $x_t$ | 我們自己造的：$x_t=(1-t)x_0+t\,x_1$ |
+| progressive | 不需要 $v$，但需要 $\psi_\theta$ 自己走中間那一段 | 網路的輸出 |
+
+關鍵是第三欄。條件速度 $x_1-x_0$ 只有在「我知道這個點是由哪一組 $(x_0,x_1)$ 造出來的」時候才拿得到。**輸入點是我們自己插值出來的，所以那組端點就在手上；輸出點是網路吐出來的，我們不知道它落在哪一條條件直線上**，只能去問一個已經學會速度場的 teacher。
+
+所以「要不要 teacher」不是這三條恆等式的附帶性質，而是**由「$v$ 被求值的位置」直接決定的**。這一欄也解釋了下一篇為什麼走得通：MeanFlow 換了座標，但 $v$ 仍然只在輸入點被需要。
+
+（progressive 那一列是另一種依賴：它不要 teacher 的 $v$，但要學生自己先會走 $t\to u$ 那一段，所以是 bootstrapping——<Ref to="dma-shortcut-ayf"/> 的 Shortcut 就付這個代價。）
+</Answer>
+</Question>
+
+## 第三條：progressive——兩小步等於一大步
+
+條件三不用微分，本身就是等式：
+
+$$
+\psi_{t\to r}(x)=\psi_{s\to r}\big(\psi_{t\to s}(x)\big),\qquad t<s<r .
+$$
+
+損失就是兩邊的距離。它**完全不出現速度場**——這是它最特別的地方。那動力學的資訊從哪裡進來？從**最小的那一步**：兩個時間很近時，條件四說 $\psi_{t\to t+h}(x)\approx x+h\,v_t(x)$。所以 progressive 損失一定要配一個「底層」：要嘛底層由 teacher 提供（<Ref to="dma-progressive-distillation"/>：teacher 走兩小步、學生學一大步，一輪一輪把步數減半），要嘛底層是 flow matching 自己（本週的 Shortcut：步長為零時就是 FM 損失），從小步一路 bootstrap 到大步。
+
+代價是**誤差累積**：每一級大步都以上一級小步為目標，小步的誤差會一級一級往上帶。<Ref to="dma-progressive-distillation"/> 的逐輪退化與 <Ref to="dma-rectified-flow"/> reflow 的多輪誤差是同一件事。
+
+<VizPlan id="w9-1-three-identities" title="三條恆等式的幾何：速度場各在哪裡被需要" type="static">
+- **位置**：本節之後。**檔名**：`week-9/imgs/w9-1-1.svg`（16:9，三欄）。每欄同一條彎曲軌跡（灰色細線，從左下噪聲端到右上資料端），軌跡上標 $t$、$s$、$r$ 三個時刻的點。
+- **左欄「Lagrangian」**：固定 $(x_t,t)$，畫 $\psi_{t\to s}(x_t)$ 的輸出點在 $s$ 附近沿軌跡滑動（三個淡到深的位置），輸出點上畫速度箭頭 $v_s$，箭頭與軌跡相切。**速度箭頭畫在輸出點**，並用醒目色框住輸出點，旁邊小字「$v$ 在這裡：網路算出來的位置，手上沒有配對 → 要 teacher」。
+- **中欄「Eulerian」**：固定目標 $s$，輸入點在 $t$ 附近沿軌跡滑動（三個位置），三條箭頭全部指向**同一個**輸出點 $\psi_{\cdot\to s}$；速度箭頭 $v_t$ 畫在**輸入點**。輸入點旁畫出它的條件直線 $(x_0,x_1)$（虛線），小字「$v$ 在這裡：$x_t$ 是自己造的，$x_1-x_0$ 現成 → 可以不要 teacher」。
+- **右欄「progressive」**：三個點 $t\to s\to r$，兩條短弧（$t\to s$、$s\to r$）與一條長弧（$t\to r$）畫成兩條路線在 $r$ 處會合，中間一個等號。**沒有速度箭頭**；底部一個極小的放大鏡圖示，指向兩個非常近的時刻，小字「速度只在最小的那一步進來：teacher 或 FM」。
+- **三欄下方一行**：「同一個 $\psi_{t\to s}$，三種微分方式，差別只在 $v$ 出現在哪裡。」
+- **圖說（.mdx 內）**：「**圖：三條恆等式。** Lagrangian 跟著輸出點走，速度在輸出點——只能 distillation；Eulerian 固定輸出、讓輸入沿軌跡動，速度在輸入點——可以用條件速度、不要 teacher；progressive 不碰速度，兩小步等於一大步，動力學從最小的一步進來。」
+- 術語一律英文（Lagrangian、Eulerian、progressive、teacher、flow map）；配色沿用 <Ref to="dma-what-are-we-learning"/> 圖 1 的基準色。
+</VizPlan>
+
+## 三條恆等式，各自要什麼
+
+現在可以把 <Ref week="dma-week-consistency"/> 和本週的方法排在一起。每一列的讀法：**這個方法學的是 flow map 的哪一片、用哪條恆等式、$v$ 用什麼估計、要不要 teacher。**
+
+| 方法 | 學的物件 | 恆等式 | $v$ 的估計量 | teacher |
+|---|---|---|---|---|
+| Flow matching（<Ref to="dma-conditional-flow-matching"/>） | $v_t$ 本身 | 條件四的無窮小極限 | 條件速度 $x_1-x_0$ | 否 |
+| Reflow（<Ref to="dma-rectified-flow"/>） | $v_t$（新配對） | 同上 | ODE 配對下的 $x_1-x_0$ | 上一輪的自己 |
+| Progressive distillation（<Ref to="dma-progressive-distillation"/>） | $\psi_{t\to t+2h}$，離散步 | progressive | teacher 走兩小步 | 是 |
+| Consistency distillation（<Ref to="dma-cd-vs-ct"/>） | $\psi_{t\to1}$ | Eulerian，離散化 | teacher 走一步到 $x_{t'}$ | 是 |
+| Consistency training（<Ref to="dma-cd-vs-ct"/>） | $\psi_{t\to1}$ | Eulerian，離散化 | 條件重插值 $x_{t'}$；$O(\Delta t)$ 曲率 bias | 否 |
+| sCM（<Ref to="dma-ict-scm"/>） | $\psi_{t\to1}$ | Eulerian，連續（JVP） | 條件速度，放在 stop-gradient 目標裡 | 否 |
+| CTM（<Ref to="dma-flow-map"/>） | $\psi_{t\to s}$ | progressive，第一段交給 teacher | teacher solver $t\to u$ | 是 |
+| MeanFlow（下一篇） | 平均速度 $u$，等價於 $\psi_{t\to s}$ | Eulerian，連續，換到 $u$ 座標 | 條件速度，目標對 $v$ 線性 | 否 |
+| Shortcut（下下篇） | $\psi_{t\to t+d}$ | progressive；$d=0$ 是 FM | 自己的兩小步；$d=0$ 用條件速度 | 否 |
+| Align Your Flow（下下篇） | $\psi_{t\to s}$ | Eulerian 與 Lagrangian，連續 | teacher 的 $v$ | 是 |
+
+**不要 teacher 的方法全部在 Eulerian 那一欄，或在 progressive 配 FM 底層那一欄**——因為只有這兩種寫法讓 $v$ 出現在我們自己造的點上。consistency model 家族學的都是 $\psi_{t\to1}$ 這一片；把第二個時間放開，方法本身幾乎不用改。而 <Ref to="dma-cd-vs-ct"/> 那個 $O(\Delta t)$ 的曲率 bias 出現在「離散化」的那幾列；連續版（sCM、MeanFlow）把差分換成導數，bias 消失，代價是要算 JVP。下一篇就是這一列。
+
+## 先消化一下
+
+<QuizBlock id="w9-1-a">
+Lagrangian 損失 $\|\partial_s\psi_\theta(x_t,t\to s)-v_s(\psi_\theta(x_t,t\to s))\|^2$ 為什麼不能用條件速度 $x_1-x_0$ 代替 $v_s$？
+<Option>因為 $\partial_s$ 不能用 JVP 算。</Option>
+<Option correct>因為 $v_s$ 要在輸出點 $\psi_\theta(x_t,t\to s)$ 取值，那是網路算出來的位置，沒有哪一組 $(x_0,x_1)$ 的直線恰好經過它。</Option>
+<Option>因為 Lagrangian 損失只對 $s=1$ 有定義。</Option>
+<Explanation>
+條件速度可用的前提是「那個點是我們自己用 $(x_0,x_1)$ 插值造出來的」。輸入點 $x_t$ 滿足這個前提，輸出點不滿足——邊際軌跡上的點不落在任何一條條件直線上（<Ref to="dma-linear-path"/> Q1）。$\partial_s$ 對目標時間微分是普通的偏導數，任何 $s$ 都可以。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w9-1-b">
+Eulerian 恆等式 $\tfrac{d}{dt}\psi_{t\to s}(x_t)=0$ 的幾何意義是：
+<Option>輸出點沿軌跡的速度等於速度場。</Option>
+<Option>兩小步等於一大步。</Option>
+<Option correct>從同一條軌跡上任何一點出發跳到 $s$，都落在同一個位置——輸出對「從軌跡上哪裡出發」不敏感。</Option>
+<Explanation>
+這正是 <Ref to="dma-consistency-function"/> 的自我一致性推廣到任意目標時刻。「輸出點速度等於速度場」是 Lagrangian，「兩小步等於一大步」是 progressive。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w9-1-c">
+Progressive 損失完全不含速度場 $v$。那一個只用 progressive 損失、沒有任何底層的網路會學到什麼？
+<Option>正確的 flow map，因為半群條件已經足夠。</Option>
+<Option>flow matching 的速度場。</Option>
+<Option correct>任何滿足半群的映射族都是最小值——例如恆等映射 $\psi\equiv\mathrm{id}$——動力學的資訊必須從「最小的一步」（teacher 或 FM）進來。</Option>
+<Explanation>
+半群只是一致性條件，恆等映射、任何 ODE 的 flow map 都滿足它。要選出**我們那條** ODE，得靠條件四在小步處提供速度資訊：progressive distillation 靠 teacher，Shortcut 靠 $d=0$ 的 FM 損失。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w9-1-d">
+表格裡「能不能不要 teacher」的分界線落在：
+<Option>學的是 $\psi_{t\to1}$ 還是一般的 $\psi_{t\to s}$。</Option>
+<Option correct>速度場是否只在我們自己用 $(x_0,x_1)$ 造出的點上被需要——Eulerian 的輸入點是，Lagrangian 的輸出點不是。</Option>
+<Option>用的是離散化還是連續時間的損失。</Option>
+<Explanation>
+第二個時間放不放開、離散或連續，都各有要 teacher 與不要 teacher 的版本（CD 與 CT 都是 $\psi_{t\to1}$ 且離散化）。唯一一致的判準是 $v$ 出現的位置。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-meanflow">
+本篇把 flow map 的條件寫成三條恆等式，並用「$v$ 在哪裡被需要」把上週與本週的方法排成一張表：不要 teacher 的路只有 Eulerian（或 progressive 配 FM 底層）。下一篇看 MeanFlow 怎麼把 Eulerian 恆等式換到「平均速度」座標，得到一條精確、可以從頭訓練的式子。
+</Bridge>
+
+## 參考文獻
+
+1. Boffi, N. M., Albergo, M. S., Vanden-Eijnden, E. [*Flow Map Matching.*](https://arxiv.org/abs/2406.07507) 2024.（Lagrangian、Eulerian、progressive 三種損失的來源；與 CM、progressive distillation 的對應。）
+2. Salimans, T., Ho, J. [*Progressive Distillation for Fast Sampling of Diffusion Models.*](https://arxiv.org/abs/2202.00512) ICLR 2022.（progressive 恆等式配 teacher 底層。）
+3. Song, Y., Dhariwal, P., Chen, M., Sutskever, I. [*Consistency Models.*](https://arxiv.org/abs/2303.01469) ICML 2023.（Eulerian 恆等式在 $s=1$、離散化。）
+4. Kim, D. et al. [*Consistency Trajectory Models.*](https://arxiv.org/abs/2310.02279) ICLR 2024.（progressive 恆等式、第一段交給 teacher。）

@@ -1,0 +1,212 @@
+---
+slug: "dma-w8-3-cd-vs-ct"
+label: "dma-cd-vs-ct"
+prereqs:
+  - math-tweedie
+  - math-conditional-expectation
+  - math-mse-conditional-expectation
+  - math-euler-error
+  - math-taylor
+lang: "zh"
+title: "Consistency Distillation 與 Consistency Training：沒有老師，憑什麼？"
+category: "courses"
+group: "Week 8 · Consistency Models"
+status: "available"
+updated: 2026-09-06
+summary: "填上損失裡的空格：CD 用 teacher 的 score 走一步 Euler；CT 不用 teacher，把同一組 (x₀, ε) 在 t_n 重新加噪當作「走了一步」。CT 憑什麼成立？因為那個條件目標對 x_{t_{n+1}} 取後驗平均，恰好就是用真實 score 走的那一步 Euler——conditional trick 的 consistency 版本。剩下的偏差正比於 Δt 與曲率，這解釋了時間網格為什麼要 curriculum。"
+demos: []
+references:
+  - label: "Song, Dhariwal, Chen & Sutskever, Consistency Models (ICML 2023)"
+    href: "https://arxiv.org/abs/2303.01469"
+  - label: "Song & Dhariwal, Improved Techniques for Training Consistency Models (ICLR 2024)"
+    href: "https://arxiv.org/abs/2310.14189"
+  - label: "Karras, Aittala, Aila & Laine, Elucidating the Design Space of Diffusion-Based Generative Models (NeurIPS 2022)"
+    href: "https://arxiv.org/abs/2206.00364"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# Consistency Distillation 與 Consistency Training：沒有老師，憑什麼？
+
+<Objectives>
+- 寫出 $\hat x_{t_n}$ 的兩種算法：CD 用 teacher 的 score 走一步 Euler，CT 用同一組 $(x_0,\epsilon)$ 重新加噪；並說出各自需要什麼。
+- 證明 CT 的條件目標對 $x_{t_{n+1}}$ 取後驗平均後恰等於用真實 score 走的一步 Euler，並把它認成 <Ref to="dma-denoising-regression"/> 那個 conditional trick 的 consistency 版本。
+- 說出 CT 相對真實軌跡的兩個誤差來源（$f_\theta$ 的非線性、Euler 本身的曲率誤差）都隨 $\Delta t\to0$ 消失，以及這如何解釋 bias、variance 與時間網格的 curriculum。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 空格
+
+上一篇的損失
+
+$$
+\mathcal L_{\text{CM}}=\mathbb E\Big[\lambda(t_n)\,d\Big(f_\theta\big(x_{t_{n+1}},t_{n+1}\big),\ f_{\theta^-}\big(\hat x_{t_n},t_n\big)\Big)\Big]
+$$
+
+裡，$x_{t_{n+1}}=x_0+t_{n+1}\epsilon$ 是普通的加噪聲，唯一沒說清楚的是 $\hat x_{t_n}$：「從 $x_{t_{n+1}}$ 出發，沿同一條 PF-ODE 軌跡往乾淨端走一格的點」。真實的那個點 $x_{t_n}$ 需要解 ODE，我們沒有；但我們只需要一個夠好的近似。Song et al. [1] 給了兩個。
+
+**Consistency distillation（CD）。** 有一個訓好的 teacher 給 score $s_\phi(x,t)\approx\nabla\log p_t(x)$。<Ref to="dma-learn-the-map"/> 說本週的 PF-ODE 是 $\frac{dx}{dt}=-t\nabla\log p_t(x)$，從 $t_{n+1}$ 往 $t_n$ 走一步 Euler：
+
+$$
+\hat x^{\text{CD}}_{t_n}=x_{t_{n+1}}+(t_{n+1}-t_n)\,t_{n+1}\,s_\phi(x_{t_{n+1}},t_{n+1}) .
+$$
+
+（$t_n<t_{n+1}$，所以是往回走；用 $\mathbb E[\epsilon\mid x]=-t\nabla\log p_t$ 改寫成 $x_{t_{n+1}}-(t_{n+1}-t_n)\,\hat\epsilon_\phi$ 也一樣。）這個點與真實 $x_{t_n}$ 差了兩件事：teacher 的 score 誤差，以及 Euler 一步的局部誤差 $\tfrac12\Delta t^2\|\ddot x\|$——<Ref to="dma-error-theory"/> 的那個量，$\Delta t=t_{n+1}-t_n$。**這是一個蒸餾**：它把 teacher 的知識、一小步一小步地，壓進 $f_\theta$。
+
+**Consistency training（CT）。** 沒有 teacher。注意到 $x_{t_{n+1}}$ 本來就是用某一組 $(x_0,\epsilon)$ 造出來的，那就**用同一組**，在 $t_n$ 再造一次：
+
+$$
+\hat x^{\text{CT}}_{t_n}=x_0+t_n\,\epsilon .
+$$
+
+程式碼上這是一行：`x_hat = x0 + t[n] * eps`。不需要任何網路呼叫、任何 score。
+
+第一次看到 CT 的人通常會皺眉。$x_0+t_n\epsilon$ **不在** $x_{t_{n+1}}$ 的 PF-ODE 軌跡上——它在那條穿過 $x_0$、方向是 $\epsilon$ 的**直線**上；而 <Ref to="dma-linear-path"/> Q1 花了一整篇說：條件路徑是直的，邊際軌跡是彎的，兩者不是同一條線。拿一個不在軌跡上的點，要求 $f_\theta$ 在那裡的輸出等於 $f_\theta(x_{t_{n+1}})$，這看起來就是在教錯的東西。
+
+<Question id="Q1">
+CT 沒有 teacher、沒有 score，$x_0+t_n\epsilon$ 也明明不在同一條 PF-ODE 軌跡上。**它憑什麼能學到 consistency function？**
+
+<Answer>
+常見的答案分三類：「因為 $\Delta t$ 很小，$x_0+t_n\epsilon$ 和 $x_{t_{n+1}}$ 靠得很近，所以差不多」（對一半——靠近是必要的，但不是理由；靠近的錯點還是錯點）；「因為 $f_\theta$ 會自己平均掉」（方向對了，但要說清楚是**誰**在平均、平均成**什麼**）；以及「這又是那個條件與邊際的事」。第三個是對的，把它算出來。
+
+**算一次條件期望。** 把 CT 的目標改寫成從 $x_{t_{n+1}}$ 出發的形式：
+
+$$
+x_0+t_n\epsilon=(x_0+t_{n+1}\epsilon)-(t_{n+1}-t_n)\,\epsilon=x_{t_{n+1}}-\Delta t\cdot\epsilon .
+$$
+
+它是「從 $x_{t_{n+1}}$ 沿 $-\epsilon$ 方向退 $\Delta t$」。但 $\epsilon$ 是這一筆樣本自己的噪聲，不是 $x_{t_{n+1}}$ 的函數——很多不同的 $(x_0,\epsilon)$ 會造出同一個 $x_{t_{n+1}}$，每一組退的方向都不同。固定 $x_{t_{n+1}}$，對所有這些 $(x_0,\epsilon)$ 取後驗平均：
+
+$$
+\mathbb E\big[x_0+t_n\epsilon\,\big|\,x_{t_{n+1}}\big]
+=x_{t_{n+1}}-\Delta t\ \mathbb E\big[\epsilon\,\big|\,x_{t_{n+1}}\big]
+=x_{t_{n+1}}+\Delta t\ t_{n+1}\nabla\log p_{t_{n+1}}(x_{t_{n+1}}) .
+$$
+
+第二個等號是 Tweedie（<Ref to="dma-learn-the-map"/> 的展開框：$\mathbb E[\epsilon\mid x_t]=-t\nabla\log p_t$）。右邊**正是 CD 的 $\hat x^{\text{CD}}_{t_n}$，而且用的是真實 score**，不是 teacher 的近似。
+
+所以 CT 的目標是 CD 目標的**條件版本**：每一筆樣本都是錯的（退的方向是自己的 $\epsilon$，不是平均方向），但錯的方向對 $x_{t_{n+1}}$ 的後驗是零均值的，平均起來就是對的方向。這就是 <Ref to="dma-denoising-regression"/> 的 **conditional trick**——條件目標好算、邊際目標難算，而回歸自動對條件取後驗平均——換到 consistency 上的樣子。<Ref to="dma-concrete-score"/> 那張表已經列過它的幾個版本（score、速度、$b_t$ 與 $\eta_t$、比值），每一個都是同一句話：**我們不需要邊際量，只需要一個在期望上等於它的條件量。**
+
+**但這裡有兩個新的細節**，也是為什麼上面第一類答案裡「$\Delta t$ 很小」不是多餘的。
+
+*細節一：目標經過了一個非線性函數。* 先前那幾個版本的條件目標都是**直接**被回歸的量（$\epsilon$、$x_1-x_0$、$\dot x_t$、比值），MSE 對它取期望是精確的。這次條件目標 $\hat x^{\text{CT}}_{t_n}$ 是先餵進 $f_{\theta^-}$ 再被比較。$f_{\theta^-}$ 非線性，所以
+
+$$
+\mathbb E\big[f_{\theta^-}(x_0+t_n\epsilon,\,t_n)\,\big|\,x_{t_{n+1}}\big]\ \neq\ f_{\theta^-}\big(\hat x^{\text{CD}}_{t_n},\,t_n\big).
+$$
+
+差多少？$x_0+t_n\epsilon$ 在給定 $x_{t_{n+1}}$ 下的條件變異數是 $\Delta t^2\,\mathrm{Var}(\epsilon\mid x_{t_{n+1}})$，Jensen gap 的量級是 $\Delta t^2$ 乘 $f$ 的二階導數。這是 $O(\Delta t^2)$ 的東西——**隨 $\Delta t\to0$ 消失**，但 $\Delta t$ 大時不能忽略。
+
+*細節二：Euler 本身相對真實軌跡就有誤差。* 就算完美地平均成 $\hat x^{\text{CD}}_{t_n}$，它也只是真實 $x_{t_n}$ 的一步 Euler 近似，差 $\tfrac12\Delta t^2\|\ddot x\|$。這一項 CD 也有；它是 <Ref to="dma-error-theory"/> 的局部誤差，係數是**曲率**，同樣隨 $\Delta t\to0$ 消失。
+
+兩項合起來，就是 Song et al. [1] 那條定理的精神：**在 $\Delta t\to0$ 時，CT 的損失與（用真實 score 的）CD 損失只差 $o(\Delta t)$**，兩者訓出同一個 $f$。（定理的精確條件——$d$ 的形式、對 $f$ 的 Lipschitz 與二階可微假設、$\theta^-=\theta$——請查原文；這裡只用它的結論。）
+
+一句話總結：**CT 不是「沒有 teacher」，它的 teacher 是資料本身**——$(x_0,\epsilon)$ 這一組配對就是一條條件軌跡，而條件軌跡的後驗平均就是真實的 PF-ODE。
+</Answer>
+</Question>
+
+<VizPlan id="w8-3-ct-target" title="CT 的條件目標 vs 真實軌跡上的點：Δt 與曲率" type="interactive">
+- **位置**：Q1 之後。**檔名**：`week-8/w8-3-1.html`。
+- **資料與座標**：2D toy（月牙），VE 座標 $x_t=x_0+t\epsilon$，$T=10$。精確 score 由混合 Gaussian 解析算出，真實軌跡用細步 RK4。
+- **版面**：左大格平面，右側控制項與兩張小曲線圖。
+- **左格的基本畫面**：先由讀者（或按「隨機」）選一組 $(x_0,\epsilon)$ 與一個時刻 $t_{n+1}$。畫出：(a) **條件直線** $\{x_0+t\epsilon\}$——虛線，從 $x_0$ 出發往外；(b) 點 $x_{t_{n+1}}$（大圓點）；(c) 經過 $x_{t_{n+1}}$ 的**真實 PF-ODE 軌跡**——實線、彎曲，往乾淨端走到終點打星號；(d) 三個候選的 $\hat x_{t_n}$：CT 目標 $x_0+t_n\epsilon$（在虛線上，方形）、Euler 一步（在切線方向上，三角形）、真實 $x_{t_n}$（在實線上，圓形）。三者用三色，右側圖例。
+- **滑桿 $\Delta t=t_{n+1}-t_n$**（對數刻度）：拖大，三個候選點散開；拖小，三點收攏到一起。數字欄即時顯示 $\|\text{CT}-\text{Euler}\|$、$\|\text{Euler}-\text{真實}\|$、$\|\text{CT}-\text{真實}\|$。
+- **按鈕「經過同一個 $x_{t_{n+1}}$ 的 100 組 $(x_0,\epsilon)$」**：從後驗 $p(x_0\mid x_{t_{n+1}})$ 抽 100 個 $x_0$（混合 Gaussian 後驗可精確抽），每組的 CT 目標畫成一個淡色小方形，形成一把扇子；扇子的**質心**用粗方形標出——它應與 Euler 三角形重合（100 組的蒙地卡羅誤差在 $10^{-2}$ 量級，隨組數以 $1/\sqrt{n}$ 收斂，數字欄顯示；<Ref to="dma-lab-consistency"/> 用 500 組，容差要跟著縮到 $5\times10^{-3}$）。這就是 Q1 的等式。
+- **右上小圖「每步誤差 vs $\Delta t$」**：log-log。兩條線：$\|\text{Euler}-\text{真實}\|$（斜率 2，這是 Euler 局部誤差）與扇子的**標準差**（斜率 1，這是條件目標的 variance $\propto\Delta t$）。旁邊小字：「bias 降得比 variance 快——小 $\Delta t$ 時 loss 訊號被雜訊淹沒」。
+- **右下小圖「曲率的角色」**：把 $x_{t_{n+1}}$ 拖到三個位置（兩個月牙之間、月牙正上方、遠離資料處），$\|\text{Euler}-\text{真實}\|$ 的長條並排，並在左格用顏色沿軌跡標 $\|\ddot x_t\|$。兩月牙之間最彎、誤差最大。
+- **底部觀察句**：「觀察：CT 的目標每一筆都不在軌跡上——它退的是自己的 $\epsilon$ 方向。但把經過同一個 $x_{t_{n+1}}$ 的所有配對平均起來，質心就是用真實 score 走的那一步 Euler。剩下的偏差是 Euler 對彎曲軌跡的誤差，$\Delta t$ 越小、軌跡越直，它越小。」
+- **匯出 PNG**：左格 + 兩張小圖併成 16:9，含當前 $\Delta t$。
+</VizPlan>
+
+## 為什麼時間網格要慢慢變細
+
+Q1 的兩個細節給了一張很實用的圖。固定一個 $x_{t_{n+1}}$，看 CT 那一側的目標 $f_{\theta^-}(x_0+t_n\epsilon,t_n)$：
+
+- 它的**期望**偏離真實的 $f(x_{t_n},t_n)$，偏離量是 $O(\Delta t^2)$ 乘上曲率（Euler 誤差）與 $f$ 的二階導數（Jensen gap）。這是 **bias**。$N$ 個網格點的 bias 疊起來，整個 $f_\theta$ 偏離真值 $O(\Delta t)$——這是 Song et al. [1] 定理裡「CD 損失為零則 $\|f_\theta-f\|=O(\Delta t)$」的內容，係數由曲率決定。
+- 它的**散佈**來自不同的 $(x_0,\epsilon)$ 退向不同方向，標準差是 $O(\Delta t)$。這是 **variance**。
+
+單看兩項都隨 $\Delta t$ 變小，似乎 $\Delta t$ 越小越好。但損失比較的是 $f_\theta(x_{t_{n+1}})$ 與 $f_{\theta^-}(\hat x_{t_n})$ 的**差**，這個差本身在 $\Delta t\to0$ 時也趨近零——真正有資訊的訊號（兩點輸出的真實差距）是 $O(\Delta t)$ 量級，而目標的 noise 也是 $O(\Delta t)$。$\Delta t$ 一小，**訊噪比不再改善**，梯度被 variance 主導，訓練變慢、甚至不收斂 [1, 2]。
+
+於是有一個真正的取捨：$\Delta t$ 大（$N$ 小）→ 訊號強、好訓，但 bias 大，$f_\theta$ 學到的是「假設每一段是直線」的錯誤終點；$\Delta t$ 小（$N$ 大）→ bias 小，但訊號被淹沒。Song et al. 的解法是**時間網格的 curriculum**：訓練初期用小 $N$（$N=2$ 起），$f_\theta$ 快速學到一個粗糙但方向正確的版本；然後逐步增加 $N$（到 150 或更多），每次加細都在把上一階段的 bias 消掉，而因為 $f_\theta$ 已經接近真值、相鄰兩點的輸出已經很接近，variance 造成的擾動相對可控。改進版本 [2] 把這條 curriculum 改成指數成長（$N$ 每隔固定步數翻倍，到 1280），這是下一篇的內容。
+
+<Details summary="「CT 的目標其實是假設這一段是直線」——把 Q1 接回配對交叉">
+Q1 裡三個點的幾何值得再說一次。從 $x_{t_{n+1}}$ 往乾淨端走 $\Delta t$：CT 走的是**這一筆條件直線的方向 $-\epsilon$**；Euler 走的是**經過此點的所有條件直線方向的後驗平均 $-\mathbb E[\epsilon\mid x_{t_{n+1}}]$**；真實軌跡走的是一段**曲線**。前兩者都是直線，差別在方向是「自己的」還是「平均的」——這正是 <Ref to="dma-linear-path"/> Q1 的圖：條件直線交叉，邊際速度是交叉處的平均，邊際軌跡因此彎曲。CT 的 bias 有兩層：條件方向對平均方向的偏差（零均值、進 variance）、平均方向的直線對曲線的偏差（不是零均值、進 bias）。第二層就是 <Ref to="dma-error-theory"/> 的曲率積分在 CM 裡的樣子。
+
+反過來想：如果配對是不交叉的（<Ref to="dma-rectified-flow"/> reflow 之後、或 <Ref to="dma-minibatch-ot"/> 的 OT 配對），條件直線幾乎就是邊際軌跡，CT 的目標就幾乎落在軌跡上，bias 幾乎為零、不需要小 $\Delta t$。這解釋了為什麼「先拉直、再做 CT」在實務上是一個常見的組合。
+</Details>
+
+## CD 與 CT 各付什麼
+
+兩邊的取捨可以並排看：一個要 teacher 但目標乾淨，一個不要 teacher 但目標帶噪。
+
+| | CD | CT |
+|---|---|---|
+| $\hat x_{t_n}$ | teacher 走一步 Euler | 同一組 $(x_0,\epsilon)$ 在 $t_n$ 重加噪 |
+| 需要 | 訓好的 teacher（每步多一次網路呼叫） | 只要資料 |
+| $\hat x_{t_n}$ 的誤差 | teacher 誤差 $+$ Euler 曲率誤差 | Euler 曲率誤差 $+$ 條件目標的 variance（$+$ 非線性的 Jensen gap） |
+| 上限 | teacher | 資料分佈本身 |
+| 對 $N$ 的敏感度 | 較低（目標是確定的） | 高（bias–variance 取捨，需要 curriculum） |
+
+CD 是蒸餾，一步一步把 teacher 壓進 $f_\theta$，訓練較穩，但上限是 teacher。至於品質，早期的比較裡 CD 明顯較好，而下一篇的 iCT 會把這個差距抹掉。CT 是一個**獨立的生成模型家族**——從資料直接訓出一步生成器，不經過任何 diffusion 模型。這件事在 2023 年是新的：它說「一步生成」不必是 diffusion 的附屬品。代價是 variance、以及對時間網格與各種穩定技巧的依賴，下一篇處理。
+
+## 先消化一下
+
+<QuizBlock id="w8-3-a">
+CT 的目標 $x_0+t_n\epsilon$ 對 $x_{t_{n+1}}$ 取條件期望，結果是：
+<Option>真實軌跡上的點 $x_{t_n}$。</Option>
+<Option correct>$x_{t_{n+1}}-\Delta t\,\mathbb E[\epsilon\mid x_{t_{n+1}}]$，即用**真實** score 從 $x_{t_{n+1}}$ 走一步 Euler。</Option>
+<Option>$x_{t_{n+1}}$ 本身。</Option>
+<Explanation>
+關鍵是 $x_0+t_n\epsilon=x_{t_{n+1}}-\Delta t\,\epsilon$，再用 Tweedie 把 $\mathbb E[\epsilon\mid x_t]$ 換成 $-t\nabla\log p_t$。得到的是 Euler 一步，不是真實軌跡上的點——Euler 對彎曲軌跡仍有 $O(\Delta t^2)$ 的誤差。也不是 $x_{t_{n+1}}$ 本身，那要 $\mathbb E[\epsilon\mid x_{t_{n+1}}]=0$，只在 $x_{t_{n+1}}$ 恰好落在對稱中心才成立。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w8-3-b">
+和先前用過的 conditional trick 相比，CT 多了一個需要 $\Delta t\to0$ 才消失的誤差。它來自：
+<Option correct>條件目標先經過非線性的 $f_{\theta^-}$ 再被比較，$\mathbb E[f(\cdot)]\neq f(\mathbb E[\cdot])$，差距 $\propto\Delta t^2$。</Option>
+<Option>CT 沒有用 score。</Option>
+<Option>$\epsilon$ 不是 Gaussian。</Option>
+<Explanation>
+先前那幾個版本的條件目標是直接被 MSE 回歸的量，期望精確。這次目標被 $f_{\theta^-}$ 包住，Jensen gap 的量級是條件變異數 $\Delta t^2\,\mathrm{Var}(\epsilon\mid x)$ 乘二階導數。「沒有用 score」不是誤差來源——Q1 剛證明期望裡自動出現了真實 score。$\epsilon$ 當然是 Gaussian。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w8-3-c">
+CT 的時間網格 $N$ 為什麼要從小到大做 curriculum，而不是一開始就用很大的 $N$？
+<Option>大 $N$ 的計算量太大。</Option>
+<Option>大 $N$ 時 bias 太大。</Option>
+<Option correct>$\Delta t$ 小時 bias 小，但相鄰兩點輸出的真實差距（訊號）與條件目標的散佈（noise）都是 $O(\Delta t)$，訊噪比不再改善，梯度被 variance 主導；先用小 $N$ 學到方向正確的粗版，再加細消 bias。</Option>
+<Explanation>
+每一步的計算量與 $N$ 無關（都只算一對相鄰點）。bias 是隨 $N$ 增加而**減少**的。問題在 variance：小 $\Delta t$ 讓兩側輸出幾乎相同，loss 的訊號被條件目標的隨機退向淹沒。curriculum 是在 bias–variance 之間逐步移動。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w8-3-d">
+「CT 的目標其實是假設這一段是直線」這句話裡，「直線」指的是：
+<Option>PF-ODE 的邊際軌跡是直線。</Option>
+<Option correct>從 $x_{t_{n+1}}$ 退到 $\hat x_{t_n}$ 走的是直線（CT 沿自己的 $-\epsilon$、Euler 沿平均方向），而真實軌跡在這一段是彎的；彎與直的差就是 $\tfrac12\Delta t^2\|\ddot x\|$ 的 bias。</Option>
+<Option>網路 $f_\theta$ 是線性函數。</Option>
+<Explanation>
+邊際軌跡恰恰**不是**直線——那是 <Ref to="dma-linear-path"/> Q1 的結論；$f_\theta$ 也不是線性的（線性才不會有 Jensen gap）。「直線」說的是一步的走法：CT 與 Euler 都用一條直線代替一小段曲線，差別只在方向是自己的還是平均的。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-ict-scm">
+本篇填上了空格：CD 用 teacher 走一步，CT 用同一組 $(x_0,\epsilon)$ 重加噪，後者成立是因為條件目標的後驗平均就是真實 score 的 Euler 一步。CT 的代價是 bias（$\propto\Delta t\times$曲率）與 variance（訊噪比隨 $\Delta t$ 變差）之間的取捨。下一篇把 2023 到 2024 年讓 CT 真正能訓起來的技術逐一過一遍，每一項都要問：它在對付 bias、variance，還是 boundary？
+</Bridge>
+
+## 參考文獻
+
+1. Song, Y., Dhariwal, P., Chen, M., Sutskever, I. [*Consistency Models.*](https://arxiv.org/abs/2303.01469) ICML 2023.（CD 與 CT 的定義；定理：CD 損失為零則 $\|f_\theta-f\|=O(\Delta t)$；CT 損失與 CD 損失只差 $o(\Delta t)$；$N$ 的 curriculum。）
+2. Song, Y., Dhariwal, P. [*Improved Techniques for Training Consistency Models.*](https://arxiv.org/abs/2310.14189) ICLR 2024.（CT 的 bias–variance 分析與指數 curriculum。）
+3. Karras, T., Aittala, M., Aila, T., Laine, S. [*Elucidating the Design Space of Diffusion-Based Generative Models.*](https://arxiv.org/abs/2206.00364) NeurIPS 2022.（本週 PF-ODE 與時間網格的來源。）

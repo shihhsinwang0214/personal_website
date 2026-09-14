@@ -1,0 +1,286 @@
+---
+slug: "dma-w7-1-ctmc"
+label: "dma-ctmc"
+prereqs:
+  - math-ctmc
+  - math-markov-chain
+  - math-fokker-planck
+  - math-continuity-equation
+lang: "zh"
+title: "CTMC：Rate Matrix 與 Forward Equation"
+category: "courses"
+group: "Week 7 · Discrete Diffusion II"
+status: "available"
+updated: 2026-09-07
+summary: "用「每單位時間流多少機率」定義 rate matrix R_t，寫出 forward equation ṗ_t = p_t R_t，並把它和 Fokker–Planck 並排：兩者都是「分佈的時間導數 = 一個線性算子作用在分佈上」，差別只在算子是微分還是矩陣。uniform 與 absorbing 的 rate 形式解出來，正好還原上週的 Q̄_t。"
+demos: []
+references:
+  - label: "Campbell et al., A Continuous Time Framework for Discrete Denoising Models (NeurIPS 2022)"
+    href: "https://arxiv.org/abs/2205.14987"
+  - label: "Sun et al., Score-based Continuous-time Discrete Diffusion Models (ICLR 2023)"
+    href: "https://arxiv.org/abs/2211.16750"
+  - label: "Austin et al., Structured Denoising Diffusion Models in Discrete State-Spaces (NeurIPS 2021)"
+    href: "https://arxiv.org/abs/2107.03006"
+  - label: "Sahoo et al., Simple and Effective Masked Diffusion Language Models (NeurIPS 2024)"
+    href: "https://arxiv.org/abs/2406.07524"
+---
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Try from '../../../components/Try.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# CTMC：Rate Matrix 與 Forward Equation
+
+<Objectives>
+- 用「單位時間的機率流量」定義 rate matrix $R_t$，說出它每一列和為零、非對角非負的理由，並寫出 $Q_{t\to t+\Delta t}\approx I+R_t\Delta t$。
+- 寫出 forward equation $\dot p_t=p_tR_t$，並把它與 <Ref to="dma-sampler-family"/> 的 Fokker–Planck 並排：$\Delta$ 換成 $R$。
+- 把 uniform 與 absorbing 寫成 rate 的形式，解出 $\bar Q_t$，確認與 <Ref to="dma-d3pm"/> 的 closed form 一致。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+<Ask>
+「每單位時間流過去多少機率」<br />
+這句話寫成式子長什麼樣？
+</Ask>
+
+## 先看三個水桶
+
+上一篇說本週的新物件是「每單位時間有多少機率從 $x$ 流到 $y$」。先把它畫出來。
+
+三個水桶 $a$、$b$、$c$，總水量固定是 1（這是機率）。桶與桶之間接水管，每根管子上有一個閥門，標一個數字：**每單位時間，來源桶裡的水有多少比例流過這根管子**。比方說 $a\to b$ 的管子標 2，意思是 $a$ 桶每單位時間漏掉自己水量的 2 倍——當然不是真的漏掉兩倍，而是在很短的 $\Delta t$ 裡漏掉 $2\Delta t$ 的比例；$\Delta t=0.01$ 就漏 2%。
+
+這個數字就是 **rate**。它的單位是 1/時間；它可以大於 1（只是「漏得快」）；它不是機率。機率是把 rate 乘上一段時間才得到的東西。
+
+有了閥門上的數字，三個桶的水位怎麼隨時間變是完全確定的：每個桶的水位變化率 = 流進來的 − 流出去的。這就是接下來所有數學的內容。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w7-1-ctmc.html" class="demo-frame" title="三個水桶：rate 與 forward equation：互動 demo" style="height: 800px; width: 100%; border: none;"></iframe>
+
+**互動 demo：三個水桶。** 按「absorbing」：只有指向 `[MASK]` 的管子有流量，`[MASK]` 的水位單調上升（$t=2$ 時實測 0.910，也就是 $e^{-1.2\times2}$ 的補數），另兩桶指數衰減。加上「回流 rate $\sigma$」：`[MASK]` 多出兩條往回的管子，水位就停在一個**平衡**而不是 1（$\sigma=2$ 時停在 0.374，剛好讓流入等於流出）。按「uniform」三桶最後都停在 1/3。點任一個桶會顯示它的 forward equation 並代入當下的數字，而**總和永遠是 1.0000**——那是「流出去的一定流到別的桶」的結果。
+
+## 把閥門寫成矩陣
+
+現在把它寫成符號。狀態 $x\in\{1,\dots,K\}$，時刻 $t$ 的分佈 $p_t$ 沿用 <Ref to="dma-d3pm"/> 的慣例寫成**列向量**（row vector，$1\times K$）。**rate matrix** $R_t$ 是一個 $K\times K$ 矩陣：
+
+- 非對角元素 $R_t(x\to y):=[R_t]_{xy}\ge0$（$x\ne y$）：單位時間從 $x$ 流到 $y$ 的比例。
+- 對角元素 $[R_t]_{xx}:=-\sum_{y\ne x}R_t(x\to y)$：從 $x$ 流出去的總比例，取負號。
+
+於是**每一列和為零**。這不是額外的規定，是「水沒有憑空消失或出現」的記帳方式：一列裡流出去的（負的對角）與流到各處的（正的非對角）剛好抵消。
+
+它和上週的 $Q_t$ 的關係，是上一篇結尾那一行：在很短的 $\Delta t$ 裡，從 $x$ 走到 $y\ne x$ 的機率約是 $R_t(x\to y)\Delta t$，留在 $x$ 的機率約是 $1-\sum_{y\ne x}R_t(x\to y)\Delta t=1+[R_t]_{xx}\Delta t$。合起來：
+
+$$
+Q_{t\to t+\Delta t}=I+R_t\,\Delta t+O(\Delta t^2),\qquad\text{每列和}=1+0\cdot\Delta t .
+$$
+
+列和為 1 正是因為 $R_t$ 列和為 0。所以 $R_t$ 是 transition matrix 的時間導數；**$Q_t$ 是一步之後到哪，$R_t$ 是此刻正往哪流。**
+
+## 分佈怎麼隨時間變？
+
+把「每個桶的水位變化率 = 流入 − 流出」寫下來。從 $p_t$ 走一小步：$p_{t+\Delta t}=p_t\,Q_{t\to t+\Delta t}\approx p_t(I+R_t\Delta t)$，移項除以 $\Delta t$：
+
+$$
+\boxed{\;\dot p_t=p_t\,R_t\;}
+$$
+
+這叫 **forward equation**（Kolmogorov forward equation）。它是一條**線性** ODE，未知數是 $K$ 個機率。讀第 $y$ 個分量：
+
+$$
+\dot p_t(y)=\sum_{x\ne y}p_t(x)\,R_t(x\to y)\;-\;p_t(y)\sum_{x\ne y}R_t(y\to x),
+$$
+
+第一項是各處流進 $y$ 的、第二項是從 $y$ 流出去的。若 $R$ 不隨 $t$ 變，解就是 $p_t=p_0\,e^{tR}$（矩陣指數）；隨 $t$ 變也一樣可解，只是指數裡換成積分（下面兩條鏈會實際算）。
+
+<Remark label="符號" summary="這一週的時間方向，以及它和哪幾週相反">
+這一週的時間和 <Ref week="dma-week-discrete-i"/> 一致：$t\in[0,1]$，$t=0$ 是資料、$t=1$ 是噪聲，forward 方向是**資料→噪聲**，和 <Ref week="dma-week-diffusion"/> 的 DDPM 同向。<Ref to="dma-unified-equation"/> 的 interpolant 慣例相反（$t=0$ 噪聲、$t=1$ 資料）。
+
+下面對照 Fokker–Planck 時請自行把時間方向對齊——Fokker–Planck 本身對方向沒有偏好，它只說「分佈往前怎麼變」。
+
+還有一個字母要講清楚：**這一週寫的 $\alpha_t$，就是 <Ref to="dma-d3pm"/> 的 $\bar\alpha_t$**——「一個位置到時間 $t$ 還沒被動過的機率」。離散時間要分「這一步」（$\alpha_t$）和「累積到現在」（$\bar\alpha_t$）；連續時間沒有「一步」，累積量才是唯一有意義的東西，所以那一條橫線就省掉了。本週之後的每一篇都用這個寫法。
+</Remark>
+
+## 與 Fokker–Planck 並排
+
+<Ref to="dma-sampler-family"/> 用 Fokker–Planck 描述 SDE $dX=b\,dt+\sqrt{2\varepsilon}\,dW$ 的邊際：
+
+$$
+\partial_t\rho_t=-\nabla\!\cdot\!\big(b_t\rho_t\big)+\varepsilon\,\Delta\rho_t .
+$$
+
+把兩條式子放在一起：
+
+| | 連續狀態（<Ref week="dma-week-interpolants"/>） | 離散狀態（本週） |
+|---|---|---|
+| 粒子怎麼動 | SDE：drift $b_t$ + 噪聲 $\sqrt{2\varepsilon}\,dW$ | CTMC：以 rate $R_t(x\to y)$ 跳到 $y$ |
+| 分佈怎麼變 | $\partial_t\rho=-\nabla\cdot(b\rho)+\varepsilon\Delta\rho$ | $\dot p=pR$ |
+| 右邊是什麼 | 一個**微分算子**作用在 $\rho$ 上 | 一個**矩陣**作用在 $p$ 上 |
+| 保守律 | $\int\rho=1$：右邊是 divergence 形式，積分為零 | $\sum_y p(y)=1$：$R$ 列和為零，$\dot p$ 各分量相加為零 |
+| 「一步走多久」 | 取樣器的 $h$，不在方程式裡 | 取樣器的 $\Delta t$，不在方程式裡 |
+
+兩條式子說的是同一件事：**分佈的時間導數等於一個線性算子作用在分佈上**。這個算子在機率論裡叫 generator（的 adjoint）。連續世界的 generator 是「drift 搬質量、Laplacian 攤平質量」；離散世界的 generator 就是 $R$——沒有更抽象的東西藏在後面。
+
+「$\Delta$ 換成 $R$」不只是比喻。把狀態排成一條線 $1-2-\cdots-K$，只允許跳到相鄰狀態、rate 都是 $r$——
+
+<Try summary="這樣一條鏈上，$\dot p_t=p_tR_t$ 攤開來會長成什麼樣子？">
+照著「流入減流出」寫一次。流進 $y$ 的只有兩個來源：左鄰居 $y-1$ 帶來 $r\,p_t(y-1)$、右鄰居 $y+1$ 帶來 $r\,p_t(y+1)$。流出的也只有兩條路：從 $y$ 往左、往右各 $r\,p_t(y)$。
+</Try>
+
+於是
+
+$$
+\dot p_t(y)=r\big[p_t(y-1)+p_t(y+1)-2p_t(y)\big],
+$$
+
+方括號正是 $\partial_{xx}$ 的有限差分。這條線上的 CTMC 就是熱方程式的離散版；demo 的對照開關畫的是這件事。<Ref to="dma-flows-and-continuity"/> 的 continuity equation、<Ref to="dma-sampler-family"/> 的 Fokker–Planck、本篇的 forward equation，是同一個「分佈怎麼流」的問題在三個場合的寫法。
+
+## 把兩條鏈翻成 rate
+
+現在把 <Ref to="dma-d3pm"/> 的兩條鏈翻成 rate。時間依賴用一個非負函數 $\beta_t$ 承載（單位 1/時間）。
+
+**Uniform。** 每單位時間以比例 $\beta_t$ 把 token 換成均勻隨機的字。令 $J=\frac1K\mathbb 1\mathbb 1^{\!\top}$（每個元素 $1/K$）：
+
+$$
+R_t=\beta_t\,(J-I).
+$$
+
+檢查：非對角 $\beta_t/K\ge0$；對角 $\beta_t(\tfrac1K-1)$；列和 $\beta_t\big(\tfrac{K-1}K-\tfrac{K-1}K\big)=0$。✓
+
+**Absorbing。** 字典加 `[MASK]`（one-hot $e_m$）。每單位時間以比例 $\beta_t$ 變成 `[MASK]`，`[MASK]` 不動：
+
+$$
+R_t=\beta_t\,(\mathbb 1e_m^{\!\top}-I).
+$$
+
+檢查 `[MASK]` 那一列：$\beta_t(e_m^{\!\top}-e_m^{\!\top})=0$，沒有任何流出。其他列：流到 `[MASK]` 的 rate 是 $\beta_t$，對角 $-\beta_t$。✓
+
+兩者都長成 $\beta_t(\Pi-I)$，$\Pi$ 是「終點」的投影（$J^2=J$、$(\mathbb 1e_m^{\!\top})^2=\mathbb 1e_m^{\!\top}$）。解 forward equation 只需要一個代數事實：$(\Pi-I)^2=-(\Pi-I)$，於是矩陣指數塌成兩項：
+
+$$
+\bar Q_t=\exp\!\Big(\!\int_0^t R_s\,ds\Big)=\bar\alpha_t\,I+(1-\bar\alpha_t)\,\Pi,\qquad
+\bar\alpha_t=\exp\!\Big(-\!\int_0^t\beta_s\,ds\Big).
+$$
+
+這正是 <Ref to="dma-d3pm"/> 的 closed form，只是 $\bar\alpha_t=\prod(1-\beta_s)$ 變成了 $\exp(-\int\beta)$——連乘變成積分的指數，和 <Ref to="dma-forward-process"/> 從 DDPM 的 $\prod(1-\beta_t)$ 到 SDE 的 $\exp(-\int\beta)$ 是同一個過渡。
+
+<Details summary="矩陣指數的三行推導：為什麼 (Π − I)² = −(Π − I) 就夠了">
+令 $A=\Pi-I$。因為 $\Pi^2=\Pi$，$A^2=\Pi-2\Pi+I=-(\Pi-I)=-A$，所以 $A^n=(-1)^{n-1}A$。對任何標量 $s\ge0$：
+
+$$
+e^{sA}=I+\sum_{n\ge1}\frac{s^n}{n!}(-1)^{n-1}A=I+\big(1-e^{-s}\big)A=e^{-s}I+\big(1-e^{-s}\big)\Pi .
+$$
+
+代 $s=\int_0^t\beta_u\,du$ 即得 $\bar Q_t$。（$R_s$ 在不同 $s$ 之間可交換——都是 $A$ 的倍數——所以時間依賴的 rate 也能直接寫成 $\exp(\int R)$；一般的 $R_t$ 不行，要用 time-ordered exponential，這一週不會遇到。）
+</Details>
+
+反過來，**給任何一條 $\alpha_t$ 從 1 降到 0 的 schedule，rate 就是**
+
+$$
+\beta_t=-\frac{\dot\alpha_t}{\alpha_t}.
+$$
+
+<Ref to="dma-masked-diffusion"/> 的線性 schedule $\alpha_t=1-t$ 對應 $\beta_t=\frac{1}{1-t}$：越接近 $t=1$ 遮得越急，在 $t=1$ 發散——這是「一定要在 $t=1$ 全部遮完」的代價，和 VP diffusion 的 $\beta_t$ 在終點變大是同一件事。那一篇 Details 裡的連續時間權重 $\frac{-\dot\alpha_t}{1-\alpha_t}=\beta_t\frac{\alpha_t}{1-\alpha_t}$，現在可以讀成「rate 乘上一個機率比」，下一篇會看到它就是反向 rate。
+
+## 多個 token：一次只跳一個
+
+一句話有 $L$ 個位置，forward 對每個位置**獨立**加噪聲。在 rate 的語言裡這件事有一個乾淨的後果：在很短的 $\Delta t$ 內，兩個位置同時跳的機率是 $O(\Delta t^2)$，可以忽略。所以整句的 rate matrix（$K^L\times K^L$，永遠不會真的寫出來）只在**恰好差一個位置**的兩個狀態之間非零：
+
+$$
+R_t(x\to y)=\begin{cases}
+R_t^{\text{tok}}(x^\ell\to y^\ell) & \text{若 }x,y\text{ 只在位置 }\ell\text{ 不同},\\
+0 & \text{若差兩個以上的位置},
+\end{cases}
+$$
+
+對角元素是 $L$ 個位置流出 rate 的總和。以後說「$x$ 的**鄰居**」，指的就是這 $L(K-1)$ 個只差一個 token 的狀態；反向過程的 rate、比值、SEDD 的網路輸出，都只定義在鄰居上。這也是 <Ref to="dma-factorization-error"/> 的因子化誤差在連續時間裡的長相：真實的 CTMC 一次只動一個 token，取樣器一步同時動很多個，是因為它用了一個有限的 $\Delta t$。
+
+<Question id="Q1">
+<Ref to="dma-why-continuous-time"/> 抱怨過 $\bar Q_t$ 那個矩陣語言不好用。可是上面這個整句的 rate matrix 是 $K^L\times K^L$——比 $K\times K$ 大得無法想像。**這樣算哪裡比較好？**
+
+<Answer>
+會被想到的回答是「因為它很稀疏」或「因為我們永遠不會真的寫出來」。兩句都對，但都還沒說到重點：$\bar Q_t$ 的問題從來不是它大（它只有 $K\times K$），而是**它把答案綁在一整段時間上**——換一次 $\Delta t$、加一根管子，就得重算一次矩陣連乘。
+
+rate 好用的地方是它是**局部**的。取樣的任何一步，我們需要知道的只有一件事：**站在現在這個 $x_t$ 上，通到每個鄰居的管子各是多少。** 那是 $L(K-1)$ 個數字，一個列表，不是矩陣。把真實的規模代進去：$L=1024$、$K=50257$，
+
+$$
+L(K-1)=1024\times50256\approx5.1\times10^7,
+$$
+
+而網路的 logits 張量是 $L\times K=1024\times50257\approx5.1\times10^7$——**一模一樣的量級，因為它們就是同一個東西**。所謂 $K^L\times K^L$ 的矩陣，我們每一步只碰它的一列，而那一列剛好是一次前向傳遞的輸出。對角元素也不是額外的資訊：列和為零，它由非對角決定。
+
+還有一個好處要等到下一篇才看得完整：「加一根管子」在 rate 語言裡是**加一個數字到某一格**，所以「這樣改會不會動到邊際」可以直接寫成一條式子去解（<Ref to="dma-remasking"/>）。在 $\bar Q$ 的語言裡，同一個問題每換一次設定都得重算一次連乘。**大小不是重點，能不能局部地問問題才是。**
+</Answer>
+</Question>
+
+<VizPlan id="w7-1-two-equations" title="forward equation 與 Fokker–Planck：同一句話的兩種寫法" type="static">
+- 檔名 `imgs/w7-1-1.png`，放在「多個 token：一次只跳一個」之後、「先消化一下」之前。
+- 版面：左右兩塊，中央上方橫跨兩塊寫一句大標「**分佈的變化率 ＝ 流入 − 流出**」。
+  - **左「離散（CTMC）」**：三個圓（$a,b,c$）與帶箭頭的弧；把 $b$ 這個圓highlight 出來，用兩種顏色的粗箭頭分別標「流入」（兩支指進來）與「流出」（兩支指出去）。下方寫式子 $\dot p_t(b)=\sum_{x\ne b}p_t(x)R(x\to b)-p_t(b)\sum_{y\ne b}R(b\to y)$，並把兩個 $\sum$ 分別用和上面箭頭同色的底色框起。
+  - **右「連續（Fokker–Planck）」**：一條 $p_t(x)$ 的曲線，在某個 $x$ 處畫一個小區間，左右兩支箭頭代表流入與流出的通量 $p_tb_t$。下方寫 $\partial_t p_t=-\nabla\cdot(b_tp_t)+\varepsilon\Delta p_t$，並標「散度 ＝ 淨流出」。
+- 兩塊之間畫一個雙向箭頭，上方寫「離散的『對鄰居求和』對應連續的『取散度』」。
+- 底部一句：「兩邊都只是質量守恆；差別在『鄰居』是有限個還是連續的一片。」
+- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、流入綠 `#60ba82`／流出紅 `#d94f4f`／強調靛 `#2a4ea3`）。
+- 長寬比：約 16:8。
+</VizPlan>
+
+## 先消化一下
+
+<QuizBlock id="w7-1-a">
+Rate matrix $R_t$ 的對角元素為負、每列和為零。列和為零的意義是：
+<Option correct>機率守恆——從 $x$ 流出去的總量剛好等於流到各個 $y$ 的量之和，$Q_{t\to t+\Delta t}=I+R_t\Delta t$ 的每列因此和為 1。</Option>
+<Option>鏈是 reversible 的。</Option>
+<Option>終點分佈是均勻的。</Option>
+<Explanation>
+列和為零只是記帳：對角是流出的負號、非對角是流到各處的正號。與 reversibility 無關（absorbing 鏈完全不 reversible 卻也列和為零），與終點分佈無關（absorbing 的終點是一個確定狀態）。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w7-1-b">
+「$\dot p_t=p_tR_t$ 是 Fokker–Planck 的離散版」這句話裡，對應得最準確的是：
+<Option>$R_t$ 對應 drift $b_t$。</Option>
+<Option correct>整個右邊「一個線性算子作用在分佈上」對應整個右邊 $-\nabla\cdot(b\rho)+\varepsilon\Delta\rho$；把狀態排成一條線、只跳相鄰狀態時，$R$ 就是 $\partial_{xx}$ 的有限差分。</Option>
+<Option>$p_t$ 對應 $\varepsilon$。</Option>
+<Explanation>
+$R_t$ 同時扮演 drift 和 diffusion 的角色——它是整個 generator，不只是其中一項。一條線上的相鄰跳躍給出離散 Laplacian，是最乾淨的對應；一般的 $R_t$（例如 uniform 鏈可以一步跳到任何字）沒有這麼直接的微分算子對應，但「分佈的導數 = 線性算子作用在分佈上」這個結構完全相同。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w7-1-c">
+Absorbing 鏈取 $\alpha_t=1-t$，rate 是 $\beta_t=1/(1-t)$，在 $t\to1$ 時發散。這代表：
+<Option>這條 schedule 不合法。</Option>
+<Option>取樣時最後一步會出錯。</Option>
+<Option correct>要在有限時間 $t=1$ 把**所有**還沒遮的 token 遮完，最後一刻的遮罩速度必須無限快；$\bar\alpha_t=\exp(-\int\beta)$ 仍然有限且趨近 0，所以 schedule 合法。</Option>
+<Explanation>
+發散的是 rate，不是機率：$\int_0^t\frac{ds}{1-s}=-\log(1-t)$，$\bar\alpha_t=1-t$ 完全正常。反向取樣從 $t=1$ 出發時所有位置都是 `[MASK]`，不需要在 $t=1$ 評估 $\beta_t$。VP diffusion 的 $\beta_t$ 在終點變大是同一個現象。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w7-1-d">
+一句話有 $L$ 個位置、字典 $K$ 個字。在連續時間的 forward process 裡，狀態 $x$ 的 rate matrix 那一列有幾個非零的非對角元素？
+<Option>$K^L-1$。</Option>
+<Option correct>至多 $L(K-1)$——只有恰好差一個位置的鄰居。</Option>
+<Option>$L$。</Option>
+<Explanation>
+兩個位置在同一瞬間跳的機率是 $O(\Delta t^2)$，rate 為零。每個位置可以跳到其他 $K-1$ 個字（absorbing 鏈更少：只能跳到 `[MASK]`），所以鄰居數至多 $L(K-1)$。$K^L-1$ 是所有其他狀態的數目，那是離散時間一步跳很多格才會全部非零的情形。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-concrete-score">
+本篇把 forward chain 寫成 rate matrix，forward equation $\dot p_t=p_tR_t$ 是 Fokker–Planck 的離散版，兩條鏈的 closed form 從矩陣指數一行算出。下一篇把時間反過來：反向過程的 rate 是什麼？答案裡會冒出一個比值 $p_t(y)/p_t(x)$——它就是離散世界的 score。
+</Bridge>
+
+## 參考文獻
+
+1. Campbell, A., Benton, J., De Bortoli, V., Rainforth, T., Deligiannidis, G., Doucet, A. [*A Continuous Time Framework for Discrete Denoising Models.*](https://arxiv.org/abs/2205.14987) NeurIPS 2022.（CTMC 語言、forward equation、因子化的多 token rate、τ-leaping 取樣器。）
+2. Sun, H., Yu, L., Dai, B., Schuurmans, D., Dai, H. [*Score-based Continuous-time Discrete Diffusion Models.*](https://arxiv.org/abs/2211.16750) ICLR 2023.（同時期的連續時間離散擴散。）
+3. Austin, J., Johnson, D. D., Ho, J., Tarlow, D., van den Berg, R. [*Structured Denoising Diffusion Models in Discrete State-Spaces.*](https://arxiv.org/abs/2107.03006) NeurIPS 2021.（離散時間的 $Q_t$ 與 $\bar Q_t$。）
+4. Sahoo, S. S. et al. [*Simple and Effective Masked Diffusion Language Models.*](https://arxiv.org/abs/2406.07524) NeurIPS 2024.（連續時間 absorbing 鏈的 $\alpha_t$ 與 $-\dot\alpha_t/(1-\alpha_t)$ 權重。）

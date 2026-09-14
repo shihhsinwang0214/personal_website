@@ -1,0 +1,232 @@
+---
+slug: "dma-w5-6-lab"
+label: "dma-lab-interpolants"
+prereqs:
+  - math-euler-error
+  - math-w2
+lang: "zh"
+title: "實作：把曲率積分畫成一條線"
+category: "courses"
+group: "Week 5 · Stochastic Interpolants 與共用技巧"
+status: "available"
+updated: 2026-09-13
+summary: "實作 reflow 與 minibatch OT，把曲率積分算出來、驗證它和 Euler 誤差落在一條線上，再實測 ODE 與 SDE 取樣在幾步的時候交叉。"
+demos: []
+references:
+  - label: "Liu, Gong & Liu, Flow Straight and Fast: Rectified Flow (ICLR 2023)"
+    href: "https://arxiv.org/abs/2209.03003"
+  - label: "Tong et al., Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport (TMLR 2024)"
+    href: "https://arxiv.org/abs/2302.00482"
+  - label: "Albergo, Boffi & Vanden-Eijnden, Stochastic Interpolants: A Unifying Framework for Flows and Diffusions (2023)"
+    href: "https://arxiv.org/abs/2303.08797"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 實作：把曲率積分畫成一條線
+
+<Objectives>
+- 實作 reflow 與 minibatch OT，和獨立配對的 FM 並列比較。
+- 數值算出曲率積分，驗證它和 Euler 誤差落在一條線上。
+- **用帶 $\gamma_t$ 的模型實測 $\varepsilon$ 對終點品質的影響，並用 <Ref to="dma-reverse-process"/> 的判準解釋你量到的方向。** 這個 toy 的速度場是精確的，所以你很可能**量不到**文獻上那個交叉點——那不是做錯了。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 設定
+
+沿用 `toy.py` 與 `fm.py`。這一週新增三個檔：`couplings.py`（reflow 的配對生成、minibatch OT）、`interpolant.py`（帶 $\gamma_t$ 的訓練與一整族 SDE 取樣器）、`curvature.py`。所有模型同架構、同 seed、同步數——**只有配對不一樣。**
+
+<VizPlan id="w5-6-notebook" title="Stochastic Interpolants 週實作 notebook" type="notebook">
+- 五個 section 對應下面五個步驟。附上 <Ref week="dma-week-flow-matching"/> 訓好的獨立配對 FM 權重，當作 reflow 的起點。
+- 主圖（圖 b）是這一週、也是三週的收尾：四個模型在「曲率積分 vs Euler 誤差」平面上落成一條線。
+</VizPlan>
+
+## 步驟 1：四種配對
+
+```python
+# (a) 獨立：flow matching 實作篇的模型，直接載入
+# (b) reflow×1
+x0 = torch.randn(N, 2)
+x1 = euler_sample(model_indep, x0, n_steps=200)[-1]   # 用模型自己的 ODE 產生配對
+model_reflow1 = train_fm(pairs=(x0, x1))               # 用這組固定配對重訓
+# (c) reflow×2：對 model_reflow1 再做一次
+# (d) minibatch OT
+from scipy.optimize import linear_sum_assignment
+def ot_pair(x0, x1):
+    C = torch.cdist(x0, x1) ** 2
+    _, col = linear_sum_assignment(C.numpy())
+    return x0, x1[col]
+model_ot = train_fm(pair_fn=ot_pair, batch=256)
+```
+
+訓練迴圈唯一的改動是 `x0, x1` 從哪裡來。**其他一行都沒動。**
+
+## 步驟 2：軌跡圖（圖 a）
+
+四個模型、相同的 32 個起點、Euler 10 步，並排畫。
+
+**會看到的事情是**：由左到右越來越直，reflow×2 與 OT 已經接近直線，而殘餘的彎曲集中在兩個月牙之間——那裡是條件直線交叉最密的地方。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-6-four-couplings.html" class="demo-frame" title="四種配對放在一起量：互動 demo" style="height: 1070px; width: 100%; border: none;"></iframe>
+
+**互動 demo：四種配對放在一起量。** 這是圖 a 加上步驟 4 的表格的「標準答案版」——速度場精確算出來，所以沒有網路誤差混進去。四個指標的實測值：獨立配對 S ≈ 1.6、1 步誤差 ≈ 1.5、交叉比例 ≈ 23%；reflow×1 把 S 壓到 0.03、誤差 0.12、交叉 1%；batch OT（32）走到 S 0.22、誤差 0.30；全域 OT 是 S 0.02、誤差 0.06。**reflow×1 和全域 OT 在「直」上打成平手，但運輸成本 OT 一貫略低**——「直」和「省」真的是兩件事。
+
+四種配對的曲率積分差好幾倍，而它們的兩端分布完全一樣——**旋鈕動的是路，不是終點。** 至於「曲率積分小，誤差是不是真的跟著小」，那要等下一步把兩個量畫在同一張圖上才知道。
+
+## 步驟 3：曲率積分 vs 誤差（圖 b）
+
+```python
+def curvature_integral(model, x0, n_fine=1000):
+    traj = euler_sample(model, x0, n_fine)          # 細步當成真實軌跡
+    v = (traj[1:] - traj[:-1]) * n_fine             # 速度 ≈ 差分
+    a = (v[1:] - v[:-1]) * n_fine                   # 加速度
+    return a.norm(dim=-1).mean(dim=0).mean()        # 對 t 積分、再對起點平均
+```
+
+對四個模型算 $\mathbb E\int\|\ddot x\|\,dt$，以及 Euler 10 步終點的 $W_2$，畫成散點、兩軸取對數。
+
+**會看到的事情是**：四個點近似共線、斜率約 1。這張圖就是 <Ref to="dma-error-theory"/> 那條不等式的實證——**高度由曲率決定**。<Ref to="dma-error-theory"/> 的 demo 已經先用精確場把這條線畫出來過（六個設定、$r$ 通常 0.95 以上），這裡要看的是**換成訓練出來的網路之後還成不成立**。
+
+再加一組步數（$N\in\lbrace 5,10,20 \rbrace$）：點會整體上下平移，但相對順序不變。
+
+<Ask>
+曲率積分小，誤差就一定小嗎？<br />
+這件事能不能在自己的圖上驗一次？
+</Ask>
+
+## 步驟 4：straightness 與運輸成本
+
+對每個模型算 $S$（<Ref to="dma-rectified-flow"/>）與 $\mathbb E\|X_1-X_0\|^2$，做成一張表。
+
+**會看到的事情是**：reflow 的兩個數都單調下降，而 OT 的運輸成本最低。把 OT 的成本和全域 OT（2000 點精確解）比一下，就知道 reflow 的極限離 OT 有多遠。
+
+## 步驟 5：ODE 與 SDE 在第幾步交叉（圖 c）
+
+用 `interpolant.py` 訓一個 $\gamma_t=0.3\sqrt{2t(1-t)}$ 的模型，兩個 head 同時輸出 $b_t$ 與 $\eta_t$。取樣器：
+
+```python
+def sde_step(x, t, h, eps_t):
+    b, eta = model(x, t)
+    s = -eta / gamma(t)
+    return x + h * (b + eps_t * s) + (2 * eps_t * h) ** 0.5 * torch.randn_like(x)
+```
+
+對 $\varepsilon\in\lbrace 0,\,0.1,\,0.5 \rbrace$ 與步數 $\lbrace 10,50,200,1000 \rbrace$ 算 $W_2$，畫成三條曲線。**先寫下你的猜測：這三條會不會交叉？** 這張圖要驗的是 <Ref to="dma-reverse-process"/> 的判準——不是「哪一個比較好」，而是「在這個設定下，哪一種誤差佔上風」。
+
+<Remark label="補充" summary="這一步很容易得到和文獻相反的結論，原因在哪">
+「少步數 ODE 贏、多步數 SDE 贏」這個說法有前提，而那些前提很容易在 toy 上不成立。
+
+第一，**$\varepsilon_t$ 的尺度**。如果照 $\varepsilon_t=c\,\gamma_t^2$ 取而 $\gamma$ 又很小，那每步注入的噪聲 $\sqrt{2\varepsilon h}$ 就很小，而 score 那一項提供的是一個很強的收縮——這時候 SDE 幾乎在所有步數都比 ODE 好，因為它其實是一個更穩定的積分器，不是「多了噪聲」。要重現文獻的圖像，$\varepsilon$ 得取到 diffusion reverse SDE 那個量級。
+
+第二，**score 是精確的還是學出來的**。SDE 那一族的邊際不變性用到了 $s_t$ 是真正的 score（<Ref to="dma-sampler-family"/> 的證明只有那一步用到它）。$s_t$ 有誤差時，$\varepsilon$ 越大偏得越多——文獻上「多步 SDE 更好」的圖像其實同時包含了「噪聲能抵掉一部分網路誤差」，而 toy 上如果 score 幾乎精確，就看不到這一面。
+
+所以這一步的正確做法是：**先把 $\varepsilon$ 掃過一個大範圍**（不要只試一兩個值），並且**同時報告用精確 score 與用訓練 score 的兩組曲線**。得到和文獻不同的結論不一定是做錯了，但一定要說清楚是在哪個設定下量到的。
+</Remark>
+
+再做一件事：在 $t=0.3$ 對所有樣本注入 $+0.5$ 的人為偏移，看三條曲線終點的 $W_2$。$\varepsilon=0$ 的偏移會完整保留，$\varepsilon \gt 0$ 會被吸收掉一部分——<Ref to="dma-sampler-family"/> 的 demo 量過，吸收的程度取決於 $\varepsilon$ 的大小和剩下多少時間。
+
+<Question id="Q1">
+圖 b 上有一個點明顯落在那條共線之上——同樣的曲率積分，誤差卻大了一截。
+
+**第一個該懷疑什麼？**
+
+<Answer>
+不是曲率積分算錯，也不是步數不夠（步數只會讓整條線平移）。
+
+回到 <Ref to="dma-error-theory"/> 的不等式：
+
+$$
+\text{Euler 全域誤差}\ \lesssim\ C_L\,h\int_0^1\|\ddot x_t\|\,dt .
+$$
+
+它有**兩個**因子。畫散點圖的時候我們默默假設了各個模型的 $C_L$ 差不多，於是誤差只隨積分變化。所以某個點偏高，第一個該懷疑的就是**那個模型的速度場 Lipschitz 常數比較大**——場更「陡」，同樣的局部誤差被放大得更多。
+
+怎麼檢查？幾個實際的做法：
+
+- 在一批隨機的 $(x,t)$ 上估 $\|\partial u_\theta/\partial x\|$ 的譜範數（用幾次 power iteration，或直接 finite difference 取最大方向）。
+- 看那個模型的權重範數與有沒有用 weight decay／spectral norm。
+- 看它的誤差是不是集中在少數幾個起點（$C_L$ 大通常表現成「大部分軌跡很好，少數幾條爆掉」），而不是均勻分布。
+
+如果 $C_L$ 也差不多，那才輪到懷疑量測本身：曲率積分用的 `n_fine` 夠不夠細（差分兩次對步長很敏感）、$W_2$ 的樣本數夠不夠、以及**有沒有樣本走到不同的 mode**（那種樣本的誤差是 $O(1)$，和步數幾乎無關，會把平均值整個拉歪——<Ref to="dma-lab-flow-matching"/> 用中位數就是為了避開它）。
+</Answer>
+</Question>
+
+> **點偏離那條線的時候，先懷疑 $C_L$，不要先懷疑理論。**
+
+## 作業
+
+1. **Guidance 與曲率。** 用兩類月牙訓一個條件 FM（條件 dropout 0.1）。對 $w\in\lbrace 1,2,4,8 \rbrace$ 算曲率積分與 Euler 10 步的 $W_2$。它們還落在圖 b 的那條線上嗎？順便量一下終點的散布，對照 <Ref to="dma-shared-techniques"/> demo 的結論。
+2. **Heun。** 用 Heun 重跑步驟 3。斜率變成多少？哪個模型改善最多、哪個最少？用 <Ref to="dma-shared-techniques"/> 的三階導數論證解釋。
+3. **時間加權。** 回到 <Ref to="dma-lab-flow-matching"/> 作業 2：用 logit-normal 抽 $t$ 重訓獨立配對的 FM，畫它在圖 b 上的位置。它移動的是橫座標還是縱座標？為什麼？
+4. **$\gamma$ 的張力。** 對 $\gamma$ 幅度 $\lbrace 0,\,0.1,\,0.3,\,1.0 \rbrace$ 各訓一個 OT 配對的模型，畫「曲率積分」與「最佳 $\varepsilon$ 下 SDE 1000 步的 $W_2$」對 $\gamma$ 的兩條曲線。這就是 <Ref to="dma-error-theory"/> Q1 那個張力的實測——注意 <Ref to="dma-error-theory"/> demo 量到 $\gamma$ 的效果**取決於配對好不好**，先猜再跑。
+5. **（選）高維。** 在 MNIST 上重做步驟 1 的 (a) 與 (d)，比較 Euler 10 步的 FID。增益是不是像 <Ref to="dma-minibatch-ot"/> 預測的比 2D 小？順便量一下成本矩陣的變異係數，看它是不是接近 $\sqrt{2/d}$。
+
+<VizPlan id="w5-6-three-weeks" title="三週一張圖" type="static">
+- 檔名 `imgs/w5-6-1.png`，放在「作業」之後、「消化一下」之前。這是三週主線的收尾圖，資訊密度可以高一點。
+- 版面：一條從左到右的主軸，四個大節點，節點之間用粗箭頭連起來；每個節點下方掛一行小字寫「這一步得到什麼」。
+  - 節點 1「denoising 回歸」（<Ref week="dma-week-diffusion"/>）：一個模糊的 $x_t$ 指向一個清楚的 $\hat x_0$；下方「$L_2$ 的最佳解是 $\mathbb E[x_0\mid x_t]$」。
+  - 節點 2「Tweedie → score」：兩支完全重合的箭頭，一長一短；下方「同一個方向，差 $\sigma_t^2$ 倍」。
+  - 節點 3「換成速度場」（<Ref week="dma-week-flow-matching"/>）：一片箭頭場加一條彎曲軌跡；下方「軌跡彎，因為條件直線交叉」。
+  - 節點 4「把彎寫成一個數」（<Ref week="dma-week-interpolants"/>）：一個框起來的 $\int_0^1\|\ddot x_t\|\,dt$；下方「誤差 ≲ $C_L\,h\times$ 這個積分」。
+- 主軸下方分出三條支線，各自指回主軸上它動的那個地方，並標「動的旋鈕」：
+  - 「配對」→ 指向節點 3 與 4 之間，列 reflow / minibatch OT，標「壓小積分」。
+  - 「取樣器」→ 指向節點 4，列 $\varepsilon_t$ 的一族 SDE、高階 solver，標「換走法／換階數」。
+  - 「訓練分布」→ 指向節點 1，列時間加權，標「把容量放在中段」。
+- 右上角一個小方框寫「guidance」，用紅色箭頭指向那個積分並標「往上」。
+- 底部一句：「三週只做了一件事：把『生成』變成回歸，再把回歸的代價寫成一個算得出來的數。」
+- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、噪聲藍 `#4a90e2`／資料橘 `#f0803c`／強調靛 `#2a4ea3`／路徑綠 `#60ba82`／放大用紅 `#d94f4f`）；數學用簡單上下標，不要試著排 LaTeX。
+- 長寬比：約 16:9。
+</VizPlan>
+
+## 消化一下
+
+<QuizBlock id="w5-6-a">
+圖 b 中若某個模型的點明顯落在共線之上（同樣曲率、誤差更大），最可能的原因是什麼？
+<Option>曲率積分算錯了。</Option>
+<Option correct>那個模型速度場的 Lipschitz 常數比較大，把誤差放大了（<Ref to="dma-error-theory"/> 的 $C_L$）。</Option>
+<Option>步數不夠。</Option>
+<Explanation>
+不等式有兩個因子：曲率積分與 $C_L$。共線的前提是 $C_L$ 相近，所以偏離時先檢查速度場的正則性。步數只會讓整條線上下平移。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w5-6-b">
+步驟 5 中若 $\varepsilon \gt 0$ 的曲線在少步時較差，理由是什麼？
+<Option>score 估得不準。</Option>
+<Option correct>每步注入的噪聲是 $\sqrt{2\varepsilon h}$，$h$ 大的時候它很大，而修正來不及發揮，離散誤差反而增加。</Option>
+<Option>$\gamma_t$ 太小。</Option>
+<Explanation>
+自我修正是連續極限的性質，需要足夠多步才顯現。這是「有修正不代表更好」的定量樣子。不過要注意 $\varepsilon$ 取得很小的時候未必量得到這個現象——見上面那則補充。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w5-6-c">
+根據 demo 量到的數字，關於「直」與「省」下列哪一句正確？
+<Option>reflow 同時把兩者都壓到最低。</Option>
+<Option correct>reflow×1 和全域 OT 的 straightness 幾乎一樣，但運輸成本 OT 一貫略低——reflow 壓的是直，不是省。</Option>
+<Option>batch OT 的 straightness 已經和全域 OT 一樣。</Option>
+<Explanation>
+batch OT（32）的 $S$ 約 0.22，全域 OT 約 0.02，差一個量級——但它相對獨立配對的 1.6 已經走完八成六，而且完全不必重訓。這就是「便宜」與「有效」之間的取捨。
+</Explanation>
+</QuizBlock>
+
+<Bridge>
+三週的主線在這裡收尾。從 denoising 回歸出發，證明它其實學到了 score；把 score 換成速度，看見軌跡為什麼彎；把彎寫成一個積分、證明它壓住誤差、再用配對把它壓小；最後看清噪聲在訓練與取樣兩處各扮演什麼角色。接下來的課程進入應用，這幾樣工具會一直回來。
+</Bridge>
+
+## 參考文獻
+
+1. Liu, X., Gong, C., Liu, Q. [*Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow.*](https://arxiv.org/abs/2209.03003) ICLR 2023. （步驟 1 的 (b)(c)。）
+2. Tong, A., et al. [*Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport.*](https://arxiv.org/abs/2302.00482) TMLR 2024. （步驟 1 的 (d)。）
+3. Albergo, M. S., Boffi, N. M., Vanden-Eijnden, E. [*Stochastic Interpolants: A Unifying Framework for Flows and Diffusions.*](https://arxiv.org/abs/2303.08797) 2023. （步驟 5 的 $\gamma_t$ 訓練與一族取樣器。）

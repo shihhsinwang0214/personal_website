@@ -1,0 +1,51 @@
+---
+/**
+ * Bridge.astro — closing summary + hand-off to the next note (BOPPPS: Summary).
+ * `to` is the next note's stable label (or slug); resolved via noteRefs for the page language.
+ *
+ *   <Bridge to="dma-w3-2-denoising-regression">一句話收尾…</Bridge>
+ */
+import type { Lang } from '../../lib/notes';
+import { resolveNoteRef, langFromUrl } from '../../lib/noteRefs';
+
+// `to` is the next note's stable `label` (preferred) or its slug — both resolve.
+interface Props { to?: string; lang?: Lang; label?: string }
+const { to, label } = Astro.props;
+const lang: Lang = Astro.props.lang ?? langFromUrl(Astro.url);
+const target = to ? await resolveNoteRef(to, lang) : undefined;
+const planned = Boolean(target?.planned);
+const href = planned ? undefined : target?.href;
+const missing = Boolean(to) && !target;
+const cta = label ?? (lang === 'zh' ? '下一篇' : 'Next');
+const nextTitle = target ? (target.code ? `${target.code} ${target.shortTitle}` : target.title) : '';
+---
+
+<aside class="bridge">
+  <div class="bridge-body"><slot /></div>
+  {href && <a class="bridge-link" href={href} title={nextTitle}>{cta}：{nextTitle} →</a>}
+  {planned && (
+    <span class="bridge-link bridge-planned">
+      {cta}：{nextTitle}（{lang === 'zh' ? '規劃中' : 'planned'}）
+    </span>
+  )}
+  {missing && <span class="bridge-link bridge-missing">⟦?{to}⟧</span>}
+</aside>
+
+<style>
+  .bridge {
+    margin: 36px 0 8px;
+    padding: 18px 22px;
+    border-top: 2px solid var(--accent);
+    background: var(--box-ml-bg, var(--surface-2));
+    border-radius: 0 0 var(--radius, 12px) var(--radius, 12px);
+  }
+  .bridge-body :global(p) { margin: 0; line-height: 1.7; }
+  .bridge-body :global(p + p) { margin-top: 8px; }
+  .bridge-link {
+    display: inline-block; margin-top: 12px; font-weight: 600; text-decoration: none;
+    color: var(--accent);
+  }
+  .bridge-link:hover { text-decoration: underline; }
+  .bridge-missing { color: #c0392b; }
+  .bridge-planned { color: var(--text-muted); font-weight: 600; }
+</style>

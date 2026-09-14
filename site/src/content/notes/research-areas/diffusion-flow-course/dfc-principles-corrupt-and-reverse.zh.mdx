@@ -5,8 +5,8 @@ title: "Corrupt Then Reverse：先毀掉，再學著回來"
 category: "research-areas"
 group: "Diffusion & Flow Models"
 status: "available"
-updated: 2026-06-26
-summary: "diffusion 的第一個精確版本：先定義一條會把資料抹成高斯的 forward process，再學它的反向條件分布。"
+updated: 2026-09-04
+summary: "從一步 Gaussian corruption 推到任意時間的 closed form，讀懂 reparameterized sampling、SNR 與 schedule，再看清 reverse 為何不是減回同一份 noise。"
 demos:
   - "notes/research_areas/diffusion-flow-course/principles-pipeline.html"
 references:
@@ -16,16 +16,16 @@ references:
     href: "https://arxiv.org/abs/2006.11239"
   - label: "Song et al., Score-Based Generative Modeling through Stochastic Differential Equations (ICLR 2021)"
     href: "https://arxiv.org/abs/2011.13456"
+  - label: "Lai et al., The Principles of Diffusion Models (2025)"
+    href: "https://arxiv.org/abs/2510.21890"
 ---
 import Quiz from '../../components/Quiz.astro';
 
 # Corrupt Then Reverse：先毀掉，再學著回來
 
-> Diffusion & Flow Models 第 1 講，第 2 篇。這篇先用離散 DDPM 的 forward process 把「加噪」講精確；完整 variational bound 會留到第 3 講。
+> Diffusion & Flow Models 課程 W2（技術第 1 講），第 2 篇。這篇用離散 DDPM 的 forward process 把「加噪」講精確；reverse posterior 與 variational bound 會在 W3–W4 逐步推完。
 
 想像你把一張乾淨資料點放進機器裡，每次只加一點點高斯噪聲。剛開始，形狀還看得出來；中間，資料的細節被抹平；最後，它看起來幾乎只是標準高斯。diffusion 的妙處是：前向破壞很容易寫下來，真正要學的是反過來的條件分布。
-
-## 先抓住反直覺
 
 > diffusion 不是先學一個生成器再加噪；它先設計一條已知的破壞過程，讓資料變成 noise，然後訓練模型近似這條過程的 reverse。
 
@@ -97,7 +97,42 @@ $$
 1-\bar\alpha_k.
 $$
 
-因此 $x_k$ 仍是「乾淨資料加上一個高斯噪聲」的形式。這個封閉式非常重要：訓練時我們可以任意抽一個 $k$，直接產生 $x_k$，不必真的從 $0$ 跑到 $k$。
+因此 $x_k$ 仍是「縮小後的乾淨資料，加上一份合併後的 Gaussian noise」。這個 closed form 非常重要：訓練時我們可以任意抽一個 $k$，直接產生 $x_k$，不必真的從 $0$ 跑到 $k$。
+
+先把它當成 conditional distribution 讀一次。固定 $x_{\mathrm{data}}$ 後，只有 $\epsilon$ 是 random，因此
+
+$$
+\mathbb E[x_k\mid x_{\mathrm{data}}]
+=
+\sqrt{\bar\alpha_k}\,x_{\mathrm{data}},
+\qquad
+\operatorname{Var}(x_k\mid x_{\mathrm{data}})
+=
+(1-\bar\alpha_k)I.
+$$
+
+這兩個量正好回答 demo 裡看見的變化：資料的中心訊號被 $\sqrt{\bar\alpha_k}$ 逐步縮小，四周的 noise cloud 則擴到 variance $1-\bar\alpha_k$。要注意，這是**給定某一筆乾淨資料**的 conditional Gaussian；把所有 $x_{\mathrm{data}}\sim p_{\mathrm{data}}$ 混在一起後得到的 $q(x_k)$，一般不是單一 Gaussian。
+
+## Closed form 讓訓練不用真的逐格走
+
+同一條式子也叫 **reparameterized sampling**：把「從一個 mean、variance 隨參數改變的 Gaussian 抽樣」改寫成「先抽固定的 standard Gaussian，再做 differentiable transformation」。訓練 batch 可以這樣造：
+
+```python
+x_data = sample_dataset_batch()
+k = sample_integer(1, K)
+epsilon = sample_standard_gaussian_like(x_data)
+x_k = sqrt(alpha_bar[k]) * x_data \
+    + sqrt(1 - alpha_bar[k]) * epsilon
+prediction = model(x_k, k)
+```
+
+這段程式沒有跑 $k$ 次 forward transition，卻與逐步 Markov chain 在 $q(x_k\mid x_{\mathrm{data}})$ 上有相同 distribution。等價的是 distribution，不是每一條 realized noise path：若你真的逐步抽 $\epsilon_1,\ldots,\epsilon_k$，再用一顆新的 $\epsilon$ 直接跳到 $k$，兩次通常不會得到同一個數值樣本。
+
+三個 extreme cases 可以當場檢查：
+
+- $k=0$ 時 $\bar\alpha_0=1$，所以 $x_0=x_{\mathrm{data}}$；
+- 中間時刻同時保留 signal 與 noise；
+- 若 terminal schedule 讓 $\bar\alpha_K\approx0$，則 $x_K\approx\epsilon\sim\mathcal N(0,I)$，幾乎忘記個別資料。
 
 連續時間常寫成
 
@@ -106,17 +141,29 @@ x_\tau=\alpha_\tau x_{\mathrm{data}}+\sigma_\tau\epsilon,
 \qquad \epsilon\sim\mathcal N(0,I),
 $$
 
-其中 $\tau\in[0,1]$ 是 data-to-noise 的 forward time，$\alpha_0=1,\sigma_0=0$，而 $\alpha_1\approx 0,\sigma_1\approx 1$。若採用 variance-preserving schedule，常有 $\alpha_\tau^2+\sigma_\tau^2=1$，SNR 為
+其中 $\tau\in[0,1]$ 是 data-to-noise 的 forward time，$\alpha_0=1,\sigma_0=0$，而 $\alpha_1\approx 0,\sigma_1\approx 1$。若採用 variance-preserving schedule，常有 $\alpha_\tau^2+\sigma_\tau^2=1$。
+
+### Schedule 是「每一格還剩多少資訊」的設計
+
+noise schedule 不只是把動畫速度調快或調慢。它決定不同時間的 signal-to-noise ratio：
 
 $$
 \mathrm{SNR}(\tau)=\frac{\alpha_\tau^2}{\sigma_\tau^2}.
 $$
 
+若 $\alpha_\tau=0.8$、$\sigma_\tau=0.6$，則 $\mathrm{SNR}=0.64/0.36\approx1.78$，signal energy 大於 noise energy；若兩者對調，$\mathrm{SNR}\approx0.56$，noisy observation 已由 noise 主導。SNR 從大到小的下降方式，決定哪些難度的 denoising examples 在時間軸上佔較大區間，也會和 time sampling、loss weighting、sampler discretization 一起影響有限模型。
+
+W2 不比較 linear、cosine、VP、VE 或 EDM schedule 的優劣；先保留一個讀論文的動作：看到 $\alpha_\tau,\sigma_\tau$ 時，立刻檢查 endpoints、variance 是否保留，以及 $\log\mathrm{SNR}(\tau)$ 如何走。W5 才會把 schedule 當 design choice 做 ablation。
+
 本課的 flow convention 則把方向反過來：$t=1-\tau$，所以 $t=0$ 是 noise，$t=1$ 是 data。
 
 ## 反向不是把同一個雜訊樣本倒帶
 
-前向 $q(x_k\mid x_{k-1})$ 很容易，反向 $q(x_{k-1}\mid x_k)$ 卻不容易。原因不是高斯代數難，而是 $x_k$ 可能來自許多不同的乾淨資料點。嚴格地寫，
+前向 $q(x_k\mid x_{k-1})$ 很容易，反向 $q(x_{k-1}\mid x_k)$ 卻不容易。原因不是 Gaussian algebra 難，而是 corruption 丟掉了資訊：$x_k$ 可能來自許多不同的乾淨資料點。
+
+一維也會發生。若某一時刻 $y=\alpha x+\sigma\epsilon$，同一個觀察值 $y$ 可以由較大的 $x$ 配上負 noise，也可以由較小的 $x$ 配上正 noise。只知道 $y$，沒有辦法唯一判斷 forward 時抽到哪一組 $(x,\epsilon)$。
+
+嚴格地寫，
 
 $$
 q(x_{k-1}\mid x_k)
@@ -133,7 +180,7 @@ p_\theta(x_{k-1}\mid x_k)
 \mathcal N\big(\mu_\theta(x_k,k),\,\Sigma_\theta(x_k,k)\big),
 $$
 
-或等價地學 denoiser、noise predictor、score。第 3 講會從 ELBO 推出 DDPM 的訓練目標；這裡先記住：**forward 是手寫的 Gaussian corruption，reverse 是從資料學出來的 posterior approximation。**
+或用等價 parameterization 學 denoiser、noise predictor、score。W3 會先問最佳 denoiser 與 score 到底是哪些 conditional quantities；W4 再從 ELBO 推出 DDPM objective。這裡先記住：**forward 是手寫的 Gaussian corruption，reverse 是從資料學出來的 posterior approximation。**
 
 ## 幾個容易想歪的地方
 
@@ -155,16 +202,24 @@ $$
   ]}
 />
 
-## 這怎麼接到研究？
+<Quiz
+  q="使用 closed-form x_k 直接抽任意時間，和真的逐步跑 k 次 forward chain，哪一件事必須相同？"
+  options={[
+    { text: "每次抽到的 x_k 數值與每一份中間 noise 都逐項相同。", explain: "兩種 procedure 可以用不同 random draws；它們不需要產生同一條 realized path。" },
+    { text: "只要 mean 相同就夠，variance 與更高階 distribution 可以不同。", explain: "對 Gaussian conditional 而言 mean 與 covariance 決定 distribution；推導正是同時對齊兩者，不是只對 mean。" },
+    { text: "給定 x_data 時，兩種 procedure 產生的 x_k 具有相同 conditional distribution。", correct: true, explain: "正解。closed form 取代的是任意時刻的 marginal sampling law，不是逐項重播同一串 random numbers。" },
+  ]}
+/>
 
 Sohl-Dickstein 等人把這種 forward-noising / reverse-denoising 的思路連到 nonequilibrium thermodynamics。Ho、Jain 與 Abbeel 的 DDPM 使用簡單的 Gaussian forward process，並把反向 kernel 的學習化成實用的 denoising 目標。Song 等人再把離散步數推到連續 SDE，讓 forward corruption、reverse-time dynamics、score 和 probability-flow ODE 能在同一個連續時間框架裡比較。下一講會把 reverse-time SDE 和 Fokker-Planck 方程補上；第 3 講才正式推 ELBO。
 
 ## 下一步
 
-下一篇 [一張地圖讀完整門課](/personal_website/zh/notes/dfc-principles-course-map) 先把 path、training target、sampler、guidance、evaluation 放到同一張地圖上。等這張地圖熟了，後面的推導就不會變成一串孤立公式。
+forward corruption 已經告訴我們如何造出任意噪聲程度的 training input，卻還沒決定 neural network 要交哪一種答案。下一篇 [同一個 Noisy Point，可以學哪一種訊號？](/personal_website/zh/notes/dfc-principles-prediction-targets) 會把 clean-data prediction、noise prediction、score 與 velocity 並排，第一次做代數換算，並把 prediction target 和 sampler 分開。
 
 ## 參考文獻
 
 1. Sohl-Dickstein, J., Weiss, E. A., Maheswaranathan, N., Ganguli, S. [*Deep Unsupervised Learning using Nonequilibrium Thermodynamics.*](https://arxiv.org/abs/1503.03585) ICML 2015.
 2. Ho, J., Jain, A., Abbeel, P. [*Denoising Diffusion Probabilistic Models.*](https://arxiv.org/abs/2006.11239) NeurIPS 2020.
 3. Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Ermon, S., Poole, B. [*Score-Based Generative Modeling through Stochastic Differential Equations.*](https://arxiv.org/abs/2011.13456) ICLR 2021.
+4. Lai, C.-H., Song, Y., Kim, D., Mitsufuji, Y., Ermon, S. [*The Principles of Diffusion Models.*](https://arxiv.org/abs/2510.21890) 2025.

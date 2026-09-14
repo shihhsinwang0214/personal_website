@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>三個旋鈕</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 440px; aspect-ratio: 1/1; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 200px; max-width: 55vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button.ghost { padding: 7px 15px; border-radius: 8px; background: transparent; color: inherit; border: 1px solid #ccc4b8; cursor: pointer; font-weight: 700; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .badge { text-align: center; font-size: 0.8rem; font-weight: 700; padding: 7px 10px; border-radius: 8px; }
+  .ok { background: rgba(96,186,130,0.18); color: #2f7d52; }
+  .no { background: rgba(236,116,96,0.18); color: #b3492f; }
+  body[data-dark="1"] .ok { color: #8fd6ab; } body[data-dark="1"] .no { color: #f0a08c; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：diffusion 只買得到一種套餐——<b>高斯起點 ＋ 加噪路徑 ＋ 隨機配對</b>。這三個旋鈕其實可以分開轉；轉開之後，中間分布就不一樣了。</p>
+
+  <canvas id="cv" width="560" height="560" aria-label="三個旋鈕下的中間分布"></canvas>
+  <p class="cap">淡藍＝起點 p₀ 的樣本　淡橘＝資料 p₁ 的樣本　實心＝目前 t 的 x<sub>t</sub>　細線＝指定好的路徑</p>
+
+  <div class="controls">
+    <div class="row">
+      <label for="src">① 起點分布</label>
+      <select id="src">
+        <option value="gauss">高斯 N(0,I)</option>
+        <option value="ring">環形 Ring</option>
+        <option value="two_gaussians">雙峰</option>
+      </select>
+      <label for="path">② 路徑</label>
+      <select id="path">
+        <option value="vp">加噪式（α²+σ²=1）</option>
+        <option value="linear">直線</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="pair">③ 配對</label>
+      <select id="pair">
+        <option value="rand">隨機</option>
+        <option value="sort">依位置排過</option>
+      </select>
+      <label for="t">時間 t</label>
+      <input id="t" type="range" min="0" max="1" step="0.005" value="0.5" />
+      <b id="vt">0.50</b>
+    </div>
+    <div class="row"><button id="reroll" class="ghost">🎲 重抽</button></div>
+    <div id="badge" class="badge ok">這個組合＝diffusion（上一週的框架）</div>
+  </div>
+
+  <p class="observe">先把三個旋鈕都放在最上面：這就是 <b>diffusion</b>。接著只轉一個——把起點換成環形，或把配對換成「依位置排過」——上一週的整條推導鏈就用不上了，但<b>中間分布仍然是一條合法的路徑</b>。這就是這一週要做的事：把旋鈕一個一個拿回來。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var N = 550, K = 14, SPAN = 5.6;
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var srcSel = document.getElementById('src'), pathSel = document.getElementById('path'),
+      pairSel = document.getElementById('pair'), tEl = document.getElementById('t');
+  var vt = document.getElementById('vt'), badge = document.getElementById('badge');
+  var pal = NDFlow.palette();
+  var p0 = [], p1 = [], perm = [], pick = [];
+
+  function shuffled(n) {
+    var a = []; for (var i = 0; i < n; i++) a.push(i);
+    for (var j = n - 1; j > 0; j--) { var k = Math.floor(Math.random() * (j + 1)); var t = a[j]; a[j] = a[k]; a[k] = t; }
+    return a;
+  }
+  function sortedByAngle(pts) {
+    var idx = []; for (var i = 0; i < pts.length; i++) idx.push(i);
+    idx.sort(function (a, b) { return Math.atan2(pts[a][1], pts[a][0]) - Math.atan2(pts[b][1], pts[b][0]); });
+    return idx;
+  }
+  function rebuild() {
+    p0 = (srcSel.value === 'gauss') ? NDFlow.sampleNoise(N, 0.85) : NDFlow.sampleTarget(srcSel.value, N);
+    p1 = NDFlow.sampleTarget('two_moons', N);
+    perm = shuffled(N);
+    pick = shuffled(N).slice(0, K);
+  }
+  function pairing() {
+    if (pairSel.value === 'rand') return perm;
+    var s0 = sortedByAngle(p0), s1 = sortedByAngle(p1), p = new Array(N);
+    for (var i = 0; i < N; i++) p[s0[i]] = s1[i];
+    return p;
+  }
+  function coef(t) {
+    // FM 慣例：t=0 起點、t=1 資料
+    if (pathSel.value === 'linear') return [1 - t, t];              // σ_t, α_t
+    var a = Math.sin(Math.PI * t / 2), s = Math.cos(Math.PI * t / 2);
+    return [s, a];
+  }
+  function pos(i, pm, t) {
+    var c = coef(t), a = p0[i], b = p1[pm[i]];
+    return [c[0] * a[0] + c[1] * b[0], c[0] * a[1] + c[1] * b[1]];
+  }
+  function T2(s) {
+    var k = Math.min(s.w, s.h) / SPAN;
+    return { x: function (v) { return s.w / 2 + v * k; }, y: function (v) { return s.h / 2 - v * k; } };
+  }
+  function dots(ctx, tr, pts, rgb, alpha, r) {
+    ctx.fillStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + alpha + ')';
+    for (var i = 0; i < pts.length; i++) { ctx.beginPath(); ctx.arc(tr.x(pts[i][0]), tr.y(pts[i][1]), r, 0, 6.284); ctx.fill(); }
+  }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx, tr = T2(s), t = parseFloat(tEl.value), pm = pairing(), i;
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    dots(ctx, tr, p0, pal.noise, 0.22, 1.3);
+    dots(ctx, tr, p1, pal.data, 0.22, 1.3);
+    ctx.strokeStyle = 'rgba(96,186,130,0.45)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    for (var n = 0; n < pick.length; n++) {
+      ctx.beginPath();
+      for (var k = 0; k <= 24; k++) {
+        var p = pos(pick[n], pm, k / 24);
+        if (k === 0) ctx.moveTo(tr.x(p[0]), tr.y(p[1])); else ctx.lineTo(tr.x(p[0]), tr.y(p[1]));
+      }
+      ctx.stroke();
+    }
+    var now = [];
+    for (i = 0; i < N; i++) now.push(pos(i, pm, t));
+    var col = NDFlow.lerpColor(pal.noise, pal.data, t).match(/\d+/g);
+    dots(ctx, tr, now, col, 0.95, 2.1);
+    ctx.font = '600 12px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',0.95)';
+    ctx.fillText('t = ' + t.toFixed(2), 12, s.h - 12);
+    vt.textContent = t.toFixed(2);
+    var isDiff = (srcSel.value === 'gauss' && pathSel.value === 'vp' && pairSel.value === 'rand');
+    badge.className = 'badge ' + (isDiff ? 'ok' : 'no');
+    badge.textContent = isDiff ? '這個組合＝diffusion（上一週的框架）' : '這個組合超出上一週的框架——但它仍然是一條合法的路徑';
+  }
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  srcSel.onchange = function () { rebuild(); draw(); };
+  pathSel.onchange = draw; pairSel.onchange = draw; tEl.oninput = draw;
+  document.getElementById('reroll').onclick = function () { rebuild(); draw(); };
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  rebuild(); applyTheme();
+})();
+</script></body></html>

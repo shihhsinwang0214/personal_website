@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>三個水桶：rate 與 forward equation</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 520px; aspect-ratio: 16/10; height: auto; display: block; margin: 0 auto; border-radius: 10px; cursor: pointer; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  input[type=range] { width: 170px; max-width: 48vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
+  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
+  .stats { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：三個狀態、幾條「水管」。每條管子上的數字是 <b>rate</b>——單位時間流過去的機率。forward equation 就是每個桶的<b>流入減流出</b>，一行寫完。</p>
+
+  <canvas id="cv" width="640" height="400" aria-label="三狀態 CTMC"></canvas>
+  <p class="cap">上圖＝三個桶（水位＝當前 p<sub>t</sub>），弧的粗細＝當下的流量 p<sub>t</sub>(x)·R(x→y)　下圖＝三條 p<sub>t</sub> 曲線　<b>點任一個桶</b>看它的 forward equation 代入數字</p>
+
+  <div class="controls">
+    <div class="row"><span class="lab">預設</span>
+      <button data-p="uniform">uniform（每條管子一樣）</button>
+      <button data-p="absorbing" class="on">absorbing（只流向 [MASK]）</button>
+      <button data-p="remask">absorbing ＋ 回流</button>
+    </div>
+    <div class="row">
+      <span class="lab">時間 t</span><input id="t" type="range" min="0" max="2" step="0.02" value="0.8" /><b id="vt">0.80</b>
+      <span class="lab">回流 rate σ</span><input id="s" type="range" min="0" max="2" step="0.05" value="0" /><b id="vs">0.00</b>
+    </div>
+    <div class="stats">
+      <span>p<sub>t</sub> = ( <b id="p0">—</b> , <b id="p1">—</b> , <b id="p2">—</b> )</span>
+      <span>總和 = <b id="ps">—</b></span>
+      <span id="eq"></span>
+    </div>
+  </div>
+
+  <p class="observe">按「absorbing」：只有指向 [MASK] 的管子有流量，<b>[MASK] 的水位單調上升到 1</b>，另兩桶指數衰減。加上「回流 rate σ」：[MASK] 多出兩條往回的管子，於是水位停在一個<b>平衡</b>而不是 1——流入等於流出的地方。按「uniform」：三桶最後都停在 1/3。點任一個桶會顯示它的 forward equation 並代入當下的數字，<b>總和永遠是 1</b>（那是「流出一定流到別的桶」的結果）。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var NAMES = ['字 a', '字 b', '[MASK]'], K = 3;
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var tEl = document.getElementById('t'), sEl = document.getElementById('s');
+  var vt = document.getElementById('vt'), vs = document.getElementById('vs'), eq = document.getElementById('eq');
+  var pOut = [document.getElementById('p0'), document.getElementById('p1'), document.getElementById('p2')];
+  var ps = document.getElementById('ps');
+  var pal = NDFlow.palette();
+  var preset = 'absorbing', SEL = -1;
+
+  function rates() {
+    var R = [[0,0,0],[0,0,0],[0,0,0]], sig = parseFloat(sEl.value);
+    if (preset === 'uniform') {
+      for (var i = 0; i < K; i++) for (var j = 0; j < K; j++) if (i !== j) R[i][j] = 0.8;
+    } else {
+      R[0][2] = 1.2; R[1][2] = 1.2;
+      if (preset === 'remask') { R[2][0] = sig / 2; R[2][1] = sig / 2; }
+    }
+    return R;
+  }
+  function solve(T) {
+    // 細步 Euler 解 ṗ = pR（p 是列向量、R 是 rate matrix）
+    var R = rates(), n = 400, h = T / n, p = [0.5, 0.5, 0], path = [[0.5, 0.5, 0]];
+    for (var k = 0; k < n; k++) {
+      var np = p.slice();
+      for (var i = 0; i < K; i++) {
+        var inflow = 0, outflow = 0;
+        for (var j = 0; j < K; j++) if (j !== i) { inflow += p[j] * R[j][i]; outflow += p[i] * R[i][j]; }
+        np[i] = p[i] + h * (inflow - outflow);
+      }
+      p = np; path.push(p.slice());
+    }
+    return { p: p, path: path, R: R };
+  }
+  function lay(s) { return { cx: [0.20 * s.w, 0.50 * s.w, 0.80 * s.w], cy: 0.24 * s.h, r: 0.085 * s.h * 1.6,
+                             gy: 0.56 * s.h, gh: 0.34 * s.h, pad: 46 }; }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx, Y = lay(s), i, j;
+    var T = parseFloat(tEl.value), sol = solve(Math.max(0.02, T)), p = sol.p, R = sol.R;
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    // 弧
+    for (i = 0; i < K; i++) for (j = 0; j < K; j++) {
+      if (i === j || R[i][j] <= 0) continue;
+      var flow = p[i] * R[i][j];
+      var x1 = Y.cx[i], x2 = Y.cx[j], up = (j > i);
+      var mx = (x1 + x2) / 2, my = Y.cy + (up ? -Y.r * 1.5 : Y.r * 1.5);
+      ctx.strokeStyle = 'rgba(' + pal.noise[0] + ',' + pal.noise[1] + ',' + pal.noise[2] + ',' + (0.25 + 0.6 * Math.min(1, flow)) + ')';
+      ctx.lineWidth = 1 + 7 * Math.min(1, flow);
+      ctx.beginPath(); ctx.moveTo(x1, Y.cy); ctx.quadraticCurveTo(mx, my, x2, Y.cy); ctx.stroke();
+      ctx.font = '600 9px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.textAlign = 'center';
+      ctx.fillText('R=' + R[i][j].toFixed(2), mx, my + (up ? -4 : 12));
+    }
+    // 桶
+    for (i = 0; i < K; i++) {
+      var cx = Y.cx[i], r = Y.r;
+      ctx.beginPath(); ctx.arc(cx, Y.cy, r, 0, 6.284);
+      ctx.fillStyle = 'rgba(255,255,255,0.07)'; ctx.fill();
+      // 水位
+      ctx.save(); ctx.beginPath(); ctx.arc(cx, Y.cy, r, 0, 6.284); ctx.clip();
+      ctx.fillStyle = (i === 2) ? 'rgba(235,235,240,0.42)'
+        : 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',0.75)';
+      ctx.fillRect(cx - r, Y.cy + r - 2 * r * p[i], 2 * r, 2 * r * p[i]);
+      ctx.restore();
+      ctx.strokeStyle = (i === SEL) ? pal.accent : 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = (i === SEL) ? 2.6 : 1.2;
+      ctx.beginPath(); ctx.arc(cx, Y.cy, r, 0, 6.284); ctx.stroke();
+      ctx.font = '700 11px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.textAlign = 'center';
+      ctx.fillText(NAMES[i], cx, Y.cy + r + 15);
+      ctx.font = '700 12px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillStyle = '#15161a';
+      ctx.fillText(p[i].toFixed(2), cx, Y.cy + 4);
+    }
+    // p_t 曲線
+    var gy = Y.gy, gh = Y.gh, pad = Y.pad;
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad, gy + gh); ctx.lineTo(s.w - 16, gy + gh); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pad, gy); ctx.lineTo(s.w - 16, gy); ctx.stroke();
+    ctx.font = '500 9px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.textAlign = 'right';
+    ctx.fillText('1', pad - 5, gy + 4); ctx.fillText('0', pad - 5, gy + gh + 3);
+    var cols = ['rgba(' + pal.data.join(',') + ',0.9)', 'rgb(96,186,130)', 'rgba(235,235,240,0.7)'];
+    var path = sol.path;
+    for (i = 0; i < K; i++) {
+      ctx.strokeStyle = cols[i]; ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      for (var q = 0; q < path.length; q++) {
+        var px = pad + q / (path.length - 1) * (s.w - pad - 16), py = gy + gh - path[q][i] * gh;
+        q ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+      }
+      ctx.stroke();
+      ctx.font = '700 9px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillStyle = cols[i]; ctx.textAlign = 'left';
+      ctx.fillText(NAMES[i], s.w - 14 - 44, gy + gh - path[path.length - 1][i] * gh - 4);
+    }
+    ctx.font = '500 9px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.textAlign = 'center';
+    ctx.fillText('時間 0 → ' + T.toFixed(2), (pad + s.w - 16) / 2, gy + gh + 13);
+
+    vt.textContent = T.toFixed(2); vs.textContent = parseFloat(sEl.value).toFixed(2);
+    for (i = 0; i < K; i++) pOut[i].textContent = p[i].toFixed(3);
+    ps.textContent = (p[0] + p[1] + p[2]).toFixed(4);
+    if (SEL >= 0) {
+      var inflow = 0, outflow = 0;
+      for (j = 0; j < K; j++) if (j !== SEL) { inflow += p[j] * R[j][SEL]; outflow += p[SEL] * R[SEL][j]; }
+      eq.textContent = 'ṗ(' + NAMES[SEL] + ') = 流入 ' + inflow.toFixed(3) + ' − 流出 ' + outflow.toFixed(3) + ' = ' + (inflow - outflow).toFixed(3);
+    } else eq.textContent = '';
+  }
+  cv.addEventListener('click', function (ev) {
+    var s = d.resize(), Y = lay(s), r = cv.getBoundingClientRect();
+    var px = (ev.clientX - r.left) * (s.w / r.width), py = (ev.clientY - r.top) * (s.h / r.height);
+    SEL = -1;
+    for (var i = 0; i < K; i++) if (Math.hypot(px - Y.cx[i], py - Y.cy) < Y.r) SEL = i;
+    draw();
+  });
+  tEl.oninput = draw; sEl.oninput = draw;
+  Array.prototype.forEach.call(document.querySelectorAll('[data-p]'), function (b) {
+    b.onclick = function () {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-p]'), function (o) { o.classList.remove('on'); });
+      b.classList.add('on'); preset = b.dataset.p;
+      if (preset === 'remask' && parseFloat(sEl.value) === 0) sEl.value = 0.6;
+      draw();
+    };
+  });
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  applyTheme();
+})();
+</script>
+</body>
+</html>

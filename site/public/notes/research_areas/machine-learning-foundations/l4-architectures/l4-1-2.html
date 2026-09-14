@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>兩種模式算同一個導數，差別只在從哪一端開始乘</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：鏈式法則給出一串連乘。損失是<b>純量</b>，所以從它那一端開始乘，中間產物永遠是向量——一趟就拿到全部參數的梯度。從輸入端開始乘則要走 P 趟（P＝參數個數）。下圖是另一件事：有限差分的精度有一個下限，而<b>它不在 h → 0</b>。</p>
+  <canvas id="cost" style="aspect-ratio:5/3" aria-label="縱軸 log：一次梯度所需的時間對參數個數（log-log）。反向傳播 vs 有限差分"></canvas>
+  <p class="cap">縱軸 log：一次梯度所需的時間對參數個數（log-log）。反向傳播 vs 有限差分</p>
+  <canvas id="herr" style="aspect-ratio:5/2" aria-label="縱軸 log：中央差分的相對誤差對 h（log-log 的 V 形）；兩條斜線＝截斷誤差 ∝ h² 與捨入誤差 ∝ 1/h"></canvas>
+  <p class="cap">縱軸 log：中央差分的相對誤差對 h（log-log 的 V 形）；兩條斜線＝截斷誤差 ∝ h² 與捨入誤差 ∝ 1/h</p>
+  <div class="controls">
+    <div class="row">
+      <label for="dep">層數 D</label><input id="dep" type="range" min="1" max="6" step="1" value="3" />
+      <label for="wid">每層寬度</label><input id="wid" type="range" min="4" max="40" step="2" value="16" />
+    </div>
+    <div class="row">
+      <label for="h">h（10^）</label><input id="h" type="range" min="-12" max="-1" step="0.25" value="-5" />
+      <label class="chk"><input id="bug" type="checkbox" /> 故意漏乘激發函數的導數</label>
+    </div>
+    <div class="stats"><span>參數個數 P = <b id="vp">—</b></span> <span>反向傳播（一趟） = <b id="v1">—</b></span> <span>有限差分（2P 趟） = <b id="v2">—</b></span> <span>倍數 = <b id="v3">—</b></span> <span>目前 h 的相對誤差 = <b id="v4">—</b></span></div>
+  </div>
+  <p class="observe">觀察：反向傳播那條線幾乎水平（一趟就結束，與參數個數無關），有限差分那條<b>線性往上</b>——參數越多差越多。下圖的 V 形是兩種誤差的加總：h 太大時<b>截斷誤差 ∝ h²</b>，h 太小時<b>捨入誤差 ∝ 1/h</b>，谷底大約在 h = 10⁻⁵。打開「故意漏乘激發函數的導數」，整條 V <b>抬到 10⁻¹ 的量級</b>——這就是 gradient checking 抓得到的東西。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var el = function (i) { return document.getElementById(i); };
+  var dC = MLF.hiDPICanvas(el('cost')), dH = MLF.hiDPICanvas(el('herr'));
+  var pal = MLF.palette(), toy = MLF.toy1d(24, 0.15, 8), COST = null, HERR = null;
+
+  function sizes(D, W) { var s = [1], i; for (i = 0; i < D; i++) s.push(W); s.push(1); return s; }
+  function nParams(sz) { var p = 0, i; for (i = 0; i + 1 < sz.length; i++) p += sz[i] * sz[i + 1] + sz[i + 1]; return p; }
+
+  function lossOf(P, skipDeriv) {
+    var s = 0, i;
+    for (i = 0; i < toy.x.length; i++) { var e = MLF.mlpFwd(P, toy.x[i], false).y - toy.y[i]; s += e * e; }
+    return s / toy.x.length;
+  }
+  /* 故意寫錯的反向：跳過 tanh 的導數（gradient checking 要抓的那種 bug） */
+  function buggyGrads(P) {
+    var G = P.map(function (L) {
+      return { W: L.W.map(function (r) { return new Array(r.length).fill(0); }), b: new Array(L.b.length).fill(0) };
+    });
+    var n = toy.x.length, m, k, i, j;
+    for (m = 0; m < n; m++) {
+      var F = MLF.mlpFwd(P, toy.x[m], false), e = F.y - toy.y[m], d = [2 * e / n];
+      for (k = P.length - 1; k >= 0; k--) {
+        var h = F.hs[k], W = P[k].W;
+        for (i = 0; i < h.length; i++) for (j = 0; j < d.length; j++) G[k].W[i][j] += h[i] * d[j];
+        for (j = 0; j < d.length; j++) G[k].b[j] += d[j];
+        if (k > 0) {
+          var nd = new Array(h.length).fill(0);
+          for (i = 0; i < h.length; i++) for (j = 0; j < d.length; j++) nd[i] += d[j] * W[i][j];
+          d = nd;                       // ← 少了 (1 - tanh^2)
+        }
+      }
+    }
+    return G;
+  }
+
+  function timeIt(fn, reps) {
+    var t0 = performance.now(), i;
+    for (i = 0; i < reps; i++) fn();
+    return (performance.now() - t0) / reps;
+  }
+
+  function costCurve() {
+    var D = +el('dep').value, out = [];
+    [4, 8, 12, 16, 24, 32, 40].forEach(function (W) {
+      var sz = sizes(D, W), P = MLF.mlpInit(sz, 1, 5), Pn = nParams(sz);
+      var tb = timeIt(function () { MLF.mlpGrads(P, toy.x, toy.y, false); }, 12);
+      var tf = timeIt(function () { lossOf(P); }, 12);
+      // 畫的是「要掃幾趟」這個確定量（1 對 2P），量到的毫秒數放在下面的統計列
+      out.push({ p: Pn, back: 1, fd: 2 * Pn, msBack: tb, msFd: tf * 2 * Pn });
+    });
+    return out;
+  }
+
+  function hCurve() {
+    var D = +el('dep').value, W = +el('wid').value, sz = sizes(D, W);
+    var P = MLF.mlpInit(sz, 1, 5);
+    var R = el('bug').checked ? buggyGrads(P) : MLF.mlpGrads(P, toy.x, toy.y, false).G;
+    var r = MLF.rng(3), dir = P.map(function (L) {
+      return L.W.map(function (row) { return row.map(function () { return r.normal(); }); });
+    });
+    var nrm = 0, k, i, j;
+    for (k = 0; k < dir.length; k++) for (i = 0; i < dir[k].length; i++) for (j = 0; j < dir[k][i].length; j++) nrm += dir[k][i][j] * dir[k][i][j];
+    nrm = Math.sqrt(nrm);
+    var ana = 0;
+    for (k = 0; k < dir.length; k++) for (i = 0; i < dir[k].length; i++) for (j = 0; j < dir[k][i].length; j++) {
+      dir[k][i][j] /= nrm;
+      ana += R[k].W[i][j] * dir[k][i][j];
+    }
+    function shift(eps) {
+      for (k = 0; k < dir.length; k++) for (i = 0; i < dir[k].length; i++) for (j = 0; j < dir[k][i].length; j++)
+        P[k].W[i][j] += eps * dir[k][i][j];
+    }
+    var out = [];
+    for (var e = -12; e <= -1.0001; e += 0.25) {
+      var hh = Math.pow(10, e);
+      shift(hh); var lp = lossOf(P);
+      shift(-2 * hh); var lm = lossOf(P);
+      shift(hh);
+      var fd = (lp - lm) / (2 * hh);
+      out.push([hh, Math.max(Math.abs(fd - ana) / Math.max(Math.abs(ana), 1e-30), 1e-17)]);
+    }
+    return { pts: out, ana: ana };
+  }
+
+  function drawCost() {
+    var s = dC.resize(), ctx = dC.ctx; MLF.clear(ctx, s, pal);
+    var lo = 1e9, hi = 0;
+    COST.forEach(function (o) { lo = Math.min(lo, o.back); hi = Math.max(hi, o.fd); });
+    lo = Math.max(lo / 3, 0.3); hi *= 3;
+    var ax = MLF.axes(ctx, s, { x: [COST[0].p, COST[COST.length - 1].p], y: [lo, hi],
+      logx: true, logy: true, pal: pal,
+      xticks: COST.map(function (o) { return o.p; }).filter(function (v, i) { return i % 2 === 0; }),
+      yticks: [lo, Math.sqrt(lo * hi), hi], fmty: function (v) { return v.toExponential(0); },
+      fmtx: function (v) { return String(Math.round(v)); },
+      xlab: '參數個數 P（log）', ylab: '需要掃幾趟' });
+    MLF.line(ctx, ax, COST.map(function (o) { return [o.p, o.back]; }), MLF.rgb(pal.c), 2.2);
+    MLF.line(ctx, ax, COST.map(function (o) { return [o.p, o.fd]; }), MLF.rgb(pal.d), 2.2);
+    MLF.legend(ctx, ax, [{ t: '反向傳播（一趟）', c: MLF.rgb(pal.c) },
+      { t: '有限差分（2P 趟）', c: MLF.rgb(pal.d) }], 'tl', pal);
+  }
+
+  function drawH() {
+    var s = dH.resize(), ctx = dH.ctx; MLF.clear(ctx, s, pal);
+    var lo = 1e-13, hi = 1;
+    HERR.pts.forEach(function (p) { hi = Math.max(hi, p[1]); });
+    hi = Math.min(hi * 3, 1e3);
+    var ax = MLF.axes(ctx, s, { x: [1e-12, 0.1], y: [lo, hi], logx: true, logy: true, pal: pal,
+      xticks: [1e-12, 1e-9, 1e-6, 1e-3, 0.1], yticks: [lo, 1e-6, hi],
+      fmtx: function (v) { return v.toExponential(0); }, fmty: function (v) { return v.toExponential(0); },
+      xlab: 'h（log）', ylab: '相對誤差' });
+    // 兩條參考斜線的常數由實測的兩端定出來（不是隨便挑的）
+    var last = HERR.pts[HERR.pts.length - 1], first = HERR.pts[0];
+    var cTrunc = last[1] / (last[0] * last[0]), cRound = first[1] * first[0];
+    var A = [], B = [], e;
+    for (e = -12; e <= -1; e += 0.5) {
+      var h = Math.pow(10, e);
+      A.push([h, Math.min(hi, Math.max(lo, cTrunc * h * h))]);
+      B.push([h, Math.min(hi, Math.max(lo, cRound / h))]);
+    }
+    MLF.line(ctx, ax, A, MLF.rgb(pal.a, 0.55), 1.3, [4, 3]);
+    MLF.line(ctx, ax, B, MLF.rgb(pal.c, 0.55), 1.3, [4, 3]);
+    MLF.line(ctx, ax, HERR.pts.map(function (p) { return [p[0], Math.min(hi, Math.max(lo, p[1]))]; }), MLF.rgb(pal.d), 2.2);
+    MLF.ref(ctx, ax, { x: Math.pow(10, +el('h').value), color: pal.accent, dash: [] });
+    MLF.legend(ctx, ax, [{ t: '實測相對誤差', c: MLF.rgb(pal.d) },
+      { t: '截斷 ∝ h²', c: MLF.rgb(pal.a, 0.6) }, { t: '捨入 ∝ 1/h', c: MLF.rgb(pal.c, 0.6) }], 'tr', pal);
+  }
+
+  function draw() {
+    COST = costCurve(); HERR = hCurve();
+    var D = +el('dep').value, W = +el('wid').value, Pn = nParams(sizes(D, W));
+    var cur = COST[0], i;
+    for (i = 0; i < COST.length; i++) if (Math.abs(COST[i].p - Pn) < Math.abs(cur.p - Pn)) cur = COST[i];
+    el('vp').textContent = Pn;
+    el('v1').textContent = cur.msBack.toFixed(3) + ' ms（1 趟）';
+    el('v2').textContent = cur.msFd.toFixed(1) + ' ms（' + (2 * cur.p) + ' 趟）';
+    el('v3').textContent = (cur.msFd / Math.max(cur.msBack, 1e-6)).toFixed(0) + '×';
+    var hv = Math.pow(10, +el('h').value), best = HERR.pts[0];
+    for (i = 0; i < HERR.pts.length; i++) if (Math.abs(Math.log(HERR.pts[i][0] / hv)) < Math.abs(Math.log(best[0] / hv))) best = HERR.pts[i];
+    el('v4').textContent = best[1].toExponential(1);
+    drawCost(); drawH();
+  }
+  ['dep', 'wid', 'h'].forEach(function (i) { el(i).onchange = draw; });
+  el('bug').onchange = draw;
+  window.addEventListener('resize', function () { drawCost(); drawH(); });
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; drawCost(); drawH(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  draw();
+
+})();
+</script>
+</body>
+</html>

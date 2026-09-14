@@ -1,0 +1,296 @@
+---
+slug: "ml-l2-0-minibatch-noise"
+label: "ml-minibatch-noise"
+prereqs:
+  - math-gaussian
+  - math-random-walk-brownian
+  - math-sde
+lang: "zh"
+title: "民調只問一千人：小批次與噪聲"
+category: "courses"
+group: "L2 · 實務中的最佳化"
+status: "available"
+updated: 2026-09-10
+summary: "民調只問一千人就能估全國，訓練只看一個 batch 就能算梯度嗎？可以——minibatch 梯度是無偏的，而且誤差的量級有公式：E‖g_B−g‖² 大約是 0.22/B。代價是每一步都帶著噪聲，所以固定學習率的 SGD 不會停在最小點，而是在它附近繞著一個地板打轉，超出的量正比於 η/B（實測係數 0.05–0.09）。這也是為什麼「調小學習率」和「加大 batch」在這件事上是同一個旋鈕。"
+demos: []
+references:
+  - label: "Robbins & Monro, A Stochastic Approximation Method (Annals of Mathematical Statistics 1951)"
+    href: "https://doi.org/10.1214/aoms/1177729586"
+  - label: "Bottou, Curtis, Nocedal, Optimization Methods for Large-Scale Machine Learning (SIAM Review 2018)"
+    href: "https://doi.org/10.1137/16M1080173"
+  - label: "Smith, Kindermans, Ying, Le, Don't Decay the Learning Rate, Increase the Batch Size (ICLR 2018)"
+    href: "https://openreview.net/forum?id=B1Yy1BxCZ"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Ask from '../../../components/Ask.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Remark from '../../../components/Remark.astro';
+import Bridge from '../../../components/Bridge.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 民調只問一千人：小批次與噪聲
+
+<Objectives>
+- **minibatch 梯度是無偏的，誤差的量級有公式。** 寫出 $\mathbb E[g_B]=g$ 與 $\mathbb E\lVert g_B-g\rVert^2\propto 1/B$，並在共用 toy 上量出那個比例常數，順便說出「不放回抽樣」為什麼讓 $B=n$ 時誤差正好是零。
+- **固定學習率的 SGD 不收斂到最小點，而是停在一個地板上。** 說出那個地板正比於 $\eta/B$，並用實測的係數把它算出來。
+- **「調小 $\eta$」與「加大 $B$」在這個地板上是同一個旋鈕。** 判斷什麼時候該動哪一個，以及這個等價在哪裡失效。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 起點：民調只問一千人
+
+全國有兩千萬個選民。民調公司問了一千人，就敢報一個支持率，還敢附上「誤差 ±3%」。
+
+這件事之所以合理，是因為兩件不同的事都成立：一千人的平均**沒有系統性的偏差**（不會一直高估或一直低估），而且它的**誤差有一個算得出來的量級**（$\pm3\%$ 那個數字就是算出來的）。
+
+訓練一個模型的時候，我們面對的是同一個結構。要算一步梯度，照定義得掃過全部資料：
+
+$$
+g=\nabla L(\theta)=\frac1n\sum_{i=1}^n \nabla \ell\big(f_\theta(x_i),y_i\big).
+$$
+
+$n$ 是一千萬的時候，這一步就要一千萬次前向與反向。而 <Ref to="ml-gradient-descent" mode="title"/> 告訴我們，走到有用的地方需要成千上萬步。兩個數字乘起來就走不完了。
+
+<Ask>
+只看一個 batch 就算一步梯度，<br />
+這樣算出來的方向能用嗎？<br />
+如果能用，那我付出的代價是什麼？
+</Ask>
+
+<Question id="Q1">
+把「只問一千人」翻成數學：$g_B$ 怎麼寫？它和全批次的 $g$ 差多少——這個差是偏差還是抖動？如果只是抖動，那多走幾步平均掉不就好了？
+
+<Answer>
+**寫下來。** 每一步從 $n$ 筆裡抽出一個大小 $B$ 的子集 $S$，用它算平均：
+
+$$
+g_B=\frac1B\sum_{i\in S}\nabla \ell\big(f_\theta(x_i),y_i\big).
+$$
+
+若 $S$ 是均勻隨機抽的，每一項的期望都是 $g$（每一筆被抽到的機率相同），所以
+
+$$
+\mathbb E[g_B]=g .
+$$
+
+**沒有偏差**——這是民調那件事的第一半。$g_B$ 不是「近似的梯度」，它是**梯度的無偏估計**。
+
+**差的是抖動，而且量級可以算。** 記單筆梯度的變異數為 $\sigma_g^2=\mathbb E\lVert\nabla\ell_i-g\rVert^2$，那麼（放回抽樣時）
+
+$$
+\mathbb E\lVert g_B-g\rVert^2=\frac{\sigma_g^2}{B}.
+$$
+
+$B$ 變四倍，抖動變四分之一，誤差的長度只變一半——和民調的 $1/\sqrt N$ 是同一條式子。
+
+**「多走幾步平均掉」為什麼不是完整的答案。** 如果每一步都站在同一個 $\theta$ 上抽，那確實會平均掉。但我們**每一步都往前走了**，所以下一次抽樣是在一個被上一次的噪聲推歪過的位置上做的。噪聲不是加在讀數上，是加在**軌跡**上——這正是 <Ref to="math-random-walk-brownian" mode="title"/> 裡「每一步都是新抽的一小步」那個結構。結果是：軌跡會在最小點附近繞著一個有寬度的區域打轉，而那個寬度由 $\eta$ 與 $B$ 決定。本篇後半會把它量出來。
+</Answer>
+</Question>
+
+## 一條帶噪聲的下山路
+
+<Ref to="ml-gradient-descent" mode="title"/> 的圖像是霧中下山：量出腳下最陡的方向，走一步，重新量。現在把那個「量」換成一個**有雜訊的儀器**——它平均起來是對的，但每一次的讀數都會歪一點。
+
+於是同一趟下山變成兩件事的疊加：
+
+- **往下的漂移**：來自真正的梯度 $g$，每一步大約帶你下降 $\eta\lVert g\rVert^2$。
+- **隨機的推擠**：來自 $g_B-g$，每一步大約把你推開 $\eta\sigma_g/\sqrt B$，方向隨機。
+
+離最小點還遠的時候，$\lVert g\rVert$ 很大，漂移壓過推擠，軌跡看起來就像全批次的下山。**接近最小點時 $\lVert g\rVert\to 0$，但推擠不會跟著變小**——於是你停不下來。這個「漂移 vs 推擠」的分工就是 <Ref to="math-sde" mode="title"/> 的 SDE 結構：$\mathrm dx=-\nabla L\,\mathrm dt+\sqrt{2\varepsilon}\,\mathrm dW$ 裡的兩項，而 $\varepsilon$ 這裡大約就是 $\eta\sigma_g^2/B$。
+
+<VizPlan id="ml-l2-0-drift-vs-noise" title="漂移與推擠：同一條路，兩種力" type="static">
+- **檔名**：`l2-optimization-in-practice/imgs/l2-0-1.svg`（16:9，左右兩格）。
+- **左格**：一個中度細長的二次碗等高線，畫三條從同一起點出發的軌跡：全批次（平滑地之字下山）、$B=16$（略帶抖動、最後在中心附近一個小圈裡打轉）、$B=1$（明顯抖動、最後在一個大圈裡打轉）。三個「打轉的圈」用同色淡填並標半徑 $\propto\sqrt{\eta/B}$。
+- **右格**：縱軸 log 的訓練損失對步數，三條對應曲線：全批次一路下降到 $L^\star$；$B=16$ 下降後停在 $L^\star$ 上方一點；$B=1$ 停在更高處。$L^\star$ 畫水平參考線，兩個地板的高度差用箭頭標「$\propto\eta/B$」。
+- **圖說**：「離最小點還遠時漂移壓過推擠，兩者看起來一樣；接近最小點時梯度趨近零而推擠不變，於是軌跡停在一個有寬度的地板上。」
+</VizPlan>
+
+## 抖動有多大，地板有多高
+
+**抖動。** 實務上抽 batch 幾乎都是**不放回**（把資料洗牌後切成一段一段），這時上面那條式子多一個有限母體修正：
+
+$$
+\mathbb E\lVert g_B-g\rVert^2=\frac{\sigma_g^2}{B}\cdot\frac{n-B}{n-1}.
+$$
+
+右邊那個因子在 $B\ll n$ 時幾乎是 1，而在 $B=n$ 時**正好是 0**——整份資料都抽進來了，$g_B$ 就是 $g$，沒有任何抖動。這個因子解釋了下一節實測表格的最後一列。
+
+**地板。** 把「漂移 vs 推擠」寫成一個一維的算式就看得到地板。取最簡單的二次損失 $L(w)=\frac{\lambda}{2}(w-w^\star)^2$，每一步
+
+$$
+w_{k+1}-w^\star=(1-\eta\lambda)(w_k-w^\star)-\eta\,\xi_k,
+\qquad \mathbb E[\xi_k]=0,\ \mathbb E[\xi_k^2]=\frac{\sigma_g^2}{B}.
+$$
+
+兩邊取平方期望，令它在穩態時不再變化（左右相等），解出
+
+$$
+\mathbb E\big[(w_\infty-w^\star)^2\big]=\frac{\eta^2\sigma_g^2/B}{1-(1-\eta\lambda)^2}\approx\frac{\eta\,\sigma_g^2}{2\lambda B}
+\quad\Longrightarrow\quad
+\mathbb E[L]-L^\star\approx\frac{\eta\,\sigma_g^2}{4B}.
+$$
+
+**兩個旋鈕以同一個組合 $\eta/B$ 進來，而 $\lambda$（曲率）被消掉了。**
+
+> **固定學習率的 SGD 不會收斂到最小點，它停在一個高出 $L^\star$ 大約 $\eta/B$ 那麼多的地板上。**
+
+這也立刻給出兩條實務規則。想壓低地板：**把 $\eta$ 減半，或把 $B$ 加倍**，效果同一個量級。想真的走到最小點：**讓 $\eta$ 隨步數趨近 0**（learning-rate decay），這是 Robbins–Monro 條件 $\sum\eta_k=\infty$、$\sum\eta_k^2<\infty$ 的實務版本。
+
+<Remark label="注意" summary="「噪聲有幫助」這句話說的是別的事">
+本篇量的是**收斂到哪裡**，答案是「$\eta/B$ 越小越靠近最小點」。這很容易被讀成「噪聲純粹是壞事，能消就消」，但那不是完整的圖像。
+
+在**非凸**的問題上，噪聲還有第二個作用：它讓軌跡有機會跳出一個窄的局部谷底。這件事和上面的地板是兩個不同層次的效應——地板講的是「在一個谷底裡繞多遠」，跳出去講的是「在哪個谷底」。<Ref to="ml-loss-landscape" mode="title"/> 會回到後者。
+
+還有一個更常被引用的說法：小 batch 的噪聲有正則化效果，所以泛化較好。這件事的實驗證據隨任務差異很大，而且大多是在「同時調了 $\eta$」的情況下量的——這一篇不下這個結論。**能穩穩站得住的只有：$\eta/B$ 決定你停在多高的地板上。**
+</Remark>
+
+## 回到情境：民調的三個假設，訓練也有
+
+**無偏來自「均勻隨機抽」。** 民調要隨機撥號，不能只問市話；訓練要**每個 epoch 重新洗牌**。如果資料檔按類別排好而你順序讀，那前面幾個 batch 全是同一類，$\mathbb E[g_B]\ne g$——那不是抖動，是偏差，而偏差不會因為多走幾步而平均掉。
+
+**誤差 ±3% 來自「知道 $\sigma$」。** 訓練這邊的 $\sigma_g$ 是可以量的：跑幾個 batch，看梯度之間差多少。量過之後，「$B$ 該多大」就從猜變成算。
+
+**這一切依賴什麼。** 一，每一筆資料獨立；同一位使用者的多筆、時間相鄰的多筆會讓有效樣本數遠小於 $B$（和 <Ref to="ml-cross-validation" mode="title"/> 裡 fold 相依是同一個問題）。二，$\sigma_g$ 在訓練過程中不是常數——它通常隨著損失下降而變小，所以地板也會跟著降一點。三，上面的地板公式是在二次損失、固定 $\eta$、穩態下算的；真實訓練還沒到穩態時，看到的多半是漂移那一段。
+
+## 回到情境：把抖動與地板量出來
+
+**第一段：無偏與 $1/B$。** 共用 toy（$n=120$、五次多項式特徵），在一個不是最小點的位置上，用 4000 次不放回抽樣估 $g_B$：
+
+```python
+import numpy as np
+from ml_toy import toy_1d
+
+x, y = toy_1d(n=120, seed=0)
+V = np.vander(x, 6, increasing=True); V = V/np.abs(V).max(0)
+n = len(x)
+w = np.linalg.lstsq(V, y, rcond=None)[0] * 0.5      # 一個不在最小點的參考位置
+g = (V.T @ (V@w - y))/n                             # 全批次梯度
+
+rng = np.random.default_rng(0)
+for B in (1, 4, 16, 60, 120):
+    G = np.array([(V[i].T @ (V[i]@w - y[i]))/B
+                  for i in (rng.choice(n, B, replace=False) for _ in range(4000))])
+    bias = np.linalg.norm(G.mean(0) - g)/np.linalg.norm(g)
+    var  = ((G - g)**2).sum(1).mean()
+    print(f"  B={B:4d}  平均與全批次的相對差 {bias:.4f}   E‖g_B−g‖² {var:.5f}   ×B = {var*B:.4f}")
+```
+
+```
+  B=   1  平均與全批次的相對差 0.0054   E‖g_B−g‖² 0.22878   ×B = 0.2288
+  B=   4  平均與全批次的相對差 0.0303   E‖g_B−g‖² 0.05433   ×B = 0.2173
+  B=  16  平均與全批次的相對差 0.0172   E‖g_B−g‖² 0.01269   ×B = 0.2030
+  B=  60  平均與全批次的相對差 0.0015   E‖g_B−g‖² 0.00201   ×B = 0.1207
+  B= 120  平均與全批次的相對差 0.0000   E‖g_B−g‖² 0.00000   ×B = 0.0000
+```
+
+**第一欄印證無偏**：4000 次抽樣的平均與全批次梯度只差 $0.5$–$3\%$，而且那個殘差本身隨抽樣次數縮小，不隨 $B$ 系統性地變化。$B=120$ 那一列是 $0.0000$——整份資料都抽進來了。
+
+**第三欄印證 $1/B$**：$0.229\to0.054\to0.013$，$B$ 每變四倍就掉四分之一。第四欄把 $\mathbb E\lVert g_B-g\rVert^2\times B$ 印出來，$B\le16$ 時穩定在 $0.20$–$0.23$——**那就是單筆梯度的變異數 $\sigma_g^2$**。$B=60$ 掉到 $0.12$、$B=120$ 掉到 $0$，正是上一節那個 $(n-B)/(n-1)$ 因子：$B=60$ 時它是 $60/119\approx0.50$，$0.229\times0.50=0.115$，量到 $0.121$。
+
+**第二段：地板。** 換一組正交化的特徵（條件數 $1$，這樣 GD 本身很快收斂，看得到的就只有噪聲），從最小點出發跑 6 萬步，取最後 1 萬步的平均損失：
+
+```python
+Q = np.linalg.qr(np.vander(x, 4, increasing=True))[0]*np.sqrt(n)   # 條件數 = 1
+L = lambda w: ((Q@w - y)**2).mean()
+w_opt = np.linalg.lstsq(Q, y, rcond=None)[0]
+for eta in (0.02, 0.05, 0.1):
+    for B in (1, 4, 16):
+        rng = np.random.default_rng(1); w = w_opt.copy(); tail = []
+        for t in range(60000):
+            idx = rng.choice(n, B, replace=False)
+            w -= eta*(Q[idx].T@(Q[idx]@w - y[idx]))/B
+            if t >= 50000: tail.append(L(w))
+        d = np.mean(tail) - L(w_opt)
+        print(f"  η={eta:<5} B={B:<3} 高出最小點 {d:.5f}   除以 η/B = {d/(eta/B):.4f}")
+```
+
+```
+  η=0.02  B=1   高出最小點 0.00138   除以 η/B = 0.0692
+  η=0.02  B=4   高出最小點 0.00033   除以 η/B = 0.0660
+  η=0.02  B=16  高出最小點 0.00007   除以 η/B = 0.0524
+  η=0.05  B=1   高出最小點 0.00385   除以 η/B = 0.0771
+  η=0.05  B=4   高出最小點 0.00084   除以 η/B = 0.0673
+  η=0.05  B=16  高出最小點 0.00018   除以 η/B = 0.0560
+  η=0.10  B=1   高出最小點 0.00913   除以 η/B = 0.0913
+  η=0.10  B=16  高出最小點 0.00037   除以 η/B = 0.0596
+```
+
+**$\eta/B$ 掃過 80 倍（$0.00125$ 到 $0.1$），超出量掃過 130 倍，而兩者的比值只在 $0.052$–$0.091$ 之間動。** 這就是上一節那條式子的實測版本：地板 $\approx c\cdot\eta/B$，這個問題上 $c\approx0.07$。
+
+從表裡直接讀出兩個等價：$(\eta,B)=(0.02,1)$ 的地板 $0.00138$ 和 $(0.05,4)$ 的 $0.00084$ 差不多；$(0.05,1)$ 的 $0.00385$ 和 $(0.10,4)$ 的 $0.00178$ 也差不多。**把 $B$ 加倍與把 $\eta$ 減半換到同一個地方——這也是「加大 batch 之後要把學習率一起放大」那條經驗規則的來源。**
+
+**刻意違反：把最小點換成一個「還沒收斂」的位置。** 如果把上面的實驗改回 <Ref to="ml-gradient-descent" mode="title"/> 那組沒有正交化的特徵（條件數 $1.6\times10^7$），同樣跑 2 萬步，$\eta=0.2$ 的最終損失反而**低於** $\eta=0.05$（$0.047$ 對 $0.083$）——和地板公式的方向相反。原因不是公式錯了，是**那個實驗根本還沒進入穩態**：條件數那麼大時，2 萬步還在漂移那一段，$\eta$ 大的走得遠。
+
+> **地板公式描述的是穩態；訓練還在往下掉的時候，你看到的是漂移，不是地板。**
+
+分辨方法很直接：**看損失曲線是不是已經平了**。平了才在讀地板，還在掉就是在讀漂移——這兩段要用完全相反的策略（漂移段要大 $\eta$，地板段要小 $\eta$），而這正是學習率 schedule 存在的理由。
+
+## 拖 η 與 B，看軌跡與地板
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/machine-learning-foundations/l2-optimization-in-practice/l2-0-2.html" class="demo-frame" title="拖 η 與 B，看軌跡與地板：互動 demo" style="height: 1060px; width: 100%; border: none;"></iframe>
+
+**互動 demo：η 與 B 只以 η/B 的組合出現：兩個旋鈕分別掃出一樣的噪聲地板。**
+
+## 先消化一下
+
+<QuizBlock id="ml-l2-0-a">
+一個團隊把 batch size 從 32 改成 256（八倍），學習率不動，發現訓練損失下降變慢了。最合理的解讀是：
+<Option>batch 太大會讓梯度估計變差。</Option>
+<Option correct>每一步的品質變好了，但「每一步」的數量在同樣的資料預算下少了八倍。在漂移那一段，走多遠取決於 $\eta\times$ 步數；要維持同樣的進度，$\eta$ 需要跟著放大。</Option>
+<Option>應該改回 32，大 batch 沒有好處。</Option>
+<Explanation>
+八倍的 batch 讓 $\mathbb E\lVert g_B-g\rVert^2$ 掉到八分之一，但同樣掃過一次資料的步數也掉到八分之一。在漂移主導的階段，決定進度的是累積的 $\eta\times$步數，所以只加 $B$ 不動 $\eta$ 等於把整趟路走慢。大 batch 真正買到的是**每一步可以走得更大**（地板 $\propto\eta/B$，$B$ 大了 $\eta$ 就有空間），以及硬體上的平行度。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l2-0-b">
+在第一段實測裡，$B=n=120$ 那一列的 $\mathbb E\lVert g_B-g\rVert^2$ 是 $0.00000$。這說明：
+<Option>4000 次抽樣還不夠多，再多抽就會出現非零的值。</Option>
+<Option correct>不放回抽樣在 $B=n$ 時只有一種可能的 batch——整份資料，所以 $g_B$ 恆等於 $g$。這就是有限母體修正因子 $(n-B)/(n-1)$ 在 $B=n$ 時為零。</Option>
+<Option>那個位置的梯度剛好是零。</Option>
+<Explanation>
+這一列不是數值巧合，它是不放回抽樣的定義直接給的。同一個因子也解釋了 $B=60$ 那一列為什麼是 $0.121$ 而不是 $0.229/60\times60=0.229$：$60/119\approx0.50$，$0.229\times0.50\approx0.115$。實務上 $B\ll n$，這個因子幾乎是 1，可以忽略——但知道它存在，就不會把 $B=n$ 那一列當成 bug。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l2-0-c">
+一個訓練跑了很久，損失曲線已經平了三萬步。要讓它再往下，下列哪一個**最直接**？
+<Option>換一個更大的模型。</Option>
+<Option correct>把學習率調小（或開始衰減）。曲線平了表示已經在地板上，而地板高度 $\propto\eta/B$；此時降 $\eta$ 或加 $B$ 會讓地板往下移，而換模型改變的是 $L^\star$ 本身，不是地板的高度。</Option>
+<Option>把 batch size 調小，讓噪聲幫忙跳出去。</Option>
+<Explanation>
+「曲線平了」是判斷自己在讀漂移還是讀地板的關鍵訊號，也是學習率 schedule 為什麼幾乎總是「先大後小」的理由：漂移段要大 $\eta$ 走得遠，地板段要小 $\eta$ 把地板壓低。第三個選項的方向相反（$B$ 變小會抬高地板），而它想援引的「噪聲跳出局部谷底」是另一個層次的效應——見本篇的 Remark 與 <Ref to="ml-loss-landscape" mode="title"/>。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l2-0-d">
+下列哪一句**不對**？
+<Option>minibatch 梯度是全批次梯度的無偏估計，前提是 batch 均勻隨機抽。</Option>
+<Option>不洗牌而按檔案順序讀 batch，可能讓 $\mathbb E[g_B]\ne g$，那是偏差而不是抖動。</Option>
+<Option correct>只要步數夠多，minibatch 的噪聲就會被平均掉，SGD 最終會收斂到全批次 GD 的同一個點。</Option>
+<Explanation>
+第三句錯在「噪聲加在讀數上」的圖像。噪聲加在**軌跡**上：每一步都把你推到一個新位置，下一次抽樣是在那個被推歪的位置做的。固定 $\eta$ 之下的結果是繞著一個地板打轉，而不是收斂到最小點——實測的超出量是 $0.052$–$0.091$ 倍的 $\eta/B$。要真的收斂，需要讓 $\eta$ 隨步數趨近零。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="ml-optimizers">
+這一篇把「只看一個 batch」拆成兩件事：無偏（所以方向可以用）與抖動（所以每一步都被推歪）。抖動的量級是 $\sigma_g^2/B$ 乘上一個不放回的修正，實測 $\sigma_g^2\approx0.22$；而它在軌跡上累積成一個高度 $\approx0.07\,\eta/B$ 的地板，$\eta$ 與 $B$ 只以 $\eta/B$ 這個組合進來。
+
+到這裡，$\eta$ 已經背了三個工作：<Ref to="ml-gradient-descent" mode="title"/> 說它不能超過 $2/\lambda_{\max}$，那一篇也說走完全程的時間由條件數決定，而本篇說它決定地板高度。一個純量要同時服務三件事顯然不夠。下一篇處理這件事：動量與 Adam 各自買到什麼，以及那個「換一個特徵單位就毀掉整個訓練」的老問題，哪一個解得掉。
+</Bridge>
+
+## 參考文獻
+
+1. Robbins, H., Monro, S. [*A Stochastic Approximation Method.*](https://doi.org/10.1214/aoms/1177729586) Annals of Mathematical Statistics 1951.（隨機近似的原始論文，$\sum\eta_k=\infty$、$\sum\eta_k^2<\infty$ 這組條件的來源。）
+2. Bottou, L., Curtis, F., Nocedal, J. [*Optimization Methods for Large-Scale Machine Learning.*](https://doi.org/10.1137/16M1080173) SIAM Review 2018.（SGD 的收斂分析：固定步長的噪聲地板、遞減步長、batch size 的角色。）
+3. Smith, S., Kindermans, P.-J., Ying, C., Le, Q. [*Don't Decay the Learning Rate, Increase the Batch Size.*](https://openreview.net/forum?id=B1Yy1BxCZ) ICLR 2018.（把 $\eta$ 與 $B$ 的等價當成實務工具，並在大規模訓練上驗證它的適用範圍。）

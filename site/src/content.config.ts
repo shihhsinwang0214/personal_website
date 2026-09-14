@@ -19,6 +19,12 @@ const notes = defineCollection({
   }),
   schema: z.object({
     slug: z.string(),
+    // Stable cross-reference key. Slugs and titles carry week/part numbers that may be
+    // renumbered; `label` never changes and is what <Ref>, <Bridge>, <Prereq> resolve.
+    label: z.string().optional(),
+    // Labels (or slugs) of foundation notes this note reuses; rendered by <Prereq>
+    // and reverse-indexed by <UsedBy> on the target note.
+    prereqs: z.array(z.string()).default([]),
     lang: z.enum(['en', 'zh']),
     title: z.string(),
     category: z.enum(['research-areas', 'courses', 'academic-skills']),

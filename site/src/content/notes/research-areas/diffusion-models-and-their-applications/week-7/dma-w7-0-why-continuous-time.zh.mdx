@@ -1,0 +1,210 @@
+---
+slug: "dma-w7-0-why-continuous-time"
+label: "dma-why-continuous-time"
+prereqs:
+  - math-markov-chain
+  - math-fokker-planck
+lang: "zh"
+title: "要把「改」說清楚，需要什麼語言？"
+category: "courses"
+group: "Week 7 · Discrete Diffusion II"
+status: "available"
+updated: 2026-09-07
+summary: "uniform 鏈能改已生成的 token、absorbing 不能。想量化「改多少」、設計介於兩者之間的過程，離散時間的 transition matrix 語言會處處卡住：改一點就沒有 closed form、改的量沒有單位、取樣器和 forward chain 綁在一起。連續世界曾用 SDE 解開同一個結，離散世界的對應是 rate。"
+demos: []
+references:
+  - label: "Campbell et al., A Continuous Time Framework for Discrete Denoising Models (NeurIPS 2022)"
+    href: "https://arxiv.org/abs/2205.14987"
+  - label: "Austin et al., Structured Denoising Diffusion Models in Discrete State-Spaces (NeurIPS 2021)"
+    href: "https://arxiv.org/abs/2107.03006"
+  - label: "Wang et al., Remasking Discrete Diffusion Models with Inference-Time Scaling (2025)"
+    href: "https://arxiv.org/abs/2503.00307"
+  - label: "Anderson, Reverse-time Diffusion Equation Models (Stochastic Processes and their Applications 1982)"
+    href: "https://doi.org/10.1016/0304-4149(82)90051-5"
+---
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 要把「改」說清楚，需要什麼語言？
+
+<Objectives>
+- 把 <Ref to="dma-absorbing-vs-uniform"/> 留下的問題拆成三個可以回答的小問題：改多少、會不會動到邊際、能不能設計介於 absorbing 與 uniform 之間的過程。
+- 說出離散時間的 transition matrix 語言在這三個問題上各卡在哪裡，並認出這和 <Ref week="dma-week-diffusion"/> 從 DDPM 的 $T$ 步走到 SDE 是同一種卡法。
+- 說出本週要引入的新物件是什麼（rate），以及它為什麼能把「取樣器怎麼走」從「forward chain 是什麼」裡拆出來。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+<Ask>
+上一篇那個「加一點回到 [MASK] 的機會」，<br />
+為什麼用上週的語言答起來很笨拙？
+</Ask>
+
+## 上週留下的一句話
+
+<Ref to="dma-absorbing-vs-uniform"/> 結尾的問題是這樣的：absorbing 鏈把不確定性集中在 `[MASK]` 上、context 乾淨，但翻開的字永遠固定；uniform 鏈每一步都能改任何字，但模型分不清哪些字是噪聲。能不能兩個都要？
+
+那一篇給了一個直覺的設計——在 absorbing 鏈上加「一點」回到 `[MASK]` 的機會——然後停住了，說這件事用上週的語言「答起來很笨拙」。這一篇就把「笨拙」說清楚。不是為了抱怨，而是因為看清楚哪裡卡住，新語言該長什麼樣就會自己浮出來。
+
+先把那個含糊的問題拆成三個具體的：
+
+1. **改多少？** 「加一點回到 `[MASK]` 的機會」——一點是多少？用什麼單位衡量？
+2. **會不會動到邊際？** 訓好的網路學的是 $p(x_0\mid x_t)$，它的輸入 $x_t$ 來自 $q(x_t\mid x_0)$。如果新的取樣程序讓 $x_t$ 的分佈變了，網路面對的就是它沒見過的輸入。
+3. **能不能連續地調？** 從「完全不改」（absorbing）到「每個字每步都可能改」（uniform）之間，有沒有一條可以連續調的路，而不是兩個孤立的選擇？
+
+## 用 transition matrix 試一次
+
+<Ref to="dma-d3pm"/> 的語言是：forward 每一步是一個 $K\times K$ 的 transition matrix $Q_t$，$t$ 步的邊際是連乘 $\bar Q_t=Q_1\cdots Q_t$。那就直接在 $Q_t$ 上動手。
+
+absorbing 的 $Q_t=(1-\beta_t)I+\beta_t\mathbb 1e_m^{\!\top}$，`[MASK]` 那一列是 $e_m^{\!\top}$——進去就不出來。要讓字「有機會被改」，最直接的是把 `[MASK]` 列改掉，讓它以某個機率 $\gamma_t$ 回到某個字；或者反過來，在**反向**取樣時額外以某個機率把已翻開的字遮回去。兩種都試，會撞到三面牆。
+
+**第一面牆：closed form 消失。** $\bar Q_t$ 有 closed form，靠的是 $Q_t$ 全部長成「$aI+b\times$（一個投影）」這個形狀、連乘後形狀不變（<Ref to="dma-d3pm"/>）。`[MASK]` 列一改，這個形狀就破了；$\bar Q_t$ 變成一般的矩陣連乘，$q(x_t\mid x_0)$ 沒有好寫的式子，posterior $q(x_{t-1}\mid x_t,x_0)$ 也跟著沒有。<Ref to="dma-forward-process"/> 說「forward 是我們自己定的，所以任何 $t$ 的 $x_t$ 可以一步抽出來」——這個便利沒了，訓練要一步一步模擬鏈。
+
+**第二面牆：「一點」沒有單位。** 假設咬牙接受沒有 closed form，「改一點」的量寫成 $\gamma_t$。但 $\gamma_t$ 是**一步**的機率，而「一步」是多長取決於 $T$：$T=1000$ 的 $\gamma_t=0.01$ 和 $T=10$ 的 $\gamma_t=0.01$ 是完全不同強度的修正。<Ref to="dma-masked-diffusion"/> 的取樣器可以訓練時用 $T=1000$、取樣時只走 8 步——跳步的時候，$\gamma$ 該怎麼跟著換？在 transition matrix 的語言裡，「每步改多少」和「走幾步」是綁在同一個數字上的，拆不開。
+
+**第三面牆：取樣器和 forward chain 綁死。** 上週的取樣程序是「反著走 posterior」：$p_\theta(x_{t-1}\mid x_t)=\sum_{\tilde x_0}q(x_{t-1}\mid x_t,\tilde x_0)\,p_\theta(\tilde x_0\mid x_t)$。這裡每一個因子都由 $Q_t$ 決定，取樣器**沒有任何自己的自由度**。想在取樣時多做一件事（把字遮回去），就只能改 $Q_t$——也就是改 forward chain、改訓練分佈、重訓。第 2 個小問題（會不會動到邊際）在這個語言裡連問都問不出來，因為答案永遠是「會」。
+
+<VizPlan id="w7-0-two-languages" title="同一個修改，兩種語言" type="static">
+- **位置**：本節之後。**檔名**：`imgs/w7-0-1.png`（16:9，左右兩格）。
+- **左格「transition matrix」**：三個 $3\times3$ 的小矩陣（字典兩個字 + `[MASK]`）水平排開，中間用 $\times$ 連接，標 $\bar Q_t=Q_1Q_2Q_3$。第三個矩陣的 `[MASK]` 列被紅框圈起、一個格子從 0 改成 $\gamma$；連乘結果的矩陣畫成一片問號，旁邊三行小字：「closed form 沒了」、「$\gamma$ 是每步的機率，換 $T$ 就得換」、「取樣器 = 反著走 posterior，沒有自己的旋鈕」。
+- **右格「rate」**：同一組三個狀態畫成三個圓，圓之間畫帶箭頭的弧，每條弧上標一個數字（單位時間的流量）。absorbing 只有兩條指向 `[MASK]` 的弧；用虛線多加兩條從 `[MASK]` 回到字的弧，標 $\sigma$。右下角三行小字對照：「邊際仍有 closed form（下一篇）」、「$\sigma$ 的單位是 1/時間，與步數無關」、「弧可以在取樣時加，不動 forward」。
+- **兩格之間**一個大箭頭，上方寫「換一種語言」。
+- **圖說（.mdx 內）**：「**圖：同一個修改，兩種語言。** 在 transition matrix 裡加一點『回到 [MASK]』的機會，closed form 消失、量沒有單位、取樣器沒有自己的旋鈕。換成『單位時間流量』的語言後，同一件事變成在圖上多畫兩條弧。」
+- 術語一律英文（transition matrix、rate、posterior、closed form）。配色沿用 <Ref to="dma-discrete-data"/> 那張逐 token 加噪聲圖的 `[MASK]` 灰底。
+</VizPlan>
+
+## 這面牆我們撞過一次
+
+停下來對照 <Ref week="dma-week-diffusion"/>。DDPM 也是離散時間：$T=1000$ 步、每步一個 $\beta_t$、取樣器是「反著走 posterior」。<Ref to="dma-reverse-process"/> 遇到的問題和上面幾乎一樣——DDPM 與 DDIM 用同一個網路卻是兩種取樣器，「為什麼都對、差在哪」在 $T$ 步的語言裡說不清楚。
+
+解法是換成連續時間：forward 寫成 SDE $dx=f\,dt+g\,dW$，邊際 $p_t$ 的演化寫成 Fokker–Planck。有了這個語言之後，<Ref to="dma-sampler-family"/> 才能寫出一整族取樣器
+
+$$
+dX_t=\big[b_t+\varepsilon_t s_t\big]dt+\sqrt{2\varepsilon_t}\,dW_t ,
+$$
+
+並用 Fokker–Planck 三行證明：對**任何** $\varepsilon_t\ge0$，邊際都是 $p_t$。這正好把上面三面牆一次拆掉：
+
+- $\varepsilon_t$ 是**單位時間**的量，與步數無關（第二面牆）。
+- 取樣器有了自己的旋鈕 $\varepsilon_t$，forward 的 $f,g$ 完全不動（第三面牆）。
+- 「動不動到邊際」變成一個可以證明的命題，而且答案是「不動」（第二個小問題）。
+
+而它之所以做得到，是因為 SDE 與 Fokker–Planck 描述的是**每單位時間的變化率**——drift 是單位時間的位移、噪聲項是單位時間增加的變異數——而不是「一步之後到哪」。步長 $h$ 是事後由取樣器決定的、可以任意切的東西。
+
+離散世界要做的，是同一個動作。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w7-0-two-languages.html" class="demo-frame" title="加一條「回到 [MASK]」的管子，會壞掉什麼：互動 demo" style="height: 900px; width: 100%; border: none;"></iframe>
+
+**互動 demo：加一條「回到 [MASK]」的管子，會壞掉什麼。** 兩件事量得出來。$\gamma=0$ 時上圖那條線貼在 0 上——**closed form 完全正確**；把 $\gamma$ 推上去，誤差立刻長出來（$\gamma$ 對應到中等強度時實測最大誤差 **0.33**），$\bar Q_t$ 再也不是「$\bar\alpha_t$ 倍的 identity ＋ 剩下的全在 `[MASK]`」那個形狀。下圖是更麻煩的那件事：兩種模式的**遮罩總量都固定**，但把「在 $T=40$ 校準好的每步機率」直接拿去 $T=10/100/1000$ 用，終點是 **0.126 / 0.556 / 0.926**——差了七倍；換成「每步取 $\sigma/T$」則是 **0.335 / 0.340 / 0.341**，三者幾乎相同。**rate 有單位，每步的機率沒有。**
+
+## 本週的新物件：rate
+
+把 $Q_t$ 換掉，改問一個更基本的問題：**在時刻 $t$，每單位時間有多少機率從狀態 $x$ 流到狀態 $y$？** 這個數叫 **rate**，記成 $R_t(x\to y)$，單位是 1/時間。一步的 transition matrix 只是它在一個很短的時間 $\Delta t$ 裡的累積：
+
+$$
+Q_{t\to t+\Delta t}\approx I+R_t\,\Delta t .
+$$
+
+反過來說，$R_t$ 是「$Q$ 減掉 identity 再除以 $\Delta t$」——transition matrix 的導數。這就是 continuous-time Markov chain（CTMC）[1]。$\Delta t$ 從模型的定義裡消失了：forward chain 由 $R_t$ 描述，「一步走多久」是取樣器的事。
+
+有了這個物件，上面三個小問題會在接下來幾篇裡各得到一個短答案：
+
+- **改多少？** 是一個 rate $\sigma_t$，單位 1/時間（<Ref to="dma-remasking"/>）。
+- **會不會動到邊際？** 有一個和 <Ref to="dma-sampler-family"/> 逐字對應的條件，滿足它就不動（<Ref to="dma-remasking"/>）。
+- **能不能連續地調？** $\sigma_t$ 從 0 連續調上去，absorbing 是 $\sigma\equiv0$ 那一端（<Ref to="dma-remasking"/>）。
+
+順便，<Ref to="dma-discrete-data"/> 說 <Ref week="dma-week-diffusion"/> 的框架在離散世界裡真的壞掉的兩塊是 **score** 與 **ODE / SDE**。rate 的語言會把這兩塊重建回來：反向過程的 rate 裡會冒出一個扮演 score 角色的量——不是梯度，是**比值** $p_t(y)/p_t(x)$（<Ref to="dma-concrete-score"/>）；而 flow matching 那套「條件路徑 → 邊際速度」的建構，把速度換成 rate 之後逐字成立（<Ref to="dma-discrete-flow-matching"/>）。<Ref to="dma-discrete-data"/> 那張 2×2 的表，右下角那格這一週填滿。
+
+<Details summary="為什麼不乾脆一直用離散時間、把 T 取很大？">
+可以，而且 <Ref to="dma-masked-diffusion"/> 的 Details 已經這麼做過一次：讓 $T\to\infty$，權重 $\frac{\bar\alpha_{t-1}-\bar\alpha_t}{1-\bar\alpha_t}$ 變成 $\frac{-\dot\alpha_t}{1-\alpha_t}dt$。那個極限其實已經是連續時間了——$-\dot\alpha_t/\alpha_t$ 就是 absorbing 鏈的 rate（下一篇會算出來）。
+
+問題不在「$T$ 大」，而在**用 $T$ 步的語言描述 $T\to\infty$ 的物件**：每次要問一個新問題（改 schedule、加 remasking、換取樣步數）都得重做一次極限。直接在極限裡工作，每個問題只要算一次。DDPM 到 SDE 的過渡也是同一個理由：DDPM 的 $\beta_t$ 在 $T\to\infty$ 下就是 SDE 的 $g_t^2\,dt$，但在 SDE 裡寫一族取樣器只要一行，在 DDPM 裡要重推 posterior。
+</Details>
+
+<Details summary="這一週不做的事">
+CTMC 是一個可以講一學期的主題。這一週只用到四件事：rate matrix 的定義、forward equation、時間反轉的 rate、以及「rate 是條件 rate 的後驗平均」。不碰 generator 的 semigroup 理論、不碰 Kolmogorov backward equation、不碰 explosion 或無限狀態空間。狀態空間永遠是有限的（$K$ 個字、$L$ 個位置），所有 $p_t$ 都是有限個數字。
+</Details>
+
+<Question id="Q1">
+既然 rate 只是「$Q$ 減掉 identity 再除以 $\Delta t$」，那它看起來只是把同一件事換一種寫法。
+
+**換一種寫法，為什麼會讓問題變簡單？**
+
+<Answer>
+因為它把一個**混在一起的東西拆開了**。離散時間的 $Q_t$ 同時編碼了兩件事：「這條鏈長什麼樣」和「我們打算走幾步」。上面 demo 的下半就是這件事的代價——同一個「每步機率」在不同的 $T$ 之下描述的是**不同的鏈**。
+
+換成 rate 之後，$\Delta t$ 從模型的定義裡消失：$R_t$ 描述鏈，「一步走多久」變成取樣器的事。於是三件事同時變便宜：
+
+1. **參數有單位。** $\sigma_t$ 的單位是 1/時間，寫下來就固定了一個物理量，不會因為換步數而改變意思。
+2. **可以連續地調。** absorbing 是 $\sigma\equiv0$，加 remasking 是把 $\sigma$ 從 0 往上推——之間沒有斷點。離散時間裡「加一點」得先決定加在哪一步、加多少，那不是一個連續的旋鈕。
+3. **同一個問題只要算一次。** 「這樣改會不會動到邊際？」在 rate 的語言裡是一條式子（<Ref to="dma-remasking"/>），在 $Q$ 的語言裡每換一次 $T$ 都得重算一次矩陣連乘。
+
+這和 <Ref week="dma-week-diffusion"/> 到 <Ref to="dma-sampler-family"/> 的過渡是**同一件事**：DDPM 的 $\beta_t$ 在 $T\to\infty$ 下就是 SDE 的 $g_t^2\,dt$，而「寫下一族邊際相同的取樣器」在 SDE 裡是一行、在 DDPM 裡要重推 posterior。
+
+值得說清楚的是：**換語言沒有換掉任何數學**。同一條鏈在兩種語言裡是同一條鏈，離散時間也不是錯的。變的只是「問一個新問題要付多少力氣」。
+</Answer>
+</Question>
+
+## 先消化一下
+
+<QuizBlock id="w7-0-a">
+在 absorbing 鏈的 $Q_t$ 裡把 `[MASK]` 那一列改成「以機率 $\gamma$ 回到某個字」。下列哪一件事**不會**因此壞掉？
+<Option>$\bar Q_t$ 的 closed form。</Option>
+<Option>posterior $q(x_{t-1}\mid x_t,x_0)$ 的 closed form。</Option>
+<Option correct>「forward 是一條合法的 Markov chain」這件事。</Option>
+<Explanation>
+改完的 $Q_t$ 每列仍和為 1、元素非負，還是一條合法的鏈——壞掉的是**好算**這件事：$\bar Q_t$ 不再是「$aI+b\times$ 投影」的形狀，連乘沒有 closed form，posterior 也跟著沒有。這正是第一面牆。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w7-0-b">
+「每步以 $\gamma=0.01$ 的機率把一個已翻開的字遮回去」——為什麼說這個量「沒有單位」？
+<Option>因為機率本來就是無單位的數。</Option>
+<Option correct>因為它是「一步」的機率，而一步的長度取決於總步數 $T$；同樣的 $\gamma$ 在 $T=1000$ 和 $T=10$ 下是完全不同的修正強度，跳步時也不知道該怎麼換。</Option>
+<Option>因為它會隨 $t$ 改變。</Option>
+<Explanation>
+機率無單位是對的，但問題在於「每步」這個時間基準會隨 $T$ 變。連續世界的 $\varepsilon_t$ 是單位時間的量，所以與步數無關；rate 的語言把「單位時間流多少」和「一步走多久」分開，前者屬於模型，後者屬於取樣器。隨 $t$ 改變本身不是問題——$\varepsilon_t$ 也隨 $t$ 變。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w7-0-c">
+<Ref to="dma-sampler-family"/> 那一族取樣器裡，$\varepsilon_t$ 可以任意選而邊際不變。這件事之所以能在連續世界裡**證明**，關鍵在於：
+<Option>SDE 的解可以寫成 closed form。</Option>
+<Option>所有取樣器都用同一個網路。</Option>
+<Option correct>有 Fokker–Planck 這個「邊際 $p_t$ 怎麼隨時間變」的方程式，可以直接把候選的取樣器代進去驗證。</Option>
+<Explanation>
+SDE 的解一般沒有 closed form；共用網路是結果不是原因。真正的工具是一條描述**分佈**演化的方程式——代入 $\varepsilon s\rho$ 與 $\varepsilon\Delta\rho$ 兩項相消，三行就證完。離散世界需要同一種東西：一條描述 $p_t$ 演化的方程式。下一篇的 forward equation 就是它。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w7-0-d">
+$Q_{t\to t+\Delta t}\approx I+R_t\Delta t$。這條式子說 rate matrix $R_t$ 是：
+<Option>$\Delta t$ 很小時的 transition matrix。</Option>
+<Option correct>transition matrix 對時間的導數——「$Q$ 減 identity、再除以 $\Delta t$」的極限，單位是 1/時間。</Option>
+<Option>$T$ 步之後的累積 transition matrix。</Option>
+<Explanation>
+$\Delta t$ 很小時的 transition matrix 是 $I+R_t\Delta t$，幾乎是 identity，不是 $R_t$ 本身；$R_t$ 描述的是**變化率**。累積的 transition matrix 是 $\bar Q_t$，它會由 $R_t$ 積分出來（下一篇）。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-ctmc">
+本篇把「翻錯的字能不能改」拆成三個小問題，看到 transition matrix 的語言在每一個上都卡住，並認出這與 DDPM 走向 SDE 是同一種卡法。下一篇正式引入 rate matrix：定義、forward equation、與 Fokker–Planck 並排，並把 uniform 與 absorbing 兩條鏈寫成 rate 的形式。
+</Bridge>
+
+## 參考文獻
+
+1. Campbell, A., Benton, J., De Bortoli, V., Rainforth, T., Deligiannidis, G., Doucet, A. [*A Continuous Time Framework for Discrete Denoising Models.*](https://arxiv.org/abs/2205.14987) NeurIPS 2022.（把 D3PM 搬到連續時間 CTMC 的第一篇。）
+2. Austin, J., Johnson, D. D., Ho, J., Tarlow, D., van den Berg, R. [*Structured Denoising Diffusion Models in Discrete State-Spaces.*](https://arxiv.org/abs/2107.03006) NeurIPS 2021.（離散時間的 transition matrix 語言。）
+3. Wang, G., Schiff, Y., Sahoo, S. S., Kuleshov, V. [*Remasking Discrete Diffusion Models with Inference-Time Scaling.*](https://arxiv.org/abs/2503.00307) 2025.（本篇三個小問題的答案之一，在 remasking 那一篇展開。）
+4. Anderson, B. D. O. [*Reverse-time Diffusion Equation Models.*](https://doi.org/10.1016/0304-4149(82)90051-5) Stochastic Processes and their Applications 12(3), 1982.（連續世界的時間反轉；下下篇會寫出它的離散版。）

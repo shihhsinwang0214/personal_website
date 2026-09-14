@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Block 大小：平行度與因子化誤差之間</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 500px; aspect-ratio: 4/3; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
+  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：LLaDA 那類系統把序列切成 <b>block</b>，block 之間從左到右、block 之內平行翻開。這顆旋鈕直接在<b>網路呼叫次數</b>與<b>因子化誤差</b>之間換——而且完全在取樣器裡，不動訓練。</p>
+
+  <canvas id="cv" width="600" height="450" aria-label="block 大小對誤差與呼叫次數"></canvas>
+  <p class="cap">橫軸＝網路呼叫次數（對數）　縱軸＝樣本的切換率（虛線＝資料的真值 1−相依強度）　每個點標它的 block 大小；同一條線上是同一個 block 大小、不同的每 block 步數</p>
+
+  <div class="controls">
+    <div class="row"><span class="lab">資料相依強度</span>
+      <button data-p="0.9" class="on">0.9（強）</button>
+      <button data-p="0.7">0.7（中）</button>
+      <button id="run">重新跑</button>
+    </div>
+    <div class="stats">
+      <span>B=16、1 步（一次全開）= <b id="v1">—</b></span>
+      <span>B=1（＝autoregressive，16 次呼叫）= <b id="v2">—</b></span>
+      <span>資料真值 = <b id="v4">—</b></span>
+      <span>B=4、每 block 2 步（8 次呼叫）= <b id="v3">—</b></span>
+    </div>
+  </div>
+
+  <p class="observe">最右下角那個點是 <b>B=1</b>：一次一格、16 次呼叫，切換率打在 0.10 上——那就是 autoregressive，沒有因子化誤差。最左上角是 <b>B=16、1 步</b>：一次呼叫全部填完，切換率衝到 0.5 附近。中間那些點才是有意思的地方：<b>B=4、每 block 2 步（8 次呼叫）量到 0.170</b>——用一半的呼叫次數，走完「最差 0.49 → 最好 0.09」這段路的<b>大約八成</b>。這就是 block 這顆旋鈕在賣的東西：它完全在取樣器裡，不必重訓。把相依強度切到 0.7 再看一次：資料本身變亂（真值變成 0.30），整張圖的可讀範圍跟著變窄——<b>相依越弱，平行翻開的代價越小</b>。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var L = 16, R = 400;
+  var BLOCKS = [1, 2, 4, 8, 16];
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var v1 = document.getElementById('v1'), v2 = document.getElementById('v2'), v3 = document.getElementById('v3');
+  var pal = NDFlow.palette();
+  var P_SAME = 0.9, pts = [];
+
+  function norm(v) { var t = v[0] + v[1]; return t > 0 ? [v[0] / t, v[1] / t] : [0.5, 0.5]; }
+  function posterior(x) {
+    var T = [[P_SAME, 1 - P_SAME], [1 - P_SAME, P_SAME]], i, a, p;
+    var em = [];
+    for (i = 0; i < L; i++) em.push(x[i] === null ? [1, 1] : [x[i] === 0 ? 1 : 0, x[i] === 1 ? 1 : 0]);
+    var f = [norm([0.5 * em[0][0], 0.5 * em[0][1]])];
+    for (i = 1; i < L; i++) {
+      var nx = [0, 0];
+      for (a = 0; a < 2; a++) for (p = 0; p < 2; p++) nx[a] += f[i - 1][p] * T[p][a];
+      f.push(norm([nx[0] * em[i][0], nx[1] * em[i][1]]));
+    }
+    var b = new Array(L); b[L - 1] = [1, 1];
+    for (i = L - 2; i >= 0; i--) {
+      var bb = [0, 0];
+      for (a = 0; a < 2; a++) for (var q = 0; q < 2; q++) bb[a] += T[a][q] * em[i + 1][q] * b[i + 1][q];
+      b[i] = norm(bb);
+    }
+    var out = [];
+    for (i = 0; i < L; i++) out.push(norm([f[i][0] * b[i][0], f[i][1] * b[i][1]])[1]);
+    return out;
+  }
+  // block 之間從左到右，block 之內平行翻開 steps 次（每次翻開剩下的 1/剩餘步數）
+  function oneRun(B, steps) {
+    var x = new Array(L).fill(null), calls = 0;
+    for (var b0 = 0; b0 < L; b0 += B) {
+      var idx = [];
+      for (var j = b0; j < Math.min(L, b0 + B); j++) idx.push(j);
+      var remain = idx.slice();
+      for (var st = 0; st < steps; st++) {
+        if (remain.length === 0) break;
+        var mg = posterior(x); calls++;
+        var take = (st === steps - 1) ? remain.length : Math.max(1, Math.round(remain.length / (steps - st)));
+        // 隨機挑 take 個
+        for (var z = remain.length - 1; z > 0; z--) { var r2 = Math.floor(Math.random() * (z + 1)), tp = remain[z]; remain[z] = remain[r2]; remain[r2] = tp; }
+        var chosen = remain.splice(0, take);
+        for (var c = 0; c < chosen.length; c++) x[chosen[c]] = Math.random() < mg[chosen[c]] ? 1 : 0;
+      }
+    }
+    var sw = 0;
+    for (var i = 1; i < L; i++) if (x[i] !== x[i - 1]) sw++;
+    return { sw: sw / (L - 1), calls: calls };
+  }
+  function run() {
+    pts = [];
+    BLOCKS.forEach(function (B) {
+      var maxSteps = Math.min(B, 4);
+      for (var st = 1; st <= maxSteps; st++) {
+        if (B > 1 && st === 3) continue;
+        var s = 0, c = 0;
+        for (var r = 0; r < R; r++) { var o = oneRun(B, st); s += o.sw; c += o.calls; }
+        pts.push({ B: B, steps: st, sw: s / R, calls: c / R });
+      }
+    });
+    function find(B, st) { for (var i = 0; i < pts.length; i++) if (pts[i].B === B && pts[i].steps === st) return pts[i]; return null; }
+    var a = find(16, 1), b = find(1, 1), c2 = find(4, 2);
+    v1.textContent = a ? a.sw.toFixed(3) : '—';
+    v2.textContent = b ? b.sw.toFixed(3) : '—';
+    v3.textContent = c2 ? (c2.sw.toFixed(3) + '（' + c2.calls.toFixed(0) + ' 次）') : '—';
+    document.getElementById('v4').textContent = (1 - P_SAME).toFixed(2);
+  }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx;
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    var Lm = 48, Rm = 16, T = 18, Bm = 34;
+    var X = function (v) { return Lm + (Math.log(v) - Math.log(0.9)) / (Math.log(18) - Math.log(0.9)) * (s.w - Lm - Rm); };
+    var lo = 0.06, hi = 0.56;
+    var Y = function (v) { return T + (hi - v) / (hi - lo) * (s.h - T - Bm); };
+    ctx.strokeStyle = 'rgba(255,255,255,0.09)'; ctx.lineWidth = 1;
+    ctx.font = '500 10px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.textAlign = 'center';
+    [1, 2, 4, 8, 16].forEach(function (v) {
+      ctx.beginPath(); ctx.moveTo(X(v), T); ctx.lineTo(X(v), s.h - Bm); ctx.stroke();
+      ctx.fillText(String(v), X(v), s.h - Bm + 15);
+    });
+    ctx.textAlign = 'right';
+    [0.1, 0.2, 0.3, 0.4, 0.5].forEach(function (v) {
+      ctx.beginPath(); ctx.moveTo(Lm, Y(v)); ctx.lineTo(s.w - Rm, Y(v)); ctx.stroke();
+      ctx.fillText(v.toFixed(1), Lm - 5, Y(v) + 3.5);
+    });
+    var TGT = 1 - P_SAME;
+    ctx.setLineDash([5, 4]); ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(Lm, Y(TGT)); ctx.lineTo(s.w - Rm, Y(TGT)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText('資料 ' + TGT.toFixed(2), Lm + 6, Y(TGT) - 5);
+    ctx.textAlign = 'center';
+    ctx.fillText('網路呼叫次數', (Lm + s.w - Rm) / 2, s.h - 4);
+    ctx.save(); ctx.translate(12, (T + s.h - Bm) / 2); ctx.rotate(-Math.PI / 2);
+    ctx.fillText('樣本的切換率', 0, 0); ctx.restore();
+    // 同一個 B 連成一條線
+    var cols = { 1: pal.accent, 2: 'rgb(96,186,130)', 4: '#d94f4f', 8: 'rgba(255,255,255,0.6)', 16: '#c07ad8' };
+    BLOCKS.forEach(function (B) {
+      var g = pts.filter(function (p) { return p.B === B; }).sort(function (a, b) { return a.calls - b.calls; });
+      if (g.length > 1) {
+        ctx.strokeStyle = cols[B]; ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        g.forEach(function (p, i) { i ? ctx.lineTo(X(p.calls), Y(p.sw)) : ctx.moveTo(X(p.calls), Y(p.sw)); });
+        ctx.stroke();
+      }
+      g.forEach(function (p) {
+        ctx.fillStyle = cols[B];
+        ctx.beginPath(); ctx.arc(X(p.calls), Y(p.sw), 4, 0, 6.284); ctx.fill();
+        ctx.font = '700 9px "Plus Jakarta Sans", system-ui, sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.textAlign = 'left';
+        ctx.fillText('B=' + p.B, X(p.calls) + 6, Y(p.sw) + 3);
+      });
+    });
+  }
+  function go() { run(); draw(); }
+  document.getElementById('run').onclick = go;
+  Array.prototype.forEach.call(document.querySelectorAll('[data-p]'), function (b) {
+    b.onclick = function () {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-p]'), function (o) { o.classList.remove('on'); });
+      b.classList.add('on'); P_SAME = parseFloat(b.dataset.p); go();
+    };
+  });
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  run(); applyTheme();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,260 @@
+---
+slug: "ml-l1-1-bias-variance"
+label: "ml-bias-variance"
+prereqs:
+  - math-gaussian
+  - math-conditional-expectation
+  - math-mse-conditional-expectation
+lang: "zh"
+title: "十個房仲各看一百間房：Bias 與 Variance"
+category: "courses"
+group: "L1 · 泛化：過擬合、欠擬合與資料切分"
+status: "available"
+updated: 2026-09-10
+summary: "十個房仲各自看不同的一百間房，他們的估價會多分散？平均起來會偏嗎？這兩個問題把母體風險拆成三塊可以分別測量的量：bias²（平均起來偏多少）、variance（換一份資料會抖多少）、不可約誤差（誰都消不掉的部分）。共用 toy 上量出來：次數從 1 到 12，bias² 從 0.2004 掉到 0.0000，variance 從 0.0016 爬到 0.0095，總和的谷底在 5。三塊各由不同的旋鈕控制，所以「模型不夠好」有三種不同的處方。"
+demos: []
+references:
+  - label: "Geman, Bienenstock, Doursat, Neural Networks and the Bias/Variance Dilemma (Neural Computation 1992)"
+    href: "https://doi.org/10.1162/neco.1992.4.1.1"
+  - label: "Hastie, Tibshirani, Friedman, The Elements of Statistical Learning, 2nd ed. (Springer 2009), Ch. 7.3"
+    href: "https://hastie.su.domains/ElemStatLearn/"
+  - label: "Domingos, A Unified Bias-Variance Decomposition and its Applications (ICML 2000)"
+    href: "https://homes.cs.washington.edu/~pedrod/papers/mlc00a.pdf"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Ask from '../../../components/Ask.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Remark from '../../../components/Remark.astro';
+import Bridge from '../../../components/Bridge.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 十個房仲各看一百間房：Bias 與 Variance
+
+<Objectives>
+- 寫出平方損失下母體風險的三項分解，並說出每一項是對什麼取期望、由哪個旋鈕控制。
+- 在共用 toy 上把三項分別測量出來，並用 $\sigma^2(d+1)/n$ 檢查 variance 的量級。
+- 對「模型不夠好」給出三種不同的處方，並說出加資料能壓哪一項、不能壓哪一項。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 起點：十個房仲，同一間房
+
+台北有十位資深房仲，本領一樣、方法一樣。差別只在**他們各自看過的一百間房子不同**——同一個市場裡隨機抽的一百間。
+
+現在把同一間房子帶去給十個人估。你會得到十個數字。
+
+**問題一：這十個數字散得多開？** 如果從 2,700 萬到 3,100 萬，那表示「他看過哪一百間」對答案影響很大——**換一份資料就換一個答案**。
+
+**問題二：這十個數字的平均，會偏嗎？** 如果十個人平均起來是 2,880 萬而真實價值是 2,900 萬，那有一個 20 萬的系統性偏差——**這個偏差不會因為找第十一個房仲而消失**，因為它是「這套方法」本身的偏差，不是誰的運氣。
+
+兩個問題是獨立的。一個方法可以很穩定但一直偏（十個人都說 2,600 萬）；也可以平均起來很準但每個人差很多（平均 2,900 但散佈 ±400 萬）。**兩種都不好，但要修的東西完全不同。**
+
+這一篇把 <Ref to="ml-overfitting-underfitting" mode="title"/> 裡定性的「過擬合／欠擬合」換成三個可以分別算出數字的量。
+
+<Ask>
+十個房仲對同一間房的估價，會散得多開？<br />
+平均起來會偏嗎？<br />
+這兩個問題為什麼一定要分開問？
+</Ask>
+
+<Question id="Q1">
+「十個房仲」在數學上是什麼？期望是對什麼取的？把 $\mathbb E[(Y-\hat f(x))^2]$ 拆成三塊——每一塊分別對應上面的哪個問題？
+
+<Answer>
+**十個房仲 = 十份訓練資料。** 訓練集 $D$ 本身是隨機的（從 $p$ 抽 $n$ 筆），所以 $\hat f_D$ 是一個**隨機函數**：換一份資料就換一個模型。房仲的「本領」是**演算法**（假設空間＋損失＋最佳化），十個人共用；不同的是餵給它的資料。
+
+**期望對兩件事取。** 固定一個查詢點 $x$：$Y$ 的隨機（同一個 $x$ 的實際成交價本來就有波動）與 $D$ 的隨機（抽到哪一百間）。兩者獨立。
+
+**三項分解。** 令 $\bar f(x)=\mathbb E_D[\hat f_D(x)]$（十個房仲的平均答案，$10\to\infty$ 的版本），$f^\star(x)=\mathbb E[Y\mid x]$（<Ref to="math-mse-conditional-expectation"/> 說的最佳答案）：
+
+$$
+\mathbb E_{D,Y}\big[(Y-\hat f_D(x))^2\big]
+=\underbrace{\mathrm{Var}(Y\mid x)}_{\text{不可約}}
++\underbrace{(\bar f(x)-f^\star(x))^2}_{\text{bias}^2\ \text{：問題二}}
++\underbrace{\mathbb E_D\big[(\hat f_D(x)-\bar f(x))^2\big]}_{\text{variance：問題一}}.
+$$
+
+**bias 是「平均起來偏多少」，variance 是「換一份資料會抖多少」，不可約是「同一個 $x$ 的 $Y$ 本身就會變」。** 三項都非負，所以每一項都是總誤差的下界之一——想要總誤差小，三項都得小。
+</Answer>
+</Question>
+
+## 三塊，各由不同的旋鈕控制
+
+- **不可約誤差** $\mathbb E[\mathrm{Var}(Y\mid X)]$：由**問題本身**決定。換模型沒用，加資料沒用。唯一能動它的方式是**換問題**——加入新的特徵，讓原本「隨機」的部分變成可預測的（房子的漏水史、賣方的急迫程度）。這一項在共用 toy 裡正好是 $0.15^2=0.0225$。
+- **bias²**：由**假設空間**決定。$\mathcal F$ 裡最好的那個離真相多遠，這是 L0 的 approximation error 在單點上的樣子。加資料**壓不動它**——十萬個只會畫直線的房仲，平均起來還是一條直線。
+- **variance**：由**假設空間的大小與資料量的比值**決定。空間越大、資料越少，換一份資料換一個模型的程度越劇烈。這一項是 L0 的 estimation error，而且**加資料對它非常有效**。
+
+三個旋鈕解釋了為什麼「模型不夠好」需要先診斷。同樣的症狀（測試誤差高），bias 主導時要加容量，variance 主導時要加資料或減容量，不可約主導時**該做的是接受它並停止投入**——很多專案在這一格燒掉幾個月。
+
+一個立刻可用的推論。十個房仲的平均比任何單一房仲穩，但如果他們都只會畫直線，平均起來還是直線。這是 bagging、random forest、以及深度學習裡權重平均之所以有效、也之所以有極限的原因。
+
+> **平均多個模型（ensembling）只壓 variance，不壓 bias。**
+
+<VizPlan id="ml-l1-1-targets" title="靶心圖與十條擬合曲線" type="static">
+- **檔名**：`l1-generalization/imgs/l1-1-1.svg`（16:9，上下兩排）。
+- **上排**：經典的四張靶心圖（低/高 bias × 低/高 variance），但把每一張的彈著點換成「十個房仲對同一間房的估價」，靶心標「真實價值」。四張下方各一行處方（加容量／加資料或減容量／接受它／同時有兩種病）。
+- **下排**：共用 toy 上的三組小圖，每組畫**十條**用不同重抽資料擬出的曲線（細線）＋它們的平均（粗線）＋真值（灰虛線）：degree 1（十條幾乎重疊但整體偏離真值 → 高 bias 低 variance）、degree 5（十條靠近且平均貼合 → 兩者都低）、degree 12（十條散得很開但平均仍貼合 → 低 bias 高 variance）。
+- **圖說**：「上排是抽象的靶，下排是同一件事發生在函數空間裡：bias 是粗線離灰線多遠，variance 是細線離粗線多遠。」
+</VizPlan>
+
+## 把總誤差拆成三塊，再算出 variance 的量級
+
+固定 $x$，寫 $\hat f=\hat f_D(x)$、$\bar f=\mathbb E_D[\hat f]$、$f^\star=\mathbb E[Y\mid x]$。把 $Y-\hat f$ 拆成三段：
+
+$$
+Y-\hat f=\underbrace{(Y-f^\star)}_{\text{噪聲}}+\underbrace{(f^\star-\bar f)}_{\text{常數}}+\underbrace{(\bar f-\hat f)}_{\text{均值為 }0}.
+$$
+
+平方後取期望。三個交叉項都是零：第一段對 $Y$ 的條件期望為零且與 $D$ 獨立；第三段對 $D$ 的期望為零；第二段是常數。於是
+
+$$
+\mathbb E\big[(Y-\hat f)^2\big]=\mathrm{Var}(Y\mid x)+(\bar f-f^\star)^2+\mathrm{Var}_D(\hat f).
+$$
+
+**這與 <Ref to="math-mse-conditional-expectation" mode="title"/> 的三行證明是同一個技巧**（拆成「均值為零的部分」加「常數部分」，交叉項消失），只是那裡對 $Y$ 分解，這裡多了一層對 $D$ 的分解。
+
+線性模型有一個乾淨的量級公式。設計矩陣固定、噪聲變異數 $\sigma^2$、參數個數 $k=d+1$（本篇的 $p$ 一律留給分布），最小平方估計在訓練點上的平均 variance 是
+
+$$
+\frac1n\sum_i \mathrm{Var}\big(\hat f(x_i)\big)=\frac{\sigma^2 k}{n}.
+$$
+
+**兩個依賴一目了然：參數越多，variance 線性上升；資料越多，線性下降。** 這是「$n$ 要跟 $k$ 一起長」這句老話的來源，也是下面實測會驗證的公式。
+
+<Remark label="注意" summary="這個分解只對平方損失這麼漂亮">
+三項分解依賴平方損失的代數（交叉項為零）。換成 0–1 損失或 cross-entropy，「bias」與「variance」仍然可以定義（Domingos 2000 給了一個統一的框架），但它們不再單純相加：分類問題裡 variance 有時**幫得上忙**——一個平均起來偏向錯誤類別的預測，只要抖得夠厲害，仍然可能有一半的時間落在正確的那一邊。
+
+所以在分類任務上，請把 bias–variance 當成**思考工具**（是「方法本身偏了」還是「換份資料就變」）而不是可以逐項相加的帳。要量化，直接量你在意的那個指標在多次重抽下的平均與散佈——這也正是 <Ref to="ml-seeds-and-reporting" mode="title"/> 要做的事。
+</Remark>
+
+## 回到情境：三種處方，與「加資料」的極限
+
+回到十個房仲。**如果十個人的估價彼此差很多**（高 variance）：他們的方法對「看過哪一百間」太敏感。修法是讓每個人多看一些（加資料）、或讓方法更受限（減容量、加正則化），或**把十個人的答案平均起來**（ensembling）。
+
+**如果十個人很一致但一起偏低**（高 bias）：多找一百個房仲、每人多看一千間，都不會改善。要換方法——加入他們現在沒在看的特徵，或允許更豐富的調整規則。
+
+**如果十個人一致、也不偏，但每次的實際成交價本來就在 ±5% 之間跳**（不可約）：這是市場本身的隨機。此時該做的是**改變目標**——報一個區間而不是一個數字，或者去找能解釋那 5% 的新資訊。
+
+**這一切依賴什麼。** 一，十份資料真的是獨立同分佈抽的；若十個房仲其實共用一半的案例，variance 會被低估。二，這裡的 $\bar f$ 是「無限多份資料的平均模型」，實務上只能用有限次重抽估計，重抽次數不夠時 bias 與 variance 的估計本身就有 variance。三，平方損失（見上面的 Details）。
+
+## 回到情境：把三塊量出來
+
+固定 30 個位置（只重抽噪聲，這樣分解裡沒有「設計也在變」這個額外來源），每個 degree 重抽 300 份資料：
+
+```python
+import numpy as np, warnings; warnings.filterwarnings("ignore")
+from numpy.polynomial import Polynomial
+from ml_toy import truth, NOISE
+
+xs, ys = truth()
+x = np.linspace(0, 1, 30)                              # 固定的 30 個位置
+Y = np.sin(2*np.pi*x) + NOISE*np.random.default_rng(0).standard_normal((300, 30))
+
+for d in (1, 2, 3, 5, 7, 9, 12):
+    P = np.array([Polynomial.fit(x, yy, d)(xs) for yy in Y])   # 300 條擬合曲線
+    bias2 = ((P.mean(0) - ys)**2).mean()                        # 平均曲線離真值多遠
+    var   = P.var(0).mean()                                     # 每條離平均曲線多遠
+    print(f"degree {d:2d}   bias² {bias2:.4f}   variance {var:.4f}"
+          f"   noise {NOISE**2:.4f}   總和 {bias2+var+NOISE**2:.4f}")
+```
+
+```
+degree  1   bias² 0.2004   variance 0.0016   noise 0.0225   總和 0.2245
+degree  2   bias² 0.2004   variance 0.0022   noise 0.0225   總和 0.2251
+degree  3   bias² 0.0048   variance 0.0028   noise 0.0225   總和 0.0301
+degree  5   bias² 0.0000   variance 0.0041   noise 0.0225   總和 0.0266
+degree  7   bias² 0.0000   variance 0.0053   noise 0.0225   總和 0.0278
+degree  9   bias² 0.0000   variance 0.0069   noise 0.0225   總和 0.0294
+degree 12   bias² 0.0000   variance 0.0095   noise 0.0225   總和 0.0320
+```
+
+**兩欄的方向完全相反，一如理論。** bias² 從 $0.2004$ 一路掉到 $0.0000$（$d\ge5$ 之後，多項式已經足以逼近 $\sin$ 到量測不出的程度）；variance 從 $0.0016$ 單調爬到 $0.0095$。總和的谷底在 $d=5$（$0.0266$），與上一篇 U 形的谷底一致——**U 形不是一個經驗現象，它是這兩欄相加的結果。**
+
+三個細節值得停一下：
+
+- **$d=1$ 與 $d=2$ 的 bias² 完全相同（$0.2004$）**：二次項對 $\sin(2\pi x)$ 在 $[0,1]$ 上幫不上忙，所以「加容量」在這一步只買到 variance、沒買到 bias。加錯方向的容量比不加更糟。
+- **$d\ge5$ 之後 bias² 是 $0.0000$**：這時再減 degree 只會傷害，再加 degree 只買 variance。**這一格的正確判斷是「停」**，而不是繼續調。
+- **不可約誤差那一欄從頭到尾是 $0.0225$**：它不是被模型影響的量。總和永遠 $>0.0225$——這條地板線在讀任何訓練曲線時都該先畫出來。
+
+**驗證量級公式。** 理論說 variance $\approx\sigma^2(d+1)/n$。固定 $d=9$，改變 $n$：
+
+```python
+for n in (30, 100, 300):
+    x = np.linspace(0, 1, n)
+    Y = np.sin(2*np.pi*x) + NOISE*np.random.default_rng(0).standard_normal((300, n))
+    P = np.array([Polynomial.fit(x, yy, 9)(xs) for yy in Y])
+    print(f"degree 9, n={n:3d}:  variance {P.var(0).mean():.4f}"
+          f"   (理論 σ²(d+1)/n = {NOISE**2*10/n:.4f})")
+```
+
+```
+degree 9, n= 30:  variance 0.0069   (理論 σ²(d+1)/n = 0.0075)
+degree 9, n=100:  variance 0.0021   (理論 σ²(d+1)/n = 0.0022)
+degree 9, n=300:  variance 0.0008   (理論 σ²(d+1)/n = 0.0007)
+```
+
+三個數字都對到個位數的百分比。這條公式因此可以當成一個**預算工具**：想把 variance 減半，要嘛砍一半參數，要嘛加一倍資料。
+
+> **加一倍資料只買得到 variance 那一項，bias 與不可約誤差不動。**
+
+**刻意違反：把噪聲關掉。** 令 $\sigma=0$，不可約誤差變 $0$、公式預測 variance 也變 $0$。但這個結論只在「資料位置固定」時成立——若每次重抽連 $x$ 的位置一起重抽（更接近真實的重新蒐集資料），高次多項式仍然抖得很厲害，因為**設計本身的隨機**也是 variance 的來源，而它不隨 $\sigma$ 消失。這解釋了上一篇的觀察：噪聲為零時仍然可以過擬合。做這個分解時把「什麼在重抽」講清楚，比記住公式更重要。
+
+## 拖旋鈕，看三塊怎麼此消彼長
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/machine-learning-foundations/l1-generalization/l1-1-2.html" class="demo-frame" title="拖旋鈕，看三塊怎麼此消彼長：互動 demo" style="height: 835px; width: 100%; border: none;"></iframe>
+
+**互動 demo：三塊各自由不同的旋鈕控制：加資料壓 variance、換假設空間壓 bias、雜訊那塊誰也動不了。**
+
+## 先消化一下
+
+<QuizBlock id="ml-l1-1-a">
+一個團隊把同一個架構用五個不同的隨機種子各訓一次，測試準確率是 $71\%$、$83\%$、$76\%$、$85\%$、$74\%$。他們決定回報最高的 $85\%$。除了誠實性以外，這組數字在**診斷上**告訴你什麼？
+<Option>模型的 bias 太高。</Option>
+<Option correct>variance 很大：換一次隨機性就換一個結果。處方是加資料、減容量、或把多次結果平均（ensembling / 權重平均）；而且在這個散佈下，任何「A 比 B 好 2%」的比較都沒有意義。</Option>
+<Option>不可約誤差太高。</Option>
+<Explanation>
+14 個百分點的散佈是一個非常大的 variance 訊號。它有兩個後果，一個是統計上的（該報平均與區間，見 <Ref to="ml-seeds-and-reporting" mode="title"/>），一個是診斷上的（該往減 variance 的方向修）。順帶一提，這裡的隨機來源不是資料重抽而是初始化與 minibatch 順序——bias–variance 的框架同樣適用，只要把「隨機的東西」定義清楚。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l1-1-b">
+在表裡 $d\ge5$ 之後 bias² 都是 $0.0000$。有人主張「所以應該用 $d=12$，反正 bias 已經最小」。最合適的評論是：
+<Option>正確，bias 最小的模型最好。</Option>
+<Option correct>錯誤，總誤差還有 variance 那一欄：$d=5$ 是 $0.0041$、$d=12$ 是 $0.0095$，總和從 $0.0266$ 升到 $0.0320$。bias 為零之後，多出來的容量只買到 variance——這一格該做的是停手。</Option>
+<Option>應該用 $d=1$，因為 variance 最小。</Option>
+<Explanation>
+「把某一項最小化」不是目標，總和才是。這題的實務版本是：模型已經能完美擬合訓練集之後繼續加容量，除非同時加資料，否則買到的是不穩定。（值得注意的是，把容量推到遠遠超過資料量時，會進入 double descent 的區域，古典 U 形不再是完整的圖像——那是參考文獻 2 的主題，也是現代大模型所處的位置。）
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l1-1-c">
+「加一倍資料」對三項的影響是：
+<Option>三項都減半。</Option>
+<Option correct>variance 大約減半（$\sigma^2 k/n$ 的 $n$ 變兩倍），bias² 不變，不可約誤差不變。所以資料只買得到其中一項——如果目前是 bias 主導，加資料幾乎沒有效果。</Option>
+<Option>bias² 減半，variance 不變。</Option>
+<Explanation>
+這是全篇最實用的一條，因為蒐集資料通常是最貴的行動。先做分解（或至少做一次「$n$ 減半看誤差變多少」的實驗）再決定要不要花那筆錢。$n=30$ 與 $n=300$ 的兩張表也印證了同一件事：$d=1$ 那一列幾乎沒有因為資料變十倍而改善（$0.2679\to0.2207$），因為它的病是 bias。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="ml-data-splits">
+這一篇把母體風險拆成三塊可以分別測量的量：bias²（假設空間決定，加資料壓不動）、variance（空間大小與資料量的比值決定，$\sigma^2 k/n$）、不可約誤差（問題決定）。實測的兩欄方向相反，相加正好給出上一篇的 U 形，而谷底就在兩者的邊際變化相抵之處。
+
+但這整篇的測量都作弊了：我們用了 `truth()`，也就是真實函數。真實專案裡沒有這個東西——你只有一堆資料。**要在沒有真值的情況下估出泛化誤差，唯一的辦法是留一部分資料不給模型看。** 下一篇處理這件事：三個資料集各自的角色、為什麼測試集只能看一次、以及資料洩漏最常見的幾種形式（其中一種只要一行前處理寫錯位置就會發生）。
+</Bridge>
+
+## 參考文獻
+
+1. Geman, S., Bienenstock, E., Doursat, R. [*Neural Networks and the Bias/Variance Dilemma.*](https://doi.org/10.1162/neco.1992.4.1.1) Neural Computation 1992.（把分解系統地用在學習演算法上的經典來源。）
+2. Hastie, T., Tibshirani, R., Friedman, J. [*The Elements of Statistical Learning*](https://hastie.su.domains/ElemStatLearn/), 2nd ed. Springer 2009, Ch. 7.3.（分解、線性模型的 $\sigma^2p/n$、以及它與模型選擇準則的關係。）
+3. Domingos, P. [*A Unified Bias-Variance Decomposition and its Applications.*](https://homes.cs.washington.edu/~pedrod/papers/mlc00a.pdf) ICML 2000.（0–1 損失等非平方損失下的推廣，以及 variance 在分類裡為何可能有益。）

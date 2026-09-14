@@ -1,0 +1,46 @@
+---
+/**
+ * VizPlan.astro — a planned figure / interactive demo / notebook, described as a spec
+ * until the real asset ships. Renders as a labelled box so the plan is visible to readers.
+ *
+ *   <VizPlan id="w3-3-score-field" title="Score field 與後驗均值" type="interactive">
+ *   - 規格條列…
+ *   </VizPlan>
+ */
+interface Props { id?: string; title: string; type?: 'static' | 'interactive' | 'notebook' }
+const { id, title, type = 'static' } = Astro.props;
+const typeLabel: Record<string, string> = {
+  static: '示意圖',
+  interactive: '互動 demo',
+  notebook: 'Notebook',
+};
+---
+
+<aside class="vizplan" id={id ? `viz-${id}` : undefined} data-type={type}>
+  <p class="vizplan-head">
+    <span class="vizplan-kind">{typeLabel[type] ?? type} · 規劃中</span>
+    <span class="vizplan-title">{title}</span>
+  </p>
+  <div class="vizplan-body"><slot /></div>
+</aside>
+
+<style>
+  .vizplan {
+    margin: 24px 0;
+    padding: 14px 18px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius, 12px);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.94rem;
+  }
+  .vizplan-head { margin: 0 0 8px; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: baseline; }
+  .vizplan-kind {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--accent);
+  }
+  .vizplan-title { font-weight: 600; color: var(--text); }
+  .vizplan-body :global(ul) { margin: 0; padding-left: 1.2em; }
+  .vizplan-body :global(li) { margin: 3px 0; line-height: 1.6; }
+  .vizplan-body :global(p) { margin: 0; }
+</style>

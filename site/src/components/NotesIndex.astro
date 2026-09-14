@@ -1,8 +1,11 @@
 ---
 import type { Lang, NoteEntry } from '../lib/notes';
 import {
+  areaAnchor,
   categoryLabels,
+  courseAnchor,
   courseSections,
+  groupAnchor,
   formatNoteDate,
   groupMeta,
   groupNotes,
@@ -12,6 +15,7 @@ import {
   researchAreaLabels,
   statusLabels,
 } from '../lib/notes';
+import { noteTitles } from '../lib/noteRefs';
 import { withBase } from '../lib/url';
 import SearchPanel from './SearchPanel.astro';
 
@@ -24,6 +28,7 @@ const { lang, notes } = Astro.props;
 const otherLang = lang === 'zh' ? 'en' : 'zh';
 const grouped = groupNotes(notes);
 const courseBlocks = courseSections(notes, lang);
+const titles = await noteTitles();
 ---
 
 <section class="notes-index">
@@ -47,11 +52,24 @@ const courseBlocks = courseSections(notes, lang);
       <section class="note-category">
         <h3>{categoryLabels[categoryGroup.category][lang]}</h3>
         {categoryGroup.category === 'courses'
-          ? courseBlocks.map((course) => (
-              <section class="note-area note-course">
-                <div class="note-area-heading">
-                  <span>{course.title}</span>
-                </div>
+          ? courseBlocks.map((course) => {
+              const courseLatest = latestNoteDate(course.lectures.flatMap((l) => l.notes));
+              return (
+              <details class="note-area note-course" id={courseAnchor(course.key)}>
+                <summary class="disclosure-summary note-course-summary">
+                  <span class="disclosure-copy">
+                    <span class="note-course-title">{course.title}</span>
+                    <span class="disclosure-meta">
+                      {course.readyLectureCount} {lang === 'zh' ? '個單元' : 'units'} · {course.noteCount}{' '}
+                      {lang === 'zh' ? '篇' : 'notes'}
+                      {courseLatest ? ` · Updated ${formatNoteDate(courseLatest, lang)}` : ''}
+                    </span>
+                  </span>
+                  <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+                    <path d="M7 4.5 12.5 10 7 15.5" />
+                  </svg>
+                </summary>
+                <div class="disclosure-content note-course-content">
                 {course.lectures.map((lecture) => {
                   if (lecture.comingSoon) {
                     return (
@@ -71,7 +89,7 @@ const courseBlocks = courseSections(notes, lang);
                   const latest = latestNoteDate(lecture.notes);
                   const total = lecture.notes.length;
                   return (
-                    <details class="note-group" open={lecture.open}>
+                    <details class="note-group">
                       <summary class="disclosure-summary note-group-summary">
                         <span class="disclosure-copy">
                           <span class="disclosure-label">{lecture.group}</span>
@@ -95,7 +113,7 @@ const courseBlocks = courseSections(notes, lang);
                             const href = isMissing
                               ? noteRoute(note.data.slug, otherLang)
                               : noteRoute(note.data.slug, note.data.lang);
-                            const isStart = lecture.open && index === 0;
+                            const isStart = lecture.startHere && index === 0;
                             return (
                               <a class="note-list-card" href={withBase(href)}>
                                 <div class="note-card-topline">
@@ -121,7 +139,7 @@ const courseBlocks = courseSections(notes, lang);
                                     </span>
                                   )}
                                 </div>
-                                <strong>{note.data.title}</strong>
+                                <strong>{titles.of(note)}</strong>
                                 <p>
                                   {isMissing || isFallbackLang ? (
                                     <span class="alt-hint">
@@ -141,10 +159,12 @@ const courseBlocks = courseSections(notes, lang);
                     </details>
                   );
                 })}
-              </section>
-            ))
+                </div>
+              </details>
+              );
+            })
           : categoryGroup.areas.map((areaGroup) => (
-              <section class="note-area">
+              <section class="note-area" id={areaGroup.area ? areaAnchor(areaGroup.area) : undefined}>
                 {areaGroup.area && (
                   <div class="note-area-heading">
                     <span>{researchAreaLabels[areaGroup.area][lang]}</span>
@@ -155,7 +175,7 @@ const courseBlocks = courseSections(notes, lang);
                   const meta = groupMeta[group];
                   const total = groupEntries.length;
                   return (
-                    <details class="note-group" open={meta?.defaultOpen}>
+                    <details class="note-group" id={groupAnchor(group)}>
                       <summary class="disclosure-summary note-group-summary">
                         <span class="disclosure-copy">
                           <span class="disclosure-label">{group}</span>
@@ -210,7 +230,7 @@ const courseBlocks = courseSections(notes, lang);
                                     </span>
                                   )}
                                 </div>
-                                <strong>{note.data.title}</strong>
+                                <strong>{titles.of(note)}</strong>
                                 <p>
                                   {isMissing || isFallbackLang ? (
                                     <span class="alt-hint">
@@ -236,3 +256,23 @@ const courseBlocks = courseSections(notes, lang);
     ))
   }
 </section>
+
+<script>
+  // Links from the home page point at #course-… / #area-… / #group-…. Every
+  // disclosure starts closed, so open the target (and any <details> around it)
+  // before scrolling — otherwise the browser jumps to a collapsed stub.
+  function revealHash() {
+    const id = decodeURIComponent(location.hash.slice(1));
+    if (!id) return;
+    const target = document.getElementById(id);
+    if (!target) return;
+    let node: HTMLElement | null = target;
+    while (node) {
+      if (node instanceof HTMLDetailsElement) node.open = true;
+      node = node.parentElement;
+    }
+    target.scrollIntoView({ block: 'start' });
+  }
+  revealHash();
+  window.addEventListener('hashchange', revealHash);
+</script>

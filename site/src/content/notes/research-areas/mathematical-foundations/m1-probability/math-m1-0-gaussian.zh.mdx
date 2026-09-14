@@ -1,0 +1,199 @@
+---
+slug: "math-m1-0-gaussian"
+label: "math-gaussian"
+prereqs: []
+lang: "zh"
+title: "兩台體重計：Gaussian 的線性組合"
+category: "courses"
+group: "M1 · 機率與 Conditional Expectation"
+status: "available"
+updated: 2026-09-06
+summary: "兩台雜訊不同的體重計，讀數該怎麼合併？Gaussian 的線性組合仍是 Gaussian、獨立雜訊的 variance 相加，讓「哪種合併最好」變成一個可以算的問題：答案是 inverse-variance weighting，而直接平均可能比只用好的那台還差。多台的情形由 covariance matrix 統一處理，雜訊相關時增益會消失。"
+demos: []
+references:
+  - label: "Grimmett & Stirzaker, Probability and Random Processes, 3rd ed. (Oxford University Press 2001)"
+  - label: "Bishop, Pattern Recognition and Machine Learning (Springer 2006), Ch. 2.3 The Gaussian Distribution"
+    href: "https://www.microsoft.com/en-us/research/publication/pattern-recognition-machine-learning/"
+  - label: "Kay, Fundamentals of Statistical Signal Processing, Vol. I: Estimation Theory (Prentice Hall 1993)"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 兩台體重計：Gaussian 的線性組合
+
+<Objectives>
+- 說出「Gaussian 的線性組合仍是 Gaussian」與「獨立 Gaussian 相加時 variance 相加」，並寫出多變量版本 $AX+b\sim\mathcal N(A\mu+b,\,A\Sigma A^{\!\top})$。
+- 用 variance 相加推出合併兩個雜訊讀數的最佳權重（inverse-variance weighting），並說出它比直接平均好多少。
+- 對「兩台體重計取平均」這個做法，判斷它何時有效、何時反而變差、依賴什麼假設（獨立、雜訊為 Gaussian），並用模擬驗證，包括雜訊相關時增益如何消失。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 起點：兩個讀數
+
+家裡有兩台體重計。你知道它們都沒有系統性的偏差（長期平均是準的），但每次讀數會抖：A 台的抖動大約 $\pm1$ kg，B 台比較好，大約 $\pm0.5$ kg。今天早上 A 讀 72.8、B 讀 71.9。
+
+問題：**你該報幾公斤？**
+
+直覺最常見的答案是「取平均，72.35」，也有人說「B 比較準，用 B 的 71.9」。請寫下你的答案和有多確定。
+
+接著追問：取平均之後，你對這個數字的信心應該比只看 B **更高**還是**更低**？多數人會說更高——「兩個資訊總比一個多」。這一篇會算出來：**直接平均比只用 B 還差。** 但「兩個資訊總比一個多」這句話本身沒錯，錯的是平均的方式。要能說清楚這件事，需要一個能對「雜訊合併」做算術的工具。
+
+<Question id="Q1">
+把情境翻成數學：這裡的隨機變數是什麼？「$\pm1$ kg」該怎麼寫成數學物件？我們想比較的是哪些做法、用什麼標準比？
+
+<Answer>
+最直覺的說法是「體重是隨機變數」。這差了一點：你的體重 $w$ 今天早上是一個**固定但未知的數**；**隨機的是讀數**。
+
+寫成式子：A 台讀到 $Y_A=w+\varepsilon_A$，B 台讀到 $Y_B=w+\varepsilon_B$，$\varepsilon_A,\varepsilon_B$ 是兩台的雜訊。「沒有系統偏差」是 $\mathbb E[\varepsilon]=0$；「$\pm1$ kg」最自然的翻譯是雜訊的**標準差** $\sigma_A=1$、$\sigma_B=0.5$。再加一個常見的模型假設：雜訊是 **Gaussian**（正常分佈），$\varepsilon_A\sim\mathcal N(0,\sigma_A^2)$；以及兩台的雜訊**獨立**——A 抖多少跟 B 抖多少無關。
+
+我們要比較的做法都是「用兩個讀數算一個數」：$\hat w=aY_A+bY_B$。要它長期平均是準的，需要 $a+b=1$（因為 $\mathbb E[\hat w]=(a+b)w$）。「取平均」是 $a=b=\tfrac12$，「只用 B」是 $a=0,b=1$。比較的標準是 $\hat w$ 抖得多大——**它的 variance**。所以問題變成：**$aY_A+bY_B$ 的 variance 是多少、哪一組 $(a,b)$ 最小？** 這需要知道「兩個 Gaussian 加起來會變成什麼」。
+</Answer>
+</Question>
+
+## 兩種抖動疊在一起
+
+想像一支筆尖在紙上抖：A 台的雜訊讓它左右晃出一團寬 1 cm 的模糊，B 台的雜訊讓它晃出一團寬 0.5 cm 的模糊。把兩種晃動**疊**起來——不是取寬的那一個，也不是相加成 1.5 cm。因為兩種晃動彼此無關，有時同向、有時反向，疊起來的寬度介於中間，而且有一個固定的規律：**寬度的平方相加。** $\sqrt{1^2+0.5^2}\approx1.12$ cm。
+
+疊起來之後這團模糊的**形狀**沒變，還是同一種鐘形，只是寬了一點。這兩件事——形狀保持、寬度平方相加——就是 Gaussian 在「合併」這件事上好用的全部原因。
+
+<VizPlan id="m1-0-sum" title="兩個 Gaussian 相加：形狀不變、variance 相加" type="static">
+- **檔名**：`m1-probability/imgs/m1-0-1.svg`（16:9，三格並排）。
+- **左格**：$\mathcal N(0,1^2)$ 的鐘形（A 台雜訊），底下標寬度 $\sigma_A=1$。**中格**：$\mathcal N(0,0.5^2)$（B 台雜訊），較窄較高，標 $\sigma_B=0.5$。兩格之間一個「$+$」。
+- **右格**：$\varepsilon_A+\varepsilon_B$ 的分佈：同樣的鐘形，標 $\sigma=\sqrt{1^2+0.5^2}\approx1.12$；用淡色疊上左格與中格的曲線做對照，並在底部畫一個直角三角形，兩條直角邊長 1 與 0.5、斜邊 1.12——「variance 相加就是畢氏定理」。
+- **圖說**：「獨立 Gaussian 相加：形狀還是 Gaussian，寬度按畢氏定理合成。不是取最寬的，也不是寬度直接相加。」
+</VizPlan>
+
+## 把「合併」寫成數學
+
+**一維。** $X\sim\mathcal N(\mu,\sigma^2)$ 的密度是 $\frac1{\sqrt{2\pi}\sigma}\exp\!\big(-\frac{(x-\mu)^2}{2\sigma^2}\big)$。兩個基本事實：
+
+1. **縮放與平移**：$aX+b\sim\mathcal N(a\mu+b,\ a^2\sigma^2)$。乘 $a$ 讓寬度變 $|a|$ 倍、variance 變 $a^2$ 倍。
+2. **獨立相加**：若 $X_1\sim\mathcal N(\mu_1,\sigma_1^2)$、$X_2\sim\mathcal N(\mu_2,\sigma_2^2)$ 獨立，則 $X_1+X_2\sim\mathcal N(\mu_1+\mu_2,\ \sigma_1^2+\sigma_2^2)$。
+
+合起來：**獨立 Gaussian 的任何線性組合仍是 Gaussian，mean 線性組合、variance 用係數平方加權相加。** 「variance 相加」對任何獨立隨機變數都成立（不需要 Gaussian）；Gaussian 多給的是「形狀不變」——合併後你仍然完全知道它的分佈。
+
+<Details summary="為什麼獨立 Gaussian 相加仍是 Gaussian（用 moment generating function，五行）">
+$X\sim\mathcal N(\mu,\sigma^2)$ 的 moment generating function 是 $M_X(s)=\mathbb E[e^{sX}]=\exp(\mu s+\tfrac12\sigma^2s^2)$（把指數配方即可算出）。獨立時 $\mathbb E[e^{s(X_1+X_2)}]=\mathbb E[e^{sX_1}]\,\mathbb E[e^{sX_2}]$，所以
+
+$$
+M_{X_1+X_2}(s)=\exp\!\big((\mu_1+\mu_2)s+\tfrac12(\sigma_1^2+\sigma_2^2)s^2\big),
+$$
+
+正好是 $\mathcal N(\mu_1+\mu_2,\sigma_1^2+\sigma_2^2)$ 的 MGF；MGF 決定分佈，證畢。「variance 相加」那一部分不需要 Gaussian：$\mathrm{Var}(X_1+X_2)=\mathrm{Var}(X_1)+\mathrm{Var}(X_2)+2\,\mathrm{Cov}(X_1,X_2)$，獨立時最後一項為零。
+</Details>
+
+**多維。** 把 $d$ 個讀數排成向量 $X=(X_1,\dots,X_d)$。它的 mean 是向量 $\mu$，而「抖動」需要一個矩陣才裝得下：**covariance matrix** $\Sigma_{ij}=\mathrm{Cov}(X_i,X_j)$，對角線是各自的 variance，非對角線是「$i$ 抖大時 $j$ 是否也傾向抖大」。獨立時 $\Sigma$ 是對角矩陣。多變量 Gaussian $X\sim\mathcal N(\mu,\Sigma)$ 的線性變換規則只有一行：
+
+$$
+AX+b\sim\mathcal N\big(A\mu+b,\ A\Sigma A^{\!\top}\big).
+$$
+
+取 $A$ 為一列權重 $a^{\!\top}=(a_1,\dots,a_d)$，就得到最常用的特例：$\mathrm{Var}(a^{\!\top}X)=a^{\!\top}\Sigma a=\sum_{i,j}a_ia_j\Sigma_{ij}$。獨立時它退化成 $\sum_i a_i^2\sigma_i^2$——一維規則的直接推廣。
+
+## 回到情境：平均，還是加權？
+
+**算兩種做法。** $\hat w=aY_A+bY_B$，$a+b=1$，雜訊獨立：
+
+$$
+\mathrm{Var}(\hat w)=a^2\sigma_A^2+b^2\sigma_B^2 .
+$$
+
+兩台體重計的雜訊獨立，所以交叉項是零，只剩兩項各自的貢獻，而且權重是**平方**進去的——這一點決定了下面兩種做法差多少。
+
+- **直接平均**（$a=b=\tfrac12$）：$\tfrac14(1+0.25)=0.3125$，標準差 $0.56$ kg。
+- **只用 B**（$a=0,b=1$）：$0.25$，標準差 $0.5$ kg。
+
+**直接平均比只用 B 還差。** 直覺「兩個資訊總比一個多」沒有錯，錯在平均給了差的那台一半的話語權——等於把 A 台 $\pm1$ kg 的抖動用一半的音量混進來，比 B 自己的抖動還大。
+
+**最佳權重。** 對 $a$ 最小化 $a^2\sigma_A^2+(1-a)^2\sigma_B^2$，令導數為零：$a\sigma_A^2=(1-a)\sigma_B^2$，得
+
+$$
+a=\frac{1/\sigma_A^2}{1/\sigma_A^2+1/\sigma_B^2},\qquad b=\frac{1/\sigma_B^2}{1/\sigma_A^2+1/\sigma_B^2},\qquad
+\mathrm{Var}(\hat w)=\frac{1}{1/\sigma_A^2+1/\sigma_B^2}.
+$$
+
+權重與 variance 成**反比**，叫 **inverse-variance weighting**；$1/\sigma^2$ 叫 precision，合併後的 precision 是各自 precision 的**和**——「兩個資訊總比一個多」的正確版本。代數字：$a=0.2$、$b=0.8$，$\hat w=0.2\times72.8+0.8\times71.9=72.08$ kg，variance $0.2$、標準差 $0.447$ kg——比 B 單獨的 $0.5$ 好，但只好一點，因為 A 太差、能貢獻的 precision 只有 B 的四分之一。三台、$n$ 台的規則完全一樣：precision 相加、權重按 precision 分。
+
+**這個結論依賴什麼。** 第一，雜訊**獨立**——這一條寫在 $\mathrm{Var}(\hat w)$ 的式子裡沒有 $\mathrm{Cov}$ 項。若兩台放在同一塊會微微下陷的地墊上，兩台會一起偏，$\Sigma_{AB}\ne0$，那部分共同的誤差**平均不掉**：$n$ 台都有同一個共同誤差 $\sigma_c^2$ 時，平均的 variance 是 $\sigma_c^2+\sigma^2/n$，再多台也壓不到 $\sigma_c^2$ 以下。第二，**Gaussian**。上面的最佳性其實只在「線性組合」裡比；雜訊若是 Gaussian，線性組合已經是所有做法裡最好的。雜訊若不是——例如 A 台偶爾會跳出一個差 10 kg 的離譜讀數——任何線性加權都會被那一次拖走，這時「先剔除離群值」或取中位數會更好。
+
+## 回到情境：模擬一萬個早上
+
+```python
+import numpy as np
+rng = np.random.default_rng(0); n = 10_000; w = 72.0
+sA, sB = 1.0, 0.5
+def trial(rho=0.0, glitch=0.0):
+    eA = rng.normal(0, sA, n); eB = rho*eA*(sB/sA) + np.sqrt(1-rho**2)*rng.normal(0, sB, n)  # rho: 兩台雜訊的相關係數
+    eA = eA + glitch*rng.choice([0, 10], n, p=[0.98, 0.02])                                   # glitch: A 台 2% 機率跳 10 kg
+    yA, yB = w + eA, w + eB
+    for name, est in [("平均", (yA+yB)/2), ("只用 B", yB), ("加權 0.2/0.8", 0.2*yA+0.8*yB)]:
+        print(f"  {name:10s} 標準差 {est.std():.3f}")
+for rho, g in [(0.0, 0), (0.8, 0), (0.0, 1)]:
+    print(f"rho={rho}, glitch={g}"); trial(rho, g)
+```
+
+第一組（獨立、Gaussian）會印出平均 $\approx0.559$、只用 B $\approx0.5$、加權 $\approx0.447$——三個數字與理論值 $\sqrt{0.3125}$、$\sqrt{0.25}$、$\sqrt{0.2}$ 吻合。第二組（相關係數 0.8）加權的優勢幾乎消失，因為兩台一起偏。第三組（A 台偶爾跳格）加權的標準差被拉到 $0.5$ 以上，「只用 B」反而勝出——線性合併對非 Gaussian 的尾巴沒有抵抗力。
+
+<VizPlan id="m1-0-scales" title="兩台體重計：拖權重、加相關、加離群值" type="interactive">
+- **位置**：本節之後。**檔名**：`site/public/notes/research_areas/mathematical-foundations/m1-probability/m1-0-2.html`。這是本篇的核心互動。
+- **版面**：左格是「合併後估計值的 histogram」（一萬次模擬），疊上理論的 Gaussian 曲線與真實體重的垂直線；右格是「$\mathrm{Var}(\hat w)$ 對權重 $a$」的曲線，$a\in[0,1]$，標出 $a=0.5$（平均）、$a=0$（只用 B）與最低點 $a^*=0.2$。
+- **控制項**：滑桿 $\sigma_A$、$\sigma_B$（各 $0.1$–$3$ kg）；滑桿權重 $a$（拖動時左格 histogram 與右格的游標同步）；滑桿「雜訊相關係數 $\rho$」（$-1$–$1$）：右格曲線加上 $2ab\rho\sigma_A\sigma_B$ 一項，最低點的位置與高度跟著變，$\rho\to1$ 時曲線變平、加權沒有增益；開關「A 台偶爾跳格」（2% 機率 $+10$ kg）：histogram 出現右側的一小塊尾巴、實測標準差跳高，理論曲線（假設 Gaussian）不再吻合，用紅字標「理論失準：雜訊不是 Gaussian」；下拉「台數」$2$–$5$，每台可設 $\sigma$，右側顯示 precision 相加的結果 $1/\sum(1/\sigma_i^2)$。
+- **Hover** 右格任一點顯示該權重下的理論 variance 與模擬 variance。
+- **底部觀察句**：「觀察：獨立 Gaussian 雜訊合併，最佳權重與 variance 成反比、合併後 precision 相加——直接平均可能比只用好的那台還差。雜訊相關時增益消失；雜訊有粗大離群值時，線性合併不再是好做法。」
+- **匯出 PNG**：兩格併成 16:9，含當前參數。
+</VizPlan>
+
+## 先消化一下
+
+<QuizBlock id="m1-0-a">
+三位朋友各自估計一場演唱會的人數：甲的估計誤差大約 $\pm2000$、乙 $\pm1000$、丙 $\pm1000$，三人誤差獨立且無偏。你該怎麼合併？
+<Option>三個數直接平均。</Option>
+<Option>只用乙和丙的平均，甲太差不要用。</Option>
+<Option correct>按 precision 加權：甲的權重 $1/4$ 單位、乙丙各 $1$ 單位，也就是 $\tfrac19$、$\tfrac49$、$\tfrac49$。</Option>
+<Explanation>
+直接平均給甲三分之一的話語權，variance 是 $\tfrac19(4+1+1)\times10^6=0.67\times10^6$；只用乙丙是 $0.5\times10^6$；按 precision 加權是 $1/(0.25+1+1)\times10^6=0.44\times10^6$，最好。差的資訊仍有價值，只是權重要小——完全丟掉也是一種浪費。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m1-0-b">
+兩台體重計放在同一塊軟地墊上，地墊每天下陷程度不同，讓兩台**一起**偏高或偏低約 $\pm0.8$ kg，各自另有獨立的 $\pm0.5$ kg 抖動。取兩台平均後，估計的標準差大約是：
+<Option>$0.35$ kg（$0.5/\sqrt2$）。</Option>
+<Option correct>約 $0.87$ kg（$\sqrt{0.8^2+0.5^2/2}$），共同誤差平均不掉。</Option>
+<Option>$0.65$ kg（$\sqrt{0.8^2+0.5^2}/\sqrt2$）。</Option>
+<Explanation>
+寫成 $Y_i=w+c+\varepsilon_i$，$c$ 是共同的地墊誤差。平均後 $c$ 原封不動留下，只有獨立部分被壓成 $\sigma^2/2$：$\mathrm{Var}=0.64+0.125=0.765$，標準差 $0.87$。把 $0.8$ 也除以 $\sqrt2$ 是把共同誤差當成獨立的——這正是 covariance matrix 非對角線不為零時直覺會犯的錯。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m1-0-c">
+$X\sim\mathcal N(\mu,\Sigma)$ 是三維的，$A$ 是一個 $2\times3$ 矩陣。$AX$ 的分佈是：
+<Option>$\mathcal N(A\mu,\ A\Sigma)$。</Option>
+<Option>不一定是 Gaussian，因為 $A$ 不是方陣。</Option>
+<Option correct>$\mathcal N(A\mu,\ A\Sigma A^{\!\top})$，一個二維 Gaussian。</Option>
+<Explanation>
+線性變換保持 Gaussian，不需要 $A$ 可逆或是方陣——$AX$ 的每個分量都是 $X$ 各分量的線性組合。covariance 的變換必須是 $A\Sigma A^{\!\top}$：檢查維度，$2\times3$ 乘 $3\times3$ 乘 $3\times2$ 才是 $2\times2$；$A\Sigma$ 不是方陣，不可能是 covariance。一維特例 $a^2\sigma^2$ 就是 $A\Sigma A^{\!\top}$ 在 $1\times1$ 時的樣子。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="math-conditional-expectation">
+本篇用「Gaussian 的線性組合仍是 Gaussian、獨立時 variance 相加」把體重計問題算清楚：最佳合併是 inverse-variance weighting，直接平均可能比只用好的那台還差，而雜訊相關或非 Gaussian 時結論會變。這裡我們一直把「真實體重」當成固定的數。下一篇讓它也變成隨機的——只知道一個人的鞋子尺寸，怎麼猜身高？
+</Bridge>
+
+## 參考文獻
+
+1. Grimmett, G., Stirzaker, D. *Probability and Random Processes*, 3rd ed. Oxford University Press 2001.（獨立隨機變數和的 variance、moment generating function、多變量 Gaussian。）
+2. Bishop, C. M. [*Pattern Recognition and Machine Learning.*](https://www.microsoft.com/en-us/research/publication/pattern-recognition-machine-learning/) Springer 2006, Ch. 2.3.（多變量 Gaussian 的線性變換與 covariance matrix。）
+3. Kay, S. M. *Fundamentals of Statistical Signal Processing, Vol. I: Estimation Theory.* Prentice Hall 1993.（線性無偏估計與 inverse-variance weighting 的最佳性。）

@@ -1,0 +1,274 @@
+---
+slug: "ml-l0-1-loss-is-a-declaration"
+label: "ml-loss-declaration"
+prereqs:
+  - math-mse-conditional-expectation
+  - math-kl
+lang: "zh"
+title: "差一度與差十度：損失函數是一種宣告"
+category: "courses"
+group: "L0 · 學習就是擬合"
+status: "available"
+updated: 2026-09-10
+summary: "預測明天溫度差 1 度與差 10 度，後者糟十倍還是一百倍？這不是資料能回答的問題，是你要宣告的。宣告完，最佳答案就被決定了：平方選條件平均、絕對選中位數、不對稱選分位數、cross-entropy 選機率。損失不是「訓練用的技術細節」，它是你對「什麼叫錯」的定義；在共用 toy 上，換一個損失會讓同一份資料擬出差五倍的曲線，也會讓一個能學的模型完全停住。"
+demos: []
+references:
+  - label: "Gneiting & Raftery, Strictly Proper Scoring Rules, Prediction, and Estimation (JASA 2007)"
+    href: "https://doi.org/10.1198/016214506000001437"
+  - label: "Huber & Ronchetti, Robust Statistics, 2nd ed. (Wiley 2009), Ch. 1 & 7"
+  - label: "Bishop, Pattern Recognition and Machine Learning (Springer 2006), Ch. 1.5.5, 4.3.2"
+    href: "https://www.microsoft.com/en-us/research/publication/pattern-recognition-machine-learning/"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Ask from '../../../components/Ask.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 差一度與差十度：損失函數是一種宣告
+
+<Objectives>
+- 說出「選一個損失」等於「選一個要學的統計量」，並對平方、絕對、不對稱、cross-entropy 各說出它逼出的是哪個量。
+- 分辨損失的兩個角色——**宣告**（我在意什麼錯）與**最佳化性質**（好不好訓）——並說出把兩者混為一談的代價。
+- 在共用 toy 上量出換損失的後果：離群值下的擬合差距，以及平方損失讓分類器卡死而 cross-entropy 沒有的那個機制。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 起點：糟十倍，還是糟一百倍？
+
+你在做明天最高溫的預報。報 25 度、實際 26 度，這是一個小錯；報 25 度、實際 35 度，這是一個大錯。
+
+**大錯比小錯糟幾倍？**
+
+差距是十倍。多數人的第一反應是「當然是糟十倍」。但如果你用的是均方誤差，你剛剛宣告的是**糟一百倍**——$10^2/1^2=100$。如果用絕對誤差，才是十倍。如果你在意的是「有沒有錯到讓人沒帶外套」，那可能是「差 3 度以內都不算錯，超過就一律很糟」，那既不是十倍也不是一百倍。
+
+沒有一個實驗能告訴你哪個對。**這是宣告，不是發現。** 資料裡沒有「差 10 度有多痛」這個資訊——那來自使用這個預報的人。
+
+而一旦宣告完，剩下的事情就不再自由了：<Ref to="math-mse-conditional-expectation" mode="title"/> 已經證明，平方誤差下的最佳策略是條件平均，換絕對誤差就變中位數。這一篇處理的是這個選擇在實務上的三個後果：學到的東西不同、對髒資料的抵抗力不同、以及好不好訓不同。
+
+> **選損失就是選你要學的統計量。**
+
+<Ask>
+差 10 度比差 1 度糟十倍，還是糟一百倍？<br />
+這個比例是資料告訴你的，<br />
+還是你自己宣告的？
+</Ask>
+
+<Question id="Q1">
+把「宣告」翻成數學：損失是什麼型別的物件？「換一個損失會學到不同的東西」這句話，精確地說是什麼在變？如果我只是想「訓練得順一點」而換損失，我付出了什麼？
+
+<Answer>
+**型別。** 損失是 $\ell:\hat{\mathcal Y}\times\mathcal Y\to\mathbb R$，把「你說的」與「實際的」變成一個扣分。注意第一個參數不一定和第二個同型：分類時 $y\in\{0,1\}$ 但 $\hat y$ 是一個機率。
+
+**在變的是誰。** 對每個 $x$，最佳答案是
+
+$$
+f^\star(x)=\arg\min_{a}\ \mathbb E\big[\ell(a,Y)\mid X=x\big],
+$$
+
+也就是「在這個桶子裡，哪個回答的期望扣分最小」。這個 $\arg\min$ 只由 $\ell$ 與桶內分佈決定。所以換 $\ell$ 不是換一個計分板——**是換掉你要模型逼近的那張表**：$\ell$ 是平方就是 $\mathbb E[Y\mid X]$，是絕對值就是中位數，是 cross-entropy 就是整條 $p(y\mid x)$。
+
+**為了好訓而換損失的代價。** 你把目標換掉了。有時無害（Huber 在小殘差上就是平方，逼出的東西和平均很接近），有時致命（把 0–1 錯誤率換成平方損失去學機率，最佳解仍然是機率，但**梯度會在錯得很自信的地方消失**——本篇實作會把這個現象跑出來）。所以要分開問兩件事：**這個損失逼出的統計量是我要的嗎？它好不好訓？** 兩題都要過。
+</Answer>
+</Question>
+
+## 扣分表：你對錯誤的偏好長什麼形狀
+
+把損失畫成「殘差 $r=\hat y-y$ 對應扣多少分」的一條曲線，三種常見宣告的形狀差別一眼可見：
+
+- **平方** $r^2$：越錯，每多錯一單位的邊際懲罰越大。它宣告「大錯特別不能忍」，代價是**一顆離群值就能買走整條曲線**——把它拉過去比讓其他二十九點各差一點更划算。
+- **絕對** $|r|$：每多錯一單位，代價固定。大錯不會被額外放大，所以離群值只算一票。
+- **Huber**：$|r|$ 小的時候用平方（在合理範圍內保留平滑與「大錯更糟」的直覺），超過 $\delta$ 之後切成線性（不讓極端值買走曲線）。它是把「我相信多數點，但不相信極端點」寫成式子。
+
+同一個形狀語言也解釋了分類：cross-entropy $-\log \hat p$ 在「你說機率 0.01、答案卻是這一類」時扣分是 $\log 100\approx4.6$，說 0.0001 就扣 $9.2$——**錯得越自信，罰得越重且沒有上限**。平方損失 $(\hat p-y)^2$ 的上限是 $1$：錯到底也只扣一分。
+
+<VizPlan id="ml-l0-1-shapes" title="四張扣分表，四個最佳答案" type="static">
+- **檔名**：`l0-learning-as-fitting/imgs/l0-1-1.svg`（16:9，上下兩排）。
+- **上排**：四條扣分曲線畫在同一組軸上（橫軸殘差 $r\in[-3,3]$，縱軸扣分）：平方、絕對、Huber（$\delta=0.3$，標出轉折點）、不對稱絕對（低估與高估斜率 3:1）。每條標名字。
+- **下排**：同一個雙峰的條件分佈（$30$ 度佔 $60\%$、$22$ 度佔 $40\%$）畫成兩根長條，四支箭頭指出四種損失各自的最佳回答：$26.8$（平方＝mean）、$30$（絕對＝median）、$30$（Huber，此例同 median）、$\approx 30$ 往上偏（不對稱＝分位數）。
+- **圖說**：「扣分表的形狀決定最佳回答落在分佈的哪個位置。四種宣告，四個答案——資料完全一樣。」
+- **註**：分佈與數字沿用 <Ref to="math-mse-conditional-expectation" mode="title"/> 的例子，讓兩篇可以並排讀。
+</VizPlan>
+
+## 換一張扣分表，最佳答案會跑到哪裡
+
+固定 $x$，令 $Y$ 的條件分佈是 $p(\cdot\mid x)$。逐項求 $\arg\min_a \mathbb E[\ell(a,Y)\mid x]$：
+
+| 損失 $\ell(a,y)$ | 最佳回答 $f^\star(x)$ | 一句話理由 |
+|---|---|---|
+| $(a-y)^2$ | 條件平均 $\mathbb E[Y\mid x]$ | 三行證明，見 <Ref to="math-mse-conditional-expectation"/> |
+| $\lvert a-y\rvert$ | 條件中位數 | 導數 $P(Y<a)-P(Y>a)=0$ |
+| $\rho_\tau(a-y)$（pinball，低估罰 $\tau$、高估罰 $1-\tau$） | 條件 $\tau$-分位數 | 同上，改成 $\tau P(Y>a)=(1-\tau)P(Y<a)$ |
+| $-\log \hat p_y$（cross-entropy） | 整條條件機率 $p(\cdot\mid x)$ | 期望扣分 $=H(p)+\mathrm{KL}(p\,\Vert\,\hat p)$，見 <Ref to="math-kl"/> |
+| $\mathbb 1[a\ne y]$（0–1） | 條件眾數 $\arg\max_y p(y\mid x)$ | 猜中機率最大的那一類 |
+
+最後一列的推導值得單獨看，因為它解釋了為什麼分類幾乎一律用 cross-entropy。把期望扣分寫開：
+
+$$
+\mathbb E_{Y\sim p}\big[-\log \hat p_Y\big]
+=\underbrace{H(p)}_{\text{與 }\hat p\text{ 無關}}+\underbrace{\mathrm{KL}(p\,\Vert\,\hat p)}_{\ge 0,\ \hat p=p\text{ 時為 }0}.
+$$
+
+也就是說**最小化 cross-entropy 就是最小化到真實條件分佈的 KL**（<Ref to="math-kl"/> 已經把這個等式證過）。這種「唯一最小點恰好是真實分佈」的損失叫 **strictly proper scoring rule**；平方損失作用在機率上（Brier score）也是 proper 的，0–1 錯誤率則不是——它只在乎哪一類最大，所以模型可以把機率報得離譜而分數不變。**如果你之後要用機率做決策（門檻、期望成本、拒答），這個差別是關鍵的。**
+
+<Details summary="proper 不等於好訓：平方損失在分類上的梯度會消失">
+用 sigmoid $\hat p=\sigma(z)$ 作輸出，對 logit $z$ 微分：
+
+$$
+\frac{\partial}{\partial z}\big[-\log\hat p\big]\Big|_{y=1}=\hat p-1,
+\qquad
+\frac{\partial}{\partial z}\big[(\hat p-y)^2\big]=2(\hat p-y)\,\hat p(1-\hat p).
+$$
+
+當模型**錯得很自信**（$y=1$ 但 $\hat p\approx 0$）：cross-entropy 的梯度是 $-1$，滿檔；平方損失的梯度多了一個 $\hat p(1-\hat p)\approx 0$ 的因子，整個梯度被壓成幾乎零。錯得越離譜，修正的力道越小——這是最壞的組合。
+
+兩個損失的最佳解是同一個（都是真實機率），但一個從錯誤的地方走得回來，一個走不回來。**這就是「宣告」與「最佳化性質」必須分開檢查的原因**：本篇的第二段實作會把它跑成一個 400 步之後準確率 $0.18$ 對 $0.89$ 的對比。
+</Details>
+
+## 回到情境：預報員、房仲、與「先用 MSE 再說」
+
+**預報員。** 電視台的計分若是平方誤差，最佳報法是條件平均；若觀眾真正在意的是「有沒有被冷到」（低估比高估痛），那正確的宣告是不對稱的 pinball，最佳報法變成一個偏低的溫度分位數。用 MSE 訓練然後再手動「調低一點」，是在補一個當初宣告錯的洞。
+
+**房仲。** 上一篇留下的問題現在有答案了：如果客戶對低估的痛苦是高估的三倍，宣告 $\tau=3/4$ 的 pinball，模型會直接學條件的 75% 分位數，不需要事後修正。
+
+**「先用 MSE 再說」什麼時候可以。** 當三件事同時成立：你要的是條件平均；$y$ 沒有嚴重離群值；輸出不是機率。這三條在很多回歸任務上是真的——**所以預設值有它的道理**。危險的是把「常用」誤讀成「中性」：MSE 從來不是中性的，它是一個關於「大錯糟得特別快」而且「所有點都可信」的強宣告。
+
+**這一切依賴什麼。** 一，$\ell$ 真的代表你的偏好，而不是你會微分的東西。二，離群值是雜訊而不是訊號——如果那三個「離群值」其實是海嘯前兆，穩健損失會把最重要的資訊丟掉。三，最佳解存在且模型有能力逼近它；否則對照表講的是理想目標，不是你會拿到的東西。
+
+## 回到情境：換一個損失，同一份資料
+
+**第一段：離群值。** 共用 toy 的 30 個點，把其中三個往上推 $2.5$（想像三筆打錯的成交價），用三次多項式配三種損失擬合，再量擬合曲線到**真值** $\sin(2\pi x)$ 的距離：
+
+```python
+import numpy as np
+from scipy.optimize import minimize
+from ml_toy import toy_1d, truth
+
+x, y = toy_1d(); y = y.copy()
+y[[5, 14, 23]] += 2.5                      # 三筆打錯的資料
+xs, ys = truth()
+V, Vs = np.vander(x, 4, increasing=True), np.vander(xs, 4, increasing=True)
+
+def fit(rho):                               # rho 把殘差變成扣分
+    w0 = np.linalg.lstsq(V, y, rcond=None)[0]
+    return minimize(lambda w: rho(V @ w - y).mean(), w0, method="Powell",
+                    options=dict(xtol=1e-10, ftol=1e-12, maxfev=200000)).x
+
+losses = {
+    "平方 (MSE)":    lambda r: r**2,
+    "絕對 (MAE)":    lambda r: np.abs(r),
+    "Huber δ=0.3":  lambda r: np.where(np.abs(r) <= .3, .5*r**2, .3*(np.abs(r) - .15)),
+}
+for name, rho in losses.items():
+    w = fit(rho)
+    print(f"{name:12s}  到真值的均方距離 {((Vs @ w - ys)**2).mean():.4f}")
+```
+
+```
+平方 (MSE)      到真值的均方距離 0.1005
+絕對 (MAE)      到真值的均方距離 0.0183
+Huber δ=0.3   到真值的均方距離 0.0148
+```
+
+**同一份資料、同一個假設空間、同一個最佳化器，只換扣分表，離真相的距離差了五倍以上。** 三筆髒資料佔 10%，在平方損失下它們的話語權遠超過 10%——因為每一筆的扣分和距離的平方成正比，把曲線拉向它們是「划算」的。Huber 比 MAE 再好一點，因為在乾淨的那 27 點上它仍然是平方（更有效率），只對超過 $\delta$ 的殘差鬆手。
+
+**第二段：宣告對了，也可能訓不動。** 二維月牙 toy，同一個線性 logistic 模型、同一個學習率、同樣 400 步，只換損失，並且從兩種起點出發：
+
+```python
+import numpy as np
+from ml_toy import toy_2d
+
+X, y = toy_2d()
+A = np.c_[np.ones(len(X)), X]
+sig = lambda z: 1/(1 + np.exp(-z))
+
+def train(kind, w0, steps=400, lr=0.5):
+    w = np.array(w0, float)
+    for _ in range(steps):
+        p = sig(A @ w)
+        g = (A.T @ (p - y))/len(y) if kind == "ce" else (A.T @ ((p - y)*p*(1-p)))/len(y)
+        w -= lr*g
+    p = sig(A @ w)
+    nll = -(y*np.log(p+1e-12) + (1-y)*np.log(1-p+1e-12)).mean()
+    return ((p > .5) == y).mean(), nll
+
+for w0, tag in (([0, 0, 0], "從零初始化"), ([0, -8, 8], "從一個很自信但錯誤的起點")):
+    for kind, name in (("ce", "cross-entropy"), ("sq", "平方損失")):
+        acc, nll = train(kind, w0)
+        print(f"{tag:14s} {name:14s} 準確率 {acc:.3f}   NLL {nll:.4f}")
+```
+
+```
+從零初始化         cross-entropy  準確率 0.890   NLL 0.2603
+從零初始化         平方損失          準確率 0.865   NLL 0.2946
+
+從一個很自信但錯誤的起點  cross-entropy  準確率 0.890   NLL 0.2610
+從一個很自信但錯誤的起點  平方損失          準確率 0.180   NLL 9.0023
+```
+
+從零出發，兩者差不多——這是大部分教科書示範停下來的地方，於是「平方損失也行」變成一個常見的誤解。**刻意違反假設**：把起點換成一個「錯得很自信」的權重（模型堅信答案相反）。cross-entropy 完全恢復（$0.890$），平方損失卡在 $0.180$——比亂猜還差，而且 400 步之後幾乎沒有移動。原因就是上面那個 $\hat p(1-\hat p)$ 因子：模型越自信，梯度越小，錯誤越沒有被修正的力道。
+
+實務上「錯得很自信的起點」不是人造的怪例——深層網路的初始化、學習率一次過大之後的狀態、分佈偏移之後的舊模型，都會把你放在那裡。
+
+> **proper 保證你要的東西在最小點上，不保證你走得到。**
+
+## 換扣分表，看最佳答案與梯度同時改變
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/machine-learning-foundations/l0-learning-as-fitting/l0-1-2.html" class="demo-frame" title="換扣分表，看最佳答案與梯度同時改變：互動 demo" style="height: 850px; width: 100%; border: none;"></iframe>
+
+**互動 demo：換損失函數，同一批資料的最佳擬合線就跟著換——扣分表決定你追到的是平均數還是中位數。**
+
+## 先消化一下
+
+<QuizBlock id="ml-l0-1-a">
+一個外送平台要對每張訂單預測送達時間。晚到 10 分鐘的客訴成本，大約是早到 10 分鐘的四倍。工程團隊用 MSE 訓練，然後把預測值統一「加 5 分鐘」當作補償。最合適的評論是：
+<Option>做法合理，加常數等價於換損失。</Option>
+<Option correct>那是在事後補一個宣告錯誤：正確做法是用不對稱的 pinball 損失（低估與高估的斜率比 $4:1$），模型會直接學條件的 $80\%$ 分位數。加常數只在條件分佈的形狀處處相同時才近似正確。</Option>
+<Option>應該改用絕對誤差，因為它對離群值穩健。</Option>
+<Explanation>
+「平移」與「換分位數」只有在每個 $x$ 的條件分佈都是同一個形狀平移時才等價。真實情況是尖峰時段的分佈右尾長得多——那裡需要的補償遠大於離峰時段，一個固定常數同時在兩邊都錯。用 pinball 宣告清楚，模型會在不同的 $x$ 上自動給不同的補償。至於絕對誤差：它穩健，但它學的是中位數，仍然是對稱宣告，沒有處理 $4:1$ 這件事。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l0-1-b">
+關於「cross-entropy 與作用在機率上的平方損失（Brier）都是 strictly proper」，正確的推論是：
+<Option>兩者可以互換，選哪個只是習慣問題。</Option>
+<Option correct>兩者的**最佳解**相同（都是真實條件機率），但最佳化行為不同：平方損失在錯得自信的區域梯度趨近零，cross-entropy 不會。proper 保證你要的東西在最小點上，不保證你走得到。</Option>
+<Option>只有 cross-entropy 是 proper，平方損失不是。</Option>
+<Explanation>
+proper 是關於**極小點在哪裡**的性質，與**曲面好不好走**無關。這一課的一般形式是：評估一個損失要問兩題——它逼出的統計量是我要的嗎（宣告）、從壞的地方能不能走回來（最佳化）。0–1 錯誤率在第一題就出局（它不是 proper，機率可以亂報），平方損失在第二題出局。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l0-1-c">
+在離群值那段實驗裡，如果把被改動的三個點從 $+2.5$ 改成 $+0.3$（只是稍微偏），三種損失的差距會怎麼變？
+<Option>差距會變大，因為小偏差更難偵測。</Option>
+<Option correct>差距會大幅縮小，而且 Huber 會與平方幾乎相同——$0.3$ 落在 $\delta$ 附近，Huber 在那個範圍內本來就是平方。穩健損失的價值只在「有一小撮點離得很遠」時才兌現。</Option>
+<Option>MAE 會變成最好的，因為它總是比較穩健。</Option>
+<Explanation>
+穩健損失不是免費的：在乾淨、接近 Gaussian 的資料上，MAE 的統計效率低於 MSE（用同樣多的資料，估出來的參數變異數較大）。Huber 的設計正是為了兩邊都要——$\delta$ 以內保留平方的效率，$\delta$ 以外換成線性的抵抗力。所以 $\delta$ 是一個關於「多遠算離群」的宣告，要照資料的噪聲尺度設，這裡的 $0.15$ 噪聲配 $\delta=0.3$ 大約是兩個標準差。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="ml-empirical-risk">
+這一篇把損失從「訓練用的技術細節」提升成一個**宣告**：它決定模型追的是條件平均、中位數、某個分位數，還是整條條件機率。實作示範了兩個後果——三筆髒資料在平方損失下讓擬合差了五倍；而宣告正確的損失仍可能訓不動，因為 proper 只管最小點在哪，不管你走不走得到。
+
+三個零件裡還剩最後一個：**資料**。到目前為止，我們一直假設訓練時看到的和上線後遇到的是同一批東西。下一篇把這個假設拆開：母體風險與經驗風險到底差多少、大數法則在這裡幫得上什麼忙又幫不上什麼忙，以及為什麼「台北的房仲去台中」會錯得那麼特別。
+</Bridge>
+
+## 參考文獻
+
+1. Gneiting, T., Raftery, A. E. [*Strictly Proper Scoring Rules, Prediction, and Estimation.*](https://doi.org/10.1198/016214506000001437) JASA 2007.（哪些損失的唯一最小點是真實分佈，以及損失與統計量的完整對照。）
+2. Huber, P. J., Ronchetti, E. M. *Robust Statistics*, 2nd ed. Wiley 2009, Ch. 1, 7.（Huber 損失的來源、效率與抵抗力的取捨、$\delta$ 該怎麼設。）
+3. Bishop, C. M. [*Pattern Recognition and Machine Learning.*](https://www.microsoft.com/en-us/research/publication/pattern-recognition-machine-learning/) Springer 2006, Ch. 1.5.5, 4.3.2.（Minkowski loss 一族；logistic 輸出下 cross-entropy 與平方損失的梯度差異。）

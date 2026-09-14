@@ -1,0 +1,62 @@
+---
+/**
+ * Prereq.astro — "本篇重用：…" line under <Objectives>, listing the foundation notes this
+ * note reuses. Items come from the note's frontmatter `prereqs` (labels or slugs):
+ *
+ *   <Prereq items={frontmatter.prereqs} />
+ *
+ * Titles and codes are read from the target notes at build time — renaming a math note
+ * needs no edit here. The target notes render the reverse index with <UsedBy/>.
+ */
+import { resolveNoteRef, langFromUrl } from '../../lib/noteRefs';
+import type { Lang } from '../../lib/notes';
+
+interface Props { items?: string[]; lang?: Lang; title?: string }
+const { items = [] } = Astro.props;
+const lang: Lang = Astro.props.lang ?? langFromUrl(Astro.url);
+const heading = Astro.props.title ?? (lang === 'zh' ? '本篇重用' : 'Builds on');
+const refs = await Promise.all(items.map(async (key) => ({ key, ref: await resolveNoteRef(key, lang) })));
+---
+{items.length > 0 && (
+  <p class="prereq">
+    <span class="prereq-title">{heading}</span>
+    {refs.map(({ key, ref }, i) => (
+      <>
+        {i > 0 && <span class="prereq-sep">·</span>}
+        {ref?.planned ? (
+          <span class="prereq-item prereq-planned" title={lang === 'zh' ? '這一篇還沒寫' : 'Not written yet'}>
+            {ref.code && <span class="prereq-code">{ref.code}</span>}
+            {ref.shortTitle}
+            <span class="prereq-flag">{lang === 'zh' ? '規劃中' : 'planned'}</span>
+          </span>
+        ) : ref ? (
+          <a class="prereq-item" href={ref.href} title={ref.summary}>
+            {ref.code && <span class="prereq-code">{ref.code}</span>}
+            {ref.shortTitle}
+          </a>
+        ) : (
+          <span class="prereq-item prereq-missing">⟦?{key}⟧</span>
+        )}
+      </>
+    ))}
+  </p>
+)}
+
+<style>
+  .prereq {
+    margin: -16px 0 28px; padding: 10px 14px; font-size: 0.92rem; line-height: 1.7;
+    border-left: 3px solid var(--accent); background: var(--surface-2, transparent); color: var(--text-muted);
+    border-radius: 0 var(--radius, 12px) var(--radius, 12px) 0;
+  }
+  .prereq-title { font-weight: 700; margin-right: 10px; color: var(--text); }
+  .prereq-sep { margin: 0 8px; opacity: 0.6; }
+  .prereq-item { text-decoration: none; color: var(--accent); border-bottom: 1px dotted currentColor; }
+  .prereq-item:hover { border-bottom-style: solid; }
+  .prereq-code { font-size: 0.75em; font-weight: 700; margin-right: 4px; opacity: 0.8; }
+  .prereq-missing { color: #c0392b; font-weight: 700; }
+  .prereq-planned { color: var(--text-muted); border-bottom: 1px dotted currentColor; opacity: 0.85; }
+  .prereq-flag {
+    margin-left: 5px; font-size: 0.7em; font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase; opacity: 0.8;
+  }
+</style>

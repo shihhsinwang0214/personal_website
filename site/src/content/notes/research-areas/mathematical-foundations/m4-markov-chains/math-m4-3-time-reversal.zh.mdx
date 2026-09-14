@@ -1,0 +1,199 @@
+---
+slug: "math-m4-3-time-reversal"
+label: "math-time-reversal"
+prereqs:
+  - math-ctmc
+  - math-bayes-posterior
+lang: "zh"
+title: "影片倒著播看得出來嗎：Time Reversal 與比值"
+category: "courses"
+group: "M4 · Markov Chains"
+status: "available"
+updated: 2026-09-06
+summary: "一段天氣影片倒著播，倒過來的過程仍是 Markov chain，但它的 rate 變成 R(y,x)·p_t(y)/p_t(x)——一個 Bayes 的 posterior。那個比值是「它從哪裡來」的先驗除以「它現在在哪」的證據；當 detailed balance 成立時比值剛好把 rate 換回原樣，影片倒著播就看不出來。"
+demos: []
+references:
+  - label: "Kelly, Reversibility and Stochastic Networks (Wiley 1979; Cambridge University Press 2011)"
+    href: "https://www.statslab.cam.ac.uk/~frank/BOOKS/kelly_book.html"
+  - label: "Norris, Markov Chains (Cambridge University Press 1997)"
+    href: "https://www.statslab.cam.ac.uk/~james/Markov/"
+  - label: "Levin & Peres, Markov Chains and Mixing Times, 2nd ed. (AMS 2017)"
+    href: "https://pages.uoregon.edu/dlevin/MARKOV/"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+
+# 影片倒著播看得出來嗎：Time Reversal 與比值
+
+<Objectives>
+- 用 Bayes 定理推出一條 chain 倒著走的 rate $\hat R_t(x,y)=R(y,x)\,p_t(y)/p_t(x)$，並說出比值裡的分子與分母各是什麼、為什麼會出現。
+- 寫下 detailed balance 條件 $\pi(x)R(x,y)=\pi(y)R(y,x)$，說明它成立時倒著播與正著播的規律完全相同，並手算一個 2 狀態與一個 3 狀態的例子。
+- 對一個生活情境（天氣影片、股價走勢、排隊人數）判斷「能不能分辨影片方向」的直覺是否正確、說出它依賴的假設（stationary、是否有淨環流），並用模擬驗證。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 一段沒有標時間的影片
+
+有人給你一段縮時影片：同一個城市的天空，每天一格，連續兩年，只看得出「晴」「多雲」「雨」三種天。影片沒有日期、沒有聲音、沒有任何會洩漏方向的東西（沒有太陽東升西落，因為每天只有一格）。他問你：**這段影片是正著播還是倒著播？**
+
+請先用直覺回答，並寫下你有多確定：
+
+1. 你覺得有辦法分辨嗎？依據是什麼？
+2. 如果把天氣簡化成只有「晴」「雨」兩種，你的答案會變嗎？
+
+課堂上的回答分成兩派。一派說「不可能，天氣是隨機的，隨機的東西倒過來還是隨機的」；另一派說「可以，天氣有慣性，倒著播會看到不自然的轉變」。兩派都說不清楚「不自然」到底指什麼、以及為什麼兩種天的版本和三種天的版本可能不一樣。這一篇要把「倒著播」本身寫成數學，答案會自己掉出來。
+
+<Question id="Q1">
+「倒著播」在數學上是什麼？如果正著播是一條 Markov chain $X_t$，倒過來的 $Y_s=X_{T-s}$ 還是 Markov chain 嗎？它的 rate 是什麼？
+
+<Answer>
+課堂上第一個反應通常是「倒過來就不是 Markov 了，因為它要知道未來」。這是錯的，而且錯得很有啟發性。Markov property 說「給了現在，過去與未來獨立」——這句話對過去與未來是**對稱**的。所以倒過來的過程 $Y_s$ 也是 Markov chain：給了 $Y_s=X_{T-s}$，它的「未來」（就是 $X$ 的過去）與它的「過去」（$X$ 的未來）獨立。
+
+真正會變的是 **rate**。正著播的 rate $R(x,y)$ 回答「現在在 $x$，下一瞬間跳到 $y$ 的傾向」；倒著播要回答的是「現在在 $x$，**上一瞬間**在 $y$ 的傾向」——這是一個「從結果推原因」的問題，是 <Ref to="math-bayes-posterior"/> 的形狀：已知 $X_{t+dt}=x$，問 $X_t=y$ 的 posterior。所以倒著播的 rate 會是一個 posterior，而 posterior 裡一定有先驗除以證據——這就是比值 $p_t(y)/p_t(x)$ 的來源。要算的量是這個 posterior 對 $dt$ 的斜率。
+</Answer>
+</Question>
+
+## 先抓住這個畫面
+
+想像一條很長的走廊，兩端各有一個房間：左邊「晴」、右邊「雨」。人群在兩個房間之間來回走。正著看，你數的是「每分鐘從晴走到雨的人數」；倒著看，同一批腳步變成「從雨走到晴」。**如果兩個方向的人流一樣多，倒帶之後什麼都沒變**——你看到的仍然是同樣多的人往兩邊走，分不出方向。
+
+如果房間有三個、而且人群傾向繞圈——晴→多雲→雨→晴——正著看是順時鐘，倒著看變成逆時鐘。這時你分得出來，因為存在一股**淨環流**。分辨影片方向的能力，就是偵測淨環流的能力。這個畫面已經暗示：兩種天的世界裡，兩個房間之間長期的人流必然相等（不然有一邊會越來越擠），所以分不出來；三種天的世界裡可以繞圈，所以可能分得出來。
+
+<VizPlan id="m4-3-rooms" title="兩個房間 vs 三個房間繞圈" type="static">
+- **檔名**：`m4-markov-chains/imgs/m4-3-1.svg`（16:9）。
+- **版面**：左格兩個房間 S、R，中間走廊上畫兩股相向的人流箭頭，粗細相同，標「$\pi(\text{S})R(\text{S},\text{R})=\pi(\text{R})R(\text{R},\text{S})$」；下方寫「倒帶後：一樣」。右格三個房間 S、C、R 排成三角形，順時鐘方向粗箭頭（rate 1）、逆時鐘方向細箭頭（rate $\varepsilon$）；下方畫同一個三角形但箭頭粗細對調，標「倒帶後：繞反方向」。
+- **圖說**：「兩個房間之間長期的人流必須平衡，倒帶之後看不出差別。三個房間可以繞圈，淨環流在倒帶後反向——這就是能分辨的東西。」
+</VizPlan>
+
+## 把畫面寫成公式
+
+### 四行 Bayes
+
+令 $X_t$ 是一條 rate matrix 為 $R$ 的 CTMC（<Ref to="math-ctmc"/>），$p_t$ 是它在時刻 $t$ 的分佈。固定一個很短的 $dt$、兩個不同的狀態 $x\ne y$。倒著播的 rate 要問：已知時刻 $t+dt$ 在 $x$，時刻 $t$ 在 $y$ 的機率是多少？Bayes 定理：
+
+$$
+\Pr(X_t=y\mid X_{t+dt}=x)
+=\frac{\Pr(X_{t+dt}=x\mid X_t=y)\;p_t(y)}{p_{t+dt}(x)}
+\approx\frac{R(y,x)\,dt\;p_t(y)}{p_t(x)} .
+$$
+
+第二步用了 $\Pr(X_{t+dt}=x\mid X_t=y)\approx R(y,x)\,dt$（rate 的定義）與 $p_{t+dt}(x)\approx p_t(x)$。把 $dt$ 除掉，得到**倒著播的 rate**：
+
+$$
+\boxed{\;\hat R_t(x,y)=R(y,x)\,\frac{p_t(y)}{p_t(x)}\;}\qquad(x\ne y),
+$$
+
+對角線照例補成讓每列和為 0。三個成分各有名字：$R(y,x)$ 是**正向從 $y$ 到 $x$ 的 rate**（likelihood）；$p_t(y)$ 是**上一瞬間在 $y$ 的先驗**；$p_t(x)$ 是**現在在 $x$ 的證據**。比值出現的原因就是 Bayes 的形狀：要從「現在在 $x$」倒推「剛才在 $y$」，得看 $y$ 本來有多可能、以及從 $y$ 過來有多容易，再除以「到 $x$ 的所有路徑」。
+
+注意兩件事。第一，$\hat R_t$ 一般**依賴 $t$**，即使 $R$ 不依賴——因為 $p_t$ 在變。第二，只有 $R(y,x)>0$ 的方向倒著播才會有 rate：正向不可能發生的跳躍，倒向也不可能。
+
+### 什麼時候倒著播看不出來
+
+若 chain 已在 stationary distribution $\pi$（$p_t=\pi$ 對所有 $t$），$\hat R(x,y)=R(y,x)\pi(y)/\pi(x)$ 不再依賴 $t$。倒著播與正著播規律**完全相同**的條件是 $\hat R=R$，即
+
+$$
+\pi(x)\,R(x,y)=\pi(y)\,R(y,x)\quad\text{對所有 }x\ne y .
+$$
+
+這叫 **detailed balance**：每一對狀態之間，兩個方向的機率流量相等。滿足它的 chain 叫 reversible。對照 stationary 的條件 $\pi R=0$——那只要求每個狀態的**總**流入等於總流出（global balance）；detailed balance 要求**每一對**之間各自平衡，是更強的條件。走廊裡的畫面就是這件事：三個房間可以「總進出平衡」但「順時鐘多於逆時鐘」。
+
+**2 狀態一定 reversible。** $\pi R=0$ 只有一條獨立方程 $\pi(\text{S})R(\text{S},\text{R})=\pi(\text{R})R(\text{R},\text{S})$，它本身就是 detailed balance。所以只有晴雨兩種天的 stationary 影片，**任何方法都分不出方向**——第二個直覺問題的答案是「會變：兩種天分不出，三種天可能分得出」。
+
+**3 狀態繞圈的例子。** 令 S→C、C→R、R→S 的 rate 都是 1，反方向都是 $\varepsilon$。由對稱性 $\pi=(\tfrac13,\tfrac13,\tfrac13)$。倒著播的 rate 是 $\hat R(x,y)=R(y,x)$：順時鐘的 rate 變成 $\varepsilon$、逆時鐘變成 1。$\varepsilon=1$ 時 $\hat R=R$（detailed balance 成立，分不出）；$\varepsilon\ll1$ 時影片正著播幾乎只看到 S→C→R→S，倒著播幾乎只看到 S→R→C→S——數一數「晴之後接多雲」與「多雲之後接晴」哪個多，就知道方向。
+
+<Details summary="倒著播的 chain 確實把分佈倒著走回去；離散時間版本；Kolmogorov 的環路判準">
+**驗證。** 令 $q_s=p_{T-s}$ 是倒著播的分佈。它應滿足倒著播的 forward equation $\dot q_s=q_s\hat R_{T-s}$。直接算：$(q_s\hat R_{T-s})(y)=\sum_{x\ne y}\big[p_t(x)\hat R_t(x,y)-p_t(y)\hat R_t(y,x)\big]$（$t=T-s$），代入 $\hat R_t(x,y)=R(y,x)p_t(y)/p_t(x)$ 得 $\sum_{x\ne y}\big[p_t(y)R(y,x)-p_t(x)R(x,y)\big]=-\dot p_t(y)=\dot q_s(y)$。成立。
+
+**離散時間。** 同一個 Bayes 計算對每日一步的 chain 給 $\hat P_n(x,y)=P(y,x)\,p_n(y)/p_{n+1}(x)$；stationary 時 $\hat P(x,y)=\pi(y)P(y,x)/\pi(x)$，detailed balance 是 $\pi(x)P(x,y)=\pi(y)P(y,x)$。
+
+**不用先算 $\pi$ 的判準。** Kolmogorov 判準：一條 irreducible chain 是 reversible，若且唯若對每一個環路 $x_1\to x_2\to\cdots\to x_k\to x_1$，順著走的 rate 乘積等於反著走的乘積。對上面的三角形：順時鐘 $1\cdot1\cdot1$ vs 逆時鐘 $\varepsilon^3$，只在 $\varepsilon=1$ 時相等。見 Kelly [1] 第 1 章。
+</Details>
+
+## 回頭看那兩派直覺
+
+**理論的判斷。** 「隨機的東西倒過來還是隨機」這一派，在兩種天、且影片已經在 stationary 的情況下是對的——而且是**嚴格**對的：倒著播的過程與正著播有相同的法則，沒有任何統計量能分辨。但理由不是「隨機」，是 detailed balance；三種天一旦有淨環流，同樣隨機，卻分得出來。「有慣性所以看得出不自然」這一派，把重點放錯了：慣性（停留久）在倒帶後仍是慣性，看得出來的是**環流方向**，不是慣性。
+
+**依賴的假設與失準處。** 上面「分不出」的結論依賴 stationary。若影片從一個特別的起點開始——例如整段影片是從一場罕見的連續大雨之後開始錄的，$p_0$ 遠離 $\pi$——那麼 $\hat R_t$ 依賴 $t$：倒著播時，接近影片起點的那些天會有異常的轉變速率（$p_t(y)/p_t(x)$ 在 $p_t(x)$ 很小時很大），即使 chain 本身 reversible 也看得出來。具體地，2 狀態、從全晴出發、S→R rate $0.2$、R→S rate $0.4$（每天）：$p_t(\text{R})=\tfrac13(1-e^{-0.6t})$，倒著播的 R→S rate 是 $0.2\,p_t(\text{S})/p_t(\text{R})$，在 $t\to0$ 時像 $1/t$ 一樣爆掉——倒帶影片裡靠近起點的雨天會「不自然地」立刻放晴，因為它們**必須**在時刻 0 回到晴。
+
+## 動手跑一次
+
+```python
+import numpy as np
+rng = np.random.default_rng(0)
+eps, T = 0.2, 200_000                       # 三角形：順時鐘 rate 1、逆時鐘 eps
+R = np.array([[-(1+eps), 1, eps], [eps, -(1+eps), 1], [1, eps, -(1+eps)]])
+x, path = 0, []
+for _ in range(T):                          # 只記錄跳到哪（embedded chain 即可）
+    rates = R[x].copy(); rates[x] = 0
+    x = rng.choice(3, p=rates / rates.sum()); path.append(x)
+path = np.array(path)
+cw  = np.mean((path[1:] - path[:-1]) % 3 == 1)   # 順時鐘跳的比例
+print("正著播順時鐘比例", cw, " 倒著播", 1 - cw)  # 1/(1+eps) vs eps/(1+eps)
+# eps = 1 時兩者都是 1/2：倒帶後無法分辨
+```
+
+<VizPlan id="m4-3-reverse" title="拉環流、看倒帶能不能分辨；換起點、看 stationary 假設被違反" type="interactive">
+- **位置**：本節之後。**檔名**：`site/public/notes/research_areas/mathematical-foundations/m4-markov-chains/m4-3-1.html`。
+- **版面**：上方兩條並排的天氣色帶（各 120 天，三色：晴／多雲／雨），左標「正著播」、右標「倒著播」，來自同一條模擬軌跡。中間是三角形的 rate 圖：正向 rate 標在順時鐘箭頭上、倒著播的 rate $\hat R(x,y)=R(y,x)\pi(y)/\pi(x)$ 即時算出標在另一組箭頭上。下方是統計：「S→C 的次數 vs C→S 的次數」在兩條色帶各數一次，並顯示一個分辨力指標 $|\log(\text{順}/\text{逆})|$。
+- **控制項**：滑桿 $\varepsilon\in[0,1]$（逆時鐘 rate；預設 0.2）；按鈕「重抽一條軌跡」；按鈕「隨機隱藏方向」——把兩條色帶順序打亂、隱藏標籤，讓讀者猜哪條是正著播，再揭曉。下拉「起點分佈」：stationary（預設）／全晴／全雨。滑桿「影片長度」$\in[30,2000]$ 天。
+- **拖 $\varepsilon\to1$**：三角形上正向與倒向 rate 逐漸相等，分辨力指標降到 0，「隨機隱藏方向」的猜對率掉到 50%——detailed balance。拖 $\varepsilon\to0$：色帶幾乎只剩固定順序的循環，一眼分得出。
+- **切到「全晴」起點**（保持 $\varepsilon=1$）：兩條色帶在 stationary 假設下本應無法分辨，但現在倒著播那條在**結尾**變成一段確定的晴天、且結尾前的雨天很快轉晴；畫面在三角形旁多顯示 $\hat R_t$ 隨 $t$ 變化的小折線（$p_t(y)/p_t(x)$），起點附近數值很大。註記：「stationary 被違反時 $\hat R_t$ 依賴 $t$，即使 chain 本身 reversible 也看得出方向。」
+- **拖影片長度**：$\varepsilon$ 接近 1（例如 0.8）時短影片猜不準、長影片才猜得準——分辨需要足夠多的環路樣本。
+- **底部觀察句**：「觀察：倒著播的 rate 是 $R(y,x)\,p_t(y)/p_t(x)$——正向 rate 乘一個 Bayes 比值。比值在 stationary 且 detailed balance 時剛好把 rate 換回原樣，影片分不出方向；有淨環流、或起點不在 $\pi$ 時就分得出。」
+- **匯出 PNG**：色帶＋三角形＋統計併成 16:9，含當前 $\varepsilon$ 與起點選項。
+</VizPlan>
+
+## 先消化一下
+
+<QuizBlock id="m4-3-a">
+一段排隊人數的縮時影片（每分鐘一格，人數 0 到 10）。已知這個排隊系統「每分鐘隨機來 0 或 1 人、隨機走 0 或 1 人，來與走的機率都不依賴人數」，而且已經運作很久、處於 stationary。你能分辨影片方向嗎？
+<Option>能，因為排隊人數有明顯的上升與下降段。</Option>
+<Option correct>不能：人數每次只變 $\pm1$，狀態圖是一條線、沒有環路，stationary 的 chain 一定 reversible。</Option>
+<Option>能，只要影片夠長、統計量夠準。</Option>
+<Explanation>
+狀態圖是一條線（birth–death chain），任兩個相鄰狀態之間的長期流量必須相等（否則有一邊越來越擠），也就是 detailed balance 自動成立；倒著播與正著播法則相同，影片再長也分不出來。「上升與下降段」在倒帶後仍是上升與下降段，那是波動不是環流。分辨方向需要環路上的淨環流，這條 chain 沒有環路。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m4-3-b">
+倒著播的 rate $\hat R_t(x,y)=R(y,x)\,p_t(y)/p_t(x)$ 裡，比值 $p_t(y)/p_t(x)$ 為什麼會出現？
+<Option>因為倒著播要把時間單位取倒數。</Option>
+<Option>因為 stationary distribution 必須被保持。</Option>
+<Option correct>因為「現在在 $x$，剛才在 $y$」是一個 posterior：先驗 $p_t(y)$ 乘 likelihood $R(y,x)\,dt$，再除以證據 $p_t(x)$。</Option>
+<Explanation>
+這是 Bayes 定理的形狀，跟時間單位無關，也不需要 stationary（公式對任何 $p_t$ 都成立，只是不 stationary 時 $\hat R_t$ 依賴 $t$）。「保持 stationary」是它的一個**後果**：$p_t=\pi$ 時比值變成 $\pi(y)/\pi(x)$，這時 $\hat R=R$ 的條件就是 detailed balance。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m4-3-c">
+三種天的 chain 滿足 detailed balance（$\varepsilon=1$），但影片是從「連續十天大雨之後」開始錄的、只錄了三十天。關於分辨方向：
+<Option>不可能，因為 detailed balance 保證倒著播與正著播法則相同。</Option>
+<Option correct>有可能：起點不在 $\pi$ 時 $\hat R_t$ 依賴 $t$，倒帶影片的結尾會出現異常快的「轉回雨天」，這是可以偵測的。</Option>
+<Option>不可能，因為三十天太短、任何統計量都沒有意義。</Option>
+<Explanation>
+「倒著播法則相同」的前提是 stationary；從 $p_0=$「全雨」出發，$p_t$ 在演化，倒著播的 rate 是 $R(y,x)p_t(y)/p_t(x)$，在接近起點處 $p_t(\text{S})$、$p_t(\text{C})$ 很小、比值很大。倒帶後這段變成結尾，會看到非典型的急轉——不需要環流也看得出。「太短沒有意義」錯在這裡的訊號不是統計環流，而是**開頭那幾格的分佈離 $\pi$ 很遠**：倒帶之後它變成結尾，那段的轉移統計和前面幾十格明顯不同，三十格就足以看出來。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="math-jensen">
+這一篇把「倒著播」寫成一條 rate 為 $R(y,x)\,p_t(y)/p_t(x)$ 的 chain：正向 rate 乘一個 Bayes 比值，detailed balance 成立時比值剛好抵消。四篇 Markov chain 到此結束。接下來換一個工具箱：把「平均」與「函數」交換順序時會發生什麼——為什麼保險這種每個人平均都虧錢的東西會存在。
+</Bridge>
+
+## 參考文獻
+
+1. Kelly, F. P. [*Reversibility and Stochastic Networks.*](https://www.statslab.cam.ac.uk/~frank/BOOKS/kelly_book.html) Wiley, 1979（Cambridge University Press 重印 2011）.（第 1 章：reversed process、detailed balance、Kolmogorov 判準。）
+2. Norris, J. R. [*Markov Chains.*](https://www.statslab.cam.ac.uk/~james/Markov/) Cambridge University Press, 1997.（1.9 節與 3.7 節 time reversal。）
+3. Levin, D. A., Peres, Y. [*Markov Chains and Mixing Times*](https://pages.uoregon.edu/dlevin/MARKOV/), 2nd ed. AMS, 2017.（1.6 節 reversibility 與 time reversal。）

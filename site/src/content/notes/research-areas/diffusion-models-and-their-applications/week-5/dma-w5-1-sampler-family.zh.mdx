@@ -1,0 +1,210 @@
+---
+slug: "dma-w5-1-sampler-family"
+label: "dma-sampler-family"
+prereqs:
+  - math-sde
+  - math-fokker-planck
+  - math-langevin
+lang: "zh"
+title: "取樣器不只一個，是一整族"
+category: "courses"
+group: "Week 5 · Stochastic Interpolants 與共用技巧"
+status: "available"
+updated: 2026-09-13
+summary: "同一組 (b_t, ∇log p_t) 生成一整族邊際相同的 SDE，用 Fokker–Planck 兩行證完；並把「自我修正」歸到取樣時的 ε_t，而不是訓練時的噪聲。"
+demos: []
+references:
+  - label: "Albergo, Boffi & Vanden-Eijnden, Stochastic Interpolants: A Unifying Framework for Flows and Diffusions (2023)"
+    href: "https://arxiv.org/abs/2303.08797"
+  - label: "Song, Sohl-Dickstein, Kingma, Kumar, Ermon & Poole, Score-Based Generative Modeling through SDEs (ICLR 2021)"
+    href: "https://arxiv.org/abs/2011.13456"
+  - label: "Karras, Aittala, Aila & Laine, Elucidating the Design Space of Diffusion-Based Generative Models (NeurIPS 2022)"
+    href: "https://arxiv.org/abs/2206.00364"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Details from '../../../components/Details.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 取樣器不只一個，是一整族
+
+<Objectives>
+- 寫出由同一組 $(b_t,\nabla\log p_t)$ 生成、邊際完全相同的一整族 SDE，並用 Fokker–Planck 證明。
+- 說出「自我修正」的機制，以及它為什麼屬於取樣器而不屬於訓練目標。
+- **把 <Ref to="dma-reverse-process"/> 的判準變成一個可以連續轉的旋鈕。** 那裡說「哪一個好取決於模型誤差與離散化誤差誰佔上風」，這裡給出 $\varepsilon_t$——它讓「加多少噪聲」不再是二選一。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 手上有兩樣東西，可以怎麼組
+
+<Ref to="dma-unified-equation"/> 訓練完之後，我們手上有兩個東西：速度 $b_t$，還有 score $s_t:=\nabla\log p_t$。
+
+<Ref week="dma-week-flow-matching"/> 只用了前者——解 ODE $\dot x=b_t(x)$。<Ref to="dma-reverse-process"/> 的 reverse SDE 兩個都用了。那中間呢？
+
+<Ask>
+如果把 score 摻進去一點，<br />
+會不會走到別的地方？
+</Ask>
+
+## 一整族，中間全部合法
+
+對任意非負函數 $\varepsilon_t$（只跟時間有關，不跟位置有關），考慮
+
+$$
+\boxed{\;dX_t=\big[b_t(X_t)+\varepsilon_t\,s_t(X_t)\big]dt+\sqrt{2\varepsilon_t}\,dW_t,\qquad X_0\sim p_0,\ \ t:0\to1 .\;}
+$$
+
+**答案是：不會走到別的地方。對每一個 $\varepsilon_t\ge0$，這個 SDE 在時刻 $t$ 的邊際都是同一個 $p_t$。**
+
+證明只有兩行。SDE 的邊際 $\rho_t$ 滿足 Fokker–Planck：
+
+$$
+\partial_t\rho=-\nabla\cdot\big((b+\varepsilon s)\rho\big)+\varepsilon\,\Delta\rho .
+$$
+
+把 $\rho=p_t$ 代進去。關鍵是 $s\,p_t=\nabla\log p_t\cdot p_t=\nabla p_t$，所以那兩個多出來的項
+
+$$
+-\nabla\cdot(\varepsilon\,\nabla p_t)+\varepsilon\,\Delta p_t=0
+$$
+
+**互相抵消**，剩下的正是 $b_t$ 生成 $p_t$ 的 continuity equation。$\square$
+
+$\varepsilon\equiv0$ 就是 <Ref week="dma-week-flow-matching"/> 的 ODE；$\varepsilon_t$ 取某個特定的 schedule 會還原 <Ref to="dma-reverse-process"/> 的 reverse SDE；中間任何取法都合法。<Ref to="dma-reverse-process"/> 說「PF-ODE 的 score 係數剛好是 reverse SDE 的一半」，講的就是這一族裡兩個特定的點。
+
+多出來的那一組是什麼？把它單獨看：
+
+$$
+\underbrace{\varepsilon_t\,s_t\,dt+\sqrt{2\varepsilon_t}\,dW_t}_{\text{Langevin 項}}
+$$
+
+> **加一點噪聲，再用 score 把樣本往高密度處拉回來。**
+
+這兩件事對邊際的淨效果剛好是零——這正是上面那個抵消的意思。所以它不改變分布，只改變**走法**。
+
+<Remark label="補充" summary="這一族在 diffusion 那一側長什麼樣">
+把 $\varepsilon_t$ 換成 <Ref to="dma-reverse-process"/> 的語言，它就是 DDIM 那個 $\eta$ 家族：$\eta=0$ 對應 $\varepsilon=0$、$\eta=1$ 對應完整的 reverse SDE。差別只是那裡用離散步的係數寫、這裡用連續時間的 SDE 寫。
+
+實務上 $\varepsilon_t$ 不會取成常數。由 <Ref to="dma-tweedie-and-score"/> 的 Tweedie 公式，$\nabla\log p_t=-\mathbb E[\epsilon\mid x_t]/\sigma_t$，而分子是 $O(1)$，所以 **score 的量級是 $O(1/\sigma_t)$**（這裡沿用 <Ref week="dma-week-flow-matching"/> 的 $\sigma_t$ 表示**噪聲那一端的係數**，也就是 <Ref to="dma-unified-equation"/> 對照表裡的 $\alpha_t$——談 score 的量級時這個寫法比較好讀）。常見做法是讓 $\varepsilon_t\propto\sigma_t^2$，這樣 $\varepsilon_t s_t=O(\sigma_t)$ 不只有界，還會在資料那一端自己收掉——下面的 demo 就是這樣做的（$\varepsilon_t=c\,\sigma_t^2$，$c$ 是那個滑桿）。
+</Remark>
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-1-epsilon.html" class="demo-frame" title="同一組邊際，一整族走法：互動 demo" style="height: 1000px; width: 100%; border: none;"></iframe>
+
+**互動 demo：同一組邊際，一整族走法。** 把 $c$ 從 0 拉到 6，軌跡從光滑變抖動，但終點分布與資料的 **energy distance**（兩堆樣本之間的一種距離，和 <Ref to="dma-error-theory"/> 用的 $W_2$ 是兩把不同的尺，數值不要互相比較）**一直停在 0.01 上下**——這就是上面那個抵消。接著按「把所有樣本推歪」，人為在 $t=0.15$ 把每一顆樣本平移將近一個單位：$c=0$ 時那個偏移一路帶到終點（energy distance 約 0.7），$c$ 越大救得越回來，$c=4$ 以後幾乎回到沒推的水準。
+
+## 加了噪聲之後，錯還救得回來嗎？
+
+<Question id="Q1">
+<Ref to="dma-unified-equation"/> 在訓練時加了 $\gamma_t z$，所以每一個 $x_t$ 都帶了額外的噪聲。
+
+**這樣訓出來的 flow matching，是不是就有 <Ref to="dma-reverse-process"/> 說的那種自我修正能力了？**
+
+<Answer>
+沒有——而這個問題會把兩個很容易混在一起的旋鈕分開。
+
+**訓練時的 $\gamma_t$** 決定 $p_t$ 長什麼樣，以及你**學得到哪些量**。$\gamma \gt 0$ 讓你除了 $b_t$ 之外還能學 $\eta_t$，於是手上多了一個 score。
+
+**取樣時的 $\varepsilon_t$** 決定你**怎麼走**。$\varepsilon=0$ 沒有 Langevin 項：一旦偏離 $p_t$，就沿著偏離之後的軌跡繼續走，誤差一路帶到終點。$\varepsilon \gt 0$ 才有拉回。
+
+所以四種組合裡只有一種有修正能力：
+
+| | 用 ODE 取樣（$\varepsilon=0$） | 用 SDE 取樣（$\varepsilon \gt 0$） |
+|---|---|---|
+| 訓練時 $\gamma=0$、獨立配對 | 沒有修正 | 有修正（score 由 Gaussian 起點給出） |
+| 訓練時 $\gamma \gt 0$ | 沒有修正 | 有修正 |
+
+$\gamma$ 給的是**選擇權**：沒有 score 就根本寫不出 SDE 取樣器，有了才輪到你選 $\varepsilon$。
+
+順便把 <Ref to="dma-reverse-process"/> 的後半補完：DDPM 與 DDIM 之所以能共用同一個網路，是因為 diffusion 的 $x_0$ 本身就是 Gaussian、天然有 score；兩者的差別**純粹**是 $\varepsilon$ 取 0 還是不取 0，不是兩個模型。
+
+至於拉回是怎麼發生的：$s_t$ 指向 $p_t$ 密度上升的方向，所以偏到低密度區的樣本會被 $\varepsilon s_t$ 推回高密度區；同時注入的 $\sqrt{2\varepsilon}\,dW$ 保證它不會全部塌到峰頂上。兩者平衡的時候樣本的分布就是 $p_t$——這就是 Langevin dynamics 的平穩分布。
+
+不過 demo 也顯示了一件不能省略的事：**修正既不免費也不瞬間。** 它需要足夠大的 $\varepsilon$，也需要足夠的剩餘時間；把「推歪」的時刻往後移，同樣的 $c$ 就救不回來了。
+</Answer>
+</Question>
+
+## 有修正，不代表更好
+
+$\varepsilon \gt 0$ 每一步會多注入 $\sqrt{2\varepsilon h}$ 量級的噪聲，而這件事本身就是一個誤差來源：Euler–Maruyama 的弱收斂只有一階、強收斂只有半階，比 ODE 的一階（還可以用 Heun 升到二階）差（這兩個「收斂」分別在說什麼，<Ref to="dma-error-theory"/> 會講）。ODE 沒有這筆成本，代價是誤差會一路累積。
+
+> **$\varepsilon_t$ 不影響邊際，只影響誤差怎麼累積。**
+
+所以「該取多少」不是正確性問題，而是取捨問題：$\varepsilon$ 大，前面的偏差有機會被拉回，但每一步自己多帶一份噪聲誤差。這正是 <Ref to="dma-reverse-process"/> 那個判準在連續版本上的樣子：**$\varepsilon$ 要不要開、開多大，看的是模型誤差有沒有大到值得花這筆噪聲成本。** 模型幾乎沒有誤差時（乾淨的 toy），沒有東西可修，$\varepsilon$ 只是多帶一份噪聲誤差；模型誤差大時（真實模型），修正才划算。<Ref to="dma-lab-interpolants"/> 會把兩邊都量出來。$\varepsilon_t$ 該怎麼取到最好目前沒有定論，常見做法是在中段的 $t$ 給比較大的值、兩端收小。
+
+<Details summary="為什麼「兩端收小、中間放大」是合理的">
+兩端各有理由。$t$ 接近 1 時 $\sigma_t\to0$，而 score 是 $O(1/\sigma_t)$，$\varepsilon$ 不收小的話 $\varepsilon s$ 會炸掉——這是純粹的數值理由。$t$ 接近 0 時樣本還在起點分布上，本來就沒有偏離要修，加噪聲只是多花預算。
+
+中段則是 $p_t$ 從一團 Gaussian 開始分裂成多個 mode 的地方，直覺上也是最需要修正的一段。**不過要說清楚：本課沒有量過「誤差沿 $t$ 怎麼分布」**——<Ref to="dma-error-theory"/> 給的是整段積分，不是逐 $t$ 的曲線。所以這一段是啟發式，不是推導。Karras 等人 [3] 的 stochasticity schedule 是這個形狀，那是實驗調出來的。
+</Details>
+
+<VizPlan id="w5-1-one-family" title="一整族取樣器" type="static">
+- 檔名 `imgs/w5-1-1.png`，放在「有修正，不代表更好」之後、「消化一下」之前。
+- 版面：上下兩塊。
+  - **上「同一組邊際」**：一張時空圖，橫軸是 $t$（0→1，左邊噪聲、右邊資料），背景是 $p_t$ 的單色熱圖（藍→橘），從一團寬 Gaussian 分裂成兩個窄峰。上面疊三組從**同一批起點**出發的軌跡，分別標 $\varepsilon=0$（光滑）、$\varepsilon$ 中（微抖）、$\varepsilon$ 大（明顯抖動）。右端各附一個小直方圖，**三個看起來一樣**，中間放兩個等號並標「邊際相同」。
+  - **下「只有 $\varepsilon \gt 0$ 會修正」**：兩張並排的小圖，都在 $t=0.15$ 處畫一個紅色的箭頭把一整束軌跡往上推歪。左圖 $\varepsilon=0$：推歪之後軌跡平行地偏著走，終點落在資料之外（用紅色虛線框住那團偏掉的終點）。右圖 $\varepsilon$ 大：軌跡在後半段逐漸被拉回，終點回到資料上。兩張下面各標一個數字：左「energy distance ≈ 0.70」、右「≈ 0.01」。
+- 底部一句：「$\varepsilon_t$ 換的是走法，不是終點分布；但一旦走偏了，只有 $\varepsilon \gt 0$ 走得回來。」
+- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、噪聲藍 `#4a90e2`／資料橘 `#f0803c`／強調靛 `#2a4ea3`／路徑綠 `#60ba82`，偏離用紅 `#d94f4f`）。
+- 長寬比：約 16:12。
+</VizPlan>
+
+## 消化一下
+
+<QuizBlock id="w5-1-a">
+「一族 SDE 邊際相同」的證明，關鍵那一步是什麼？
+<Option>$b_t$ 是常數。</Option>
+<Option correct>$\nabla\log p_t\cdot p_t=\nabla p_t$，讓 score drift 與擴散項在 Fokker–Planck 裡剛好抵消。</Option>
+<Option>$\varepsilon_t$ 必須是常數。</Option>
+<Explanation>
+這是整個證明唯一用到「$s_t$ 是真正的 score」的地方。$s_t$ 估得不準的時候抵消不完全，邊際就會偏——而且 $\varepsilon$ 越大偏得越多。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w5-1-b">
+訓練時取 $\gamma_t \gt 0$，取樣時用 Euler 解 ODE（$\varepsilon=0$）。這個取樣器：
+<Option>有自我修正，因為訓練時有噪聲。</Option>
+<Option correct>沒有自我修正。$\gamma$ 只讓你「可以」學到 score，但這個取樣器沒有用到它。</Option>
+<Option>會發散。</Option>
+<Explanation>
+自我修正來自取樣時的 Langevin 項。訓練噪聲與取樣噪聲是兩個獨立的旋鈕，這也是 demo 那個「推歪」實驗要說的事。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w5-1-c">
+在一個速度場**精確算出來**（沒有網路誤差）的 toy 上，把 $\varepsilon$ 從 0 調大，終點品質會怎麼變？
+<Option correct>大致變差或持平——沒有模型誤差可修，注入的噪聲只是多一份離散化成本。</Option>
+<Option>一定變好，因為 SDE 有自我修正。</Option>
+<Option>一定變好，因為邊際相同。</Option>
+<Explanation>
+「邊際相同」是連續時間的敘述，不保證有限步的品質。自我修正修的是**偏離 $p_t$** 的樣本，而偏離主要來自模型誤差；精確場之下那一項不存在，剩下的只有 $\varepsilon$ 自己帶進來的噪聲誤差。這正是 <Ref to="dma-reverse-process"/> 的判準——真實模型上結論會反過來。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w5-1-d">
+為什麼 $\varepsilon_t$ 在實務上通常取成兩端小、中間大？
+<Option>因為兩端的 score 比較不準。</Option>
+<Option correct>$t\to1$ 時 score 是 $O(1/\sigma_t)$，$\varepsilon$ 不收小會炸掉；$t\to0$ 時樣本還在起點分布上，沒有偏離要修。</Option>
+<Option>為了讓 $\varepsilon_t$ 可微。</Option>
+<Explanation>
+一個是數值穩定的理由、一個是「別把預算花在沒事發生的地方」。中段是 $p_t$ 分裂成多個 mode、誤差最容易累積的地方，修正的力氣放那裡最划算。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-error-theory">
+我們知道 ODE 的誤差來自軌跡彎、而且會累積。下一篇把「彎」寫成一個算得出來的數，並證明它真的壓住誤差。
+</Bridge>
+
+## 參考文獻
+
+1. Albergo, M. S., Boffi, N. M., Vanden-Eijnden, E. [*Stochastic Interpolants: A Unifying Framework for Flows and Diffusions.*](https://arxiv.org/abs/2303.08797) 2023. （這一族 SDE 與 Fokker–Planck 的兩行證明。）
+2. Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Ermon, S., Poole, B. [*Score-Based Generative Modeling through Stochastic Differential Equations.*](https://arxiv.org/abs/2011.13456) ICLR 2021. （reverse SDE 與 PF-ODE 是這一族裡的兩個點。）
+3. Karras, T., Aittala, M., Aila, T., Laine, S. [*Elucidating the Design Space of Diffusion-Based Generative Models.*](https://arxiv.org/abs/2206.00364) NeurIPS 2022. （$\varepsilon_t$ 該怎麼排的實務討論，也就是他們說的 stochasticity。）

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>兩種誤差分開看：模型誤差與因子化誤差</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; aspect-ratio: 4/3; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
+  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：把總誤差拆成兩個來源。<b>模型誤差</b>是網路沒學好（三條線的高低差），<b>因子化誤差</b>是每步同時翻開太多格（同一條線隨 k 上升）。<b>k=1 那一欄只有模型誤差</b>——那裡就是 autoregressive。</p>
+
+  <canvas id="cv" width="640" height="480" aria-label="每步翻開幾個 vs 樣本的切換率"></canvas>
+  <p class="cap">橫軸＝每步翻開幾個 k（對數）　縱軸＝樣本的<b>切換率</b>（相鄰兩格不同的比例）　灰虛線＝資料的真值 0.10　三條線＝三種模型誤差</p>
+
+  <div class="controls">
+    <div class="row"><span class="lab">每組樣本數</span>
+      <button data-r="200" class="on">200</button>
+      <button data-r="600">600</button>
+      <button id="run">重新跑</button>
+    </div>
+    <div class="stats">
+      <span>完美網路 k=1 的切換率 = <b id="v1">—</b></span>
+      <span>完美網路 k=16 = <b id="v2">—</b></span>
+      <span>ε=0.15、k=1 = <b id="v3">—</b></span>
+    </div>
+  </div>
+
+  <p class="observe">資料是「相鄰格以機率 0.9 相同」的鏈，所以真實切換率是 <b>0.10</b>。看三條線：<b>k=1 時完美網路幾乎打在虛線上</b>（切換率 ≈ 0.10），而有模型誤差的兩條在 k=1 就已經偏高——那一段偏差<b>完全是模型的錯</b>，跟步數無關。往右走，三條線一起往上爬，最後在 k=16（一步生成）都衝到 <b>0.5 附近</b>：那是「每格獨立擲硬幣」的切換率。<b>爬升的那一段就是因子化誤差。</b></p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var L = 16, P_SAME = 0.9, KS = [1, 2, 4, 8, 16], EPS = [0, 0.05, 0.15];
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var pal = NDFlow.palette();
+  var v1 = document.getElementById('v1'), v2 = document.getElementById('v2'), v3 = document.getElementById('v3');
+  var R = 200, curves = [];
+
+  function norm(v) { var s = v[0] + v[1]; return s > 0 ? [v[0] / s, v[1] / s] : [0.5, 0.5]; }
+  // 前向後向：給定「哪些位置已知、值是什麼」，算每個未知位置 P(x=1)
+  function posterior(x) {
+    var T = [[P_SAME, 1 - P_SAME], [1 - P_SAME, P_SAME]], i, a, p;
+    var emis = [];
+    for (i = 0; i < L; i++) emis.push(x[i] === null ? [1, 1] : [x[i] === 0 ? 1 : 0, x[i] === 1 ? 1 : 0]);
+    var f = [norm([0.5 * emis[0][0], 0.5 * emis[0][1]])];
+    for (i = 1; i < L; i++) {
+      var nx = [0, 0];
+      for (a = 0; a < 2; a++) for (p = 0; p < 2; p++) nx[a] += f[i - 1][p] * T[p][a];
+      f.push(norm([nx[0] * emis[i][0], nx[1] * emis[i][1]]));
+    }
+    var b = new Array(L); b[L - 1] = [1, 1];
+    for (i = L - 2; i >= 0; i--) {
+      var bb = [0, 0];
+      for (a = 0; a < 2; a++) for (var q = 0; q < 2; q++) bb[a] += T[a][q] * emis[i + 1][q] * b[i + 1][q];
+      b[i] = norm(bb);
+    }
+    var out = [];
+    for (i = 0; i < L; i++) out.push(norm([f[i][0] * b[i][0], f[i][1] * b[i][1]])[1]);
+    return out;
+  }
+  function shuffled() {
+    var a = []; for (var i = 0; i < L; i++) a.push(i);
+    for (var j = L - 1; j > 0; j--) { var r = Math.floor(Math.random() * (j + 1)), t = a[j]; a[j] = a[r]; a[r] = t; }
+    return a;
+  }
+  function oneSample(k, eps) {
+    var x = new Array(L).fill(null), ord = shuffled(), ptr = 0;
+    while (ptr < L) {
+      var post = posterior(x), set = ord.slice(ptr, ptr + k);
+      for (var b = 0; b < set.length; b++) {
+        var i = set[b], p = (1 - eps) * post[i] + eps * 0.5;   // 模型誤差：往均勻拉一點
+        x[i] = Math.random() < p ? 1 : 0;
+      }
+      ptr += set.length;
+    }
+    return x;
+  }
+  function switchRate(x) {
+    var c = 0;
+    for (var i = 1; i < L; i++) if (x[i] !== x[i - 1]) c++;
+    return c / (L - 1);
+  }
+  function run() {
+    curves = EPS.map(function (eps) {
+      return { eps: eps, ys: KS.map(function (k) {
+        var s = 0;
+        for (var r = 0; r < R; r++) s += switchRate(oneSample(k, eps));
+        return s / R;
+      }) };
+    });
+    v1.textContent = curves[0].ys[0].toFixed(3);
+    v2.textContent = curves[0].ys[KS.length - 1].toFixed(3);
+    v3.textContent = curves[2].ys[0].toFixed(3);
+  }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx;
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    var Lm = 52, Rm = 12, T = 18, B = 36;
+    var x0 = Math.log(KS[0]), x1 = Math.log(KS[KS.length - 1]);
+    var X = function (v) { return Lm + (Math.log(v) - x0) / (x1 - x0) * (s.w - Lm - Rm); };
+    var Y = function (v) { return T + (0.56 - v) / 0.56 * (s.h - T - B); };
+    ctx.strokeStyle = 'rgba(255,255,255,0.09)'; ctx.lineWidth = 1;
+    ctx.font = '500 10px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.textAlign = 'center';
+    KS.forEach(function (k) {
+      ctx.beginPath(); ctx.moveTo(X(k), T); ctx.lineTo(X(k), s.h - B); ctx.stroke();
+      ctx.fillText(String(k), X(k), s.h - B + 15);
+    });
+    ctx.textAlign = 'right';
+    [0, 0.1, 0.2, 0.3, 0.4, 0.5].forEach(function (v) {
+      ctx.beginPath(); ctx.moveTo(Lm, Y(v)); ctx.lineTo(s.w - Rm, Y(v)); ctx.stroke();
+      ctx.fillText(v.toFixed(1), Lm - 5, Y(v) + 3.5);
+    });
+    ctx.textAlign = 'center';
+    ctx.fillText('每步翻開幾個 k', (Lm + s.w - Rm) / 2, s.h - 4);
+    ctx.save(); ctx.translate(12, (T + s.h - B) / 2); ctx.rotate(-Math.PI / 2);
+    ctx.fillText('樣本的切換率', 0, 0); ctx.restore();
+    // 真值
+    ctx.setLineDash([5, 4]); ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(Lm, Y(0.1)); ctx.lineTo(s.w - Rm, Y(0.1)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText('資料 0.10', Lm + 4, Y(0.1) - 5);
+    ctx.setLineDash([2, 3]); ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.beginPath(); ctx.moveTo(Lm, Y(0.5)); ctx.lineTo(s.w - Rm, Y(0.5)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillText('每格獨立擲硬幣 0.50', Lm + 4, Y(0.5) - 5);
+
+    var cols = [pal.accent, 'rgb(96,186,130)', '#d94f4f'];
+    curves.forEach(function (c, ci) {
+      ctx.strokeStyle = cols[ci]; ctx.lineWidth = 2.2; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      KS.forEach(function (k, i) { i ? ctx.lineTo(X(k), Y(c.ys[i])) : ctx.moveTo(X(k), Y(c.ys[i])); });
+      ctx.stroke();
+      ctx.fillStyle = cols[ci];
+      KS.forEach(function (k, i) { ctx.beginPath(); ctx.arc(X(k), Y(c.ys[i]), 3.1, 0, 6.284); ctx.fill(); });
+    });
+    ctx.font = '700 10px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ['ε=0（完美網路）', 'ε=0.05', 'ε=0.15'].forEach(function (nm, k2) {
+      ctx.fillStyle = cols[k2];
+      ctx.fillRect(Lm + 8, T + 6 + k2 * 14, 12, 2.5);
+      ctx.fillText(nm, Lm + 24, T + 11 + k2 * 14);
+    });
+  }
+  function go() { run(); draw(); }
+  document.getElementById('run').onclick = go;
+  Array.prototype.forEach.call(document.querySelectorAll('[data-r]'), function (b) {
+    b.onclick = function () {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-r]'), function (o) { o.classList.remove('on'); });
+      b.classList.add('on'); R = parseInt(b.dataset.r, 10); go();
+    };
+  });
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  run(); applyTheme();
+})();
+</script>
+</body>
+</html>

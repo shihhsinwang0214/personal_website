@@ -6,11 +6,8 @@ import type { Lang } from '../lib/notes';
 import {
   categoryLabels,
   formatNoteDate,
-  groupNotes,
-  latestNoteDate,
-  noteRoute,
-  notesForListingLang,
-  researchAreaLabels,
+  homeSections,
+  notesIndexRoute,
 } from '../lib/notes';
 
 interface Props {
@@ -19,8 +16,9 @@ interface Props {
 const { lang } = Astro.props;
 
 const allNotes = await getCollection('notes');
-const writing = notesForListingLang(allNotes, lang);
-const writingGroups = groupNotes(writing);
+// The home page lists only the top-level headings (course / research area);
+// the notes index is where the lecture and note levels live.
+const homeBlocks = homeSections(allNotes, lang);
 const selectedPubs = publications[0].items.slice(0, 3);
 const recentNews = news.slice(0, 4);
 ---
@@ -85,71 +83,24 @@ const recentNews = news.slice(0, 4);
     </div>
     <div class="writing-list">
       {
-        writingGroups.map((categoryGroup) => (
-          <section class="writing-category" aria-labelledby={`writing-${categoryGroup.category}`}>
-            <h3 id={`writing-${categoryGroup.category}`} class="writing-category-label">
-              {categoryLabels[categoryGroup.category][lang]}
+        homeBlocks.map((section) => (
+          <section class="writing-category" aria-labelledby={`writing-${section.category}`}>
+            <h3 id={`writing-${section.category}`} class="writing-category-label">
+              {categoryLabels[section.category][lang]}
             </h3>
-            <div class="writing-areas">
-              {categoryGroup.areas.map((areaGroup) => (
-                <section class="writing-area">
-                  {areaGroup.area && (
-                    <div class="writing-area-label">{researchAreaLabels[areaGroup.area][lang]}</div>
-                  )}
-                  <div class="writing-groups">
-                    {areaGroup.groups.map(({ group, notes: groupEntries }) => {
-                      const latest = latestNoteDate(groupEntries);
-                      const categoryNotes = groupEntries;
-                      return (
-                        <details class="writing-group">
-                          <summary class="disclosure-summary writing-group-summary">
-                            <span class="disclosure-copy">
-                              <span class="disclosure-label">{group}</span>
-                              <span class="disclosure-meta">
-                                {categoryNotes.length}{' '}
-                                {lang === 'zh'
-                                  ? '篇'
-                                  : categoryNotes.length === 1
-                                    ? 'note'
-                                    : 'notes'}{' '}
-                                · {lang === 'zh' ? '更新於' : 'Updated'}{' '}
-                                {latest ? formatNoteDate(latest, lang) : ''}
-                              </span>
-                            </span>
-                            <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-                              <path d="M7 4.5 12.5 10 7 15.5" />
-                            </svg>
-                          </summary>
-                          <div class="disclosure-content writing-group-content">
-                            {categoryNotes.map((n) => {
-                              const noteLang = n.data.status === 'missing' ? (lang === 'zh' ? 'en' : 'zh') : n.data.lang;
-                              const href = noteRoute(n.data.slug, noteLang);
-                              const sameLang = noteLang === lang;
-                              const badge = noteLang === 'zh' ? '中文' : 'EN';
-                              const desc = sameLang
-                                ? n.data.summary && n.data.summary !== n.data.title
-                                  ? n.data.summary
-                                  : ''
-                                : uiText.notesOnlyOther[lang];
-                              return (
-                                <a class="writing-row" href={withBase(href)}>
-                                  <span class="w-meta">{formatNoteDate(n.data.updated, lang)}</span>
-                                  <span>
-                                    <span class="w-title">
-                                      {n.data.title}
-                                      <span class="w-badge">{badge}</span>
-                                    </span>
-                                    {desc && <span class="w-desc">{desc}</span>}
-                                  </span>
-                                </a>
-                              );
-                            })}
-                          </div>
-                        </details>
-                      );
-                    })}
-                  </div>
-                </section>
+            <div class="topic-cards">
+              {section.items.map((item) => (
+                <a class="topic-card" href={withBase(`${notesIndexRoute(lang)}#${item.id}`)}>
+                  <span class="topic-card-title">{item.title}</span>
+                  {item.description && <span class="topic-card-desc">{item.description}</span>}
+                  <span class="topic-card-meta">
+                    {item.noteCount} {lang === 'zh' ? '篇' : item.noteCount === 1 ? 'note' : 'notes'}
+                    {item.unitCount > 1
+                      ? ` · ${item.unitCount} ${lang === 'zh' ? '個單元' : 'units'}`
+                      : ''}
+                    {item.latest ? ` · ${formatNoteDate(item.latest, lang)}` : ''}
+                  </span>
+                </a>
               ))}
             </div>
           </section>

@@ -6,6 +6,7 @@ import SelfCheck from './SelfCheck.astro';
 import { withBase } from '../lib/url';
 import type { HandbookEntry, Lang } from '../lib/handbook';
 import {
+  draftHandbookSlugs,
   findHandbook,
   formatHandbookDate,
   handbookNav,
@@ -36,6 +37,8 @@ const nodeTotal = sectionItems.length;
 const tocHeadings = headings.filter((h) => h.depth > 1 && h.depth <= 3);
 // Monsters whose counter-play lives on this page — shown as an encounter strip.
 const pageMonsters = visibleMonsters().filter((m) => m.link === entry.data.slug);
+// Only ever true in dev: production never builds a drafted page at all.
+const isDraft = draftHandbookSlugs.has(entry.data.slug);
 
 const alternates = alt
   ? [
@@ -84,6 +87,9 @@ const articleJsonLd = {
         </p>
         <h1>{entry.data.title}</h1>
         <div class="note-header-actions">
+          {isDraft && (
+            <span class="draft-badge">{lang === 'zh' ? '草稿 · 尚未發布' : 'DRAFT · not published'}</span>
+          )}
           <span class={`status-badge status-${entry.data.status}`}>{statusLabels[entry.data.status][lang]}</span>
           {alt && (
             <a href={withBase(handbookRoute(alt.data.slug, otherLang))}>{otherLang === 'zh' ? '中文' : 'EN'}</a>

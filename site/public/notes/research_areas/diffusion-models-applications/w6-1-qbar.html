@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Q̄ₜ 的熱圖隨 t 演化</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 560px; aspect-ratio: 16/9; height: auto; display: block; margin: 0 auto; border-radius: 10px; cursor: crosshair; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  input[type=range] { width: 210px; max-width: 56vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
+  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：兩條鏈的 <b>Q̄<sub>t</sub> 都長成「ᾱ<sub>t</sub> 倍的 identity ＋ (1−ᾱ<sub>t</sub>) 倍的終點」</b>。uniform 的終點是一片均勻，absorbing 的終點是 [MASK] 那一欄。ᾱ<sub>t</sub> 就是「還剩多少原字」。</p>
+
+  <canvas id="cv" width="640" height="360" aria-label="Q̄ₜ 的熱圖"></canvas>
+  <p class="cap">每一格是 q(x<sub>t</sub>=j | x₀=i)：<b>列＝原字 i</b>、<b>欄＝走 t 步後的字 j</b>。顏色越亮＝機率越大。滑過任一格看數值。</p>
+
+  <div class="controls">
+    <div class="row">
+      <span class="lab">t</span><input id="t" type="range" min="0" max="20" step="1" value="6" /><b id="vt">6</b>
+    </div>
+    <div class="row"><span class="lab">顯示</span>
+      <button data-m="bar" class="on">Q̄ₜ（走 t 步）</button>
+      <button data-m="single">Qₜ（只走一步）</button>
+    </div>
+    <div class="stats">
+      <span>ᾱ<sub>t</sub> = <b id="va">—</b></span>
+      <span>uniform 對角線 = ᾱ<sub>t</sub>+(1−ᾱ<sub>t</sub>)/K = <b id="vd">—</b></span>
+      <span>absorbing 對角線 = ᾱ<sub>t</sub> = <b id="vd2">—</b></span>
+      <span id="hov"></span>
+    </div>
+  </div>
+
+  <p class="observe">拖 t：uniform 的對角線一路淡下去、其他格一起亮起來，最後整張變成一片均勻（每格 1/K）；absorbing 的對角線淡去，質量<b>整批流進最右邊那一欄</b>，而最後一列從頭到尾就是 [MASK] 自己（吸收態）。切到「Qₜ（只走一步）」：單步矩陣<b>幾乎就是 identity</b>——是連乘 t 次才把質量搬走的。另外注意兩條鏈的對角線不一樣：uniform 的「還是原字」包含「被換掉但剛好換回自己」，所以比 ᾱ<sub>t</sub> 多一點。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var K = 6, T = 20;
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var tEl = document.getElementById('t');
+  var vt = document.getElementById('vt'), va = document.getElementById('va'),
+      vd = document.getElementById('vd'), vd2 = document.getElementById('vd2'), hov = document.getElementById('hov');
+  var pal = NDFlow.palette();
+  var mode = 'bar', abar = [], beta = [];
+
+  function build() {
+    var a = 1; abar = [1]; beta = [0];
+    for (var t = 1; t <= T; t++) { var b = 0.02 + 0.22 * (t - 1) / (T - 1); beta.push(b); a *= (1 - b); abar.push(a); }
+  }
+  function Qu(t, i, j) {          // uniform，K×K
+    var a = (mode === 'bar') ? abar[t] : (t === 0 ? 1 : 1 - beta[t]);
+    return (i === j ? a : 0) + (1 - a) / K;
+  }
+  function Qa(t, i, j) {          // absorbing，(K+1)×(K+1)，最後一個是 [MASK]
+    var a = (mode === 'bar') ? abar[t] : (t === 0 ? 1 : 1 - beta[t]);
+    if (i === K) return j === K ? 1 : 0;
+    if (i === j) return a;
+    if (j === K) return 1 - a;
+    return 0;
+  }
+  function grids(s) {
+    var pad = 26, gap = 30, top = 34, bot = 26;
+    var side = Math.min((s.w - 2 * pad - gap) / 2, s.h - top - bot);
+    return { pad: pad, gap: gap, top: top, side: side,
+             x0: pad, x1: pad + side + gap };
+  }
+  function col(p, isMask) {
+    var v = Math.pow(Math.min(1, p), 0.55);
+    if (isMask) return 'rgba(230,230,235,' + (0.06 + 0.80 * v) + ')';
+    var c = pal.data;
+    return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (0.06 + 0.88 * v) + ')';
+  }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx, G = grids(s), t = parseInt(tEl.value, 10);
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    ctx.font = '700 12px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.78)'; ctx.textAlign = 'left';
+    ctx.fillText('uniform（K=6）', G.x0, 22);
+    ctx.fillText('absorbing（K=6 ＋ [MASK]）', G.x1, 22);
+
+    var n0 = K, c0 = G.side / n0;
+    for (var i = 0; i < n0; i++) for (var j = 0; j < n0; j++) {
+      ctx.fillStyle = col(Qu(t, i, j), false);
+      ctx.fillRect(G.x0 + j * c0, G.top + i * c0, c0 - 1, c0 - 1);
+    }
+    var n1 = K + 1, c1 = G.side / n1;
+    for (var a = 0; a < n1; a++) for (var b = 0; b < n1; b++) {
+      ctx.fillStyle = col(Qa(t, a, b), b === K);
+      ctx.fillRect(G.x1 + b * c1, G.top + a * c1, c1 - 1, c1 - 1);
+    }
+    // [MASK] 那一欄與那一列標出來
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 1.4;
+    ctx.strokeRect(G.x1 + K * c1 - 1, G.top - 1, c1 + 1, G.side + 1);
+    ctx.font = '600 9px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.textAlign = 'center';
+    ctx.fillText('[MASK]', G.x1 + K * c1 + c1 / 2, G.top + G.side + 12);
+    ctx.textAlign = 'left';
+    ctx.fillText('欄 = 走 t 步後的字 j', G.x0, G.top + G.side + 12);
+
+    vt.textContent = t;
+    va.textContent = abar[t].toFixed(3);
+    vd.textContent = (abar[t] + (1 - abar[t]) / K).toFixed(3);
+    vd2.textContent = abar[t].toFixed(3);
+  }
+  cv.addEventListener('mousemove', function (ev) {
+    var s = d.resize(), G = grids(s), r = cv.getBoundingClientRect(), t = parseInt(tEl.value, 10);
+    var px = (ev.clientX - r.left) * (s.w / r.width), py = (ev.clientY - r.top) * (s.h / r.height);
+    var iy = Math.floor((py - G.top) / (G.side / K));
+    if (px >= G.x0 && px < G.x0 + G.side && iy >= 0 && iy < K) {
+      var jx = Math.floor((px - G.x0) / (G.side / K));
+      hov.textContent = 'uniform：原字 ' + (iy + 1) + ' → ' + (jx + 1) + ' 的機率 = ' + Qu(t, iy, jx).toFixed(3);
+      return;
+    }
+    var c1 = G.side / (K + 1), ay = Math.floor((py - G.top) / c1);
+    if (px >= G.x1 && px < G.x1 + G.side && ay >= 0 && ay <= K) {
+      var bx = Math.floor((px - G.x1) / c1);
+      var nm = function (k) { return k === K ? '[MASK]' : String(k + 1); };
+      hov.textContent = 'absorbing：原字 ' + nm(ay) + ' → ' + nm(bx) + ' 的機率 = ' + Qa(t, ay, bx).toFixed(3);
+      return;
+    }
+    hov.textContent = '';
+  });
+  tEl.oninput = draw;
+  Array.prototype.forEach.call(document.querySelectorAll('[data-m]'), function (b) {
+    b.onclick = function () {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-m]'), function (o) { o.classList.remove('on'); });
+      b.classList.add('on'); mode = b.dataset.m; draw();
+    };
+  });
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  build(); applyTheme();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,209 @@
+---
+slug: "math-m6-1-w2"
+label: "math-w2"
+prereqs:
+  - math-warehouse-ot
+  - math-kl
+lang: "zh"
+title: "兩個城市的人口分佈差多少：W₂ 距離"
+category: "courses"
+group: "M6 · Optimal Transport"
+status: "available"
+updated: 2026-09-06
+summary: "兩座城市的人口分佈「差多少」？逐點比密度的量（KL、total variation）看不見「搬家搬了多遠」——兩團不重疊的人口，不管相隔一公里還是一百公里，KL 都是無限大。把「差多少」定義成「把一個分佈搬成另一個最少要花多少」，就是 Wasserstein 距離 W₂：它隨距離變大、對不重疊的分佈仍有限、而且任何一個 coupling 都給出一個上界——這是實務上最常用的性質。"
+demos: []
+references:
+  - label: "Villani, Optimal Transport: Old and New (Springer, 2009)"
+    href: "https://doi.org/10.1007/978-3-540-71050-9"
+  - label: "Peyré & Cuturi, Computational Optimal Transport (Foundations and Trends in Machine Learning 2019)"
+    href: "https://arxiv.org/abs/1803.00567"
+  - label: "Santambrogio, Optimal Transport for Applied Mathematicians (Birkhäuser, 2015)"
+    href: "https://doi.org/10.1007/978-3-319-20828-2"
+  - label: "Ambrosio, Gigli & Savaré, Gradient Flows in Metric Spaces and in the Space of Probability Measures (Birkhäuser, 2nd ed. 2008)"
+    href: "https://doi.org/10.1007/978-3-7643-8722-8"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+
+# 兩個城市的人口分佈差多少：W₂ 距離
+
+<Objectives>
+- 寫出 $W_2(\mu,\nu)^2=\min_{\pi\in\Pi(\mu,\nu)}\mathbb E_{(x,y)\sim\pi}\|x-y\|^2$，並用「搬家的平均平方距離」讀懂它。
+- 說出 $W_2$ 與 KL、total variation 的差別：$W_2$ 看得見「搬多遠」、對不重疊的分佈有限、是真正的距離（對稱、三角不等式）。
+- 對一個「比較兩堆東西差多少」的情境判斷該用 $W_2$ 還是逐點比較的量、說出判斷依賴的假設（差異是「位置」還是「形狀」），並用任何一個 coupling 算出 $W_2$ 的上界、用兩個 Gaussian 的 closed form 驗證。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 兩張人口地圖
+
+你手上有兩張同一個地區的人口密度圖：一張是 1990 年的，一張是 2020 年的。三十年間人口從老城區往東邊的新開發區移了一大塊。你想用**一個數字**說出「這三十年人口分佈變了多少」。
+
+第一個想到的量是 <Ref to="math-kl"/> 的 KL：逐點比兩張圖的密度。但你馬上碰到一個奇怪的現象：新開發區在 1990 年是農地、密度為零，$\log(p_{2020}/p_{1990})$ 在那裡是 $\log(\text{正數}/0)=\infty$。KL 說「差無限多」。更糟的是，如果新開發區在**隔壁**（搬了一公里）或在**另一個縣**（搬了一百公里），只要 1990 年那裡都是零，KL 都說無限大——它看不出搬了多遠。
+
+先用直覺回答：「人口分佈變了多少」這個數字，應該跟「人們平均搬了多遠」有關嗎？如果同一群人搬得更遠，數字應該更大嗎？寫下你有多確定。
+
+<Question id="Q1">
+翻成數學。逐點比較的量（KL、$\int|p-q|$）為什麼看不見「搬多遠」？要看見它，「差多少」的定義裡必須包含什麼？
+
+<Answer>
+課堂上會發現：KL、total variation $\tfrac12\int|p-q|\,dx$、以及所有形如 $\int f(p(x),q(x))\,dx$ 的量，都是**在每一個位置 $x$ 分別比 $p(x)$ 與 $q(x)$**、然後加起來。它們從不把位置 $x$ 的密度和位置 $y\neq x$ 的密度放在一起比。所以「這裡少了一塊、那裡多了一塊」在它們眼裡只是「這裡有差、那裡有差」——兩塊之間的距離 $|x-y|$ 根本沒出現在公式裡。
+
+要看見「搬多遠」，定義裡就得有 $|x-y|$，也就是得有「哪裡的人搬到哪裡」——這正是 <Ref to="math-warehouse-ot"/> 的 coupling $\pi(x,y)$。給一個 coupling，「平均搬家距離的平方」是 $\mathbb E_{(x,y)\sim\pi}|x-y|^2$；不同的 coupling 給不同的數，取**最省的**那個：
+
+$$
+W_2(\mu,\nu)^2=\min_{\pi\in\Pi(\mu,\nu)}\ \mathbb E_{(x,y)\sim\pi}\big[\|x-y\|^2\big].
+$$
+
+這就是 Kantorovich 問題取成本 $c(x,y)=\|x-y\|^2$ 再開根號。它叫 **2-Wasserstein 距離**。讀法：**把 $\mu$ 搬成 $\nu$，最省的搬法下，平均要搬多遠（均方根）。**
+</Answer>
+</Question>
+
+## 先抓住這個畫面：兩堆沙
+
+把 $\mu$ 想成一堆沙、$\nu$ 想成另一堆同重量的沙。KL 拿一把篩子在每個位置比兩堆沙的高度，只要有一堆在某處是零就爆掉。$W_2$ 拿一台推土機：問「把左邊那堆推成右邊那堆的形狀，推土機平均要跑多遠」。
+
+兩堆沙相隔一公里，推土機平均跑一公里；相隔一百公里，跑一百公里——**$W_2$ 隨距離變大**，正是起點問題要的性質。兩堆沙完全不重疊也沒關係，推土機還是有得推——**$W_2$ 對不重疊的分佈是有限的**。兩堆沙形狀相同、只是位置平移了 $a$：每一粒沙都搬 $a$，$W_2=\|a\|$——**$W_2$ 對平移的反應就是平移的距離**。
+
+<VizPlan id="m6-1-sand" title="篩子 vs 推土機：兩種「差多少」" type="static">
+- **檔名**：`m6-optimal-transport/imgs/m6-1-1.svg`，16:9，三欄。
+- **左欄**：兩個不重疊的鐘形（$\mu$ 在 0、$\nu$ 在 3），上方標「KL $=\infty$、TV $=1$」；再畫一對相隔 30 的鐘形，同樣標「KL $=\infty$、TV $=1$」——兩對數字一樣，用問號標「看不出差別」。
+- **中欄**：同樣兩對鐘形，畫推土機箭頭從 $\mu$ 到 $\nu$，標「$W_2=3$」與「$W_2=30$」。
+- **右欄**：一對**重疊**但形狀不同的分佈（同均值、一個寬一個窄），標「KL 有限、$W_2$ 也有限」，小字「$W_2$ 看得見形狀差，只是用『搬多遠』來量」。
+- **底部一行**：「逐點比較：每個 $x$ 分別比。$W_2$：問誰搬到哪、搬多遠。」
+- **圖說**：「KL 與 total variation 拿篩子逐點比，看不見兩塊之間的距離；$W_2$ 拿推土機，答案就是平均要推多遠。」
+</VizPlan>
+
+## $W_2$ 對什麼敏感、對什麼不敏感
+
+**定義（重述）。** 對 $\mathbb R^d$ 上有二階動差的機率分佈 $\mu,\nu$，
+
+$$
+\boxed{\;W_2(\mu,\nu)=\Big(\min_{\pi\in\Pi(\mu,\nu)}\int\|x-y\|^2\,d\pi(x,y)\Big)^{1/2}.\;}
+$$
+
+（換成 $\|x-y\|^p$ 開 $p$ 次方就是 $W_p$；本系列只用 $p=2$。）
+
+**性質一：任何一個 coupling 給上界。** 這是定義裡「$\min$」的直接後果，卻是實務上最常用的一句話：
+
+$$
+\text{對任何 }\pi\in\Pi(\mu,\nu):\qquad W_2(\mu,\nu)^2\;\le\;\mathbb E_\pi\|x-y\|^2 .
+$$
+
+你不需要找到最佳搬法才能說「$W_2$ 不超過多少」——隨便找一個合法的搬法，算它的平均平方距離，就是一個上界。最常用的兩個 coupling：**獨立 coupling** $\pi=\mu\otimes\nu$ 給 $W_2^2\le\mathbb E\|X\|^2+\mathbb E\|Y\|^2-2\,\mathbb E X\cdot\mathbb E Y$；**任何一個把 $\mu$ 推成 $\nu$ 的映射** $T$ 給 $W_2^2\le\mathbb E_\mu\|x-T(x)\|^2$。第二個特別有用：如果你手上有一個「從 $\mu$ 抽樣、經過某個程序、得到 $\nu$ 的樣本」的機制，那個程序本身就是一個 coupling，它的平均位移平方就是 $W_2^2$ 的上界。
+
+**性質二：它是真正的距離。** $W_2(\mu,\nu)\ge0$、等於零 ⟺ $\mu=\nu$（最佳 coupling 只能是 $y=x$）、對稱（$\Pi(\mu,\nu)$ 與 $\Pi(\nu,\mu)$ 只差交換座標）、三角不等式 $W_2(\mu,\rho)\le W_2(\mu,\nu)+W_2(\nu,\rho)$（把兩個最佳 coupling「接起來」——gluing——再用 $L^2$ 的三角不等式；展開框有細節）。KL 三者只滿足第一項。
+
+**性質三：對平移與縮放的反應是精確的。** 若 $\nu$ 是 $\mu$ 平移 $a$，$W_2=\|a\|$（這裡的 $a$ 是平移向量；維度那個字母 $d$ 留給 $\mathbb R^d$）。若 $\mu=\mathcal N(m_1,\Sigma_1)$、$\nu=\mathcal N(m_2,\Sigma_2)$，有 closed form：
+
+$$
+W_2^2=\|m_1-m_2\|^2+\mathrm{tr}\Big(\Sigma_1+\Sigma_2-2\big(\Sigma_2^{1/2}\Sigma_1\Sigma_2^{1/2}\big)^{1/2}\Big),
+$$
+
+一維時就是 $(m_1-m_2)^2+(\sigma_1-\sigma_2)^2$——**均值差的平方加標準差差的平方**。這條式子讓 $W_2$ 的兩個成分分開看：一項量「位置差多少」、一項量「散佈差多少」。
+
+<Details summary="三角不等式的證明骨架（gluing），與 W₂ 對弱收斂的意義">
+設 π₁₂ 是 μ,ν 的最佳 coupling、π₂₃ 是 ν,ρ 的最佳 coupling。「黏合引理」（gluing lemma）說可以造一個三變數的聯合分佈 (X,Y,Z)，使 (X,Y) ∼ π₁₂、(Y,Z) ∼ π₂₃（把兩張表沿共用的 ν 那一邊黏起來；離散時就是 π_\{ijk\} = π₁₂(i,j)π₂₃(j,k)/ν(j)）。那麼 (X,Z) 是 μ,ρ 的一個 coupling，所以
+W₂(μ,ρ) ≤ ‖X−Z‖_\{L²\} ≤ ‖X−Y‖_\{L²\} + ‖Y−Z‖_\{L²\} = W₂(μ,ν) + W₂(ν,ρ)。
+第一個 ≤ 是性質一（任何 coupling 給上界），第二個是 L² 的 Minkowski 不等式。
+
+另一件常被用到的事：在有界區域上，W₂(μₙ, μ) → 0 等價於 μₙ 弱收斂到 μ（對所有有界連續 f，∫f dμₙ → ∫f dμ）。所以「W₂ 很小」是「兩個分佈在所有光滑統計量上都接近」的一個定量版本——而 KL 很小蘊含 W₂ 很小（Talagrand 不等式，在 μ 是 Gaussian 或更一般的 log-concave 時：W₂² ≤ 2 KL），反過來不成立。
+</Details>
+
+## 回到人口地圖：直覺對了，而且能算
+
+回答起點問題。「人口分佈變了多少」應該跟「平均搬多遠」有關——對，而且 $W_2$ 正是那個數：把 1990 年的分佈**最省地**搬成 2020 年的分佈，平均要搬多遠。新開發區在隔壁與在另一個縣，$W_2$ 差一百倍；KL 兩者都是無限大。
+
+它同時說出兩件事。第一，**逐點比較的量在「差異是位置」時失效**——不是算錯，是它們的定義裡沒有位置。第二，**你不必真的解出最佳搬法就能報數字**：任何一個合理的搬法（例如把每個里的人口按地理上最近的新里對應過去）算出來的平均位移，就是 $W_2$ 的一個上界；若你另外知道一個下界（例如兩個分佈的均值差——性質三說 $W_2\ge\|m_1-m_2\|$），數字就被夾在一個區間裡。
+
+判斷依賴的假設：**「差多少」該以搬運距離計**。如果你關心的不是位置而是形狀——例如兩張圖的密度**在同一個地方**一個尖一個平，人口沒有搬家、只是密度形狀變了——$W_2$ 仍然有限且有意義（性質三的第二項），但這時 KL 也不會爆掉，兩者都能用，選哪個看你在意什麼：KL 對「某處密度接近零」極度敏感，$W_2$ 對它溫和。另一個假設是**二階動差存在**（尾巴太厚的分佈 $W_2$ 是無限大，要換 $W_1$）。
+
+## 回到人口地圖：兩個 Gaussian 跑一次，再用一個爛 coupling 算上界
+
+```python
+import numpy as np
+from scipy.optimize import linprog
+rng = np.random.default_rng(0)
+# 一維兩個 Gaussian：closed form W₂² = (m1−m2)² + (σ1−σ2)²
+m1, s1, m2, s2 = 0.0, 1.0, 3.0, 2.0
+print(np.sqrt((m1 - m2)**2 + (s1 - s2)**2))                       # 3.162
+# 用樣本 + LP 驗證：各抽 60 點、等權，解 assignment（Kantorovich 的離散版）
+x = np.sort(rng.normal(m1, s1, 60)); y = np.sort(rng.normal(m2, s2, 60))
+C = (x[:, None] - y[None, :])**2
+A = np.zeros((120, 3600))
+for i in range(60): A[i, i*60:(i+1)*60] = 1                       # 列和
+for j in range(60): A[60 + j, j::60] = 1                          # 欄和
+res = linprog(C.ravel(), A_eq=A, b_eq=np.ones(120) / 60, bounds=(0, None))
+print(np.sqrt(res.fun))                                           # ≈ 3.30（60 個樣本的抽樣誤差）
+# 任何 coupling 給上界：獨立 coupling（隨機亂配）與「排序後一對一」
+print(np.sqrt(C.mean()))                                          # 獨立 coupling：≈ 3.80，是上界
+print(np.sqrt(np.mean((x - y)**2)))                               # 排序配對：≈ 3.30，與 LP 完全相同（一維的最佳解）
+# KL 看不見距離：把 m2 從 3 改成 30，W₂ 變成 30.02，而兩團不重疊的樣本估出來的 KL 都是「無限大」
+```
+
+closed form $W_2=\sqrt{9+1}=3.162$；用 60 個樣本解 LP 得到 3.30（抽樣誤差）。獨立 coupling 給 3.80——一個合法但爛的搬法，上界成立；把兩組樣本各自排序後一對一配，得到 3.30，**與 LP 的最佳值一模一樣**（一維時「排序配對」就是最佳解，下一篇會證明）。把 $m_2$ 改成 30：$W_2$ 忠實地變成 30.02，而任何從樣本估 KL 的方法在兩團不重疊時都會給出無限大或數值爆炸。
+
+<VizPlan id="m6-1-w2" title="拖動兩個分佈：W₂、KL、TV 三個數怎麼變" type="interactive">
+- **位置**：本節之後。**檔名**：`m6-optimal-transport/m6-1-1.html`。
+- **版面**：上格是一維的兩個分佈（$\mu$ 固定為 $\mathcal N(0,1)$，$\nu=\mathcal N(m,\sigma^2)$ 可調），下方畫當前 coupling 的「搬運線」：從 $\mu$ 的 40 個等分點到 $\nu$ 的對應點。右側三個即時數字：$W_2$（closed form）、$\mathrm{KL}(\mu\|\nu)$、total variation。下格是三個數對 $m$ 的曲線（$\sigma$ 固定）。
+- **控制項**：滑桿 $m\in[-10,10]$、$\sigma\in[0.2,4]$；下拉「coupling」：最佳（排序配對）、獨立（隨機配對）、「往回搬」（故意配反），每個都顯示它的平均平方距離與 $W_2^2$ 的比較——讀者看到最佳的最小、其他都是上界。
+- **行為**：拖 $m$ 遠離 0：$W_2$ 線性上升、TV 飽和在 1、KL 二次上升（兩個 Gaussian 的 KL 有 closed form，不會真的無限大——但畫面標「若把 $\nu$ 換成有界支撐的分佈，KL 在不重疊時為 $\infty$」，並提供開關切換成均勻分佈 $\nu$ 讓 KL 真的爆掉）；拖 $\sigma$：$W_2^2$ 的兩個成分（均值項、標準差項）用兩種顏色疊成堆疊柱。
+- **Hover** 任一條搬運線：顯示這一份質量從哪搬到哪、距離多少、佔 $W_2^2$ 多少。
+- **底部觀察句**：「觀察：$W_2$ 問『平均搬多遠』，隨距離線性變大，不重疊也有限；KL、TV 逐點比，看不見距離。任何一個合法的搬法都給 $W_2$ 一個上界，最佳的那個才是等號。」
+- **匯出 PNG**：上下併成 16:9，含當前 $m,\sigma$ 與三個數。
+</VizPlan>
+
+## 先消化一下
+
+<QuizBlock id="m6-1-a">
+你要比較兩個模型生成的「人臉圖片」與真實人臉的差距，把每張圖用某個特徵向量表示。模型 A 的特徵分佈與真實分佈幾乎不重疊但很近；模型 B 的分佈與真實分佈部分重疊但有一團跑到很遠的地方。你想要一個「跑得越遠罰越重」的指標，該用：
+<Option>KL divergence。</Option>
+<Option correct>$W_2$（或它在 Gaussian 假設下的 closed form）——它對不重疊的 A 給出有限且小的值，對 B 那團跑遠的質量按距離平方懲罰；KL 對 A 會給無限大、對 B 跑多遠沒有感覺。</Option>
+<Option>total variation。</Option>
+<Explanation>
+「跑得越遠罰越重」是位置的問題，逐點比較的量（KL、TV）定義裡沒有位置。TV 對 A 給接近 1、對 B 給一個跟距離無關的數。事實上影像生成常用的一個指標正是兩個 Gaussian 之間的 $W_2^2$ closed form。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m6-1-b">
+你有一個程序：從 $\mu$ 抽一點 $x$，走一個確定的映射得到 $y=T(x)$，而 $y$ 的分佈是 $\nu$。你算出 $\mathbb E_\mu\|x-T(x)\|^2=4$。關於 $W_2(\mu,\nu)$ 你能說的是：
+<Option>$W_2(\mu,\nu)=2$。</Option>
+<Option correct>$W_2(\mu,\nu)\le2$——$T$ 定義了一個 coupling，任何 coupling 都給上界；除非你另外知道 $T$ 是最佳的，否則只有不等號。</Option>
+<Option>什麼都不能說，因為 $T$ 不一定是最佳搬法。</Option>
+<Explanation>
+「任何 coupling 給上界」正是這一篇最實用的一句話：不用找最佳解就能報一個上界。等號要另外證明（例如一維時 $T$ 是單調的，或 $T$ 是某個 convex 函數的梯度）。「什麼都不能說」把「不知道最佳值」與「沒有資訊」搞混了。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m6-1-c">
+兩個分佈的差異純粹是**形狀**：同一個位置、同一個均值，一個是尖的、一個是平的。這時：
+<Option>$W_2$ 是零，因為沒有人搬家。</Option>
+<Option correct>$W_2$ 不是零——把尖的推成平的，質量要從中心往兩側搬，一維 Gaussian 的 closed form 給 $W_2=|\sigma_1-\sigma_2|$；KL 在這種情形也有限，兩者都能用，差在對「密度接近零的地方」的敏感度。</Option>
+<Option>KL 是零，因為均值相同。</Option>
+<Explanation>
+均值相同只讓 $W_2^2$ 的第一項為零，第二項 $(\sigma_1-\sigma_2)^2$ 仍在——形狀差也是要搬的。KL 也不是零（兩個不同的分佈 KL 恆正）。這一題的重點是：$W_2$ 看得見形狀差，只是用「搬多遠」的尺去量它。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="math-monotone-1d">
+本篇把「兩個分佈差多少」定義成「最省的搬法平均要搬多遠」——$W_2$——並看到它隨距離變大、對不重疊的分佈有限、是真正的距離，而任何一個 coupling 都給上界。程式裡有一件事還沒證明：一維時，把兩組樣本各自排序後一對一配，就是最佳搬法。下一篇用交換論證證明「最省的配法一定不交叉」，並看它在高維變成什麼。
+</Bridge>
+
+## 參考文獻
+
+1. Villani, C. [*Optimal Transport: Old and New.*](https://doi.org/10.1007/978-3-540-71050-9) Springer, 2009.（第 6 章：Wasserstein 距離的定義、距離公理、gluing lemma、與弱收斂的關係；第 22 章：Talagrand 不等式。）
+2. Peyré, G., Cuturi, M. [*Computational Optimal Transport.*](https://arxiv.org/abs/1803.00567) Foundations and Trends in Machine Learning 11(5–6), 2019.（第 2.4 節：Wasserstein 距離；第 2.6 節：Gaussian 之間的 closed form。）
+3. Santambrogio, F. [*Optimal Transport for Applied Mathematicians.*](https://doi.org/10.1007/978-3-319-20828-2) Birkhäuser, 2015.（第 5 章：Wasserstein 空間的性質。）
+4. Ambrosio, L., Gigli, N., Savaré, G. [*Gradient Flows in Metric Spaces and in the Space of Probability Measures.*](https://doi.org/10.1007/978-3-7643-8722-8) Birkhäuser, 2nd ed., 2008.（第 7 章：$W_2$ 的度量結構。）

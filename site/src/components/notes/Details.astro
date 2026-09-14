@@ -1,0 +1,52 @@
+---
+/**
+ * Details.astro — a collapsed "read more" block. The visible line is the topic
+ * summary; the body opens on click. Use for derivations, history, and
+ * supplementary detail that the main line should not depend on.
+ *
+ *   <Details summary="離散時間的 flow：結構換來 log-det">
+ *   …markdown / math…
+ *   </Details>
+ *
+ * summary 是 MDX 的 JSX 屬性，不會經過 markdown 管線，所以 `<Ref>`、粗體都不生效；
+ * 但 `$…$` 會由 inlineMath() 在這裡補上 KaTeX（見 src/lib/inlineMath.ts）。
+ */
+import { inlineMath } from '../../lib/inlineMath';
+
+interface Props { summary: string; label?: string; open?: boolean }
+const { summary, label = '展開細節', open = false } = Astro.props;
+---
+
+<details class="more" open={open}>
+  <summary><span class="more-label">{label}</span><span class="more-title" set:html={inlineMath(summary)} /></summary>
+  <div class="more-body"><slot /></div>
+</details>
+
+<style>
+  .more {
+    margin: 18px 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius, 12px);
+    background: var(--surface);
+  }
+  .more summary {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    padding: 12px 16px; cursor: pointer; list-style: none; font-weight: 600; line-height: 1.5;
+  }
+  .more summary::-webkit-details-marker { display: none; }
+  .more summary::before {
+    content: ''; align-self: center; flex: 0 0 auto; width: 8px; height: 8px;
+    border-right: 2px solid var(--text-muted); border-bottom: 2px solid var(--text-muted);
+    transform: rotate(-45deg); transition: transform .15s ease;
+  }
+  .more[open] summary::before { transform: rotate(45deg); }
+  .more-label {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--accent); padding: 1px 8px; border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .more-title { color: var(--text); }
+  .more-body { padding: 0 18px 14px; border-top: 1px dashed var(--border); }
+  .more-body :global(p:first-child) { margin-top: 12px; }
+  .more-body :global(p) { line-height: 1.7; }
+</style>

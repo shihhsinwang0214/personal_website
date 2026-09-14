@@ -1,0 +1,212 @@
+---
+slug: "math-m3-2-fokker-planck"
+label: "math-fokker-planck"
+prereqs:
+  - math-divergence
+  - math-sde
+  - math-continuity-equation
+  - math-taylor
+lang: "zh"
+title: "一千片葉子在亂流裡：Fokker–Planck 方程式"
+category: "courses"
+group: "M3 · Stochastic Dynamics"
+status: "available"
+updated: 2026-09-06
+summary: "一千片葉子在有亂流的河裡，它們的分佈怎麼演化？drift 把質量搬走（continuity equation 那一項），噪聲把質量攤平（一個二階導數項），合起來就是 Fokker–Planck 方程式 ∂ₜp = −∇·(fp) + (g²/2)Δp。這一篇教一個比推導更常用的技巧：把猜到的 p_t 代進去驗證——用純 Brownian motion 的 N(0,t) 示範一次。"
+demos: []
+references:
+  - label: "Särkkä & Solin, Applied Stochastic Differential Equations (Cambridge University Press, 2019)"
+    href: "https://users.aalto.fi/~ssarkka/pub/sde_book.pdf"
+  - label: "Pavliotis, Stochastic Processes and Applications: Diffusion Processes, the Fokker–Planck and Langevin Equations (Springer, 2014)"
+    href: "https://doi.org/10.1007/978-1-4939-1323-7"
+  - label: "Risken, The Fokker–Planck Equation: Methods of Solution and Applications (Springer, 2nd ed. 1989)"
+    href: "https://doi.org/10.1007/978-3-642-61544-3"
+  - label: "Gardiner, Stochastic Methods: A Handbook for the Natural and Social Sciences (Springer, 4th ed. 2009)"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+
+# 一千片葉子在亂流裡：Fokker–Planck 方程式
+
+<Objectives>
+- 寫出 Fokker–Planck 方程式 $\partial_tp=-\nabla\cdot(fp)+\tfrac{g^2}{2}\Delta p$，並用「drift 搬質量、噪聲攤平質量」說出兩項各從哪來。
+- 掌握「代入驗證」的技巧：把一個猜到的 $p_t$ 代進方程式兩邊、確認相等——並在純 Brownian motion 上做一次，驗證 $p_t=\mathcal N(0,t)$。
+- 對「一群粒子在有噪聲的系統裡分佈怎麼演化」這類情境，判斷用 Fokker–Planck 是否恰當、說出它依賴的假設（每步噪聲零均值、variance 有限、高階矩不太大；$g$ 不依賴 $x$），並用直方圖對照 PDE 的解驗證與破壞它。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 一千片葉子，有亂流的河
+
+<Ref to="math-continuity-equation"/> 問過：一群葉子在**沒有亂流**的河裡，分佈怎麼演化？答案是 continuity equation——不追葉子，每個位置記帳「進 − 出」。<Ref to="math-sde"/> 則把亂流加回河裡，但只追了**一片**葉子，看到它的路變成一把扇子。
+
+現在兩件事合起來：一千片葉子，從橋下一小塊水面出發，河裡既有主流也有亂流。一分鐘後，這一千片葉子的分佈是什麼樣子？
+
+先用直覺回答，並寫下你有多確定。多數人會說「整團被主流帶到下游，同時被亂流攤開、變寬變扁」。這個描述是對的。但它沒有回答：**變寬的速度**是多少？主流不均勻（有地方快有地方慢）時，「搬」與「攤」會怎麼互相影響？以及——能不能像 continuity equation 那樣，寫下一條分佈自己滿足的方程式，不用模擬一千片葉子就算出答案？
+
+<Question id="Q1">
+翻成數學。「一千片葉子的分佈」是什麼物件？把 continuity equation 的「進 − 出」記帳法套到有亂流的河上，多出了什麼？
+
+<Answer>
+這一題可以直接對上前面的語言：一千片葉子是從 $p_0$ 抽出的樣本，每片各自照 SDE $dx=f\,dt+g\,dW$ 走（<Ref to="math-sde"/>），一分鐘後它們是 $p_{60}$ 的樣本。我們要的是密度 $p(x,t)$ 隨時間的方程式。
+
+記帳法還能用，但一塊地磚上的人數變化現在有**兩種**來源。第一種和以前一樣：drift $f$ 讓葉子以確定的速度穿過地磚的邊，淨流入是 $-\nabla\cdot(fp)$。第二種是新的：亂流讓葉子**隨機**跨過邊界——隔壁地磚葉子多，隨機跳過來的就多；這塊葉子多，隨機跳出去的也多。所以亂流造成的淨流入，正比於「隔壁比我多多少」，也就是密度的**二階導數**（<Ref to="math-taylor"/>：一點與它兩側平均值的差，就是二階導數）。密度凹下去的地方（局部低谷）會被填、凸起來的地方（局部高峰）會被削——這就是「攤平」。
+
+所以要找的方程式長得像：$\partial_tp=(\text{drift 搬})+(\text{噪聲攤})$，第一項是 $-\nabla\cdot(fp)$，第二項與 $\Delta p=\nabla\cdot\nabla p$（Laplacian，二階導數的總和）成正比，係數要算。
+</Answer>
+</Question>
+
+## 先看畫面：一坨顏料在流水裡
+
+把一千片葉子想成一滴顏料滴進河裡。主流把整滴顏料**搬**到下游——形狀跟著水流變形，這是 <Ref to="math-continuity-equation"/> 已經處理過的事。亂流則讓顏料**滲開**：邊緣越來越淡、範圍越來越大，中心的濃度越來越低，但顏料的總量不變。
+
+兩件事同時發生：被搬走的同時也在滲開。關鍵是它們可以**分開算再加起來**——因為在一小步 $h$ 內，drift 的位移是 $fh$、噪聲的位移是 $g\sqrt h\,\varepsilon$，兩者對密度的影響到 $h$ 的一階是各自獨立的。
+
+<VizPlan id="m3-2-two-terms" title="搬與攤：Fokker–Planck 的兩項各做什麼" type="static">
+- **檔名**：`m3-stochastic-dynamics/imgs/m3-2-1.svg`，16:9。
+- **版面**：三欄，各畫一維密度曲線 $p(x)$ 在 $t$ 與 $t+h$ 的疊圖（實線與虛線）。
+- 左欄「只有 drift（$g=0$）」：一個鐘形往右平移，形狀不變（$f$ 常數）；下方標「$\partial_tp=-\partial_x(fp)$：搬」。若 $f$ 隨 $x$ 變則附一個小圖顯示鐘形被壓窄或拉寬。
+- 中欄「只有噪聲（$f=0$）」：鐘形原地變寬變矮，兩側虛線高於實線、中央虛線低於實線；在三個點畫小箭頭標出 $\partial_{xx}p$ 的正負（中央負→下降，兩側正→上升）；下方標「$\partial_tp=\tfrac{g^2}{2}\partial_{xx}p$：攤」。
+- 右欄「兩者相加」：鐘形往右移並同時變寬；標「$\partial_tp=-\partial_x(fp)+\tfrac{g^2}{2}\partial_{xx}p$」。
+- 底部一行：三欄的曲線下面積都標 $=1$。
+- **圖說**：「drift 搬質量（一階導數項），噪聲攤平質量（二階導數項）；在一小步內兩者可以分開算再相加。總質量守恆。」
+</VizPlan>
+
+## 寫成數學：一步之內，搬與攤各貢獻多少
+
+先算**攤**的係數。一維、$f=0$：在一小步 $h$ 內每片葉子被隨機推 $g\sqrt h\,\varepsilon$，所以新密度是舊密度與 $\mathcal N(0,g^2h)$ 的 convolution：
+
+$$
+p(x,t+h)=\mathbb E_\varepsilon\big[p(x-g\sqrt h\,\varepsilon,\,t)\big].
+$$
+
+把 $p(x-y)$ 對 $y$ Taylor 展開（<Ref to="math-taylor"/>）到二階、再對 $\varepsilon$ 取期望：$\mathbb E[\varepsilon]=0$ 殺掉一階項，$\mathbb E[\varepsilon^2]=1$ 留下二階項：
+
+$$
+p(x,t+h)=p-\,g\sqrt h\,\mathbb E[\varepsilon]\,\partial_xp+\tfrac{g^2h}{2}\,\mathbb E[\varepsilon^2]\,\partial_{xx}p+O(h^{3/2})
+=p+\tfrac{g^2h}{2}\,\partial_{xx}p+O(h^{3/2}).
+$$
+
+兩邊減 $p$、除以 $h$、令 $h\to0$：$\partial_tp=\tfrac{g^2}{2}\partial_{xx}p$。這就是「攤」的係數：$g^2/2$。$\square$
+
+**搬**的部分就是 continuity equation（<Ref to="math-continuity-equation"/>）：$\partial_tp=-\partial_x(fp)$。一步之內兩者的貢獻都是 $O(h)$，交叉影響是更高階的小量，所以相加：
+
+$$
+\boxed{\;\partial_tp=-\partial_x(f\,p)+\tfrac{g^2}{2}\,\partial_{xx}p\;}\qquad
+\text{（多維：}\ \partial_tp=-\nabla\cdot(f\,p)+\tfrac{g^2}{2}\,\Delta p\text{）}
+$$
+
+這就是 **Fokker–Planck 方程式**（也叫 forward Kolmogorov equation）[1–4]。它是 SDE 的「守格子」版本：<Ref to="math-sde"/> 追一片葉子，這裡直接演化整個分佈——正如 <Ref to="math-continuity-equation"/> 之於 <Ref to="math-vector-field-ode"/>。
+
+**代入驗證的技巧。** 解 PDE 很難，但**驗證一個候選解**很容易：把它代進兩邊，看是否相等。純 Brownian motion（$f=0$、$g=1$）從原點出發，<Ref to="math-random-walk-brownian"/> 說 $p_t=\mathcal N(0,t)$。驗證：
+
+$$
+p=\frac{1}{\sqrt{2\pi t}}e^{-x^2/2t},\qquad
+\partial_xp=-\frac{x}{t}\,p,\qquad
+\partial_{xx}p=\Big(-\frac1t+\frac{x^2}{t^2}\Big)p,\qquad
+\partial_tp=\Big(-\frac{1}{2t}+\frac{x^2}{2t^2}\Big)p .
+$$
+
+右邊 $\tfrac12\partial_{xx}p=\big(-\tfrac{1}{2t}+\tfrac{x^2}{2t^2}\big)p=\partial_tp$。✓ 兩邊逐項相等，$\mathcal N(0,t)$ 確實是解。這個技巧會反覆用到：不推導、只驗證。
+
+<Details summary="有 drift 的驗證：f = c 常數、g 常數，p_t = N(ct, g²t)">
+記 m = ct、s = g²t，p = (2πs)^(−1/2) exp(−(x−m)²/(2s))。
+∂ₓp = −((x−m)/s)·p；∂ₓₓp = (−1/s + (x−m)²/s²)·p。
+∂ₜp：對 log p 微分，m′ = c、s′ = g²，得 ∂ₜp = [−g²/(2s) + c(x−m)/s + g²(x−m)²/(2s²)]·p。
+右邊：−∂ₓ(cp) = c(x−m)/s·p；(g²/2)∂ₓₓp = [−g²/(2s) + g²(x−m)²/(2s²)]·p。相加恰為 ∂ₜp。✓
+這也是 SDE 那一篇「x_T ~ N(x₀+cT, g²T)」的 PDE 版證明。
+
+順帶一提：(g²/2)Δp = ∇·((g²/2)∇p) = ∇·(p·(g²/2)∇log p)，所以 Fokker–Planck 也可以寫成 continuity equation 的形式 ∂ₜp + ∇·(p·u) = 0，u = f − (g²/2)∇log p。同一條 p_t，可以由「SDE 的一群葉子」產生，也可以由「ODE 的一群葉子」產生——這是 continuity equation 那一篇「同一分佈路徑有多個速度場」的又一個例子，只是這次其中一個速度場藏在噪聲裡。
+</Details>
+
+## 回到河面：直覺對了，多了三個數字
+
+起點問題的答案：分佈的中心被 $f$ 帶著走，寬度的 variance 以 $g^2$ 的速率**線性**增加（標準差按 $g\sqrt t$ 長），總質量守恆。直覺的「搬過去同時攤開」完全正確；它補不上的是攤開的速率 $g^2/2$、以及「攤開」的精確意思——密度的 Laplacian 為正的地方上升、為負的地方下降，所以高峰被削、低谷被填，**多峰的分佈會被抹成單峰**。
+
+主流不均勻時兩項會互動：收攏的 drift（$\partial_xf<0$）把分佈壓窄，噪聲把它攤寬，最後可能達到平衡——下一篇（<Ref to="math-langevin"/>）就是這件事。
+
+依賴的假設：**每一步的噪聲零均值、variance 有限，而且更高階的矩不會太大**（Taylor 展開裡 $\mathbb E[\varepsilon^3]$ 以上的項才會消失得夠快。Gaussian 只是最常見的例子，不是必要條件——下面的 quiz c 會問這件事；真正會壞的是重尾噪聲，偶爾一跳很遠、$\mathbb E[\varepsilon^2]$ 無限，二階項就不夠描述），以及 **$g$ 不依賴 $x$**（否則二階項變成 $\tfrac12\partial_{xx}(g^2p)$，$g$ 要進到微分裡面，見 <Ref to="math-sde"/> 展開框的 Itô 討論）。
+
+## 回到河面：直方圖對上 PDE，再換一種噪聲
+
+```python
+import numpy as np
+rng = np.random.default_rng(0)
+c, g, T, h = 0.5, 0.3, 60.0, 0.1
+x = np.zeros(20000)
+for _ in range(int(T/h)):                      # 一千片（這裡兩萬片）葉子各走 SDE
+    x = x + h*c + g*np.sqrt(h)*rng.standard_normal(x.size)
+hist, edges = np.histogram(x, bins=60, density=True)
+mid = 0.5*(edges[1:] + edges[:-1])
+p_theory = np.exp(-(mid - c*T)**2/(2*g**2*T))/np.sqrt(2*np.pi*g**2*T)   # Fokker–Planck 的解
+print(np.abs(hist - p_theory).max())          # 小，且隨葉子數增加而縮小
+# 違反假設：把 standard_normal 換成 standard_cauchy，直方圖尾巴變厚、方差不收斂
+```
+
+直方圖與 Fokker–Planck 的解 $\mathcal N(cT,g^2T)$ 重合。把噪聲換成 Cauchy（重尾），直方圖的尾巴遠比 Gaussian 厚、中央反而更尖，而且加更多葉子也不會收斂到任何 Gaussian——「攤平」不再由二階導數描述。
+
+<VizPlan id="m3-2-fp" title="Fokker–Planck：葉子的直方圖 vs. 方程式的解" type="interactive">
+- **位置**：本節之後。這是本 class 的**核心互動**。**檔名**：`m3-stochastic-dynamics/m3-2-1.html`。
+- **版面**：上半是一維的密度圖，兩條曲線疊在一起——$N$ 片葉子照 Euler–Maruyama 走出來的直方圖（柱狀）、以及 Fokker–Planck 用有限差分往前解的 $p(x,t)$（實線）。下半是俯視的河，畫出葉子的位置點雲。共用時間滑桿 $t\in[0,60]$。
+- **控制項**：滑桿 $N$（$100$–$20000$，對數）；滑桿「主流 $c$」；滑桿「亂流 $g$」（可調到 $0$，退回 continuity equation）；下拉「drift 型」：等速、收攏 $f=-0.1(x-x^*)$、雙井（兩個匯合點）；下拉「噪聲分佈」：Gaussian、均勻（同 variance）、Cauchy（重尾）；下拉「初始分佈 $p_0$」：窄 Gaussian、雙峰。
+- **雙面板開關「分開看兩項」**：把上半拆成三條細曲線——只搬（$g=0$ 的解）、只攤（$c=0$ 的解）、兩者相加的解，讀者拖 $t$ 看三條線的關係。
+- **Hover** 上半任一 $x$：顯示該處的 $p$、$-\partial_x(fp)$、$\tfrac{g^2}{2}\partial_{xx}p$ 三個數值與它們的和 $\partial_tp$，並在點上畫一支小箭頭表示密度此刻在上升或下降。
+- **行為**：Gaussian noise 下，$N$ 越大直方圖越貼實線；$g=0$ 時實線退回 continuity equation 的解、直方圖不攤開；選雙峰 $p_0$ 並拖 $t$，看兩峰被抹成一峰、右上角的「峰數」從 2 變 1；選均勻噪聲時直方圖仍貼實線（只要 variance 相同，二階項一樣——Gaussian 不是必要的，有限 variance 才是）；選 Cauchy 時直方圖尾巴脫離實線並亮警示「$\mathbb E[\varepsilon^2]=\infty$，二階項不夠描述」。
+- **底部觀察句**：「觀察：drift 搬、噪聲攤，兩項相加就是分佈的演化，不必追任何一片葉子。攤的速率是 $g^2/2$ 倍的二階導數——高峰被削、低谷被填。噪聲只要 variance 有限就行；重尾噪聲讓方程式失效。」
+- **匯出 PNG**：上下兩半併成 16:9，含當前 $t$、$N$、$c$、$g$ 與噪聲型。
+</VizPlan>
+
+## 先消化一下
+
+<QuizBlock id="m3-2-a">
+一杯靜水裡滴一滴墨水（沒有攪動）。三十秒後墨水的濃度分佈，該用哪個工具描述？
+<Option>Continuity equation，因為墨水在水裡流動。</Option>
+<Option correct>Fokker–Planck 方程式在 $f=0$ 的特例 $\partial_tp=\tfrac{g^2}{2}\Delta p$（熱傳導方程式）：沒有主流，只有分子碰撞造成的隨機位移，濃度的 variance 隨時間線性增加。</Option>
+<Option>ODE，因為每個墨水分子有確定的路徑。</Option>
+<Explanation>
+靜水沒有 drift，continuity equation 的 $-\nabla\cdot(fp)$ 是零，什麼都不會發生——但墨水明明會散開，散開來自分子的隨機碰撞，那是二階項。墨水分子的路徑是隨機的（這正是 Einstein 1905 年解釋 Brownian motion 的情境），不是 ODE。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m3-2-b">
+你把 $p_t=\mathcal N(0,t)$ 代進 $\partial_tp=\tfrac12\partial_{xx}p$ 驗證成功。若改用 $p_t=\mathcal N(0,t^2)$（標準差按 $t$ 長）代進去：
+<Option>也會成立，因為 Gaussian 永遠是解。</Option>
+<Option correct>不成立——$\partial_tp$ 會多出一個因子 $2t$，兩邊對不上；這正是 variance 必須「按 $t$ 線性長」而不是「標準差按 $t$ 長」的 PDE 版證據。</Option>
+<Option>成立，只要把 $g$ 改成 $2$。</Option>
+<Explanation>
+Gaussian 不是「永遠」是解，只有 variance 等於 $g^2t$（加常數）的那一族才是。$\mathcal N(0,t^2)$ 對應的是 <Ref to="math-random-walk-brownian"/> 裡「每步同向」的 $t$ 尺度，不是 Brownian 的 $\sqrt t$ 尺度；改 $g$ 只能改斜率，改不了 $t$ 對 $t^2$ 的差別。代入驗證的價值正在這裡：它能否決錯誤的猜測。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m3-2-c">
+把 SDE 的 Gaussian noise 換成同樣 variance 的均勻分佈噪聲（每步 $g\sqrt h\,\varepsilon$，$\varepsilon$ 均勻於 $[-\sqrt3,\sqrt3]$），Fokker–Planck 方程式：
+<Option>失效，因為方程式的推導假設噪聲是 Gaussian。</Option>
+<Option>右邊的係數 $g^2/2$ 要改。</Option>
+<Option correct>在 $h\to0$ 的極限下仍然成立、係數不變——推導只用了 $\mathbb E[\varepsilon]=0$、$\mathbb E[\varepsilon^2]=1$ 與更高階矩有限，Gaussian 不是必要條件；失效的是重尾（variance 無限）的噪聲。</Option>
+<Explanation>
+回看 Taylor 展開：一階項靠 $\mathbb E[\varepsilon]=0$ 消掉，二階項的係數只看 $\mathbb E[\varepsilon^2]$，三階以上乘的是 $h^{3/2}$ 以上、只要那些矩有限就會消失。這也是中央極限定理的精神：很多小步加起來，單步的形狀不重要。均勻噪聲的 variance 已經正規化成 1，係數自然不變。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="math-langevin">
+本篇把 SDE 的分佈演化寫成 Fokker–Planck 方程式——drift 搬、噪聲攤——並學會用「代入驗證」確認一個候選解。搬與攤如果方向相反：drift 一直把葉子往某處拉、噪聲一直把它們攤開，久了會停在一個平衡。下一篇把河換成山谷，問「很久以後大家在哪」。
+</Bridge>
+
+## 參考文獻
+
+1. Särkkä, S., Solin, A. [*Applied Stochastic Differential Equations.*](https://users.aalto.fi/~ssarkka/pub/sde_book.pdf) Cambridge University Press, 2019.（第 5 章：Fokker–Planck 方程式的推導與 Gaussian 情形的 closed form。）
+2. Pavliotis, G. A. [*Stochastic Processes and Applications: Diffusion Processes, the Fokker–Planck and Langevin Equations.*](https://doi.org/10.1007/978-1-4939-1323-7) Springer, 2014.（第 4 章：forward Kolmogorov 方程式與其性質。）
+3. Risken, H. [*The Fokker–Planck Equation: Methods of Solution and Applications.*](https://doi.org/10.1007/978-3-642-61544-3) Springer, 2nd ed., 1989.（專書；第 4 章推導，第 5 章一維解法。）
+4. Gardiner, C. *Stochastic Methods: A Handbook for the Natural and Social Sciences.* Springer, 4th ed., 2009.（第 3、4 章：從 Kramers–Moyal 展開到 Fokker–Planck；本篇 Taylor 展開的來源。）

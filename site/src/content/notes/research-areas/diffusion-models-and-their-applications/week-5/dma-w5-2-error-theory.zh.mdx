@@ -1,0 +1,215 @@
+---
+slug: "dma-w5-2-error-theory"
+label: "dma-error-theory"
+prereqs:
+  - math-taylor
+  - math-euler-error
+  - math-w2
+  - math-weak-strong-convergence
+lang: "zh"
+title: "把「彎」寫成一個算得出來的數"
+category: "courses"
+group: "Week 5 · Stochastic Interpolants 與共用技巧"
+status: "available"
+updated: 2026-09-13
+summary: "推導 Euler 的全域誤差上界，發現被積函數就是軌跡的加速度；再說明 SDE 的誤差為什麼不能用同一個量刻畫，以及「拉直」與「保留 score」之間的張力。"
+demos: []
+references:
+  - label: "Hairer, Nørsett & Wanner, Solving Ordinary Differential Equations I (Springer, 2nd ed.)"
+    href: "https://link.springer.com/book/10.1007/978-3-540-78862-1"
+  - label: "Liu, Gong & Liu, Flow Straight and Fast: Rectified Flow (ICLR 2023)"
+    href: "https://arxiv.org/abs/2209.03003"
+  - label: "Kloeden & Platen, Numerical Solution of Stochastic Differential Equations (Springer)"
+    href: "https://link.springer.com/book/10.1007/978-3-662-12616-5"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Details from '../../../components/Details.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 把「彎」寫成一個算得出來的數
+
+<Objectives>
+- **推導 Euler 的全域誤差上界，並認出被積函數就是軌跡的加速度。** 到這裡「彎」才從形容詞變成一個算得出來、而且實測真的壓得住誤差的數。
+- **說出 SDE 的誤差為什麼不能用同一個量刻畫。** $\ddot x_t$ 在布朗軌跡上根本不存在；控制它的改成 drift 的正則性與噪聲強度，而且弱／強收斂要分開講。
+- **說出「拉直軌跡」與「保留可回歸的 score」之間為什麼有張力。** 拉直要把配對變確定，而確定的配對沒有後驗可以平均。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 「彎」到目前為止還是一個形容詞
+
+<Ref to="dma-linear-path"/> 和 <Ref to="dma-lab-flow-matching"/> 都說軌跡越彎、少步數的誤差越大，而且 demo 量得出來。但「彎」到現在還是一個看圖說話的形容詞——沒有一個數，就沒辦法比較兩個模型、也沒辦法拿它當優化目標。
+
+<Ask>
+「彎」能不能寫成一個數？<br />
+而且那個數真的壓住誤差嗎？
+</Ask>
+
+## Euler 走一步差多少
+
+真實軌跡 $x_t$ 滿足 $\dot x_t=u_t(x_t)$。Euler 從 $x_t$ 走一步得到 $x_t+h\,u_t(x_t)$，而真實解的 Taylor 展開是
+
+$$
+x_{t+h}=x_t+h\,\dot x_t+\frac{h^2}{2}\ddot x_\xi\quad(\xi\in[t,t+h]).
+$$
+
+前兩項就是 Euler 走的那一步，所以**局部誤差**是 $\frac{h^2}{2}\|\ddot x_\xi\|$——整個誤差來源就是那個二階項。把它寫開：
+
+$$
+\ddot x_t=\frac{d}{dt}u_t(x_t)=\underbrace{\partial_t u_t(x_t)}_{\text{場自己在變}}+\underbrace{\big(u_t\cdot\nabla\big)u_t(x_t)}_{\text{粒子換位置了}} .
+$$
+
+兩項各有意思。第一項是「站在原地不動，速度場隨時間變了多少」；第二項是「粒子跑到新位置之後，看到的速度和原來差多少」。**軌跡是等速直線的時候，兩項都是零**，Euler 一步就精確。
+
+## 一步的誤差怎麼變成終點的誤差
+
+一步的誤差不會乖乖留在原地——它會被後面的流放大或縮小。如果 $u_t$ 對 $x$ 是 $L$-Lipschitz，兩條相距 $\delta$ 的軌跡經過時間 $\tau$ 之後最多相距 $\delta e^{L\tau}$（Grönwall）。把 $N=1/h$ 步的局部誤差各自放大再加起來：
+
+$$
+\|x^{\text{Euler}}_1-x_1\|\ \le\ \sum_{k}\frac{h^2}{2}\|\ddot x_{\xi_k}\|\,e^{L(1-t_k)}
+\ \le\ \frac{e^L}{2}\,h\int_0^1\|\ddot x_t\|\,dt+o(h).
+$$
+
+把每一步的局部誤差加起來、再把「被流放大」的因子收成一個常數 $C_L$，就得到這一篇要的那一行：
+
+$$
+\boxed{\;\text{Euler 全域誤差}\ \lesssim\ C_L\,h\int_0^1\big\|\partial_t u_t+(u_t\cdot\nabla)u_t\big\|_{x=x_t}\,dt\;}
+$$
+
+這個式子把 <Ref to="dma-lab-flow-matching"/> 那張 log-log 圖的兩個訊息分得很乾淨：
+
+- **$h$ 給斜率。** 一階，所以 log-log 上是 $-1$。
+- **積分給高度。** 軌跡越彎，同樣步數誤差越大；積分為零時一步 Euler 就是精確解。
+- $C_L$ 是速度場的正則性。它同時放大所有誤差，但**不由「路徑直不直」控制**——所以它不是我們這一週要動的東西。
+
+> **「彎」現在是一個數：$\int_0^1\|\ddot x_t\|\,dt$。這也是 <Ref to="dma-rectified-flow"/> 與 <Ref to="dma-minibatch-ot"/> 真正在壓小的量。**
+
+<Details summary="從單條軌跡的誤差到分布層級的 W₂ 上界">
+上面的不等式是對**一條**軌跡說的。取樣關心的是終點分布，所以要把它升級。
+
+把單條軌跡的誤差對起點 $x_0\sim p_0$ 取平方期望開根號：
+
+$$
+W_2\big(\text{Euler 的終點分布},\,p_1\big)\ \le\ \Big(\mathbb E_{x_0}\big\|x_1^{\text{Euler}}-x_1\big\|^2\Big)^{1/2}.
+$$
+
+理由是 $W_2$ 是所有耦合裡距離的下確界，而「同一個 $x_0$ 出發的那兩個終點」本身就是一個合法的耦合——**任何一個耦合都給出上界**。所以只要控制得住逐軌跡的誤差，就控制得住分布的距離。
+
+反過來不成立：$W_2$ 很小不代表逐軌跡誤差小（兩堆樣本可以分布相同、卻沒有一對彼此靠近——這正是 <Ref to="dma-what-are-we-learning"/> Q2 的那個坑）。
+</Details>
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-2-curvature.html" class="demo-frame" title="曲率積分真的壓住誤差嗎：互動 demo" style="height: 790px; width: 100%; border: none;"></iframe>
+
+**互動 demo：曲率積分真的壓住誤差嗎。** 上面是一個不等式，這裡是六個設定的實測散點：橫軸曲率積分、縱軸 Euler 的終點誤差，兩軸都取對數。六個點排在一條斜率約 1 的線上（$r$ 通常 0.95 以上），所以那個積分不只是上界裡的一個符號，它**真的**在預測誤差。最有效的一招是換配對——線性路徑從獨立換成依位置，積分從約 9 掉到 1.4。（「怎麼換配對」本篇不處理，<Ref to="dma-rectified-flow"/> 與 <Ref to="dma-minibatch-ot"/> 各給一個做法。這裡只要接受一件事：**這個積分是可以被壓下去的**，而且壓它就等於省步數。）
+
+## SDE 為什麼不能用同一個量
+
+SDE 的軌跡是布朗運動加 drift，$\ddot x_t$ 根本不存在，「這條軌跡直不直」在那裡沒有意義。控制 Euler–Maruyama 誤差的是另一組東西：drift $b+\varepsilon s$ 對 $x$、$t$ 的 Lipschitz 常數與導數界，以及噪聲強度 $\varepsilon$。而且它有兩種階數要分開講——**弱收斂（邊際）是 $O(h)$、強收斂（單條軌跡）只有 $O(h^{1/2})$**。取樣只看終點分布，所以看弱誤差。
+
+第一，**拉直不會幫到 SDE。** 曲率積分是 ODE 的量；SDE 那邊對應的是 drift 的正則性，兩者不是同一個東西。
+
+第二，**SDE 的誤差不會像 ODE 那樣線性累積。** <Ref to="dma-sampler-family"/> 的 Langevin 項會把偏離拉回來，所以一部分離散誤差會被後面的步吃掉。但 <Ref to="dma-sampler-family"/> 的 demo 也顯示這件事有條件：修正需要足夠大的 $\varepsilon$ 和足夠的剩餘時間，不是自動發生的。
+
+粗略的圖像是：**ODE 每一步犯錯少但全部累積，SDE 每一步犯錯多但錯不會全留下。**
+
+## 直的軌跡和厚的中間分布，能不能都要？
+
+<Question id="Q1">
+<Ref to="dma-rectified-flow"/> 會用 reflow 把軌跡拉直，讓 $\int\|\ddot x\|\,dt$ 往 0 靠。既然拉直之後誤差這麼小，那**能不能再把 <Ref to="dma-sampler-family"/> 的 Langevin 項加上去，同時享有直軌跡和自我修正？**
+
+<Answer>
+不能，而且原因是結構性的，不是工程上還沒做到。
+
+Reflow 的核心是把配對 $\pi$ 換成**確定性**的耦合（每個 $x_0$ 對到唯一的 $x_1$），並且 $\gamma\equiv0$。<Ref to="dma-unified-equation"/> Q1 說過這時候發生什麼事：給定 $x_t$，端點就定死了，沒有後驗可以平均，所以**沒有可回歸的 score**——寫不出 SDE 取樣器。
+
+要有 score 就得留 $\gamma_t \gt 0$。但 $\gamma_t z$ 把每一條條件路徑撐成一根**有寬度的管子**，管子互相重疊，於是邊際速度又變回一個平均，$\int\|\ddot x\|\,dt$ 就回不到 0 了。
+
+這兩個要求要的是互斥的圖像：
+
+> **「所有粒子沿確定的直線走」和「中間分布有厚度、偏了可以拉回來」不可能同時成立。**
+
+上面 demo 的數字剛好把這件事量出來，而且方向不是單一的：
+
+- 線性路徑、獨立配對：積分約 **9**。
+- 換成依位置配對（近似不交叉）：掉到約 **1.4**——換配對是最有效的一招。
+- 在**好配對**上加 $\gamma$：積分回升到約 **3.5**。這就是上面說的那個代價。
+- 在**壞配對**上加 $\gamma$：反而掉到約 **6**。因為這時候 $\gamma$ 主要的作用是把速度場抹平，抹平帶來的好處大於管子重疊帶來的壞處。
+
+所以「加 $\gamma$ 會讓軌跡更彎」這句話只在配對已經很好的時候才對。真正沒有例外的是那句結構性的話：**$\gamma \gt 0$ 讓積分不可能等於 0。**
+
+實務上的折衷就是取小一點的 $\gamma$：路徑接近直線，同時留一點 score 可用。$\gamma_t$ 該多大目前沒有定論。
+</Answer>
+</Question>
+
+<VizPlan id="w5-2-two-terms" title="加速度的兩個來源" type="static">
+- 檔名 `imgs/w5-2-1.png`，放在 Q1 之後、「消化一下」之前。
+- 版面：左右兩塊，各解釋 $\ddot x_t$ 的一項；右邊再加一塊小圖講「積分為零長什麼樣」。
+  - **左「場自己在變：$\partial_t u_t$」**：同一個位置（用一個小白圈標住、位置不動），畫兩支不同時刻的箭頭（$t$ 與 $t+h$），方向明顯不同；旁註「粒子沒動，速度就變了」。
+  - **中「粒子換位置了：$(u_t\cdot\nabla)u_t$」**：一個凍結的速度場（網格箭頭，長短不一），一顆粒子沿著它移動兩步，畫出它在兩個位置看到的箭頭，方向不同；旁註「場沒變，但粒子走到了不一樣的地方」。
+  - **右「積分為零」**：一片**完全均勻**的箭頭場（全部同向同長），一條直線軌跡，Euler 的一步折線與真實曲線**完全重合**；旁註「等速直線：一步 Euler 就是精確解」。
+- 底部一句：「Euler 的全域誤差 ≲ $C_L\,h\int_0^1\|\ddot x_t\|\,dt$：$h$ 是預算，積分是路徑的性質。」
+- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、強調靛 `#2a4ea3`／路徑綠 `#60ba82`）。
+- 長寬比：約 16:6。
+</VizPlan>
+
+## 消化一下
+
+<QuizBlock id="w5-2-a">
+Euler 誤差上界裡，哪一個量是「路徑直不直」直接控制的？
+<Option>Lipschitz 常數 $L$。</Option>
+<Option correct>$\int_0^1\|\partial_t u+(u\cdot\nabla)u\|\,dt$。</Option>
+<Option>步長 $h$。</Option>
+<Explanation>
+$L$ 是速度場的正則性、$h$ 是計算預算，只有加速度積分反映軌跡的形狀——等速直線時它是零。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w5-2-b">
+$(u_t\cdot\nabla)u_t$ 這一項在說什麼？
+<Option>速度場隨時間的變化。</Option>
+<Option correct>粒子移動到新位置之後，看到的速度和原位置的差。</Option>
+<Option>速度場的散度。</Option>
+<Explanation>
+這是 material derivative 的空間項。即使速度場完全不隨 $t$ 變，只要它在空間上不均勻，粒子照樣會加速。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w5-2-c">
+下列哪一句正確？
+<Option>把 FM 的軌跡拉直之後，對應的 SDE 取樣器誤差也會跟著變小。</Option>
+<Option correct>拉直只減少 ODE 的曲率誤差；SDE 的誤差由 drift 正則性與噪聲強度控制，而且完全拉直時沒有可回歸的 score。</Option>
+<Option>SDE 取樣的強誤差與弱誤差階數相同。</Option>
+<Explanation>
+ODE 與 SDE 的誤差是兩個不同的量。SDE 的強誤差是 $O(h^{1/2})$、弱誤差是 $O(h)$，取樣只看後者。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w5-2-d">
+根據 demo 量到的數字，下列哪一句**不對**？
+<Option>換配對是壓小曲率積分最有效的一招。</Option>
+<Option>曲率積分和 Euler 的終點誤差在 log-log 上大致成正比。</Option>
+<Option correct>加上 $\gamma_t z$ 一定會讓曲率積分變大。</Option>
+<Explanation>
+加在已經很好的配對上會變大（約 1.4 → 3.5），但加在很糟的配對上反而變小（約 9 → 6），因為那時 $\gamma$ 主要的作用是抹平速度場。**沒有例外的是**「$\gamma \gt 0$ 讓積分不可能等於 0」。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-rectified-flow">
+現在有一個明確要壓小的積分了。下一篇給出第一種做法：讓模型自己生出一組不交叉的配對。
+</Bridge>
+
+## 參考文獻
+
+1. Hairer, E., Nørsett, S. P., Wanner, G. [*Solving Ordinary Differential Equations I: Nonstiff Problems.*](https://link.springer.com/book/10.1007/978-3-540-78862-1) Springer. （Euler 的局部／全域誤差與 Grönwall 論證的標準參考。）
+2. Liu, X., Gong, C., Liu, Q. [*Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow.*](https://arxiv.org/abs/2209.03003) ICLR 2023. （把「軌跡有多直」當成要優化的量，下一篇的主線。）
+3. Kloeden, P. E., Platen, E. [*Numerical Solution of Stochastic Differential Equations.*](https://link.springer.com/book/10.1007/978-3-662-12616-5) Springer. （Euler–Maruyama 的弱收斂 $O(h)$ 與強收斂 $O(h^{1/2})$。）

@@ -1,0 +1,419 @@
+---
+slug: "dma-w3-2-denoising-regression"
+label: "dma-denoising-regression"
+prereqs:
+  - ml-loss-declaration
+  - ml-learning-from-examples
+  - math-mse-conditional-expectation
+  - math-bayes-posterior
+  - math-gaussian
+lang: "zh"
+title: "Denoising：倒著走一步需要知道什麼？"
+category: "courses"
+group: "Week 3 · Diffusion Models"
+status: "available"
+updated: 2026-09-09
+summary: "從 Bayes 出發問「倒著走一步該從哪個分布抽」：兩個邊際算不出來，多給一個 x₀ 就是 closed form 的 Gaussian，而那個 closed form 只用到 E[x₀|x_t]。需求逼出訓練目標——denoising 回歸；再看清它的最佳解就是條件期望，以及 x₀-、ε-、v-prediction 只差在加權。"
+demos: []
+references:
+  - label: "Ho, Jain & Abbeel, Denoising Diffusion Probabilistic Models (NeurIPS 2020)"
+    href: "https://arxiv.org/abs/2006.11239"
+  - label: "Salimans & Ho, Progressive Distillation for Fast Sampling of Diffusion Models (ICLR 2022)"
+    href: "https://arxiv.org/abs/2202.00512"
+  - label: "Kingma & Gao, Understanding Diffusion Objectives as the ELBO with Simple Data Augmentation (NeurIPS 2023)"
+    href: "https://arxiv.org/abs/2303.00848"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Try from '../../../components/Try.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# Denoising：倒著走一步需要知道什麼？
+
+<Objectives>
+- **從 forward process 推導出可學習的 reverse process。** 說明為什麼「想學 $q(x_{t-1}\mid x_t)$」會變成「想學 $\mathbb E[x_0\mid x_t]$」。
+- **說出 DDPM 的訓練本質：用 regression 學 conditional expectation。** 透過 forward corruption process 建立訓練用的 loss，近似 $\mathbb E[x_0\mid x_t]$，再由它得到 $q(x_{t-1}\mid x_t)$。
+- **說出不同 prediction parametrization 其實只是在改變學習問題的 weighting。** 寫出 $x_0$-、$\epsilon$-、$v$-prediction 這幾個不同學習物件之間的等價轉換，並解釋它們雖然表達相同資訊，卻會因為不同的 timestep／SNR weighting 得到不同的結果。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 倒著走一步，如何從 $q(x_{t-1}\mid x_t)$ 抽樣？
+
+上一篇我們已經把前進的路 forward process 給設計好了：知道怎麼從 $x_{t-1}$ 到 $x_t$，而且任意時刻的 $x_t$ 都能用一行公式從 $x_0$ 獲得。現在我們想做的是反過來——手上已有一個 $x_t$，要怎麼退到 $x_{t-1}$，也就是說，要怎麼從 $q(x_{t-1}\mid x_t)$ 抽樣。
+
+<Remark label="複習" summary="為什麼是「從 $q(x_{t-1}\mid x_t)$ 抽樣」，而不是算出一個答案？">
+先複習 $q(x_{t-1}\mid x_t)$ 在描述什麼：**給定現在的 $x_t$，退到前一步、落在差不多 $x_{t-1}$ 這個位置的機率密度。**
+
+用上一篇那條從台大到屏東的路線來說：給定現在人在**屏東**，前一站是**高雄**（走西部）還是**台東**（繞東部）？機率會告訴我們每一種可能性有多大，我們就照著它抽一個——抽到高雄或台東都是合理的答案。
+
+為什麼要寫成「分布」而不是「一個答案」？因為加噪那一步真的把資訊丟掉了：很多不同的 $x_{t-1}$ 都可能變成手上這個 $x_t$，而只有分布記得住是哪些、各自多可能。至於拿到這個分布之後**要怎麼用**——每一步真的抽一個，還是每一步都走一個確定的方向——那是另一個問題，<Ref to="dma-reverse-process"/> 會看到兩種做法都成立。
+</Remark>
+
+首先我們知道，$x_t$ 是由 $x_{t-1}$ 加了一撮隨機的 Gaussian noise 得到的。所以 $x_t$ 一旦固定，往回看 $x_{t-1}$，會因為那撮 noise 的隨機性而有**一整個範圍的可能**。我們要的就是那個範圍上的機率密度。
+
+<Question id="Q1">
+最直覺的想法是把加噪那一步直接反解。既然
+
+$$
+x_t=\sqrt{\alpha_t}\,x_{t-1}+\sqrt{\beta_t}\,\epsilon_t ,
+$$
+
+那我就抽一個 $\epsilon_t\sim\mathcal N(0,I)$，代進去解出
+
+$$
+x_{t-1}=\big(x_t-\sqrt{\beta_t}\,\epsilon_t\big)\big/\sqrt{\alpha_t}
+$$
+
+不就好了嗎？反正 noise 本來就是隨機抽的。
+
+**這樣為什麼不行？**
+
+<Answer>
+問題出在「$\epsilon_t$ 本來就是隨機抽的」這句話——它在**加噪的時候**成立，在**取樣的時候**不成立。
+
+加噪時，我們先有 $x_{t-1}$，再抽一個「與它無關」的 $\epsilon_t$——這兩個變數確實互相獨立。但在 reverse process 要做 denoise 時，我們手上先有 $x_t$，想要利用 $\epsilon_t$ 決定 $x_{t-1}$；而 $x_t$ 是用當初那個特定的 $\epsilon_t$ 算出來的（現在看不到），因此 $\epsilon_t$ 和 $x_t$ **不是獨立的**：看到 $x_t$，等於看到「它因為 $\epsilon_t$ 而落在哪裡」——這件事本身就帶著關於 $\epsilon_t$ 的資訊。
+
+我們可以透過計算兩者之間的**共變數**（covariance）來證明不獨立這件事。因為 $\epsilon_t$ 與 $x_{t-1}$ 是獨立的，
+
+$$
+\operatorname{Cov}(\epsilon_t,\,x_t)
+=\operatorname{Cov}\big(\epsilon_t,\ \sqrt{\alpha_t}\,x_{t-1}+\sqrt{\beta_t}\,\epsilon_t\big)
+=\sqrt{\beta_t}\,I\;\ne\;0 .
+$$
+
+covariance 不是零，就代表有相關；有相關，就不能另外抽一個與 $x_t$ 獨立的 noise 去替代 $\epsilon_t$。
+
+那「不獨立」到底改變了什麼？$\epsilon_t$ 的 **marginal distribution** 仍然是 $\mathcal N(0,I)$，但給定 $x_t$ 之後，$\epsilon_t$ 的分布就變了。所以從 $\mathcal N(0,I)$ 抽一個與 $x_t$ 獨立的 $\epsilon_t$ 代進去，就變成錯的。
+
+回到上一篇的洗牌。你把一副排好的牌洗了一次，然後只看到洗完的樣子——沒看到洗之前。洗牌當然是隨機的，但**你看到的那個結果，本身就透露了那一次是怎麼洗的**：如果洗完之後有幾張還連在一起，那一次顯然沒把那一段拆開。
+
+所以你不能說「反正洗牌是隨機的」，就自己隨便洗一次、再宣稱這樣就把它倒回去了——那樣只會回到一個錯的順序。$\epsilon_t$ 就是那一次洗牌：一旦看到 $x_t$，它就不再是一個可以隨便重抽的東西。
+
+</Answer>
+</Question>
+
+所以反解這條路是行不通的。那如果我們老老實實去算 $q(x_{t-1}\mid x_t)$ 呢？
+
+因為我們是知道 $q(x_t\mid x_{t-1})$ 的，這時候就會想要用 Bayes 定理來算 $q(x_{t-1}\mid x_t)$（<Ref to="math-bayes-posterior"/>）：
+
+$$
+q(x_{t-1}\mid x_t)=\frac{q(x_t\mid x_{t-1})\,q(x_{t-1})}{q(x_t)} .
+$$
+
+分子的 $q(x_t\mid x_{t-1})$ 我們確實會算——那是上一篇自己設計的那一步（<Ref to="dma-forward-process"/>）。但右邊還有 $q(x_{t-1})$ 和 $q(x_t)$：它們是**資料經過加噪之後的 marginal distribution**，也就是「所有真實圖片加噪 $t$ 步之後，長成 $x_t$ 的可能性有多大」。要知道它，就得把每一張真實圖片的貢獻都加總起來——也就是得先知道整個 $p_{\text{data}}$（但很明顯我們不知道）。
+
+所以這條路似乎也卡住了——嗎？
+
+<Question id="Q2">
+我們常常在想一個方法的時候、遇到問題就會忘記靜下心來看看我們有什麼？能做什麼？這時不如回頭看一下我們一開始到底有什麼資訊是可以用的——**forward process 給了我們什麼？**
+
+我們在 forward process 建立的是一筆要拿來訓練的資料，我們做的是：抽一張資料集裡的真實圖片 $x_0$、抽一個時間 $t$、抽一個 $\epsilon$，然後一行算出 $x_t$。所以我們其實不是只有 $x_t$，還有創造它的 $(x_0,\epsilon,t)$。
+
+**那這其中有誰可以幫助我們算出 $q(x_{t-1}\mid x_t)$？**
+
+<Answer>
+$x_0$。
+
+寫 $q(x_{t-1}\mid x_t)$ 的時候，我們假裝手上只有 $x_t$，但我們其實還知道它是來自哪一張圖 $x_0$。而那正是卡住的原因：$q(x_{t-1})$ 和 $q(x_t)$ 之所以難算，就是因為它們把**所有可能的 $x_0$ 都考慮進去了**。
+
+既然算不動的原因是「要考慮所有的 $x_0$」，那就先別考慮全部：**把 $x_0$ 也放進條件裡**看看。
+
+（取樣的時候沒有 $x_0$，那件事下一節處理。）
+</Answer>
+</Question>
+
+## 再算一次 Bayes
+
+我們從 $q(x_{t-1}\mid x_t,x_0)$ 出發，一樣套用 Bayes：
+
+$$
+q(x_{t-1}\mid x_t,x_0)
+=\frac{q(x_t\mid x_{t-1},x_0)\,q(x_{t-1}\mid x_0)}{q(x_t\mid x_0)}
+=\frac{q(x_t\mid x_{t-1})\,q(x_{t-1}\mid x_0)}{q(x_t\mid x_0)} .
+$$
+
+第二個等號用的是 **Markov property**：$q(x_t\mid x_{t-1},x_0)=q(x_t\mid x_{t-1})$——往前走一步只讀現在這個狀態，$x_0$ 知不知道都一樣。至於 $q(x_{t-1}\mid x_0)$ 與 $q(x_t\mid x_0)$ 這兩項，可以注意到它們都多了一個 $x_0$ 的條件，而**這三項全部都是 forward process 裡設計出來的 Gaussian**。
+
+$q(x_t\mid x_{t-1})$ 是 forward process 每往前一步的設計，$q(x_{t-1}\mid x_0)$ 與 $q(x_t\mid x_0)$ 則是我們在 <Ref to="dma-forward-process"/> 最後得到的 closed form（把 $t$ 換成 $t-1$ 就有中間那一條）：
+
+$$
+\begin{aligned}
+q(x_t\mid x_{t-1})&=\mathcal N\big(\sqrt{\alpha_t}\,x_{t-1},\ \beta_t I\big), &&\text{每一步的設計}\\[2pt]
+q(x_{t-1}\mid x_0)&=\mathcal N\big(\sqrt{\bar\alpha_{t-1}}\,x_0,\ (1-\bar\alpha_{t-1})I\big), &&\text{closed form}\\[2pt]
+q(x_t\mid x_0)&=\mathcal N\big(\sqrt{\bar\alpha_t}\,x_0,\ (1-\bar\alpha_t)I\big). &&\text{closed form}
+\end{aligned}
+$$
+
+Bayes 右邊在乘除的是三個**機率密度**，不是三個隨機變數。而 Gaussian 的密度是「$\exp$（一個 $x$ 的二次式）」，把它們乘起來、再除掉一個，只是在指數上把幾個二次式加加減減——加減完還是二次式，所以配方之後出來的仍然是一個 Gaussian。
+
+> **動手算一下：配出來的這個 Gaussian $q(x_{t-1}\mid x_t,x_0)=\mathcal N(\tilde\mu_t,\ \tilde\beta_t I)$，它的變異數會跟 $x_0$ 有關嗎？**
+
+<Try summary="自己配一次方：$\tilde\mu_t$ 和 $\tilde\beta_t$ 是怎麼跑出來的？">
+首先 $q(x_{t-1}\mid x_t,x_0)$ 之中，只有 $x_{t-1}$ 是變數，其他兩個是給定的（視為常數），因此我們只要管 $q(x_{t-1}\mid x_0)$ 和 $q(x_t\mid x_{t-1})$ 的乘積，不用理 $q(x_t\mid x_0)$：
+
+$$
+q(x_{t-1}\mid x_t,x_0)\ \propto\ q(x_{t-1}\mid x_0)\,q(x_t\mid x_{t-1})
+\ \propto\ \exp\Big[-\frac{\|x_t-\sqrt{\alpha_t}\,x_{t-1}\|^2}{2\beta_t}
+-\frac{\|x_{t-1}-\sqrt{\bar\alpha_{t-1}}\,x_0\|^2}{2(1-\bar\alpha_{t-1})}\Big].
+$$
+
+方括號裡是 $x_{t-1}$ 的一個二次式。把它按次數收好：平方項的係數是
+
+$$
+A=\frac{\alpha_t}{\beta_t}+\frac{1}{1-\bar\alpha_{t-1}},
+$$
+
+一次項寫成 $-2\,b^\top x_{t-1}$ 的話，
+
+$$
+b=\frac{\sqrt{\alpha_t}}{\beta_t}\,x_t+\frac{\sqrt{\bar\alpha_{t-1}}}{1-\bar\alpha_{t-1}}\,x_0 .
+$$
+
+於是整個指數是 $-\tfrac{A}{2}\big\|x_{t-1}-b/A\big\|^2$ 再加一個不含 $x_{t-1}$ 的常數，常數可再次無視。對照 Gaussian 的密度公式，直接可以得到 $\tilde\beta_t=1/A$、$\tilde\mu_t=b/A$。
+
+剩下的只是化簡。$A$ 通分之後分子是 $\alpha_t(1-\bar\alpha_{t-1})+\beta_t$，而這裡只需要 <Ref to="dma-forward-process"/> 定義 $\alpha_t$、$\bar\alpha_t$ 時就留下的兩個恆等式——$\alpha_t+\beta_t=1$ 與 $\alpha_t\bar\alpha_{t-1}=\bar\alpha_t$：
+
+$$
+\alpha_t-\alpha_t\bar\alpha_{t-1}+\beta_t=(\alpha_t+\beta_t)-\bar\alpha_t=1-\bar\alpha_t ,
+$$
+
+所以 $\tilde\beta_t=\dfrac{(1-\bar\alpha_{t-1})\,\beta_t}{1-\bar\alpha_t}$。把它乘進 $b$，兩個分母各自消掉，就是下面那兩個係數。
+</Try>
+
+代進去，我們可以推出
+
+$$
+q(x_{t-1}\mid x_t,x_0)=\mathcal N\big(\tilde\mu_t(x_t,x_0),\ \tilde\beta_t I\big),
+$$
+
+且
+
+$$
+\tilde\mu_t=\frac{\sqrt{\bar\alpha_{t-1}}\,\beta_t}{1-\bar\alpha_t}\,x_0
++\frac{\sqrt{\alpha_t}\,(1-\bar\alpha_{t-1})}{1-\bar\alpha_t}\,x_t,
+\qquad
+\tilde\beta_t=\frac{1-\bar\alpha_{t-1}}{1-\bar\alpha_t}\,\beta_t .
+$$
+
+這個分布的平均 $\tilde\mu_t$ 是 $x_0$ 與 $x_t$ 的一個**加權平均**——一邊拉向起點、一邊留在原地，權重只由 forward process 設計的 schedule 決定。變異數 $\tilde\beta_t$ 則**完全不含 $x_0$ 和 $x_t$**，只是 schedule 的一個數字。
+
+## 從 $q(x_{t-1}\mid x_t,x_0)$ 推出 $q(x_{t-1}\mid x_t)$
+
+當然，當我們要取樣的時候，我們是沒有 $x_0$ 的——如果有，就不用生成了，只是訓練的時候我們可以使用。所以真正要的那個分布，是把 closed form 的那一個對「$x_0$ 可能是誰」取平均：
+
+$$
+q(x_{t-1}\mid x_t)=\int q(x_{t-1}\mid x_t,x_0)\;p(x_0\mid x_t)\,\mathrm dx_0 .
+$$
+
+這條式子其實已經告訴我們怎麼**精確**抽樣了：先從 $p(x_0\mid x_t)$ 抽一張 $x_0$，再從 $\mathcal N\big(\tilde\mu_t(x_t,x_0),\tilde\beta_t I\big)$ 抽 $x_{t-1}$，抽出來的就服從 $q(x_{t-1}\mid x_t)$。
+
+麻煩在第一步。$p(x_0\mid x_t)$ 是「看到 $x_t$ 之後，原圖可能是哪些」的**整個分布**；而 $t$ 大的時候 $x_t$ 幾乎不帶 $x_0$ 的資訊（<Ref to="dma-forward-process"/> 的 $\bar\alpha_T\approx4\times10^{-5}$），這個後驗就幾乎是 $p_{\text{data}}$ 本身——能從它抽樣的話，我們一開始就不需要 diffusion 了。所以要退一步問：這個後驗，我們**最少**要知道它的什麼？
+
+答案是只要平均值就夠——只要我們先滿足於拿到 $x_{t-1}$ 的平均。因為**$\tilde\mu_t$ 對 $x_0$ 是仿射的**（$x_0$ 只乘一個常數係數），取平均的時候 $x_0$ 可以直接被它的平均取代：
+
+$$
+\mathbb E\big[x_{t-1}\mid x_t\big]=\tilde\mu_t\big(x_t,\ \mathbb E[x_0\mid x_t]\big) .
+$$
+
+這一行是精確的，沒有做任何近似：後驗長什麼形狀都不影響它，**只有那個形狀的平均值 $\mathbb E[x_0\mid x_t]$ 進得到式子裡**。一整個分布被換成一個數值——而「給定 $x_t$，輸出一個值」正是網路學得動的形狀。
+
+這樣拿到的是 $x_{t-1}$ 的**平均**，還不是一個可以抽樣的分布，中間差的是散布；那是 <Ref to="dma-reverse-process"/> 開頭的第一件事。這一週剩下的工作則在更前面：
+
+<Ask>
+怎麼得到 $\mathbb E[x_0\mid x_t]$？
+</Ask>
+
+## 用 $L_2$ 把它訓出來
+
+我們要的是一個「看到 $x_t$，給出 $\mathbb E[x_0\mid x_t]$」的函數。而上一篇說了，forward process 讓我們可以輕易地製造一堆 $(x_0,x_t,\epsilon,t)$ 的配對——有配對就可以做**監督式回歸**：看到 $x_t$ 和 $t$，把 $x_0$ 猜出來。
+
+$$
+\mathcal L_{x_0}(\theta)=\mathbb E_{t,\,x_0,\,\epsilon}\Big[\big\|\hat x_\theta(x_t,t)-x_0\big\|^2\Big],
+\qquad x_t=\sqrt{\bar\alpha_t}\,x_0+\sigma_t\epsilon .
+$$
+
+這就是全部了。沒有對抗、沒有 ELBO、沒有 normalizing constant，就是一個平方誤差。<Ref to="dma-what-are-we-learning"/> 說「路徑自己定，每一步就變成回歸」，指的就是這一行。
+
+不過這裡應該要有人舉手。
+
+<Ask>
+$L_2$ 不是才剛被我們否決過嗎？<br />
+為什麼這一次它就可以了？
+</Ask>
+
+<Question id="Q3">
+在 <Ref to="dma-what-are-we-learning"/> 我們算過：拿 $L_2$ 去比對資料與生成結果，最佳解是**一張所有訓練圖片的平均**，模型會直接塌掉。現在這個 loss 也是 $L_2$、也是拿模型輸出去比對真實的 $x_0$。
+
+**為什麼這一次不會塌？**
+
+<Answer>
+差別只有一個字：**配對**。
+
+上一次 $z$ 與 $x$ 是各自獨立抽的，模型拿到 $z$ 完全沒有線索，所以最佳輸出是**邊際**的平均 $\mathbb E[x]$——一個與輸入無關的常數。這一次的 $x_t$ 是從某一張特定的 $x_0$ 加噪來的，兩者被 forward process 綁在一起。$L_2$ 的最佳解因此變成**條件期望**（<Ref to="math-mse-conditional-expectation"/>）：
+
+$$
+\hat x^{\star}(x_t,t)=\mathbb E\big[x_0\mid x_t\big].
+$$
+
+它是一個**隨 $x_t$ 改變**的函數，不是常數。$t$ 很小的時候，$x_t$ 幾乎就是 $x_0$，這個條件期望幾乎等於原圖；$t$ 很大的時候，同一個 $x_t$ 可能來自很多張不同的圖，條件期望就是那些圖的加權平均——這時候預測**本來就該**是模糊的。
+
+> **同樣是 $L_2$，上一次的最佳解是一個常數，這一次是一個函數。**
+
+差別不在 loss，在於輸入和目標有沒有被綁在一起。可以想成看監視器畫面猜車牌：畫面很清楚時，你就直接讀出來；畫面糊到只剩輪廓時，你能給的最佳答案其實是「所有可能車牌的平均長相」。上一次的問題不是 $L_2$ 本身，而是**我們沒有給模型任何線索就要它猜**；現在每一次提問都附帶了 $x_t$ 這個線索。
+</Answer>
+</Question>
+
+![示意圖：上排 t 小，三張候選原圖中只有一張亮著，加噪後的 x_t 仍看得出是貓，模型輸出幾乎與原圖相同；下排 t 大，五張不同的照片（貓、鳥、兔、盆栽）都連到同一張看不出內容的 x_t，權重以線的粗細表示，模型輸出是一張模糊的加權平均。](./imgs/w-3-2-1.png)
+
+**圖：同一個 $x_t$ 可以來自很多張圖。** 上排 $t$ 小，能對上的原圖只有一張，輸出就幾乎是原圖；下排 $t$ 大，很多張圖都可能變成同一個 $x_t$，$L_2$ 的最佳解就是它們的**加權平均**。所以這裡的模糊是正確答案，不是訓練失敗。
+
+## 看一個點怎麼被去噪
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w3-2-posterior.html" class="demo-frame" title="去噪一個點：互動 demo" style="height: 890px; width: 100%; border: none;"></iframe>
+
+**互動 demo：去噪一個點。** 在平面上點一個位置當成 $x_t$，再拖 $t$。每個資料點的大小是它的後驗權重 $p(x_0\mid x_t)\propto\exp\big(-\|x_t-\sqrt{\bar\alpha_t}x_0\|^2/2\sigma_t^2\big)$，箭頭指向 $\mathbb E[x_0\mid x_t]$。$t$ 小的時候只有一兩個點亮著，箭頭幾乎指在原地；$t$ 大的時候整批點都亮，箭頭就指向一個**平均**的位置。
+
+## 同一支箭頭的三種寫法
+
+由 $x_t=\sqrt{\bar\alpha_t}x_0+\sigma_t\epsilon$ 可知，**知道 $x_t$ 之後，$x_0$ 與 $\epsilon$ 互相決定**：
+
+$$
+x_0=\frac{x_t-\sigma_t\epsilon}{\sqrt{\bar\alpha_t}},\qquad
+\epsilon=\frac{x_t-\sqrt{\bar\alpha_t}x_0}{\sigma_t}.
+$$
+
+所以網路輸出哪一個都可以，另一個用上式換回來。這個「要讓網路去猜哪一個」的選擇叫 **parametrization**，實務上有三種常見的做法。
+
+**$\epsilon$-prediction**（DDPM 原文 [1]）：讓網路去猜那個總噪聲。
+
+$$
+\mathcal L_\epsilon=\mathbb E\big[\|\epsilon_\theta(x_t,t)-\epsilon\|^2\big],
+\qquad \hat x_0=\frac{x_t-\sigma_t\epsilon_\theta}{\sqrt{\bar\alpha_t}} .
+$$
+
+**$x_0$-prediction**：直接輸出 $\hat x_0$，也就是開頭那個 loss。
+
+**$v$-prediction** [2]：把 $(\sqrt{\bar\alpha_t},\sigma_t)$ 看成 $(\cos\phi_t,\sin\phi_t)$，定義
+
+$$
+v=\sqrt{\bar\alpha_t}\,\epsilon-\sigma_t\,x_0 .
+$$
+
+$v$ 是 $(x_0,\epsilon)$ 平面上與 $x_t$ **垂直**的那個方向。它在 $t\to0$ 時像 $\epsilon$、在 $t\to T$ 時像 $-x_0$，兩端都不會退化。這個「兩端都不退化」現在看起來只是好看，要到 <Ref to="dma-progressive-distillation"/> 把步數減到很少的時候才真正派上用場——$v$-prediction 最早就是在那裡被提出來的。
+
+三者之間全是**仿射變換**，係數只跟 $t$ 有關。也就是說：給定其中一個訓好的網路，另外兩個不用重訓，代數換算就有了。實作那篇會要你親手驗證一次。
+
+<Remark label="符號" summary="為什麼 v 可以看成「垂直方向」？">
+因為 $\bar\alpha_t+\sigma_t^2=1$，我們可以寫 $\sqrt{\bar\alpha_t}=\cos\phi_t$、$\sigma_t=\sin\phi_t$。於是
+
+$$
+x_t=\cos\phi_t\,x_0+\sin\phi_t\,\epsilon,\qquad
+v=\cos\phi_t\,\epsilon-\sin\phi_t\,x_0 .
+$$
+
+在以 $x_0$、$\epsilon$ 為兩軸的平面上，$x_t$ 與 $v$ 剛好是**互相垂直的一組座標**——$v$ 就是「沿著 $\phi_t$ 增加的方向」，也就是 $x_t$ 對 $\phi_t$ 的導數。這也是它兩端都不退化的原因：不管 $\phi_t$ 靠近 0 還是 $\pi/2$，垂直方向永遠存在。
+</Remark>
+
+## 等價，但不相同：差在加權
+
+把 $\hat x_0$ 與 $\epsilon_\theta$ 的關係代進去，兩個 loss 的關係就出來了：
+
+$$
+\|\hat x_0-x_0\|^2=\frac{\sigma_t^2}{\bar\alpha_t}\,\|\epsilon_\theta-\epsilon\|^2
+=\frac{1}{\mathrm{SNR}(t)}\,\|\epsilon_\theta-\epsilon\|^2,
+\qquad \mathrm{SNR}(t)=\frac{\bar\alpha_t}{1-\bar\alpha_t}.
+$$
+
+所以
+
+$$
+\mathcal L_{x_0}=\mathbb E_t\Big[\tfrac{1}{\mathrm{SNR}(t)}\cdot\big(\text{該 } t \text{ 的 }\epsilon\text{-loss}\big)\Big].
+$$
+
+兩個 loss 的**最小值點是同一個**（都被同一個條件期望達成）。但在有限容量、有限訓練時間下，它們對不同 $t$ 的重視程度不一樣：
+
+- $\mathcal L_\epsilon$ 對所有 $t$ 一視同仁。
+- $\mathcal L_{x_0}$ 把權重壓在 $\mathrm{SNR}$ 小、也就是 $t$ 大（噪聲很重）的區域，因為那裡的 $1/\mathrm{SNR}$ 很大。
+
+DDPM 原文用 $\epsilon$-prediction，而且**故意丟掉**理論推導出來的加權、直接用均勻的 $\epsilon$-MSE，在他們的實驗上這樣效果最好。一個直覺是：$\epsilon$ 的目標尺度在所有 $t$ 都是 $\mathcal N(0,I)$，網路不必額外學會「在不同 $t$ 輸出不同大小的東西」。
+
+這裡有一個之後一直會用到的觀念：
+
+> **「路徑」與「加權」是兩個獨立的設計軸。**
+
+同一條 forward 路徑，配上不同的加權，就會訓出不同的模型。<Ref week="dma-week-flow-matching"/> 在比較 flow matching 與 diffusion 時，這個區分會再回來一次——它們的差別有一部分其實只是加權不同。
+
+## 整個訓練就是這五行
+
+```
+repeat
+  x0 ← 一個 batch 的資料
+  t  ← Uniform{1,…,T}
+  ε  ← N(0, I)
+  xt ← √ᾱ_t · x0 + √(1-ᾱ_t) · ε
+  loss ← ‖ε_θ(xt, t) − ε‖²
+  梯度下降
+```
+
+五行。所有複雜度都在「為什麼這五行是對的」——而那正是下一篇要回答的事。
+
+## 消化一下
+
+<QuizBlock id="w3-2-a">
+訓好一個 $\epsilon$-prediction 網路之後，想拿到 $\hat x_0$，需要做什麼？
+<Option>重新以 $x_0$-prediction 訓練一次。</Option>
+<Option correct>代數換算 $\hat x_0=(x_t-\sigma_t\epsilon_\theta)/\sqrt{\bar\alpha_t}$，不需要重訓。</Option>
+<Option>對 $\epsilon_\theta$ 做數值積分。</Option>
+<Explanation>
+三種 parametrization 之間是只依賴 $t$ 的仿射變換。網路學到的是同一個條件期望，只是換一組座標表示。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w3-2-b">
+$\mathcal L_{x_0}$ 與均勻加權的 $\mathcal L_\epsilon$ 相比，哪個說法正確？
+<Option>兩者的最小值點不同。</Option>
+<Option>$\mathcal L_{x_0}$ 對所有 $t$ 加權相同，$\mathcal L_\epsilon$ 偏重低噪聲區。</Option>
+<Option correct>最小值點相同，但 $\mathcal L_{x_0}$ 隱含把更多權重放在高噪聲（大 $t$）的區域。</Option>
+<Explanation>
+$\|\hat x_0-x_0\|^2=\|\epsilon_\theta-\epsilon\|^2/\mathrm{SNR}(t)$。$t$ 大時 SNR 小、$1/\mathrm{SNR}$ 大，所以 $x_0$-loss 在那裡被放大。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w3-2-c">
+為什麼 $v$-prediction 在 $t$ 接近 $T$ 時比 $\epsilon$-prediction 穩定？
+<Option>因為 $v$ 的變異數隨 $t$ 遞減。</Option>
+<Option correct>因為 $t\to T$ 時 $x_t\approx\epsilon$，預測 $\epsilon$ 幾乎只是複製輸入，而換算 $\hat x_0$ 要除以趨近 0 的 $\sqrt{\bar\alpha_t}$，誤差會被放大；$v$ 在此時趨近 $-x_0$，避開了這個除法。</Option>
+<Option>因為 $v$-prediction 不需要知道 $\bar\alpha_t$。</Option>
+<Explanation>
+關鍵是「除以一個很小的數會放大誤差」。$v$ 的定義讓它在兩端各自退化成 $\epsilon$ 或 $-x_0$ 裡比較好算的那一個。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w3-2-d">
+把 $t$ 固定在很大的值（噪聲很重）訓練，然後看模型對單一個 $x_t$ 的輸出 $\hat x_0$，會看到什麼？
+<Option>一張清楚但錯誤的圖。</Option>
+<Option correct>一張偏模糊的圖——因為這時的最佳解是很多張可能原圖的加權平均。</Option>
+<Option>模型輸出會發散。</Option>
+<Explanation>
+最佳解是 $\mathbb E[x_0\mid x_t]$。$t$ 大時後驗很寬，這個期望就是一堆圖的平均，看起來自然模糊。模糊在這裡是**正確**的答案，不是訓練失敗；取樣時靠很多小步把它逐漸變清楚。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-tweedie-and-score">
+我們有一個五行的訓練演算法，也知道它的三種寫法。但核心問題還沒回答：只用 $(x_t,\epsilon)$ 的配對做回歸，憑什麼學到跟整個分布 $p_t$ 有關的東西？下一篇用 Tweedie 公式回答。
+</Bridge>
+
+## 參考文獻
+
+1. Ho, J., Jain, A., Abbeel, P. [*Denoising Diffusion Probabilistic Models.*](https://arxiv.org/abs/2006.11239) NeurIPS 2020. （$\epsilon$-prediction 與「丟掉加權」的簡化 loss。）
+2. Salimans, T., Ho, J. [*Progressive Distillation for Fast Sampling of Diffusion Models.*](https://arxiv.org/abs/2202.00512) ICLR 2022. （$v$-prediction 的出處。）
+3. Kingma, D. P., Gao, R. [*Understanding Diffusion Objectives as the ELBO with Simple Data Augmentation.*](https://arxiv.org/abs/2303.00848) NeurIPS 2023. （把「加權」與 ELBO 的關係講清楚。）

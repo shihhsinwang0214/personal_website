@@ -1,0 +1,215 @@
+---
+slug: "dma-w9-2-meanflow"
+label: "dma-meanflow"
+prereqs:
+  - math-total-derivative
+  - math-mse-conditional-expectation
+  - math-conditional-expectation
+lang: "zh"
+title: "MeanFlow：平均速度與一條精確的恆等式"
+category: "courses"
+group: "Week 9 · Flow Maps 與分佈匹配"
+status: "available"
+updated: 2026-09-06
+summary: "把 flow map 改寫成「平均速度」u(z,r,t)：位移除以時間差。對定義式沿軌跡取全導數，得到 MeanFlow identity u = v − (t−r)·du/dt，它就是 Eulerian 恆等式換了座標，而且對任何一對時間精確成立。訓練把右邊當 stop-gradient 目標、v 換成條件速度 x₁−x₀——又一次用 conditional trick，這一次因為目標對 v 線性而在期望上精確。"
+demos: []
+references:
+  - label: "Geng, Deng, Bai, Kolter & He, Mean Flows for One-step Generative Modeling (2025)"
+    href: "https://arxiv.org/abs/2505.13447"
+  - label: "Lu & Song, Simplifying, Stabilizing and Scaling Continuous-Time Consistency Models (2024)"
+    href: "https://arxiv.org/abs/2410.11081"
+  - label: "Boffi, Albergo & Vanden-Eijnden, Flow Map Matching (2024)"
+    href: "https://arxiv.org/abs/2406.07507"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# MeanFlow：平均速度與一條精確的恆等式
+
+<Objectives>
+- 定義平均速度 $u(z,r,t)$，說出它與 flow map 的關係，以及為什麼 $r=t$ 時它自動退化成 flow matching。
+- 自己推出 MeanFlow identity，指出全導數裡的每一項是什麼，並認出它就是上一篇的 Eulerian 恆等式。
+- 說出訓練時把 $v$ 換成條件速度 $x_1-x_0$ 為什麼在期望上精確，以及 $\tfrac{du}{dt}$ 那一項用網路自己的輸出是哪一種選擇。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 換一個座標寫 flow map
+
+上一篇說 Eulerian 是能夠不要 teacher 的那條路，但直接對 $\psi_\theta$ 寫 Eulerian 損失有兩個不順手的地方：恆等條件 $\psi_{t\to t}=\mathrm{id}$ 要另外用參數化保證；而 $\psi$ 的輸出是「位置」，兩個時間很近時它幾乎等於輸入，網路要學的是一個接近恆等的映射，訊號很弱。
+
+MeanFlow（Geng et al. [1]）的第一步是換座標。flow map 把 $z$ 從時刻 $t$ 送到時刻 $r$，位移是 $\psi_{t\to r}(z)-z$；把位移除以時間差，得到的是這段路的**平均速度**：
+
+$$
+u(z,r,t)\;:=\;\frac{\psi_{t\to r}(z)-z}{r-t}\;=\;\frac{1}{t-r}\int_r^t v\big(z_\tau,\tau\big)\,d\tau ,
+$$
+
+$z_\tau$ 是經過 $(z,t)$ 的那條軌跡，第二個等號只是把位移寫成速度的積分。讀法：**$z$ 是時刻 $t$ 的位置，$r$ 是要跳去的時刻，$u$ 是這一段軌跡上瞬時速度的平均。** 反過來，flow map 就是 $\psi_{t\to r}(z)=z+(r-t)\,u(z,r,t)$。
+
+$r\to t$ 時積分區間縮成一點，$u(z,t,t)=v(z,t)$——平均速度退化成瞬時速度，**flow matching 是 $r=t$ 的切片**。恆等條件也自動滿足：$\psi_{t\to t}(z)=z+0\cdot u=z$，不需要 $c_{\text{skip}}$、$c_{\text{out}}$ 那套參數化。這兩件事來自同一個原因：我們把「位置」換成了「速度」，網路輸出的是 $v$ 的同類物件，而不是一個接近恆等的映射。
+
+<Details summary="慣例對照：MeanFlow 原文的 r<t 與這裡的 t<r">
+MeanFlow 原文用 $t=0$ 是資料、$t=1$ 是噪聲的慣例，一步生成是從 $t=1$ 跳到 $r=0$，所以文中 $r<t$、$u$ 的定義寫成 $\frac{1}{t-r}\int_r^t v\,d\tau$。本篇沿用 <Ref week="dma-week-flow-matching"/> 的 FM 慣例（$t=0$ 噪聲、$t=1$ 資料），從噪聲端往資料端跳是 $t<r$。但注意上面的定義式對 $r<t$ 與 $r>t$ **都成立**——$\frac{1}{t-r}\int_r^t$ 換成 $\frac{1}{r-t}\int_t^r$ 值不變——所以接下來的 identity 不需要選方向，這正是 <Ref to="dma-flow-map"/> 說「雙時間沒有方向問題」的意思。
+</Details>
+
+## 把定義式微分：MeanFlow identity
+
+定義式兩邊乘上 $(t-r)$：
+
+$$
+(t-r)\,u(z_t,r,t)=\int_r^t v(z_\tau,\tau)\,d\tau .
+$$
+
+現在固定 $r$，讓 $t$ 動，**而且讓 $z_t$ 跟著沿軌跡動**（$\tfrac{dz_t}{dt}=v(z_t,t)$）。右邊的積分只透過上限依賴 $t$（軌跡是同一條，被積函數不變），微分就是 $v(z_t,t)$。左邊是乘積，乘法法則：
+
+$$
+u(z_t,r,t)+(t-r)\,\frac{d}{dt}u(z_t,r,t)=v(z_t,t),
+$$
+
+其中 $\tfrac{d}{dt}$ 是**沿軌跡的全導數**——$u$ 的三個輸入裡 $z_t$ 與 $t$ 都在動：
+
+$$
+\frac{d}{dt}u(z_t,r,t)=\partial_t u+\big(\partial_z u\big)\,v(z_t,t).
+$$
+
+整理成 MeanFlow identity：
+
+$$
+\boxed{\;u(z_t,r,t)=v(z_t,t)-(t-r)\,\frac{d}{dt}u(z_t,r,t)\;}
+$$
+
+讀法：**平均速度 = 瞬時速度 − 一個修正項**。修正項是「平均速度沿軌跡的變化率」乘上時間差。軌跡是直線時 $u$ 沿路不變，修正項為零，平均等於瞬時；軌跡彎，兩者才分開。$r=t$ 時修正項也為零，回到 $u=v$。
+
+這條式子對**任何**一對 $(r,t)$ 精確成立，沒有任何近似——它只用到微積分基本定理與乘法法則。
+
+<Details summary="它就是上一篇的 Eulerian 恆等式">
+把 $\psi_{t\to r}(z)=z+(r-t)\,u(z,r,t)$ 代進 Eulerian 恆等式 $\tfrac{d}{dt}\psi_{t\to r}(z_t)=0$。沿軌跡微分：$z_t$ 的變化率是 $v$，$(r-t)$ 的變化率是 $-1$，$u$ 的變化率是 $\tfrac{du}{dt}$：
+
+$$
+\frac{d}{dt}\psi_{t\to r}(z_t)=v-u+(r-t)\frac{du}{dt}=0
+\quad\Longleftrightarrow\quad u=v-(t-r)\frac{du}{dt}.
+$$
+
+所以 MeanFlow identity 不是一條新的恆等式，是 Eulerian 恆等式在「平均速度」座標下的樣子。換座標的好處在前一節說過：恆等條件自動成立、$r=t$ 自動是 FM。$r$ 釘在資料端時，它就是 <Ref to="dma-ict-scm"/> sCM 的連續時間 consistency 條件換了寫法。
+</Details>
+
+<VizPlan id="w9-2-identity-triangle" title="MeanFlow identity 的幾何：u、v 與修正向量構成的三角形" type="interactive">
+- **位置**：本節之後。**檔名**：`week-9/w9-2-1.html`。
+- **畫布**：2D toy 上一條**有明顯彎曲**的真實軌跡（用混合 Gaussian 的解析邊際速度積分；灰色細線，從噪聲端到資料端）。兩支滑桿 $t$（當前時刻，實心點 $z_t$）與 $r$（目標時刻，空心點 $z_r$），可以 $r>t$ 也可以 $r<t$。
+- **三支箭頭，從 $z_t$ 出發、同一比例**：(1) 瞬時速度 $v(z_t,t)$，與軌跡相切，藍色；(2) 平均速度 $u(z_t,r,t)$，方向沿弦 $z_t\to z_r$、長度是弦長除以 $|r-t|$，橘色；(3) 修正向量 $-(t-r)\,\tfrac{du}{dt}$，從 $v$ 的箭頭尖端指向 $u$ 的箭頭尖端，紅色虛線。三者恰好圍成一個三角形，旁邊即時顯示 $\|u-v+(t-r)\tfrac{du}{dt}\|$（數值上應在 $10^{-3}$ 以下）。$\tfrac{du}{dt}$ 用有限差分沿軌跡算。
+- **拖 $r$ 靠近 $t$**：弦趨近切線，橘色箭頭疊到藍色箭頭上，紅色虛線縮成零——「$r=t$ 是 flow matching」。**拖 $r$ 遠離 $t$**：三角形張開，紅色越長。
+- **開關「顯示 CT 的離散近似」**：在 $z_t$ 畫出「假設這段是直線」的 Euler 一步 $z_t+(r-t)\,v(z_t,t)$（灰色叉），與真實 $z_r$ 的距離標成 bias。讀者看到：CT 的目標把弦當成切線，差的就是那條紅色修正向量；MeanFlow 把修正向量算出來而不是忽略它。
+- **底部觀察句**：「觀察：平均速度是弦，瞬時速度是切線，兩者差一個沿軌跡的修正向量 $(t-r)\,du/dt$。軌跡直、或兩個時間靠近，修正消失。identity 對任何 $(r,t)$ 精確——它算出修正，而不是假設修正為零。」
+- **匯出 PNG**：畫布 16:9，含當前 $r,t$ 與三支箭頭的數值。
+- **註記**：真實模型裡 $u_\theta$ 有誤差，三角形不會完全閉合；這裡用精確的場先看清恆等式的形狀。
+</VizPlan>
+
+## 訓練：把右邊當目標
+
+網路 $u_\theta(z,r,t)$ 輸入三樣東西、輸出一個向量。把 identity 的右邊當成目標：
+
+$$
+u_{\text{tgt}}=v(z_t,t)-(t-r)\,\underbrace{\Big[\partial_t u_\theta+(\partial_z u_\theta)\,v(z_t,t)\Big]}_{\frac{d}{dt}u_\theta\text{，用 JVP 算}},\qquad
+\mathcal L=\Big\|u_\theta(z_t,r,t)-\mathrm{sg}\big(u_{\text{tgt}}\big)\Big\|^2 .
+$$
+
+三個實作上的決定：
+
+1. **全導數用 JVP。** $\tfrac{d}{dt}u_\theta$ 是 $u_\theta$ 對輸入 $(z,r,t)$ 的 Jacobian 乘上切向量 $(v,\,0,\,1)$，`torch.func.jvp` 一次前向就算出來，不需要整個 Jacobian——<Ref to="dma-ict-scm"/> 算 $\tfrac{d}{dt}f_\theta$ 用的是同一招。成本大約是一次額外的前向。
+2. **目標 stop-gradient。** 右邊含 $u_\theta$ 自己，不回傳梯度。這是 <Ref to="dma-consistency-function"/> 以來所有 self-consistency 方法的共同結構：把自己當 target 的 bootstrapping。
+3. **$v$ 用條件速度代替。** 訓練時抽 $(x_0,x_1)$、造 $z_t=(1-t)x_0+t\,x_1$，我們沒有邊際速度 $v(z_t,t)$，但有 $x_1-x_0$。**把 $u_{\text{tgt}}$ 裡兩處 $v$——顯式的那個、JVP 切向量裡的那個——都換成 $x_1-x_0$。**
+
+第三點就是下面的問題。
+
+<Question id="Q1">
+Identity 是對**邊際**速度 $v(z_t,t)$ 成立的，訓練時卻代進了**條件**速度 $x_1-x_0$，而同一個 $z_t$ 會被許多不同的 $(x_0,x_1)$ 對經過。**為什麼這樣代是可以的？** 這是哪一個已經用過的模式？這一次和 consistency training 那一次差在哪裡？
+
+<Answer>
+課堂上到這裡，大多數人已經能直接說出前半：「squared loss 回歸隨機目標，學到的是目標的條件期望；$\mathbb E[x_1-x_0\mid z_t]=v(z_t,t)$，所以平均起來就是邊際速度。」這就是 <Ref to="dma-denoising-regression"/> 的 **conditional trick**，用在平均速度上（<Ref to="dma-concrete-score"/> 有一張表列著它先前的幾個版本）。但這一次有兩個新的細節值得說清楚。
+
+**細節一：目標對 $v$ 是線性的，所以代換在期望上精確。** 把目標寫成 $v$ 的函數：$u_{\text{tgt}}(v)=v-(t-r)\big[\partial_t u_\theta+(\partial_z u_\theta)\,v\big]$，兩處 $v$ 都是一次項。線性函數與期望可交換：
+
+$$
+\mathbb E\big[u_{\text{tgt}}(x_1-x_0)\,\big|\,z_t\big]=u_{\text{tgt}}\big(\mathbb E[x_1-x_0\mid z_t]\big)=u_{\text{tgt}}\big(v(z_t,t)\big).
+$$
+
+而 squared loss 對一個隨機目標回歸，等於對目標的條件期望回歸再加一個變異數項；因為目標是 stop-gradient 的，那個變異數項不影響對 $\theta$ 的梯度。所以**梯度與用真正的邊際速度訓練時完全相同**。這裡「線性」是關鍵——上一篇的展開框說過，若 $v$ 出現在非線性（例如平方）的位置，代換會多出一項 bias。
+
+**細節二：與 consistency training 差在「沒有離散化」。** <Ref to="dma-cd-vs-ct"/> 的 CT 也是條件代換，但它代的是「用同一組 $(x_0,\epsilon)$ 重新插值出 $x_{t'}$」來假裝走了一步；那個目標在期望上等於用真實 score 走一步 **Euler**，而 Euler 假設這一步是直線——bias 是 $O(\Delta t)$ 乘上曲率，所以 CT 需要對 $N$ 做 curriculum。MeanFlow 沒有走任何一步：identity 是把「走一步」換成了**解析的全導數**，對任何 $(r,t)$ 精確，沒有 $\Delta t$ 可言。<Ref to="dma-error-theory"/> 那個曲率積分在這裡不是被壓小，是根本沒有出現。
+
+**還有一件事要誠實標出來：$\tfrac{du}{dt}$ 那一項用的是 $u_\theta$ 自己。** 條件→邊際的論證只處理 $v$；identity 右邊的 $\tfrac{du}{dt}$ 應該是**真實**平均速度的導數，訓練時我們手上沒有，只能用網路當下的輸出代替。這是一個**實作選擇**（bootstrapping），不是定理：它的辯護是不動點論證——若 $u_\theta$ 已經等於真實的 $u$，目標就恰好是 $u$ 本身，訓練停在正解；訓練過程中它是否穩定收斂，靠的是 stop-gradient、$r=t$ 樣本的錨定（那些樣本就是普通 FM，沒有 bootstrapping），以及 <Ref to="dma-ict-scm"/> 談過的那些穩定技巧。CT 與 sCM 也有同樣的 self-target 結構，MeanFlow 在這一點上並不比它們更多或更少。
+</Answer>
+</Question>
+
+## 取樣，與它為什麼值得
+
+取樣只是把定義式反過來用。從 $z_0\sim\mathcal N(0,I)$ 出發，一步：
+
+$$
+z_1=\psi_{0\to1}(z_0)=z_0+u_\theta(z_0,\,1,\,0).
+$$
+
+（讀法：位置 $z_0$、當前時刻 $t=0$、目標 $r=1$。）兩步就是 $0\to\tfrac12\to1$，中途不需要重新加噪——半群條件被 identity 隱含地訓進去了。
+
+MeanFlow 值得記住的原因，是它把這一週的目標——**flow map 可以像 flow matching 一樣從頭訓練、不要 teacher、不帶曲率 bias**——用一條式子做到。代價有兩個：每一步訓練多一次 JVP 的前向；以及 $\tfrac{du}{dt}$ 那一項的 bootstrapping。實務上 MeanFlow 還把一部分訓練樣本取 $r=t$（純 FM，穩定訓練的錨），並對 loss 做自適應加權——那些屬於 <Ref to="dma-shared-techniques"/> 說的加權那一軸，不改變主線。
+
+## 先消化一下
+
+<QuizBlock id="w9-2-a">
+平均速度 $u(z,r,t)$ 在 $r=t$ 時等於什麼？
+<Option correct>瞬時速度 $v(z,t)$，此時 MeanFlow 的損失就是 flow matching。</Option>
+<Option>零，因為位移是零。</Option>
+<Option>沒有定義，因為分母是零。</Option>
+<Explanation>
+位移與時間差同時趨近零，比值的極限是瞬時速度（這就是導數的定義）。用積分寫 $\frac{1}{t-r}\int_r^t v\,d\tau\to v(z,t)$。所以 $r=t$ 的樣本不需要 JVP、不需要 bootstrapping，就是普通的 FM 損失——MeanFlow 把它當訓練的錨。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w9-2-b">
+MeanFlow identity 裡的 $\tfrac{d}{dt}u(z_t,r,t)$ 是：
+<Option>$u$ 對第三個輸入 $t$ 的偏導數 $\partial_t u$。</Option>
+<Option correct>沿軌跡的全導數 $\partial_t u+(\partial_z u)\,v(z_t,t)$，因為 $z_t$ 隨 $t$ 沿軌跡移動。</Option>
+<Option>$u$ 對 $r$ 的偏導數。</Option>
+<Explanation>
+推導時我們讓 $t$ 動、$z_t$ 跟著沿軌跡動，所以 $u$ 的兩個輸入同時在變，是全導數；$r$ 固定不動。實作上它是 Jacobian 乘切向量 $(v,0,1)$，用 JVP 算。只取 $\partial_t u$ 會漏掉「粒子移到新位置後看到的 $u$ 的變化」——與 <Ref to="dma-error-theory"/> 裡 $(v\cdot\nabla)v$ 那一項是同一種角色（那一篇把邊際速度記成 $u$；本週 $u$ 留給平均速度，邊際速度是 $v$）。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w9-2-c">
+用條件速度 $x_1-x_0$ 代替邊際速度 $v$ 之後，訓練的梯度與用真實 $v$ 訓練時相同。這依賴的是：
+<Option>$x_1-x_0$ 本來就等於 $v(z_t,t)$。</Option>
+<Option>網路容量夠大。</Option>
+<Option correct>目標對 $v$ 是線性的、而且是 stop-gradient 的——線性讓期望可以穿過去，stop-gradient 讓變異數項不影響梯度。</Option>
+<Explanation>
+$x_1-x_0$ 只在**條件期望**上等於 $v$，單一樣本差很多。代換之所以精確，是因為兩個結構性的事實：目標裡 $v$ 只出現在一次項，且目標不回傳梯度。容量與此無關——這是關於目標函數的敘述，不是關於網路的。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w9-2-d">
+與 consistency training 相比，MeanFlow「沒有 $O(\Delta t)$ 曲率 bias」的原因是：
+<Option>MeanFlow 用了更細的時間網格。</Option>
+<Option correct>MeanFlow identity 把「走一步」換成解析的全導數，對任何 $(r,t)$ 精確成立，沒有任何離散化。</Option>
+<Option>MeanFlow 用 teacher 算了精確的軌跡。</Option>
+<Explanation>
+CT 的 bias 來自「假裝走了一步 Euler」，步長 $\Delta t$ 越大、軌跡越彎，bias 越大。MeanFlow 根本沒有走步——它用微積分基本定理直接寫出平均與瞬時速度的關係。它也沒有 teacher；剩下的近似只在 $\tfrac{du}{dt}$ 用網路自己的輸出這一點上。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-shortcut-ayf">
+本篇把 flow map 換到平均速度座標，推出對任何 $(r,t)$ 精確的 MeanFlow identity，並說清楚條件速度的代換為什麼精確、bootstrapping 是哪裡的選擇。下一篇看表上另外兩個格子——Shortcut 用 progressive 恆等式配 FM 底層，Align Your Flow 同時用 Eulerian 與 Lagrangian——並回頭確認 CTM 坐在哪一格。
+</Bridge>
+
+## 參考文獻
+
+1. Geng, Z., Deng, M., Bai, X., Kolter, J. Z., He, K. [*Mean Flows for One-step Generative Modeling.*](https://arxiv.org/abs/2505.13447) 2025.（平均速度、MeanFlow identity、JVP 訓練、$r=t$ 樣本的混合。）
+2. Lu, C., Song, Y. [*Simplifying, Stabilizing and Scaling Continuous-Time Consistency Models.*](https://arxiv.org/abs/2410.11081) 2024.（連續時間 consistency 條件與 JVP；MeanFlow 在 $r$ 釘於資料端時的對應。）
+3. Boffi, N. M., Albergo, M. S., Vanden-Eijnden, E. [*Flow Map Matching.*](https://arxiv.org/abs/2406.07507) 2024.（Eulerian 恆等式。）

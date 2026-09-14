@@ -1,0 +1,283 @@
+---
+slug: "dma-w3-4-reverse-process"
+label: "dma-reverse-process"
+prereqs:
+  - math-random-walk-brownian
+  - math-sde
+  - math-langevin
+  - math-fokker-planck
+lang: "zh"
+title: "反向：DDPM、DDIM 與 SDE/ODE"
+category: "courses"
+group: "Week 3 · Diffusion Models"
+status: "available"
+updated: 2026-09-09
+summary: "把 x̂₀ 代進 closed form 的 Gaussian：平均精確、變異數少一項，而那一項是 O(β_t)——這才是「切成很多小步」換到的東西。接著寫出 DDPM 與 DDIM 的更新式，再走到連續時間的 reverse SDE 與 probability-flow ODE，看見同一組邊際的兩種走法。"
+demos: []
+references:
+  - label: "Ho, Jain & Abbeel, Denoising Diffusion Probabilistic Models (NeurIPS 2020)"
+    href: "https://arxiv.org/abs/2006.11239"
+  - label: "Song, Meng & Ermon, Denoising Diffusion Implicit Models (ICLR 2021)"
+    href: "https://arxiv.org/abs/2010.02502"
+  - label: "Anderson, Reverse-time diffusion equation models (Stochastic Processes and their Applications, 1982)"
+    href: "https://doi.org/10.1016/0304-4149(82)90051-5"
+  - label: "Song, Sohl-Dickstein, Kingma, Kumar, Ermon & Poole, Score-Based Generative Modeling through SDEs (ICLR 2021)"
+    href: "https://arxiv.org/abs/2011.13456"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 反向：DDPM、DDIM 與 SDE/ODE
+
+<Objectives>
+- **說出代 $\hat x_0$ 進 closed form 的 Gaussian 要付的代價，以及「切成很多小步」在數學上換到的是什麼。** 平均值是精確的、變異數少了 $c_0^2\operatorname{Var}[x_0\mid x_t]$ 這一項，而它相對於保留的那一項是 $O(\beta_t)$。
+- **寫出 DDPM ancestral sampling 與 DDIM 的更新式，說出兩者共用什麼、差在哪。** 並認出它們是同一族取樣器裡 $\eta=1$ 與 $\eta=0$ 的兩個點。
+- **認識連續時間的 forward SDE、reverse SDE 與 probability-flow ODE，並解釋「三者邊際相同」。** 帶著一個未解的問題離開：邊際相同，取樣結果會不會有差？
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 把 $\hat x_0$ 代進去，代價是什麼？
+
+三件東西現在都在手上了。<Ref to="dma-denoising-regression"/> 給了 closed form 的那一步 $q(x_{t-1}\mid x_t,x_0)=\mathcal N(\tilde\mu_t(x_t,x_0),\tilde\beta_t I)$，也給了「它只用到 $\mathbb E[x_0\mid x_t]$」；<Ref to="dma-tweedie-and-score"/> 說那個條件期望就是 score。所以最後一步很直接：**把網路給的 $\hat x_0$ 代進 $\tilde\mu_t$，然後抽樣。**
+
+不過這裡有一筆帳要先算清楚。
+
+<Ask>
+真正的 $q(x_{t-1}\mid x_t)$ 不是 Gaussian，<br />
+拿一個 Gaussian 去代替它，錯多少？
+</Ask>
+
+<Question id="Q1">
+<Ref to="dma-denoising-regression"/> 的積分寫著 $q(x_{t-1}\mid x_t)=\int q(x_{t-1}\mid x_t,x_0)\,p(x_0\mid x_t)\,\mathrm dx_0$——一堆 Gaussian 按後驗權重疊起來，那是一個**混合 Gaussian**，一般不是 Gaussian。但我們的取樣器只抽一個 $\mathcal N(\tilde\mu_t(x_t,\hat x_0),\tilde\beta_t I)$。
+
+**差別在哪裡，而且大到會有問題嗎？**
+
+<Answer>
+把混合的平均與變異數算出來就看得到。因為 $\tilde\mu_t$ 對 $x_0$ 是仿射的，記它的 $x_0$ 係數為 $c_0=\dfrac{\sqrt{\bar\alpha_{t-1}}\,\beta_t}{1-\bar\alpha_t}$，那麼
+
+$$
+\mathbb E[x_{t-1}\mid x_t]=\tilde\mu_t\big(x_t,\mathbb E[x_0\mid x_t]\big),
+\qquad
+\operatorname{Var}[x_{t-1}\mid x_t]=\tilde\beta_t I+c_0^2\operatorname{Var}[x_0\mid x_t].
+$$
+
+> **平均值是精確的；錯的只有變異數，而那個錯是 $O(\beta_t)$。**
+
+平均那一半精確，是仿射的好處。錯的只有變異數：我們用了 $\tilde\beta_t$，而真值多了一項 $c_0^2\operatorname{Var}[x_0\mid x_t]$——那是「$x_0$ 到底是誰」的不確定性漏進來的部分。
+
+大不大？$c_0$ 正比於 $\beta_t$，而 $\tilde\beta_t$ 也正比於 $\beta_t$，所以**丟掉的那一項相對於保留的那一項是 $O(\beta_t)$**——高一階，$\beta_t$ 越小越可以忽略。拿 DDPM 的 linear schedule 實際算（$\beta:10^{-4}\to0.02$、$T=1000$，資料的尺度取 1）：
+
+| $t$ | 10 | 50 | 100 | 300 | 500 | $\ge700$ |
+| --- | --- | --- | --- | --- | --- | --- |
+| 丟掉的／保留的 | 17% | 3.7% | 1.8% | 0.4% | 0.09% | \< 0.01% |
+
+**這就是「把一件難事切成很多小步」真正的數學內容。** 不是「每一步比較容易學」這種感覺——而是：每一步的 $\beta_t$ 越小，用一個 Gaussian 代替那個混合分布的誤差就越小。步數換的是這個。反過來，如果只走幾步、每步的 $\beta$ 很大，這個近似就會壞掉——這也是為什麼 <Ref week="dma-week-consistency"/> 想少步生成的時候，不能只是把同一個取樣器的步數調小。
+
+（$t$ 很小的時候比例看起來變大，但那裡 $\operatorname{Var}[x_0\mid x_t]$ 本身已經趨近 0——$x_t$ 幾乎就是 $x_0$，沒有什麼不確定性可漏。實作上最後一步通常直接取 $\tilde\beta_1=0$，不加噪聲。）
+</Answer>
+</Question>
+
+## DDPM：扣掉一點，再抖一下
+
+把 $\hat x_0$ 代入那個 closed form 的 Gaussian，直接抽樣：
+
+$$
+x_{t-1}=\tilde\mu_t(x_t,\hat x_0)+\sqrt{\tilde\beta_t}\,z,\qquad z\sim\mathcal N(0,I).
+$$
+
+再把 $\hat x_0=(x_t-\sigma_t\epsilon_\theta)/\sqrt{\bar\alpha_t}$ 代進去整理，就是 DDPM 原文 [1] 的形式：
+
+$$
+x_{t-1}=\frac{1}{\sqrt{\alpha_t}}\Big(x_t-\frac{\beta_t}{\sqrt{1-\bar\alpha_t}}\,\epsilon_\theta(x_t,t)\Big)+\sqrt{\tilde\beta_t}\,z .
+$$
+
+每一步做兩件事：**先用網路猜噪聲、扣掉一部分**，然後**再加回一點新的隨機噪聲**。從 $x_T\sim\mathcal N(0,I)$ 出發跑 $T$ 步，就得到一張圖——這種「照著每一步的條件分布一路往下抽」的取樣方式叫 **ancestral sampling**。
+
+第二件事常常讓人困惑：好不容易去噪，為什麼又要加噪回去？一個直覺是：每一步的 $\hat x_0$ 是一個**平均**（<Ref to="dma-denoising-regression"/> 那張模糊圖），如果每步都朝著那個平均走、什麼都不補回去，樣本會一路被拉向高密度的地方、擠成一團。加回噪聲讓它重新散開到當下的 $p_{t-1}$ 上。
+
+要注意這句話說的是**「朝平均走」會塌**，不是「確定性的取樣器」會塌——下一節的 DDIM 完全不加噪聲，卻不會塌，因為它補回去的是網路預測的**噪聲方向** $\epsilon_\theta$ 而不是零。確定與隨機的差別留到那裡談。
+
+## DDIM：同一個網路，完全不加噪聲
+
+換個角度看同一件事。既然 $x_t=\sqrt{\bar\alpha_t}x_0+\sigma_t\epsilon$，那如果我**相信**網路給的 $\hat x_0$ 與 $\epsilon_\theta$，$x_{t-1}$「應該」長成
+
+$$
+x_{t-1}=\sqrt{\bar\alpha_{t-1}}\,\hat x_0+\sigma_{t-1}\,\epsilon_\theta(x_t,t).
+$$
+
+這就是 DDIM [2]（$\eta=0$）。它有兩個很不一樣的性質：
+
+- **完全確定**：給定 $x_T$，輸出唯一，沒有任何隨機。多樣性全部來自起點 $x_T$——路上不需要再補隨機，也不會因此塌成一團，因為每一步補回去的是 $\sigma_{t-1}\epsilon_\theta$ 這個**有方向的**量。
+- **可以跳步**：這條式子沒有用到「相鄰兩步」的 Markov 結構，所以從 $t$ 直接跳到任意 $s \lt t$ 都行——把 $\bar\alpha_{t-1}$ 換成 $\bar\alpha_s$ 就好。這就是 DDIM 能用 50 步、而 DDPM 要 1000 步的原因。
+
+而且它用的是**同一個訓好的 $\epsilon_\theta$**，沒有重訓。DDIM 的一般式還帶一個 $\eta\in[0,1]$ 控制每步加回多少噪聲：$\eta=0$ 是確定版，$\eta=1$ 就退回 DDPM。
+
+<Remark label="符號" summary="DDIM 的一般式（含 η）長什麼樣？">
+從 $t$ 跳到 $s \lt t$：
+
+$$
+x_s=\sqrt{\bar\alpha_s}\,\hat x_0+\sqrt{1-\bar\alpha_s-\tilde\sigma^2}\;\epsilon_\theta(x_t,t)+\tilde\sigma\,z,
+\qquad
+\tilde\sigma=\eta\sqrt{\frac{1-\bar\alpha_s}{1-\bar\alpha_t}}\sqrt{1-\frac{\bar\alpha_t}{\bar\alpha_s}} .
+$$
+
+$\eta=0$ 時 $\tilde\sigma=0$，第三項消失、第二項補滿 $\sqrt{1-\bar\alpha_s}$，就是上面的 DDIM。$\eta=1$ 且 $s=t-1$ 時，$\tilde\sigma^2=\tilde\beta_t$，整條式子與 DDPM 一致。所以這是**一整族**取樣器，DDPM 與 DDIM 只是它的兩端。
+</Remark>
+
+## 兩種走法，看得見
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w3-4-samplers.html" class="demo-frame" title="DDPM 與 DDIM 軌跡：互動 demo" style="height: 980px; width: 100%; border: none;"></iframe>
+
+**互動 demo：DDPM 與 DDIM 的軌跡。** 兩邊用**同一個** score（這裡直接用資料算出精確的 score，相當於一個訓到最佳的網路）、**同一組起點**，只有 $\eta$ 不同。把 $\eta$ 從 1 拉到 0，軌跡會從抖動變成光滑，但**終點都落在資料上**——這就是「邊際相同」看起來的樣子。把步數從 200 降到 50、25、10，終點離資料會越來越遠，而 $\eta=0$ 通常掉得慢一些。另外注意 $\eta=0$ 的軌跡明顯是**彎的**，這件事 <Ref week="dma-week-flow-matching"/> 會再拿出來講。
+
+（要提醒的是：這個 demo 的 score 是精確的，所以看不到「網路有誤差時，加回噪聲能把樣本拉回 $p_t$」那一面——那要真的訓練一個網路才看得到，留到 <Ref to="dma-lab-diffusion"/>。）
+
+## 如果步長縮到 0 呢？
+
+把步長寫成 $\Delta t=1/T$、$\beta_t\to\beta(t)\Delta t$，前面那條「縮一點、加一點」的遞迴在**連續時間**的極限下就是一條 SDE：
+
+$$
+dx=-\tfrac12\beta(t)\,x\,dt+\sqrt{\beta(t)}\,dW_t,\qquad t:0\to1 .
+$$
+
+第一項把樣本往原點縮，第二項持續灌噪聲——正是 forward process 在做的事。
+
+Anderson（1982）[3] 證明了一件很漂亮的事：**把時間倒過來，它仍然是一條 SDE**，而且 drift 裡多出一個 score 項：
+
+$$
+dx=\Big[-\tfrac12\beta(t)\,x-\beta(t)\,\nabla\log p_t(x)\Big]dt+\sqrt{\beta(t)}\,d\bar W_t,\qquad t:1\to0 .
+$$
+
+Song et al.（2021）[4] 進一步指出：還存在一條**完全沒有隨機項**的 ODE，它推動的邊際分布與上面那條 SDE **在每個 $t$ 都相同**：
+
+$$
+\frac{dx}{dt}=-\tfrac12\beta(t)\,x-\tfrac12\beta(t)\,\nabla\log p_t(x)
+\qquad\text{(probability-flow ODE)} .
+$$
+
+注意 score 前面的係數：SDE 是 $\beta$，ODE 只有 $\tfrac12\beta$。
+
+<Remark summary="少掉的那一半 score 去哪了？">
+關鍵在 Fokker–Planck 方程（<Ref to="math-fokker-planck"/>）：噪聲項對分布造成的擴散 $\tfrac12\beta\,\Delta p_t$ 可以改寫成一個散度的形式
+
+$$
+\tfrac12\beta\,\Delta p_t=\nabla\cdot\Big(\tfrac12\beta\,p_t\,\nabla\log p_t\Big),
+$$
+
+也就是「擴散」可以被**吸進 drift 裡**，變成一個沿著 $\nabla\log p_t$ 的移動。所以我們可以拿掉噪聲項，同時從 drift 扣掉那一半 score——分布的演化完全一樣，只是每條軌跡不再隨機。
+
+這件事之後會被推廣成一整族取樣器（<Ref week="dma-week-interpolants"/>）：噪聲要注入多少，其實是一個**可以調的旋鈕**。
+</Remark>
+
+三者的關係整理成一張表：
+
+| | forward SDE | reverse SDE | PF-ODE |
+|---|---|---|---|
+| 邊際 $p_t$ | 相同 | 相同 | 相同 |
+| 單條軌跡 | 隨機 | 隨機 | 確定 |
+| 離散版 | 加噪 | DDPM | DDIM |
+
+![示意圖：時空圖，橫軸是時間（右邊 t=1、左邊 t=0），縱軸是一維資料空間，背景為 p_t(x) 的熱圖；上方是 reverse SDE 的抖動軌跡、下方是 PF-ODE 的光滑軌跡，兩組都從同一批起點出發並收在同樣的位置，左側附兩個看起來相同的終點分布。](./imgs/w-3-4-1.png)
+
+**圖：同一組邊際，兩種走法。** 兩組軌跡從**同一批起點**出發，上面是 reverse SDE（抖動）、下面是 PF-ODE（光滑）；左側兩個 $t=0$ 的邊際分布看起來一樣。**差別不在最後停在哪裡，而在路上抖不抖。**
+
+> **DDPM 是 reverse SDE 的一階離散，DDIM 是 PF-ODE 的一階離散。**
+
+它們共用同一個 $\epsilon_\theta$，因為兩者需要的都只是 score。
+
+## 一個留著的問題
+
+<Question id="Q2">
+DDPM 與 DDIM 用同一個網路，一個隨機、一個確定，數學上都對——因為它們推動的邊際相同。
+
+**那它們的取樣結果會一樣嗎？步數少的時候，哪一個比較好？為什麼？**
+
+<Answer>
+這個問題我們只能先回答一半。
+
+「邊際相同」是**連續時間、無限步**的敘述。真正在跑的是有限步的離散化，而兩者的誤差來源不一樣：
+
+- **ODE**（DDIM）的誤差來自軌跡本身是彎的，而 Euler 用直線去逼近它——步數越少，割線與曲線的差距越大。
+- **SDE**（DDPM）除了同樣有 drift 的離散誤差，每一步還會注入噪聲；但反過來說，score 項會把偏離的樣本**拉回**當下的 $p_t$，等於自帶一點修正能力。
+
+實驗上大致是：**步數少的時候 DDIM 通常勝出，步數多的時候帶噪聲的取樣器往往品質更好。** 要把「拉回」這件事說清楚，還要把「彎曲」量化成一個算得出來的量，我們需要先有「路徑」與「速度場」的語言。
+
+**所以這兩件事留到 <Ref week="dma-week-flow-matching"/> 與 <Ref week="dma-week-interpolants"/>。**
+</Answer>
+</Question>
+
+## 這是一個方法，不是定律
+
+我們並不是「隨便挑了一個 Gaussian Markov chain」，而是從想要的目標一路倒推並設計：一條每一步只改一點點、並且我們可以計算，而且最後會走向一個好抽的 noise distribution 的路。
+
+但這也意味著，這一週每一件事都是人挑的：加的是 **Gaussian noise**、縮放挑成 $\sqrt{1-\beta_t}$、終點挑成 $\mathcal N(0,I)$、schedule 挑 linear 還是 cosine。這些選擇讓數學變得非常乾淨——從頭到尾都只有 Gaussian，所以每一個 $q(x_t\mid x_0)$ 都有 closed form。
+
+而乾淨是有代價的，它把幾件事綁在一起了：
+
+- **起點分布只能是 Gaussian**，因為 forward process 就是往那裡收斂的。
+- **路徑完全被 $\bar\alpha_t$ 決定**：$x_0$ 到 $x_T$ 之間的分布怎麼變，除了調 schedule 之外沒有別的自由度。
+
+這一週我們先接受了這些選擇，把整條路走完。<Ref to="dma-why-not-diffusion"/> 會回頭問：如果不想被綁住呢？
+
+## 消化一下
+
+<QuizBlock id="w3-4-a">
+DDPM 與 DDIM 取樣器共用同一個 $\epsilon_\theta$，是因為：
+<Option>DDIM 是 DDPM 的一種特殊 schedule。</Option>
+<Option correct>兩者需要的都只是 score（等價於 $\epsilon_\theta$），分別對應 reverse SDE 與 PF-ODE 的離散化，而這兩者由同一個 score 決定。</Option>
+<Option>DDIM 在訓練時額外加了確定性的約束。</Option>
+<Explanation>
+訓練只學 score。取樣時要不要加噪聲、要跳幾步，都是取樣器的設計，與訓練無關——這也是為什麼一個訓好的模型可以搭配很多種取樣器。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w3-4-b">
+PF-ODE 裡 score 項的係數是 reverse SDE 的一半。這一半去哪了？
+<Option>被學習率吸收了。</Option>
+<Option correct>在 Fokker–Planck 方程裡，噪聲造成的擴散可以改寫成一個沿 $\nabla\log p_t$ 的 drift；拿掉噪聲的同時也要扣掉那一半 drift，邊際才會不變。</Option>
+<Option>因為 ODE 的時間跑得比較快。</Option>
+<Explanation>
+這是「同一組邊際、兩種走法」的數學核心：噪聲與 score drift 之間可以互換。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w3-4-c">
+下列哪個敘述**不**正確？
+<Option>DDIM 可以跳步，是因為它沒有用到相鄰時間步的 Markov 結構。</Option>
+<Option>reverse SDE 與 PF-ODE 在每個 $t$ 推動的邊際分布相同。</Option>
+<Option correct>因為邊際相同，所以在任意步數下 DDPM 與 DDIM 的取樣品質也相同。</Option>
+<Explanation>
+「邊際相同」是連續極限的性質。離散成有限步之後，兩者的誤差行為不同——這正是 Q2 留下來的問題。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w3-4-d">
+DDPM 每一步「扣掉噪聲之後又加回一點新的噪聲」，這個加回來的噪聲是為了什麼？
+<Option>抵銷網路的預測誤差。</Option>
+<Option>讓 loss 更小。</Option>
+<Option correct>讓樣本重新散開到當下的 $p_{t-1}$ 上——因為 $\hat x_0$ 是一個平均，只往平均走會讓所有起點擠向同一處。</Option>
+<Explanation>
+denoiser 給的是條件期望（一個平均）。加噪聲是這一族取樣器維持多樣性的方式；$\eta$ 就是在調「加回多少」。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-lab-diffusion">
+理論部分到這裡結束。下一篇動手做：把這一週所有圖背後的 2D toy 與小 MLP 建起來，並親手畫出 Q2 裡提到的那些軌跡。
+</Bridge>
+
+## 參考文獻
+
+1. Ho, J., Jain, A., Abbeel, P. [*Denoising Diffusion Probabilistic Models.*](https://arxiv.org/abs/2006.11239) NeurIPS 2020. （ancestral sampling 的形式。）
+2. Song, J., Meng, C., Ermon, S. [*Denoising Diffusion Implicit Models.*](https://arxiv.org/abs/2010.02502) ICLR 2021. （DDIM 與含 $\eta$ 的一般式、跳步取樣。）
+3. Anderson, B. D. O. [*Reverse-time diffusion equation models.*](https://doi.org/10.1016/0304-4149(82)90051-5) Stochastic Processes and their Applications, 1982. （反向 SDE 的來源。）
+4. Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Ermon, S., Poole, B. [*Score-Based Generative Modeling through Stochastic Differential Equations.*](https://arxiv.org/abs/2011.13456) ICLR 2021. （probability-flow ODE 與「同一組邊際」的統一觀點。）

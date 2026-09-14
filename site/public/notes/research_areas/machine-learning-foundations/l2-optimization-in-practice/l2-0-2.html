@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SGD 的噪聲地板：η 與 B 只以 η/B 的組合出現</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：固定學習率的 SGD 不會收斂到最小點，它停在一個<b>噪聲地板</b>上。而 η 與 B 只以 <b>η/B</b> 這個組合決定地板的高度——調小 η 和加大 B 在這件事上是同一個旋鈕。</p>
+  <canvas id="bowl" style="aspect-ratio:1/1" aria-label="等高線＝全批次損失；折線＝最近 300 步的 SGD 軌跡；雲＝穩態時最近 1500 步的落點；✕＝最小點"></canvas>
+  <p class="cap">等高線＝全批次損失；折線＝最近 300 步的 SGD 軌跡；雲＝穩態時最近 1500 步的落點；✕＝最小點</p>
+  <canvas id="loss" style="aspect-ratio:5/2" aria-label="縱軸 log：全批次損失減去最小值，對步數。虛線＝量到的地板（最後 1500 步的中位數）"></canvas>
+  <p class="cap">縱軸 log：全批次損失減去最小值，對步數。虛線＝量到的地板（最後 1500 步的中位數）</p>
+  <div class="controls">
+    <div class="row">
+      <label for="lr">η（相對 η*）</label><input id="lr" type="range" min="-3" max="-0.3" step="0.05" value="-1.8" />
+      <label for="B">批次 B</label><input id="B" type="range" min="1" max="60" step="1" value="8" />
+    </div>
+    <div class="row">
+      <label class="chk"><input id="rep" type="checkbox" checked /> 放回抽樣</label>
+      <label class="chk"><input id="dec" type="checkbox" /> η 隨步數衰減</label>
+      <button id="twin" class="ghost">疊上 η/B 相同的另一組</button>
+      <button id="run" class="ghost">▶ 重跑</button>
+    </div>
+    <div class="stats"><span>η/B = <b id="vr">—</b></span> <span>量到的地板 = <b id="vf">—</b></span> <span>地板 ÷ (η/B) = <b id="vc">—</b></span> <span>另一組的地板 = <b id="vg">—</b></span> <span>另一組的比值 = <b id="vd2">—</b></span> <span>κ = <b id="vk">—</b></span></div>
+  </div>
+  <p class="observe">觀察：按「疊上 η/B 相同的另一組」，η 與 B 各差四倍而<b>兩條曲線掉到同一個高度</b>——「地板 ÷ (η/B)」那兩欄會對上。關掉放回抽樣，B 大的那一組會<b>低一截</b>：不放回多了一個 (n−B)/(n−1) 的因子，B 拉到 60（＝全部資料）時它直接變成 0，地板掉到底。打開衰減，曲線<b>穿過地板繼續往下</b>。把 η 拉到最右端則會看到比例關係<b>開始失準</b>——那條規則只在 η 夠小的時候成立。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var N = 60, STEPS = 4000, TAIL = 1500;
+  var el = function (i) { return document.getElementById(i); };
+  var dB = MLF.hiDPICanvas(el('bowl')), dL = MLF.hiDPICanvas(el('loss'));
+  var pal = MLF.palette(), Q = MLF.quad({ n: N, kappa: 12, seed: 3 }), A = null, T = null;
+
+  function runSGD(etaRel, B, seed) {
+    var eta = Q.eta * etaRel, r = MLF.rng(seed), w = [Q.w[0] + 1.4, Q.w[1] + 1.2];
+    var path = [], cloud = [], curve = [], k, i;
+    var pool = [];
+    for (i = 0; i < N; i++) pool.push(i);
+    for (k = 0; k < STEPS; k++) {
+      var idx = [];
+      if (el('rep').checked) { for (i = 0; i < B; i++) idx.push(r.int(N)); }
+      else {
+        for (i = N - 1; i > 0; i--) { var j = r.int(i + 1), t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
+        for (i = 0; i < B; i++) idx.push(pool[i]);
+      }
+      var e = el('dec').checked ? eta / (1 + k / 300) : eta;
+      var g = Q.gradB(w, idx);
+      w = [w[0] - e * g[0], w[1] - e * g[1]];
+      if (!isFinite(w[0]) || Math.abs(w[0]) > 1e8) break;
+      if (k % 8 === 0) curve.push([k + 1, Math.max(Q.L(w) - Q.Lmin, 1e-12)]);
+      if (k >= STEPS - 300) path.push(w.slice());
+      if (k >= STEPS - TAIL) cloud.push(w.slice());
+    }
+    var tail = [];
+    for (k = 0; k < curve.length; k++) if (curve[k][0] > STEPS - TAIL) tail.push(curve[k][1]);
+    return { path: path, cloud: cloud, curve: curve, floor: tail.length ? MLF.median(tail) : NaN, eta: eta, B: B };
+  }
+
+  function drawBowl() {
+    var s = dB.resize(), ctx = dB.ctx; MLF.clear(ctx, s, pal);
+    var R = 0.9, i;
+    A.cloud.forEach(function (p) { R = Math.max(R, Math.abs(p[0] - Q.w[0]), Math.abs(p[1] - Q.w[1])); });
+    A.path.forEach(function (p) { R = Math.max(R, Math.abs(p[0] - Q.w[0]), Math.abs(p[1] - Q.w[1])); });
+    R *= 1.25;
+    var ax = MLF.axes(ctx, s, { x: [Q.w[0] - R, Q.w[0] + R], y: [Q.w[1] - R, Q.w[1] + R], pal: pal,
+      xticks: [], yticks: [], pad: { l: 0.05, r: 0.05, t: 0.05, b: 0.09 }, xlab: '橫軸 w₁、縱軸 w₂' });
+    MLF.contours(ctx, ax, Q, R, pal);
+    ctx.save(); ctx.beginPath(); ctx.rect(ax.box.l, ax.box.t, ax.box.w, ax.box.h); ctx.clip();
+    for (i = 0; i < A.cloud.length; i += 2)
+      MLF.dot(ctx, ax, A.cloud[i][0], A.cloud[i][1], MLF.rgb(pal.b, 0.2), 1.3);
+    ctx.strokeStyle = MLF.rgb(pal.d, 0.85); ctx.lineWidth = 1.3; ctx.beginPath();
+    A.path.forEach(function (p, k) { var px = ax.X(p[0]), py = ax.Y(p[1]); if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
+    ctx.stroke(); ctx.restore();
+    MLF.cross(ctx, ax, Q.w[0], Q.w[1], pal.ink);
+    MLF.legend(ctx, ax, [{ t: '最近 300 步', c: MLF.rgb(pal.d) }, { t: '穩態落點', c: MLF.rgb(pal.b, 0.6) }], 'tl', pal);
+  }
+
+  function drawLoss() {
+    var s = dL.resize(), ctx = dL.ctx; MLF.clear(ctx, s, pal);
+    var hi = 1e-12, i;
+    A.curve.forEach(function (p) { hi = Math.max(hi, p[1]); });
+    if (T) T.curve.forEach(function (p) { hi = Math.max(hi, p[1]); });
+    hi *= 2; var lo = Math.max(hi * 1e-7, 1e-12);
+    var ax = MLF.axes(ctx, s, { x: [1, STEPS], y: [lo, hi], logx: true, logy: true, pal: pal,
+      xticks: [1, 10, 100, 1000, 4000], yticks: [lo, Math.sqrt(lo * hi), hi],
+      fmty: function (v) { return v.toExponential(0); }, xlab: '步數（log）', ylab: '損失 − 最小值' });
+    var cl = function (v) { return Math.min(hi, Math.max(lo, v)); };
+    if (T) {
+      MLF.line(ctx, ax, T.curve.map(function (p) { return [p[0], cl(p[1])]; }), MLF.rgb(pal.c, 0.85), 1.6);
+      if (isFinite(T.floor)) MLF.ref(ctx, ax, { y: cl(T.floor), color: MLF.rgb(pal.c, 0.8) });
+    }
+    MLF.line(ctx, ax, A.curve.map(function (p) { return [p[0], cl(p[1])]; }), MLF.rgb(pal.d), 2);
+    if (isFinite(A.floor)) MLF.ref(ctx, ax, { y: cl(A.floor), color: MLF.rgb(pal.d, 0.9) });
+    var items = [{ t: 'η=' + A.eta.toExponential(1) + ', B=' + A.B, c: MLF.rgb(pal.d) }];
+    if (T) items.push({ t: 'η=' + T.eta.toExponential(1) + ', B=' + T.B, c: MLF.rgb(pal.c) });
+    MLF.legend(ctx, ax, items, 'bl', pal);
+  }
+
+  function draw() {
+    var etaRel = Math.pow(10, +el('lr').value), B = +el('B').value;
+    A = runSGD(etaRel, B, 17);
+    el('vr').textContent = (Q.eta * etaRel / B).toExponential(2);
+    el('vf').textContent = isFinite(A.floor) ? A.floor.toExponential(2) : '發散';
+    el('vc').textContent = isFinite(A.floor) ? (A.floor / (Q.eta * etaRel / B)).toFixed(3) : '—';
+    el('vg').textContent = T ? (isFinite(T.floor) ? T.floor.toExponential(2) : '發散') : '—';
+    el('vd2').textContent = T && isFinite(T.floor) ? (T.floor / (T.eta / T.B)).toFixed(3) : '—';
+    el('vk').textContent = Q.kappa.toFixed(1);
+    drawBowl(); drawLoss();
+  }
+  ['lr', 'B'].forEach(function (i) { el(i).onchange = function () { T = null; draw(); }; });
+  ['rep', 'dec'].forEach(function (i) { el(i).onchange = function () { T = null; draw(); }; });
+  el('run').onclick = function () { T = null; draw(); };
+  el('twin').onclick = function () {
+    var etaRel = Math.pow(10, +el('lr').value), B = +el('B').value;
+    var f = (B * 4 <= 60) ? 4 : 0.25;
+    T = runSGD(etaRel * f, Math.max(1, Math.round(B * f)), 23);
+    el('vg').textContent = isFinite(T.floor) ? T.floor.toExponential(2) : '發散';
+    el('vd2').textContent = isFinite(T.floor) ? (T.floor / (T.eta / T.B)).toFixed(3) : '—';
+    drawLoss();
+  };
+  window.addEventListener('resize', function () { drawBowl(); drawLoss(); });
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; drawBowl(); drawLoss(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  draw();
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>能表示不等於學得到：頻率、寬度與「相鄰」</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：universal approximation 保證的是<b>存在</b>，不是學得到。同一個網路、同一組超參數與同樣的步數，目標從 1 個週期換到 32 個週期，訓練誤差差好幾個數量級——<b>網路對低頻有一個很強的偏好</b>。而它對「哪些輸入座標相鄰」一無所知，那就是後面每一個架構存在的理由。</p>
+  <canvas id="fit" style="aspect-ratio:5/3" aria-label="灰虛線＝目標 sin(2πkx)；散點＝訓練資料；實線＝目前的網路（訓練中會即時更新）"></canvas>
+  <p class="cap">灰虛線＝目標 sin(2πkx)；散點＝訓練資料；實線＝目前的網路（訓練中會即時更新）</p>
+  <canvas id="curve" style="aspect-ratio:5/2" aria-label="縱軸 log：訓練 MSE 對步數，四條線對應 k = 1 / 4 / 16 / 32；水平線＝0.5（完全沒學到的水準）"></canvas>
+  <p class="cap">縱軸 log：訓練 MSE 對步數，四條線對應 k = 1 / 4 / 16 / 32；水平線＝0.5（完全沒學到的水準）</p>
+  <div class="controls">
+    <div class="row">
+      <label for="k">目標頻率 k</label><input id="k" type="range" min="1" max="32" step="1" value="1" />
+      <label for="h">寬度</label><input id="h" type="range" min="4" max="128" step="4" value="32" />
+    </div>
+    <div class="row">
+      <button id="run" class="ghost">▶ 重跑四條曲線</button>
+      <span id="prog" style="font-size:0.78rem"></span>
+    </div>
+    <div class="stats"><span>k = <b id="vk">1</b></span> <span>寬度 = <b id="vh">32</b></span> <span>k=1 的訓練 MSE = <b id="v1">—</b></span> <span>k=4 = <b id="v4">—</b></span> <span>k=16 = <b id="v16">—</b></span> <span>k=32 = <b id="v32">—</b></span></div>
+  </div>
+  <p class="observe">觀察：四條曲線同時開始，<b>k=1 很快掉到 10⁻³ 以下，k=32 那條幾乎貼在 0.5 上不動</b>——同一個網路、同樣的步數，差別只在目標的頻率。把寬度從 32 加到 128 會讓高頻那條掉一些，但<b>差距不會消失</b>：這不是容量不夠，是梯度下降在這個參數化下先學低頻。定理說得出「存在一組權重」，它沒說你找得到。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var KS = [1, 4, 16, 32], NTR = 120, STEPS = 1500, CHUNK = 20, G = 260;
+  var el = function (i) { return document.getElementById(i); };
+  var dF = MLF.hiDPICanvas(el('fit')), dC = MLF.hiDPICanvas(el('curve'));
+  var pal = MLF.palette(), gx = MLF.grid(G), nets = [], hist = [], step = 0, raf = null, data = [];
+
+  function target(k, x) { return Math.sin(2 * Math.PI * k * x); }
+  function width() { return +el('h').value; }
+
+  function reset() {
+    var w = width(), i, ki;
+    nets = []; hist = []; data = []; step = 0;
+    for (ki = 0; ki < KS.length; ki++) {
+      var r = MLF.rng(31 + ki), xs = [], ys = [];
+      for (i = 0; i < NTR; i++) xs.push(i / (NTR - 1));
+      for (i = 0; i < NTR; i++) ys.push(target(KS[ki], xs[i]));
+      data.push({ x: xs, y: ys });
+      nets.push(MLF.mlpInit([1, w, w, 1], 1, 11 + ki));
+      hist.push([]);
+    }
+    if (raf) cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(tick);
+  }
+  function tick() {
+    var c, ki;
+    for (c = 0; c < CHUNK && step < STEPS; c++, step++) {
+      for (ki = 0; ki < KS.length; ki++) {
+        var r = MLF.mlpGrads(nets[ki], data[ki].x, data[ki].y, false);
+        MLF.mlpAdam(nets[ki], r.G, 0.01);
+        if (step % 10 === 0) hist[ki].push([step + 1, Math.max(r.loss, 1e-8)]);
+      }
+    }
+    el('prog').textContent = step < STEPS ? '訓練中 ' + Math.round(step / STEPS * 100) + '%' : '';
+    draw();
+    if (step < STEPS) raf = requestAnimationFrame(tick); else raf = null;
+  }
+
+  function drawFit() {
+    var s = dF.resize(), ctx = dF.ctx; MLF.clear(ctx, s, pal);
+    var k = +el('k').value, ki = 0, i;
+    for (i = 0; i < KS.length; i++) if (Math.abs(KS[i] - k) < Math.abs(KS[ki] - k)) ki = i;
+    var ax = MLF.axes(ctx, s, { x: [0, 1], y: [-1.6, 1.6], pal: pal,
+      xticks: [0, 0.5, 1], yticks: [-1, 0, 1], xlab: 'x', ylab: 'y' });
+    var t = [], p = [];
+    for (i = 0; i < G; i++) {
+      t.push([gx[i], target(KS[ki], gx[i])]);
+      p.push([gx[i], Math.max(-2, Math.min(2, MLF.mlpFwd(nets[ki], gx[i], false).y))]);
+    }
+    MLF.line(ctx, ax, t, MLF.rgb(pal.a, 0.45), 1.5, [4, 3]);
+    MLF.line(ctx, ax, p, MLF.rgb(pal.d), 2);
+    MLF.label(ctx, ax.box.l + 6, ax.box.t + 10, '目前顯示 k = ' + KS[ki], pal.muted);
+  }
+
+  function drawCurve() {
+    var s = dC.resize(), ctx = dC.ctx; MLF.clear(ctx, s, pal);
+    var lo = 1e-6, hi = 2;
+    var ax = MLF.axes(ctx, s, { x: [1, STEPS], y: [lo, hi], logx: true, logy: true, pal: pal,
+      xticks: [1, 10, 100, 1500], yticks: [1e-6, 1e-3, 1],
+      fmty: function (v) { return v.toExponential(0); }, xlab: '步數（log）', ylab: '訓練 MSE' });
+    MLF.ref(ctx, ax, { y: 0.5, color: MLF.rgb(pal.a, 0.7) });
+    MLF.label(ctx, ax.box.l + 5, ax.Y(0.5) - 7, '0.5＝完全沒學到', MLF.rgb(pal.a, 0.9));
+    var cols = [pal.b, pal.c, pal.e, pal.d], cl = function (v) { return Math.min(hi, Math.max(lo, v)); };
+    hist.forEach(function (h, i) {
+      MLF.line(ctx, ax, h.map(function (p) { return [p[0], cl(p[1])]; }), MLF.rgb(cols[i]), 2);
+    });
+    MLF.legend(ctx, ax, KS.map(function (k, i) { return { t: 'k = ' + k, c: MLF.rgb(cols[i]) }; }), 'bl', pal);
+  }
+
+  function draw() {
+    el('vk').textContent = el('k').value;
+    el('vh').textContent = el('h').value;
+    ['v1', 'v4', 'v16', 'v32'].forEach(function (id, i) {
+      var h = hist[i];
+      el(id).textContent = h && h.length ? h[h.length - 1][1].toExponential(2) : '—';
+    });
+    drawFit(); drawCurve();
+  }
+  el('k').oninput = drawFit;
+  el('h').onchange = reset;
+  el('run').onclick = reset;
+  window.addEventListener('resize', draw);
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  reset();
+
+})();
+</script>
+</body>
+</html>

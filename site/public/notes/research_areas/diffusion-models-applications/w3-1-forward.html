@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Forward process 加噪滑桿</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 430px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  #cloud { aspect-ratio: 1/1; }
+  #curve { aspect-ratio: 5/2; margin-top: 8px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 220px; max-width: 60vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 15px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats span b { font-weight: 700; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：任意時刻的 <b>x<sub>t</sub> = √ᾱ<sub>t</sub> x<sub>0</sub> + σ<sub>t</sub> ε</b>，就是「縮小的資料 ＋ 一個 Gaussian noise」。兩端固定，中間走多快是 <b>schedule</b> 決定的。</p>
+
+  <canvas id="cloud" width="560" height="560" aria-label="x_t 的點雲"></canvas>
+  <p class="cap">點雲＝目前的 x<sub>t</sub>（顏色由資料色漸變到噪聲色）</p>
+
+  <canvas id="curve" width="560" height="224" aria-label="ᾱ_t 與 1-ᾱ_t 曲線"></canvas>
+  <p class="cap">曲線＝ᾱ<sub>t</sub>（信號，實線）與 1−ᾱ<sub>t</sub>（噪聲，虛線）；直線＝目前的 t</p>
+
+  <div class="controls">
+    <div class="row">
+      <label for="shape">資料 p<sub>data</sub></label>
+      <select id="shape">
+        <option value="two_moons">雙月 Two moons</option>
+        <option value="two_gaussians">雙峰 Two gaussians</option>
+        <option value="ring">環形 Ring</option>
+        <option value="swiss_roll">螺旋 Swiss roll</option>
+      </select>
+      <label for="sched">Schedule</label>
+      <select id="sched">
+        <option value="linear">linear（DDPM）</option>
+        <option value="cosine">cosine</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="t">時間 t</label>
+      <input id="t" type="range" min="0" max="1000" step="1" value="0" />
+      <button id="play">▶ 播放一次</button>
+      <button id="resample" class="ghost">重抽一批點</button>
+    </div>
+    <div class="stats">
+      <span>t = <b id="vt">0</b> / 1000</span>
+      <span>√ᾱ<sub>t</sub> = <b id="vs">1.000</b></span>
+      <span>σ<sub>t</sub> = <b id="vn">0.000</b></span>
+      <span>SNR = <b id="vr">∞</b></span>
+    </div>
+  </div>
+
+  <p class="observe">把 t 從 0 拖到底：資料的形狀先變模糊、再整團被噪聲吃掉，最後就是 <b>N(0,I)</b>。切換 schedule 會發現<b>兩端完全一樣，只有中間的速度不同</b>——linear 很早就把結構洗掉了，cosine 把中段留得久一些，這也是為什麼它在實務上常常好訓練。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var N = 900, T = 1000;
+  var cloud = document.getElementById('cloud'), curve = document.getElementById('curve');
+  var dC = NDFlow.hiDPICanvas(cloud), dK = NDFlow.hiDPICanvas(curve);
+  var shapeSel = document.getElementById('shape'), schedSel = document.getElementById('sched');
+  var tEl = document.getElementById('t');
+  var vt = document.getElementById('vt'), vs = document.getElementById('vs'),
+      vn = document.getElementById('vn'), vr = document.getElementById('vr');
+  var pal = NDFlow.palette();
+  var x0 = [], eps = [], abar = { linear: [], cosine: [] };
+
+  function buildSchedules() {
+    // linear：β 從 1e-4 線性到 0.02（DDPM）
+    var a = 1, arr = [1];
+    for (var t = 1; t <= T; t++) {
+      var beta = 1e-4 + (0.02 - 1e-4) * (t - 1) / (T - 1);
+      a *= (1 - beta);
+      arr.push(a);
+    }
+    abar.linear = arr;
+    // cosine：ᾱ_t = f(t)/f(0)，f(u)=cos²((u+s)/(1+s)·π/2)
+    var s = 0.008, f0 = Math.pow(Math.cos((s / (1 + s)) * Math.PI / 2), 2), arr2 = [];
+    for (var k = 0; k <= T; k++) {
+      var u = k / T;
+      arr2.push(Math.pow(Math.cos(((u + s) / (1 + s)) * Math.PI / 2), 2) / f0);
+    }
+    abar.cosine = arr2;
+  }
+
+  function rebuild(keepEps) {
+    x0 = NDFlow.sampleTarget(shapeSel.value, N);
+    if (!keepEps || eps.length !== N) eps = NDFlow.sampleNoise(N, 1);
+  }
+
+  var SPAN = 6.4;
+  function T2(s) {
+    var k = Math.min(s.w, s.h) / SPAN;
+    return { x: function (v) { return s.w / 2 + v * k; }, y: function (v) { return s.h / 2 - v * k; } };
+  }
+
+  function drawCloud(ab) {
+    var s = dC.resize(), ctx = dC.ctx, tr = T2(s);
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    var sig = Math.sqrt(ab), noi = Math.sqrt(1 - ab);
+    var col = NDFlow.lerpColor(pal.data, pal.noise, 1 - ab).match(/\d+/g);
+    ctx.fillStyle = 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',0.85)';
+    for (var i = 0; i < N; i++) {
+      var px = sig * x0[i][0] + noi * eps[i][0];
+      var py = sig * x0[i][1] + noi * eps[i][1];
+      ctx.beginPath(); ctx.arc(tr.x(px), tr.y(py), 1.9, 0, 6.284); ctx.fill();
+    }
+    // 半徑 1、2 的參考圈（讓「收斂到 N(0,I)」看得出來）
+    ctx.strokeStyle = pal.grid; ctx.lineWidth = 1;
+    [1, 2].forEach(function (r) {
+      ctx.beginPath(); ctx.arc(tr.x(0), tr.y(0), r * Math.min(s.w, s.h) / SPAN, 0, 6.284); ctx.stroke();
+    });
+  }
+
+  function drawCurve(tIdx) {
+    var s = dK.resize(), ctx = dK.ctx;
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    var pad = 10, w = s.w - pad * 2, h = s.h - pad * 2;
+    var arr = abar[schedSel.value];
+    function X(k) { return pad + (k / T) * w; }
+    function Y(v) { return pad + (1 - v) * h; }
+    // 網格
+    ctx.strokeStyle = pal.grid; ctx.lineWidth = 1;
+    [0, 0.5, 1].forEach(function (v) {
+      ctx.beginPath(); ctx.moveTo(pad, Y(v)); ctx.lineTo(pad + w, Y(v)); ctx.stroke();
+    });
+    // ᾱ_t（信號）
+    ctx.strokeStyle = 'rgb(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ')';
+    ctx.lineWidth = 2; ctx.setLineDash([]);
+    ctx.beginPath();
+    for (var k = 0; k <= T; k += 4) { if (k === 0) ctx.moveTo(X(k), Y(arr[k])); else ctx.lineTo(X(k), Y(arr[k])); }
+    ctx.stroke();
+    // 1-ᾱ_t（噪聲）
+    ctx.strokeStyle = 'rgb(' + pal.noise[0] + ',' + pal.noise[1] + ',' + pal.noise[2] + ')';
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    for (var m = 0; m <= T; m += 4) { if (m === 0) ctx.moveTo(X(m), Y(1 - arr[m])); else ctx.lineTo(X(m), Y(1 - arr[m])); }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // 目前的 t
+    ctx.strokeStyle = pal.accent; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(X(tIdx), pad); ctx.lineTo(X(tIdx), pad + h); ctx.stroke();
+  }
+
+  function draw() {
+    var tIdx = parseInt(tEl.value, 10);
+    var ab = abar[schedSel.value][tIdx];
+    drawCloud(ab); drawCurve(tIdx);
+    vt.textContent = tIdx;
+    vs.textContent = Math.sqrt(ab).toFixed(3);
+    vn.textContent = Math.sqrt(1 - ab).toFixed(3);
+    var snr = ab / Math.max(1e-12, 1 - ab);
+    vr.textContent = (1 - ab) < 1e-9 ? '∞' : (snr >= 100 ? snr.toFixed(0) : snr.toFixed(2));
+  }
+
+  var raf = null;
+  function play() {
+    if (raf) cancelAnimationFrame(raf);
+    var start = performance.now(), dur = 4000;
+    function step(now) {
+      var f = Math.min(1, (now - start) / dur);
+      tEl.value = Math.round(f * T); draw();
+      if (f < 1) raf = requestAnimationFrame(step); else raf = null;
+    }
+    raf = requestAnimationFrame(step);
+  }
+  function stop() { if (raf) { cancelAnimationFrame(raf); raf = null; } }
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+
+  shapeSel.onchange = function () { stop(); rebuild(true); draw(); };
+  schedSel.onchange = function () { stop(); draw(); };
+  tEl.oninput = function () { stop(); draw(); };
+  document.getElementById('play').onclick = play;
+  document.getElementById('resample').onclick = function () { stop(); rebuild(false); draw(); };
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  buildSchedules(); rebuild(false); applyTheme();
+})();
+</script>
+</body>
+</html>

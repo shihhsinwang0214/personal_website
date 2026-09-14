@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>選擇偏差：勝出者的驗證分數是有偏的</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：在驗證集上從 m 個候選裡挑最好的那一個，那個分數就<b>不再是無偏的</b>——它是 m 個抽樣的極值。挑的候選越多、驗證集越小，勝出者的驗證分數就越樂觀，而它的測試分數<b>完全不動</b>。</p>
+  <canvas id="dist" style="aspect-ratio:5/3" aria-label="三個分佈（600 次重複）：勝出者的驗證分數、同一個模型的測試分數、與所有候選的平均水準；垂直線＝各自的中位數"></canvas>
+  <p class="cap">三個分佈（600 次重複）：勝出者的驗證分數、同一個模型的測試分數、與所有候選的平均水準；垂直線＝各自的中位數</p>
+  <canvas id="curve" style="aspect-ratio:5/2" aria-label="樂觀量（驗證中位數 − 測試中位數）對候選數 m，三條線對應三種驗證集大小"></canvas>
+  <p class="cap">樂觀量（驗證中位數 − 測試中位數）對候選數 m，三條線對應三種驗證集大小</p>
+  <div class="controls">
+    <div class="row">
+      <label for="m">候選數 m</label><input id="m" type="range" min="0" max="2.7" step="0.05" value="1.3" />
+      <label for="nv">驗證集 n</label><input id="nv" type="range" min="10" max="500" step="10" value="50" />
+    </div>
+    <div class="row">
+      <label for="sp">候選之間的真實差距</label><input id="sp" type="range" min="0" max="0.06" step="0.002" value="0" />
+    </div>
+    <div class="stats"><span>m = <b id="vm">20</b></span> <span>驗證中位數 = <b id="v1">—</b></span> <span>測試中位數 = <b id="v2">—</b></span> <span>樂觀量 = <b id="v3">—</b></span></div>
+  </div>
+  <p class="observe">觀察：把 m 拉大，<b>驗證分佈整團往右漂而測試分佈幾乎不動</b>——多出來的那一段完全是挑選造成的。把驗證集拉大，三個分佈同時變窄、樂觀量跟著縮小：<b>樂觀量正比於驗證集本身的抖動</b>，而它隨 m 只以 √log m 成長，所以下圖的曲線越後面越平。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var REP = 600;
+  var el = function (i) { return document.getElementById(i); };
+  var dD = MLF.hiDPICanvas(el('dist')), dC = MLF.hiDPICanvas(el('curve'));
+  var pal = MLF.palette(), S = null, curve = null;
+
+  function mVal() { return Math.max(1, Math.round(Math.pow(10, +el('m').value))); }
+
+  /* 每個候選的真實準確率 = 0.80 + spread*u；驗證與測試各是 n 次獨立的二元試驗的平均。
+     勝出者由驗證分數選出，然後讀它的測試分數。 */
+  function sim(m, nv, spread, seed) {
+    var r = MLF.rng(seed), val = [], tes = [], avg = [], rep, j;
+    for (rep = 0; rep < REP; rep++) {
+      var bi = -1, bv = -1, bt = 0, sum = 0;
+      for (j = 0; j < m; j++) {
+        var p = 0.80 + spread * (j / Math.max(1, m - 1));
+        var v = p + Math.sqrt(p * (1 - p) / nv) * r.normal();
+        var t = p + Math.sqrt(p * (1 - p) / 5000) * r.normal();
+        sum += v;
+        if (v > bv) { bv = v; bi = j; bt = t; }
+      }
+      val.push(bv); tes.push(bt); avg.push(sum / m);
+    }
+    return { val: val, tes: tes, avg: avg };
+  }
+
+  function compute() {
+    var m = mVal(), nv = +el('nv').value, sp = +el('sp').value;
+    S = sim(m, nv, sp, 42);
+    curve = [];
+    [20, 50, 200].forEach(function (n) {
+      var row = [];
+      for (var k = 0; k <= 14; k++) {
+        var mm = Math.round(Math.pow(10, k * 2.7 / 14));
+        var s = sim(Math.max(1, mm), n, sp, 99 + n);
+        row.push([Math.max(1, mm), MLF.median(s.val) - MLF.median(s.tes)]);
+      }
+      curve.push(row);
+    });
+  }
+
+  function drawDist() {
+    var s = dD.resize(), ctx = dD.ctx; MLF.clear(ctx, s, pal);
+    var lo = 0.70, hi = 0.95, NB = 46;
+    var sets = [{ v: S.avg, c: pal.c, n: '所有候選的平均' },
+                { v: S.tes, c: pal.b, n: '勝出者的測試分數' },
+                { v: S.val, c: pal.d, n: '勝出者的驗證分數' }];
+    var maxc = 1, hs = sets.map(function (o) {
+      var h = MLF.hist(o.v, lo, hi, NB);
+      h.forEach(function (c) { if (c > maxc) maxc = c; });
+      return h;
+    });
+    var ax = MLF.axes(ctx, s, { x: [lo, hi], y: [0, maxc * 1.12], pal: pal,
+      xticks: [0.70, 0.75, 0.80, 0.85, 0.90, 0.95], yticks: [],
+      fmtx: function (v) { return v.toFixed(2); }, xlab: '準確率', pad: { l: 0.05 } });
+    var bw = ax.box.w / NB;
+    hs.forEach(function (h, k) {
+      ctx.fillStyle = MLF.rgb(sets[k].c, 0.45);
+      h.forEach(function (c, i) {
+        var y = ax.Y(c);
+        ctx.fillRect(ax.box.l + i * bw, y, bw + 0.5, ax.box.b - y);
+      });
+      var md = MLF.median(sets[k].v);
+      MLF.ref(ctx, ax, { x: md, color: MLF.rgb(sets[k].c), dash: [3, 3] });
+
+    });
+    MLF.legend(ctx, ax, sets.map(function (o) { return { t: o.n, c: MLF.rgb(o.c) }; }).reverse(), 'tl', pal);
+  }
+
+  function drawCurve() {
+    var s = dC.resize(), ctx = dC.ctx; MLF.clear(ctx, s, pal);
+    var hi = 0;
+    curve.forEach(function (row) { row.forEach(function (p) { hi = Math.max(hi, p[1]); }); });
+    hi = Math.max(hi * 1.15, 0.01);
+    var ax = MLF.axes(ctx, s, { x: [1, 500], y: [0, hi], logx: true, pal: pal,
+      xticks: [1, 3, 10, 30, 100, 300], yticks: [0, hi / 2, hi],
+      fmty: function (v) { return v.toFixed(3); }, xlab: '候選數 m（log）', ylab: '樂觀量' });
+    var cols = [pal.d, pal.a, pal.c], names = ['驗證集 20', '驗證集 50', '驗證集 200'];
+    curve.forEach(function (row, k) { MLF.line(ctx, ax, row, MLF.rgb(cols[k]), 2); });
+    MLF.legend(ctx, ax, names.map(function (n, k) { return { t: n, c: MLF.rgb(cols[k]) }; }), 'tl', pal);
+    MLF.ref(ctx, ax, { x: mVal(), color: pal.accent, dash: [] });
+  }
+
+  function draw() {
+    compute();
+    el('vm').textContent = mVal();
+    var a = MLF.median(S.val), b = MLF.median(S.tes);
+    el('v1').textContent = a.toFixed(4);
+    el('v2').textContent = b.toFixed(4);
+    el('v3').textContent = (a - b).toFixed(4);
+    drawDist(); drawCurve();
+  }
+  ['m', 'nv', 'sp'].forEach(function (i) { el(i).onchange = draw; });
+  window.addEventListener('resize', function () { drawDist(); drawCurve(); });
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; drawDist(); drawCurve(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  draw();
+
+})();
+</script>
+</body>
+</html>

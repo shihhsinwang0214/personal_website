@@ -1,0 +1,179 @@
+---
+slug: "dma-w9-6-lab"
+label: "dma-lab-flow-maps"
+prereqs:
+  - math-total-derivative
+  - math-generator-gradient
+  - math-w2
+lang: "zh"
+title: "實作：MeanFlow、半群檢查，與交叉問題的最終回收"
+category: "courses"
+group: "Week 9 · Flow Maps 與分佈匹配"
+status: "available"
+updated: 2026-09-06
+summary: "在 2D toy 上用 torch.func.jvp 訓 MeanFlow，做一步與兩步取樣；與 consistency training、reflow×2 放進同一張 W₂ 圖；數值檢查半群性質。作業：用 fake denoiser 實作 DMD，並在兩 Gaussian 交叉例子上比較回歸式與分佈匹配式的一步樣本——前者平均到中間，後者不會。這是整門課的最後一篇。"
+demos: []
+references:
+  - label: "Geng, Deng, Bai, Kolter & He, Mean Flows for One-step Generative Modeling (2025)"
+    href: "https://arxiv.org/abs/2505.13447"
+  - label: "Yin et al., One-step Diffusion with Distribution Matching Distillation (CVPR 2024)"
+    href: "https://arxiv.org/abs/2311.18828"
+  - label: "Frans, Hafner, Levine & Abbeel, One Step Diffusion via Shortcut Models (ICLR 2025)"
+    href: "https://arxiv.org/abs/2410.12557"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+
+# 實作：MeanFlow、半群檢查，與交叉問題的最終回收
+
+<Objectives>
+- 用 `torch.func.jvp` 實作 <Ref to="dma-meanflow"/> 的損失，訓出一個可以一步、也可以多步的平均速度網路。
+- 把 MeanFlow 與 <Ref to="dma-lab-consistency"/> 的 consistency training、<Ref to="dma-lab-interpolants"/> 的 reflow×2 放進同一張 $W_2$ 對步數的圖，並數值驗證半群性質。
+- 作業：實作 DMD 的 fake denoiser 與 score 差梯度，在兩 Gaussian 交叉例子上做出「回歸式平均到中間、分佈匹配式不會」的對照。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 沿用同一組 toy
+
+資料、網路骨架、`exact_score` 都沿用 <Ref to="dma-lab-diffusion"/> 建立的 `toy.py`（two moons，$n=2000$）。這一篇用 <Ref week="dma-week-flow-matching"/> 的 FM 慣例：$t=0$ 噪聲、$t=1$ 資料、$z_t=(1-t)x_0+t\,x_1$、條件速度 $x_1-x_0$。網路 `model(z, r, t)`：三層 MLP，寬 128，$r$ 與 $t$ 各自做 sinusoidal embedding 後串接——比 <Ref to="dma-lab-flow-matching"/> 的網路多一個時間輸入，其餘不變。
+
+需要從前幾週帶進來的東西：<Ref to="dma-lab-interpolants"/> 的 reflow×2 模型與 $W_2$ 函數、<Ref to="dma-lab-consistency"/> 的 consistency training 一步生成器，以及那一張「三種一步方法」的 $W_2$ 圖——這一篇要在上面疊新的線。
+
+<VizPlan id="w9-6-notebook" title="Flow Maps 週實作 notebook" type="notebook">
+- 單一 notebook，三個步驟加作業，每個 section 有 TODO 骨架與參考解答（折疊）。
+- 沿用 `toy.py`；新增 `toy_crossing.py`：<Ref to="dma-linear-path"/> 那個兩 Gaussian 到兩 Gaussian 的交叉資料、解析邊際速度場 `exact_velocity(x, t)`、與真實 ODE 積分器 `exact_flow_map(x, t, s)`（作業 2 的標準答案）。
+- 所有 $W_2$ 對步數的圖沿用 <Ref to="dma-lab-flow-matching"/> 圖 b 的座標慣例（橫軸步數對數刻度）。
+</VizPlan>
+
+## 步驟 1：MeanFlow 的損失
+
+```python
+def meanflow_loss(model, x1, p_same=0.25):
+    B  = x1.shape[0]
+    x0 = torch.randn_like(x1)
+    t, r = torch.rand(B), torch.rand(B)
+    t, r = torch.minimum(t, r), torch.maximum(t, r)         # t ≤ r：位置在 t，往資料端跳到 r
+    r = torch.where(torch.rand(B) < p_same, t, r)           # 一部分樣本 r = t：純 flow matching
+    zt = (1 - t)[:, None] * x0 + t[:, None] * x1
+    v  = x1 - x0                                           # 條件速度，兩處 v 都用它
+    u, dudt = torch.func.jvp(
+        model, (zt, r, t),
+        (v, torch.zeros_like(r), torch.ones_like(t)),      # 切向量 (dz/dt, dr/dt, dt/dt) = (v, 0, 1)
+    )
+    target = v - (t - r)[:, None] * dudt                    # MeanFlow identity 的右邊
+    return ((u - target.detach()) ** 2).mean()             # stop-gradient
+```
+
+逐行對回 <Ref to="dma-meanflow"/>：`jvp` 一次同時給出 $u_\theta$ 與沿軌跡的全導數 $\tfrac{d}{dt}u_\theta=\partial_t u+(\partial_z u)\,v$，切向量的三個分量就是「$z$ 以速度 $v$ 動、$r$ 不動、$t$ 以 1 動」；`target` 是 identity 的右邊，`detach` 是 stop-gradient；`v` 在兩處（顯式那一項與切向量）都用條件速度，<Ref to="dma-meanflow"/> Q1 說過這在期望上精確。$p_{\text{same}}$ 那一行是訓練的錨——那些樣本沒有 bootstrapping，就是 <Ref to="dma-lab-flow-matching"/> 的 FM 損失。
+
+取樣是定義式反過來：
+
+```python
+@torch.no_grad()
+def sample(model, n, steps):
+    z = torch.randn(n, 2)
+    ts = torch.linspace(0, 1, steps + 1)
+    for t, r in zip(ts[:-1], ts[1:]):                       # 每段 t → r
+        z = z + (r - t) * model(z, r.expand(n), t.expand(n))   # ψ_{t→r}(z) = z + (r−t) u(z, r, t)
+    return z
+```
+
+`steps=1` 就是 $z_1=z_0+u_\theta(z_0,1,0)$。
+
+檢查點：(a) 先只用 $r=t$ 的樣本訓（`p_same=1`），它應該表現得和 <Ref to="dma-lab-flow-matching"/> 的 FM 一模一樣——這是確認網路與 embedding 沒接錯；(b) 開回 `p_same=0.25`，loss 不會像 FM 那樣平滑下降，早期會抖（bootstrapping 的目標在動），幾千步後穩定；(c) 一步樣本應該已經落在月牙上，不像 FM 一步那樣糊成一團。
+
+## 步驟 2：三種一步方法在同一張圖（圖 a）
+
+對步數 $\{1,2,4,8,32\}$，畫 $W_2$ 對步數：
+
+- MeanFlow（本篇）；
+- consistency training 的一步生成器（<Ref to="dma-lab-consistency"/>）——多步用「跳到資料端、重新加噪、再跳」；
+- reflow×2 加 Euler（<Ref to="dma-lab-interpolants"/>）；
+- 原始 FM 加 Euler（<Ref to="dma-lab-flow-matching"/>）當基準線。
+
+期待看到四種曲線的形狀不同，而且每一種形狀都能用 <Ref to="dma-unified-table"/> 的誤差來源解釋：FM 隨步數一路下降（曲率 + 累積）；reflow×2 從較低的起點下降（曲率被壓小）；consistency training 一步很好，但多步**不見得跟得上 FM 那個斜率**——<Ref to="dma-multistep-limit"/> 說 ODE 的 $O(1/N)$ 保證在它身上沒有，實際長什麼樣要量了才知道（<Ref to="dma-lab-consistency"/> 步驟 6 量過同一條線，把兩張圖放在一起看）；MeanFlow 一步與 CT 相近、多步**持續改善**（多步是合法路徑）。若 MeanFlow 一步明顯輸給 CT，先檢查 `p_same` 與訓練步數——它的 bootstrapping 需要比 FM 更長的訓練。
+
+<Question id="Q1">
+步驟 2 那張圖上，四條線的**起點**（一步）高低不同，**斜率**（隨步數下降多快）也不同。
+
+**這兩件事分別由什麼決定？把它們分開，比直接比誰的線比較低有用得多。**
+
+<Answer>
+**起點＝那個網路一步能做多好**，也就是「把整條軌跡壓成一次呼叫」的逼近誤差。FM 的一步最差（它根本不是為一步設計的，一步 Euler 就是假設整條軌跡是直線）；reflow×2 好一些（軌跡被拉直過，<Ref to="dma-rectified-flow"/>）；CT 與 MeanFlow 最好（它們學的就是那個一步映射）。這一欄量的是**訓練目標對不對**。
+
+**斜率＝多走幾步這件事對這個方法合不合法。** 這一欄和起點完全無關，由「學的物件是什麼」決定：
+
+- FM 與 reflow：學的是速度場，多步就是把 ODE 積得更細，<Ref to="dma-error-theory"/> 給 $O(1/N)$——所以是一條有斜率的直線。
+- MeanFlow：學的是 $\psi_{t\to s}$，多步是**走幾段合法的路**，半群條件保證段數變多不會出問題（步驟 3 在量它到底有多成立）。
+- CT：學的只有「跳到資料端」。多走一步的唯一辦法是回到資料端再加噪，<Ref to="dma-multistep-limit"/> 說那個程序沒有 $O(1/N)$ 的保證。
+
+所以會看到的圖是：**一步的高低看訓練目標，之後的斜率看學的物件撐不撐得住多步。** 一個方法可以一步很強、斜率卻是平的（CT），也可以一步不怎麼樣、但斜率很陡（FM）。只報「$N=1$ 的數字」或只報「$N=32$ 的數字」，都會得到相反的結論——這也是讀這一類論文時最容易被帶偏的地方。
+
+（如果你的 MeanFlow 曲線斜率也是平的，先別急著下結論：檢查 `p_same` 的比例與訓練步數，bootstrapping 沒收斂時多步會先壞掉。）
+</Answer>
+</Question>
+
+## 步驟 3：半群檢查（圖 b）
+
+取 512 個 $z_0$，比較「先 $0\to\tfrac12$ 再 $\tfrac12\to1$」與「直接 $0\to1$」的終點距離，再對其他切法（$0\to\tfrac14\to1$、$0\to\tfrac34\to1$）重做。畫終點距離的直方圖，並疊上「用 `exact_flow_map` 算的真實半群誤差」（應該是零到數值精度）。
+
+期待：學到的 $\psi_\theta$ 的半群誤差不是零——identity 只**隱含**半群，網路有誤差——但量級遠小於一步樣本與資料的 $W_2$。這個數字值得記下：它就是 <Ref to="dma-flow-map"/> 條件三在實際模型上的滿足程度。作業 3 的 Shortcut 是把半群當**顯式**損失，可以比較兩者的半群誤差。
+
+## 作業
+
+1. **DMD 在 toy 上。** 學生是一個一步生成器 $G_\theta:\mathbb R^2\to\mathbb R^2$（MLP）。teacher denoiser 用 <Ref to="dma-lab-flow-matching"/> 訓好的 FM 網路換算（FM 慣例下 $z_t=(1-t)\epsilon+t\,x$，denoiser $D\approx\mathbb E[x\mid z_t]$ 給出 score $s=\dfrac{t\,D(z_t,t)-z_t}{(1-t)^2}$）。fake denoiser `D_fake` 用 <Ref to="dma-lab-diffusion"/> 那五行訓，資料換成 `G(z).detach()`。生成器的更新照 <Ref to="dma-distribution-matching"/> 的梯度：
+
+   ```python
+   x  = G(z); t = ...; eps = torch.randn_like(x)
+   zt = (1 - t)[:, None] * eps + t[:, None] * x
+   with torch.no_grad():
+       g = w(t)[:, None] * (score(D_fake, zt, t) - score(D_real, zt, t))   # ∇_θ KL 的方向
+   loss_G = (zt * g).sum() / B          # 讓 ∂loss/∂zt = g，backward 後 zt 往 s_real − s_fake 走
+   ```
+
+   交替更新（每步生成器配 $k$ 步 fake denoiser，$k\in\{1,2,5\}$），畫 $W_2$ 對訓練步數。回答：$k=1$ 時是否震盪？把 $-s_{\text{fake}}$ 那一項拿掉，樣本跑去哪裡？
+
+2. **交叉問題的最終回收。** 換到 `toy_crossing.py` 的兩 Gaussian 例子。(a) 用 <Ref to="dma-lab-consistency"/> 的 consistency training 訓一步生成器，時間網格 $N\in\{2,4,8,32\}$，畫一步樣本，標出落在 $p_1$ 等高線外、位於兩個上方 mode **之間**的樣本比例；(b) 用作業 1 的 DMD 在同一份資料上訓一步生成器，畫同一張圖。期待：(a) 在 $N$ 小時大量樣本落在中間——這就是 <Ref to="dma-linear-path"/> Q1 的交叉、<Ref to="dma-distribution-matching"/> Q1 的「平均」——$N$ 大時比例下降但不歸零；(b) 幾乎沒有樣本落在中間。用 `exact_flow_map` 對 (a) 的每一顆中間樣本算出它的 $z$ 真正該去的終點，確認它落在幾個終點的平均位置。寫三句話說明這張圖與 <Ref to="dma-linear-path"/> 那張「條件直線交叉 vs 邊際曲線」的關係。
+
+3. **Shortcut。** 把步驟 1 改成 <Ref to="dma-shortcut-ayf"/> 的 progressive 目標：`model(z, t, d)`，$d\in\{0,\tfrac18,\tfrac14,\tfrac12,1\}$，四分之三的樣本走 $d=0$ 的 FM 損失，其餘走 $s(x,t,2d)=\tfrac12[s(x,t,d)+s(x',t+d,d)]$。不需要 `jvp`。與 MeanFlow 比：一步 $W_2$、訓練時間、以及步驟 3 的半群誤差——半群當顯式損失後，誤差應該更小；一步品質誰好？
+
+4. **（選）拿掉 $\tfrac{du}{dt}$。** 把步驟 1 的 `target` 改成只有 `v`（等於對所有 $(r,t)$ 都做 FM 回歸）。訓出來的 $u_\theta(z,r,t)$ 學到什麼？一步取樣長什麼樣？用 <Ref to="dma-meanflow"/> 的三角形圖解釋：少了修正向量，網路把弦學成了切線。
+
+<QuizBlock id="w9-6-a">
+步驟 1 的 `jvp` 切向量是 `(v, 0, 1)`。若誤寫成 `(0, 0, 1)`，算出來的是什麼？
+<Option>正確的全導數，因為 $z$ 的變化已經包含在 `v` 那一項裡。</Option>
+<Option correct>只有偏導數 $\partial_t u$，漏掉了 $(\partial_z u)\,v$——粒子沿軌跡移動帶來的變化——identity 不再成立。</Option>
+<Option>對 $r$ 的導數。</Option>
+<Explanation>
+全導數的兩項來自 $u$ 的兩個會動的輸入：$t$ 本身與隨 $t$ 移動的 $z_t$。切向量第一個分量是 $\tfrac{dz_t}{dt}=v$，設成零就丟掉了空間那一項，這正是 <Ref to="dma-error-theory"/> 裡 $(v\cdot\nabla)v$ 對應的角色（那一篇的邊際速度記成 $u$，本週 $u$ 留給平均速度）。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w9-6-b">
+步驟 2 的圖上，consistency training 從一步到八步 $W_2$ 幾乎不動，MeanFlow 卻持續下降。原因是：
+<Option>MeanFlow 的網路比較大。</Option>
+<Option>consistency training 的一步本來就比較差。</Option>
+<Option correct>consistency 的多步要跳回資料端再重新加噪，每次重加噪是新的獨立配對；MeanFlow 的多步是同一條軌跡上的分段跳躍，網路誤差被拆小而不被交叉抵消。</Option>
+<Explanation>
+兩者一步品質相近（都是學終點的回歸）。差別全在多步的路合不合法——<Ref to="dma-flow-map"/> 的半群條件。這張圖就是 <Ref to="dma-multistep-limit"/> 留下的問題與本週答案並排。
+</Explanation>
+</QuizBlock>
+
+<Bridge>
+這是整門課的最後一篇。回頭看，我們從 <Ref to="dma-what-are-we-learning"/> 出發——把「生成」翻成學一個從噪聲到資料的映射——中間換過資料型態（<Ref week="dma-week-discrete-i"/>、<Ref week="dma-week-discrete-ii"/>）、換過時間刻度、換過學的物件（速度、終點、flow map、分佈），但每一週都靠同樣三件工具站穩：**conditional trick**（<Ref to="dma-denoising-regression"/>）讓我們永遠能用自己造的配對當目標；**曲率積分壓住有限步誤差**（<Ref to="dma-error-theory"/>）讓我們知道每個方法的誤差從哪裡來、什麼時候消失；**訓練噪聲與取樣噪聲是兩個旋鈕**（<Ref to="dma-sampler-family"/>）讓我們分得清什麼是模型的性質、什麼是取樣器的性質。再加上一個一路跟到最後的問題——<Ref to="dma-linear-path"/> 的配對交叉——它在 reflow 裡是彎曲、在多步 consistency 裡是重加噪、在蒸餾裡是模糊，本週的作業 2 再做它一次。往後讀任何一篇新的論文，先問它動了哪個旋鈕、誤差落在哪一格；通常，那就是它全部的新意。
+</Bridge>
+
+## 參考文獻
+
+1. Geng, Z., Deng, M., Bai, X., Kolter, J. Z., He, K. [*Mean Flows for One-step Generative Modeling.*](https://arxiv.org/abs/2505.13447) 2025.（步驟 1 的損失與取樣。）
+2. Yin, T. et al. [*One-step Diffusion with Distribution Matching Distillation.*](https://arxiv.org/abs/2311.18828) CVPR 2024.（作業 1 的梯度與交替訓練。）
+3. Frans, K., Hafner, D., Levine, S., Abbeel, P. [*One Step Diffusion via Shortcut Models.*](https://arxiv.org/abs/2410.12557) ICLR 2025.（作業 3。）

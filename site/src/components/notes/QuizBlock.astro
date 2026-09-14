@@ -1,0 +1,107 @@
+---
+/**
+ * QuizBlock.astro — the slot-based sibling of Quiz.astro, for questions whose text or
+ * options need KaTeX (the prop-based Quiz only takes plain strings).
+ *
+ *   <QuizBlock id="w3-1-a">
+ *   題目敘述（可含 $math$）
+ *   <Option>選項 A</Option>
+ *   <Option correct>選項 B</Option>
+ *   <Explanation>選對／選錯後都會展開的說明</Explanation>
+ *   </QuizBlock>
+ *
+ * Styling mirrors Quiz.astro so both variants look identical on the page.
+ */
+interface Props { id?: string }
+const { id } = Astro.props;
+---
+
+<form class="quiz" data-quiz-block id={id ? `quiz-${id}` : undefined}>
+  <span class="quiz-tag">想一想</span>
+  <div class="quiz-body"><slot /></div>
+  <p class="quiz-feedback" role="status" aria-live="polite"></p>
+  <button type="button" class="quiz-reveal">看解答</button>
+</form>
+
+<style>
+  .quiz {
+    margin: 24px 0;
+    padding: 18px 20px;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: var(--radius, 12px);
+    background: var(--box-ml-bg, var(--surface-2));
+  }
+  .quiz-tag {
+    display: inline-block; margin-bottom: 8px; padding: 2px 9px;
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em;
+    color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
+    border-radius: 999px;
+  }
+  .quiz-body :global(> p) { margin: 0 0 14px; font-weight: 600; line-height: 1.5; }
+  .quiz-body :global(.quiz-opt + .quiz-opt) { margin-top: 8px; }
+  .quiz-feedback { margin: 12px 0 0; min-height: 1.2em; font-weight: 600; }
+  .quiz-feedback.ok { color: #2f9e6b; }
+  .quiz-feedback.no { color: #d0664a; }
+  .quiz-reveal {
+    margin-top: 10px; padding: 6px 14px; cursor: pointer; font: inherit; font-size: 0.88rem; font-weight: 600;
+    color: var(--accent); background: transparent; border: 1px solid var(--accent); border-radius: 999px;
+    transition: background .15s ease, color .15s ease;
+  }
+  .quiz-reveal:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .quiz-reveal:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: 2px; }
+  .quiz-reveal[hidden] { display: none; }
+</style>
+
+<script>
+  function shuffleOptions(quiz: HTMLElement) {
+    const opts = Array.from(quiz.querySelectorAll<HTMLButtonElement>('.quiz-opt'));
+    if (opts.length < 2) return;
+    const anchor = document.createComment('quiz-options');
+    opts[0].before(anchor);
+    for (let i = opts.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [opts[i], opts[j]] = [opts[j], opts[i]];
+    }
+    opts.forEach((o) => o.remove());
+    let cursor: ChildNode = anchor;
+    opts.forEach((o) => { cursor.after(o); cursor = o; });
+    anchor.remove();
+  }
+
+  const PRAISE = ['沒錯！', '太棒了！', '答對了！', '就是這個！', '漂亮！', '厲害了！', '穩！', '666！', '絕了！', '牛！', '有內味了！', '這波操作很可以！', '學霸就是你！', '腦子很好使！'];
+  const RETRY = ['再想想看～', '差一點，再試一次～', '不對哦，再看看～', '嗯…再想一下～'];
+  const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+
+  function bindQuizBlocks() {
+    document.querySelectorAll<HTMLFormElement>('form[data-quiz-block]').forEach((quiz) => {
+      if (quiz.dataset.bound) return;
+      quiz.dataset.bound = 'true';
+      shuffleOptions(quiz);
+      const feedback = quiz.querySelector('.quiz-feedback') as HTMLElement | null;
+      const explain = quiz.querySelector('.quiz-explain') as HTMLElement | null;
+      const reveal = quiz.querySelector('.quiz-reveal') as HTMLButtonElement | null;
+      const opts = Array.from(quiz.querySelectorAll<HTMLButtonElement>('.quiz-opt'));
+      if (!explain && reveal) reveal.hidden = true;
+      reveal?.addEventListener('click', () => {
+        if (explain) explain.hidden = false;
+        reveal.hidden = true;
+      });
+      opts.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const correct = btn.dataset.correct === 'true';
+          opts.forEach((b) => b.classList.remove('is-wrong'));
+          btn.classList.add(correct ? 'is-correct' : 'is-wrong');
+          if (correct) opts.forEach((b) => { if (b.dataset.correct === 'true') b.classList.add('is-correct'); });
+          if (feedback) {
+            feedback.textContent = correct ? pick(PRAISE) : pick(RETRY);
+            feedback.classList.toggle('ok', correct);
+            feedback.classList.toggle('no', !correct);
+          }
+        });
+      });
+    });
+  }
+  bindQuizBlocks();
+  document.addEventListener('astro:page-load', bindQuizBlocks);
+</script>

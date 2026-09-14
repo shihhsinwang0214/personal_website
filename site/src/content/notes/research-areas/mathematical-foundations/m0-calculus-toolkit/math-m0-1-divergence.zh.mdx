@@ -1,0 +1,204 @@
+---
+slug: "math-m0-1-divergence"
+label: "math-divergence"
+prereqs:
+  - math-gradient
+lang: "zh"
+title: "閘門的進出：Divergence 與通量"
+category: "courses"
+group: "M0 · Calculus 工具箱"
+status: "available"
+updated: 2026-09-06
+summary: "看不到站內，只有每個閘門的進出人數，能判斷站內人數增減嗎？把「穿過邊界的淨流量」寫成 flux，把它縮到一個小格子裡就是 divergence；Gauss 定理說「邊界上算」與「內部逐點算」一定相等——條件是沒有漏掉的門。"
+demos: []
+references:
+  - label: "Strang, Calculus (Wellesley-Cambridge Press; MIT OpenCourseWare RES.18-001)"
+    href: "https://ocw.mit.edu/courses/res-18-001-calculus-online-textbook-spring-2005/"
+  - label: "Feynman, Leighton & Sands, The Feynman Lectures on Physics, Vol. II, Ch. 3: Vector Integral Calculus"
+    href: "https://www.feynmanlectures.caltech.edu/II_03.html"
+  - label: "Marsden & Tromba, Vector Calculus (W. H. Freeman)"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 閘門的進出：Divergence 與通量
+
+<Objectives>
+- 把「穿過一道邊界的淨流量」寫成 flux，並說出它與「區域內總量的變化率」之間的關係依賴哪一個假設。
+- 寫出 divergence 的定義，說出它為什麼是「每單位面積的淨流出」，並用小格子拼接的方式說明 Gauss 定理。
+- 對「只看閘門就知道站內人數增減」這個做法，判斷它何時成立、漏掉什麼會失準，並用一個可以開關暗門的 demo 驗證。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 起點：看不見站內
+
+你負責一座捷運站的人流。站內沒有攝影機，你手上只有每個閘門的計數器：每分鐘各有多少人刷卡進、多少人刷卡出。四個閘門的讀數擺在你面前。
+
+問題：**現在站內的人是在變多還是變少？每分鐘變多少？**
+
+直覺的答案幾乎是反射：把所有閘門的「進」加起來，減掉所有「出」，正的就是變多。寫下你有多確定。
+
+大多數人會非常確定。這一次直覺是對的——但請試著回答兩個追問：這個算法**依賴什麼**才成立？如果有一天讀數告訴你「每分鐘淨進 40 人」，而站務員回報月台其實空了，**哪裡出了問題**？能回答這兩題，才算真的懂了這個算法。
+
+<Question id="Q1">
+把情境翻成數學：這裡的「區域」是什麼？「邊界」是什麼？我們手上量到的是哪種量？我們想知道的又是哪種量？
+
+<Answer>
+最直覺的答案會直接跳到「進減出」，跳過了三個該說清楚的物件。
+
+**區域** $\Omega$：站內的範圍，一個平面上的區域。我們想知道的是它裡面的**總量** $N(t)$——站內人數隨時間的變化率 $dN/dt$。
+
+**邊界** $\partial\Omega$：站內與站外的分界線。閘門是邊界上開了口的幾段；其餘的邊界是牆，沒有人穿過。
+
+**量到的東西**：每個閘門的計數器給的是「每分鐘穿過這一段邊界的淨人數」——一個**穿過邊界的流量**，方向有正負（出為正、進為負，或反過來，先講好）。
+
+於是問題變成：**知道邊界上每一段的穿越流量，能不能推出內部總量的變化率？** 翻譯到這裡就看到了關鍵：這需要一個把「邊界上的穿越」與「內部的增減」連起來的定律。連起來的橋是**守恆**——人不會在站內憑空出現或消失。這一句話就是整個算法的地基。
+</Answer>
+</Question>
+
+## 一個灑水器和一個排水口
+
+暫時放下閘門，看一張只有箭頭的圖。地面上每一點畫一支小箭頭，表示那裡的人（或水）往哪流、流多快。
+
+在**灑水器**四周，箭頭一律向外指：任何一個圈住灑水器的小圈，流出去的比流進來的多——這裡是一個**源**。在**排水口**四周，箭頭一律向內：圈住它的任何小圈都是淨流入——這裡是一個**匯**。在一條平直的走廊裡，箭頭全部同向、等長：一個小圈左邊進多少、右邊就出多少，淨流量是零。
+
+「圈一個小圈，數淨流出多少」這個動作，對平面上**每一點**都可以做。做出來的數字有正有負：正的地方在「吐出」、負的地方在「吸入」、零的地方只是「經過」。這個逐點的數字就是 divergence。
+
+<VizPlan id="m0-1-source-sink" title="源、匯、穿流：三種箭頭場，三種小圈讀數" type="static">
+- **檔名**：`m0-calculus-toolkit/imgs/m0-1-1.svg`（16:9，三格並排）。
+- **左格「源」**：箭頭從中心向外放射、越遠越長；畫一個虛線小圈，圈上每一段標一支向外的法線箭頭，右下角標「小圈淨流出 $>0$」。
+- **中格「匯」**：箭頭向中心收攏；同樣的小圈，標「小圈淨流出 $<0$」。
+- **右格「穿流」**：一條走廊，箭頭全部向右、等長；小圈左邊進、右邊出，標「淨流出 $=0$」。
+- **底部一行**：三格共用一句「對每一點圈一個小圈、數淨流出——這就是 divergence 的讀法」。
+- **圖說**：「箭頭是流量場。divergence 不看箭頭指哪裡，只看『圈起來後是吐出還是吸入』。」
+</VizPlan>
+
+## 把小圈寫成數學
+
+**流量場與 flux。** 記 $v(x,y)$ 為流量場：在 $(x,y)$ 這一點，每單位長度的邊界、每單位時間穿過的人數，方向是人流的方向。對區域 $\Omega$，邊界上每一小段長 $ds$、向外的單位法向量 $n$，穿過它向外的人數是 $v\cdot n\,ds$（只有垂直於邊界的分量會穿過）。整條邊界加起來：
+
+$$
+\Phi(\Omega)=\oint_{\partial\Omega}v\cdot n\,ds ,
+$$
+
+叫 $\Omega$ 的 **flux**（通量）——向外為正。**守恆**這句話寫成式子就是
+
+$$
+\frac{dN}{dt}=-\,\Phi(\Omega):
+$$
+
+裡面的總量增加多少，就是邊界上淨流進多少。這一行沒有任何近似，但它有一個前提：$N$ 的變化**只能**來自穿過邊界，內部沒有源與匯。
+
+**Divergence。** 現在把 $\Omega$ 縮成一個以 $(x,y)$ 為中心、邊長 $\Delta x\times\Delta y$ 的小長方形。四條邊的 flux：右邊流出 $v_x(x+\tfrac{\Delta x}2,y)\Delta y$，左邊流入 $v_x(x-\tfrac{\Delta x}2,y)\Delta y$，兩者相減約是 $\dfrac{\partial v_x}{\partial x}\Delta x\Delta y$；上下同理給 $\dfrac{\partial v_y}{\partial y}\Delta x\Delta y$。除以面積、取極限：
+
+$$
+\nabla\!\cdot v\;=\;\frac{\partial v_x}{\partial x}+\frac{\partial v_y}{\partial y}
+\;=\;\lim_{|\Omega|\to0}\frac{\Phi(\Omega)}{|\Omega|}.
+$$
+
+**divergence 就是每單位面積的淨流出。** 符號 $\nabla\cdot$ 是刻意的：把 <Ref to="math-gradient"/> 的 $\nabla=(\partial_x,\partial_y)$ 與 $v$ 做內積，形式上就是這個和。
+
+**Gauss 定理（二維）。** 把 $\Omega$ 切成很多小格子。每個小格子的 flux 約是 $(\nabla\cdot v)\times$面積。把所有格子加起來時，**每一條內部的格線被相鄰兩格各算一次、方向相反，剛好抵消**，只剩最外圈的邊界。所以
+
+$$
+\oint_{\partial\Omega}v\cdot n\,ds\;=\;\int_\Omega\nabla\!\cdot v\;dA .
+$$
+
+左邊只看邊界，右邊只看內部，兩者永遠相等。這就是「內部格線抵消」這一句話的正式版本。
+
+<Details summary="抵消為什麼是精確的、而不是近似（離散版本一行就看得出來）">
+在一個 $n\times n$ 的格網上，把每條格線上的流量記成數字 $F$。「格子 $(i,j)$ 的淨流出」定義為它四條邊的 $F$ 帶正負號相加。把所有格子的淨流出相加，每條**內部**格線出現兩次：對左邊那格是流出（$+F$），對右邊那格是流入（$-F$），和為零。剩下的只有最外圈——這是一個 telescoping sum，沒有任何近似。連續版本的 Gauss 定理就是這個離散事實取極限，divergence 的定義正好讓「每格淨流出 $\approx(\nabla\cdot v)\,\Delta x\Delta y$」在極限下成為等式。
+</Details>
+
+## 回到情境：直覺對了，但要說出它靠什麼
+
+**結論。** 「進減出」正確，因為它就是 $dN/dt=-\Phi(\Omega)$：站內人數的變化率等於邊界上的淨流入。這一行是恆等式，不是估計。
+
+**它依賴兩個假設。** 第一，**守恆**：人不會在站內出現或消失——這在捷運站幾乎一定成立。第二，**閘門就是全部的邊界**：所有能穿過 $\partial\Omega$ 的地方都有計數器。這一條才是會出事的地方。站務員的員工門、緊急出口、還有**月台邊的列車門**——列車到站，一車人進了站內；列車開走，一車人離開。如果你的 $\Omega$ 是「整座站含月台」，列車門就是邊界的一部分，而閘門計數器沒有算它。「每分鐘淨進 40 人，月台卻空了」正是這種情形：40 人從閘門進來，一列車載走了更多人，而那條邊界你沒量。
+
+**Divergence 多給了什麼。** 閘門版只回答「整站」的增減。若你有站內各處的人流方向與速度（例如手機定位的匿名統計），$\nabla\cdot v$ 能**逐點**告訴你哪裡在累積（$\nabla\cdot v<0$，淨流入）、哪裡在疏散（$\nabla\cdot v>0$）；而 Gauss 定理保證：把整站的 $\nabla\cdot v$ 積分起來，一定等於閘門加列車門的總 flux——兩種算法可以互相對帳。對不上，就表示有一道門沒被算進去。
+
+## 回到情境：實際算一次
+
+<VizPlan id="m0-1-station" title="閘門對帳：邊界 flux vs 內部 divergence，開一道暗門看差多少" type="interactive">
+- **位置**：本節。**檔名**：`site/public/notes/research_areas/mathematical-foundations/m0-calculus-toolkit/m0-1-2.html`。這是本篇的核心互動。
+- **版面**：左格是站內平面圖（$40\times40$ 格網，格子顏色深淺＝該格人數，上面疊一層稀疏的流量箭頭），四邊各開一道閘門（邊界上的一段）；右格是兩條隨時間走的曲線：「閘門淨流入的累積」與「站內實際總人數的變化」。
+- **控制項**：四個滑桿分別是四道閘門的淨流量（人／分鐘，可正可負）；按鈕「走一分鐘」「走十分鐘」「重置」。開關「顯示 divergence 熱圖」：把每格的 $\nabla\cdot v$ 畫成藍（吸入）到紅（吐出）。開關「暗門」：在站內某一格加一個固定的匯（每分鐘帶走 $k$ 人，$k$ 可調），畫面上不畫任何箭頭——模擬沒被計數的出口。開關「列車門」：在月台邊那段邊界加一個週期性的大流量（每三分鐘一列車，一次帶走 60 人），計數器**不**把它算進去。
+- **每一分鐘的行為**：格網用離散守恆更新（每格人數 $-=$ 四條邊的淨流出）；右格同步畫「閘門對帳」與「實際」兩條線。兩者重合時顯示綠色「對帳成功」，分岔時顯示紅色並標出差額；差額的數值應恰等於暗門的 $k$（或列車帶走的人數）。Hover 任一格顯示該格的 $\nabla\cdot v$ 與「這一格這一分鐘淨變化」。
+- **預期看到的事**：沒有暗門時兩條線完全重合（Gauss 定理是精確的，不是近似）。開暗門後，「閘門對帳」持續高估站內人數，差距線性成長、斜率＝$k$。開列車門後差距呈階梯狀。開 divergence 熱圖時，暗門那格是一個明顯的紅點（局部有匯），其他地方接近零——divergence 能指出暗門在哪，閘門總數不能。
+- **底部觀察句**：「觀察：邊界 flux 與內部 divergence 的積分永遠相等——只要邊界沒有漏掉的門、內部沒有源與匯。對不上帳的時候，divergence 熱圖告訴你漏在哪裡。」
+- **匯出 PNG**：兩格併成 16:9，含當前開關狀態。
+</VizPlan>
+
+十行程式就能看到「內部相加＝邊界」是精確的，以及暗門造成的差額：
+
+```python
+import numpy as np
+n = 40; rho = np.full((n, n), 5.0)                 # 每格人數
+Fx = 0.3 + 0.1*np.random.randn(n, n+1)             # 垂直格線上的向右流量
+Fy = 0.1*np.random.randn(n+1, n)                   # 水平格線上的向下流量
+inside = (slice(10, 30), slice(10, 30))            # 站內範圍 Ω
+for leak in (0.0, 0.5):                            # 0.5 = 暗門每步帶走的人
+    N0 = rho[inside].sum()
+    div = (Fx[:, 1:] - Fx[:, :-1]) + (Fy[1:, :] - Fy[:-1, :])   # 每格淨流出
+    rho_new = rho - div; rho_new[20, 20] -= leak
+    flux_out = Fx[10:30, 30].sum() - Fx[10:30, 10].sum() + Fy[30, 10:30].sum() - Fy[10, 10:30].sum()
+    print(f"實際變化 {rho_new[inside].sum()-N0:+.3f}   閘門推算 {-flux_out:+.3f}")
+```
+
+第一行兩個數字完全相同；第二行差 $0.5$——正是暗門的量。
+
+## 先消化一下
+
+<QuizBlock id="m0-1-a">
+你有一張夜市的人流圖：每個位置有一支箭頭表示人往哪走、走多快。你想知道**哪裡正在越來越擠**。該看哪個量？
+<Option>人流速度最大的地方。</Option>
+<Option>人數密度的 gradient 最大的地方。</Option>
+<Option correct>人流場 divergence 最負的地方——那裡淨流入最多。</Option>
+<Explanation>
+速度大只是「經過得快」，一條穿流的走廊速度可以很大但不累積。密度的 gradient 告訴你「往哪邊人變多」，是一個方向，不是變化率。「正在變擠」是總量隨時間的變化，等於淨流入，也就是 $-\nabla\cdot v$；divergence 最負的地方累積最快。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m0-1-b">
+某座站的閘門計數器每分鐘顯示淨進 30 人，站務員卻回報人數持平。最可能的解釋是：
+<Option>計數器的雜訊太大，30 人在誤差範圍內。</Option>
+<Option correct>有一段邊界沒被計數——例如列車門或員工出口——那裡每分鐘淨出 30 人。</Option>
+<Option>divergence 定理在人數不是連續量時不成立。</Option>
+<Explanation>
+$dN/dt=-\Phi(\Omega)$ 是精確的守恆式，唯一能讓「邊界對帳」與「實際」分岔的是邊界沒被完整計數（或內部有源／匯）。人數是整數不妨礙守恆——離散版本的抵消論證同樣精確。計數器雜訊會讓讀數上下跳，不會產生持續穩定的 30 人偏差。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m0-1-c">
+若一個流量場在某區域內處處 $\nabla\cdot v=0$，可以推出：
+<Option>該區域內沒有人流動。</Option>
+<Option>該區域內每一點的流速都相同。</Option>
+<Option correct>該區域內**任何**一個子區域的淨流出都是零——進多少就出多少。</Option>
+<Explanation>
+$\nabla\cdot v=0$ 不代表 $v=0$：走廊裡等速穿流的 divergence 就是零。也不代表流速處處相同——一個逆時針繞圈的渦流，速度方向處處不同，divergence 仍為零。由 Gauss 定理，任何子區域的 flux 等於內部 divergence 的積分，等於零；這種場叫 divergence-free（或 incompressible）。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="math-taylor">
+本篇把「閘門進減出」翻成 $dN/dt=-\Phi(\Omega)$，把 flux 縮到一格得到 divergence，並用「內部格線抵消」看到 Gauss 定理是精確的——前提是邊界沒有漏掉的門。把這個守恆關係寫成一條隨時間演化的方程式，是 <Ref to="math-continuity-equation"/> 的事。下一篇先回到另一個日常經驗：導航每隔一段時間才更新一次，中間你假設車在直走——這個假設會差多少？
+</Bridge>
+
+## 參考文獻
+
+1. Strang, G. [*Calculus.*](https://ocw.mit.edu/courses/res-18-001-calculus-online-textbook-spring-2005/) Wellesley-Cambridge Press；MIT OpenCourseWare RES.18-001 免費全文。（Green / divergence theorem 的章節。）
+2. Feynman, R. P., Leighton, R. B., Sands, M. [*The Feynman Lectures on Physics*, Vol. II, Ch. 3: Vector Integral Calculus.](https://www.feynmanlectures.caltech.edu/II_03.html)（用「小方塊的 flux」定義 divergence、以及 Gauss 定理的拼接論證。）
+3. Marsden, J. E., Tromba, A. J. *Vector Calculus.* W. H. Freeman.（二維與三維 divergence theorem 的正式敘述與證明。）

@@ -1,0 +1,199 @@
+---
+slug: "dma-w3-1-forward-process"
+label: "dma-forward-process"
+prereqs:
+  - math-gaussian
+  - math-markov-chain
+lang: "zh"
+title: "一步不夠就多步：Forward Process"
+category: "courses"
+group: "Week 3 · Diffusion Models"
+status: "available"
+updated: 2026-09-07
+summary: "路徑自己定，那就先挑一條我們本來就會走的路：一步一步加噪聲。寫出 DDPM 的 forward process，用「兩個高斯相加還是高斯」一步跳到 q(x_t|x_0)，並看清 variance-preserving 與 schedule 各自在管什麼。"
+demos: []
+references:
+  - label: "Sohl-Dickstein, Weiss, Maheswaranathan & Ganguli, Deep Unsupervised Learning using Nonequilibrium Thermodynamics (ICML 2015)"
+    href: "https://arxiv.org/abs/1503.03585"
+  - label: "Ho, Jain & Abbeel, Denoising Diffusion Probabilistic Models (NeurIPS 2020)"
+    href: "https://arxiv.org/abs/2006.11239"
+  - label: "Nichol & Dhariwal, Improved Denoising Diffusion Probabilistic Models (ICML 2021)"
+    href: "https://arxiv.org/abs/2102.09672"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 一步不夠就多步：Forward Process
+
+<Objectives>
+- 說出為什麼「把一件難事切成很多件容易的事」在這裡行得通，並寫出 DDPM 的 forward process。
+- 從單步遞迴推出 $q(x_t\mid x_0)$ 的閉式，並說清楚式子裡那個 $\epsilon$ 到底是什麼。
+- 說出 variance-preserving 在保什麼、schedule 又是在調什麼。
+- 認出 forward process 是一個人為的選擇，並說出這個選擇把哪些事情綁在一起了。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 反過來走，是我們本來就會做的事
+
+上一篇的結論是：路徑我們自己定，訓練就能變成回歸。那接下來要決定的，就是這條路要怎麼走。
+
+從純噪聲一步跳到一張圖，是一個很難的函數。但**反過來**走呢？從一張圖上加一點點噪聲，是一件我們完全知道怎麼做的事：抽一個高斯、乘上一個很小的係數、加上去。加一次幾乎看不出差別；加一千次，圖就變成一團雜訊了。
+
+可以想成洗牌。把一副排好的牌洗一千次，它就完全隨機了——這件事很容易做。反過來要從全隨機的牌堆一次排回原樣，非常難；但如果我們知道**每一次只洗了一點點**，那「把最後一次洗牌倒回去」就沒那麼可怕。難的事情被切成了一千件容易的事。
+
+<Ask>
+如果我們就把「一步一步加噪聲」定成那條路，<br />
+它會把 $x_0$ 帶到哪裡去？<br />
+而「倒著走一步」又需要知道什麼？
+</Ask>
+
+## 定義：一步只加一點點
+
+固定總步數 $T$，選一組很小的 $\beta_1,\dots,\beta_T\in(0,1)$。每一步定成
+
+$$
+q(x_t\mid x_{t-1})=\mathcal N\!\big(\sqrt{1-\beta_t}\,x_{t-1},\ \beta_t I\big),
+$$
+
+寫成取樣的樣子更好懂：
+
+$$
+x_t=\sqrt{1-\beta_t}\,x_{t-1}+\sqrt{\beta_t}\,\epsilon_t,\qquad \epsilon_t\sim\mathcal N(0,I).
+$$
+
+意思是：把上一步的東西**稍微縮小一點**，再補上一點噪聲。這裡有兩個設計值得停下來看。
+
+**為什麼要乘 $\sqrt{1-\beta_t}$？** 如果只加噪聲、不縮小，變異數會一路累積到爆掉。有了這個縮放，假設 $\operatorname{Var}(x_{t-1})=I$，那麼
+
+$$
+\operatorname{Var}(x_t)=(1-\beta_t)\,I+\beta_t I=I .
+$$
+
+信號縮小多少，噪聲就補上多少，總量剛好不變——所以這種 forward process 叫 **variance-preserving（VP）**。它帶來兩個實際好處：$x_T$ 會落在 $\mathcal N(0,I)$ 附近（正好是我們很好抽的那個分布），而且網路的輸入尺度在每個 $t$ 都差不多，不會有的時候很大、有的時候很小。
+
+**為什麼 $\beta_t$ 要小？** 因為每一步的變化小，反向那一步才容易學。這就是「切碎」真正的意思：我們不是要讓模型少做事，而是要讓它每一次只做一件簡單的事。
+
+<Remark label="符號" summary="α、ᾱ、σ_t 與 SNR：四個之後一直會用的量">
+往下推導之前，先把記號一次講完：
+
+- $\alpha_t=1-\beta_t$：這一步**留下**多少信號。
+- $\bar\alpha_t=\prod_{s=1}^{t}\alpha_s$：從頭到現在**累積留下**多少信號，會從 1 一路遞減到接近 0。
+- $\sigma_t^2=1-\bar\alpha_t$：對應累積起來的噪聲強度，兩者永遠滿足 $\bar\alpha_t+\sigma_t^2=1$。
+- $\mathrm{SNR}(t)=\bar\alpha_t/(1-\bar\alpha_t)$：signal-to-noise ratio，「還剩多少信號比得上噪聲」。$t$ 越大，SNR 越小。
+
+$\beta_t$ 隨 $t$ 怎麼變，稱為 **schedule**（linear、cosine…）。schedule 一旦定了，$\bar\alpha_t$ 就定了，這條路的「速度」也就定了。
+</Remark>
+
+## 真的要跑 $t$ 次嗎？
+
+<Question id="Q1">
+訓練的時候我們需要很多組 $(x_0,x_t)$ 的配對。照定義，要拿到 $x_t$ 就得從 $x_0$ 開始一步一步跑 $t$ 次遞迴——而 $t$ 可能是 800。每抽一個訓練樣本都跑 800 次矩陣運算，這樣訓練根本跑不動。
+
+**有沒有辦法一步就跳到 $x_t$？**
+
+<Answer>
+可以，而且關鍵只有一句話：**兩個獨立的高斯加起來還是高斯，而且變異數相加**（<Ref to="math-gaussian"/>）。
+
+先展開兩步看看。把 $x_{t-1}=\sqrt{\alpha_{t-1}}\,x_{t-2}+\sqrt{1-\alpha_{t-1}}\,\epsilon_{t-1}$ 代進去：
+
+$$
+x_t=\sqrt{\alpha_t\alpha_{t-1}}\,x_{t-2}
++\underbrace{\sqrt{\alpha_t(1-\alpha_{t-1})}\,\epsilon_{t-1}+\sqrt{1-\alpha_t}\,\epsilon_t}_{\text{兩個獨立高斯}} .
+$$
+
+後面那兩項合起來仍然是一個高斯，變異數是
+
+$$
+\alpha_t(1-\alpha_{t-1})+(1-\alpha_t)=1-\alpha_t\alpha_{t-1},
+$$
+
+剛好又補成「信號係數的平方 + 噪聲係數的平方 = 1」。一路歸納下去就得到整週最常用的那一行：
+
+$$
+\boxed{\;q(x_t\mid x_0)=\mathcal N\!\big(\sqrt{\bar\alpha_t}\,x_0,\ (1-\bar\alpha_t)I\big),
+\qquad x_t=\sqrt{\bar\alpha_t}\,x_0+\sigma_t\,\epsilon,\quad \sigma_t^2=1-\bar\alpha_t .\;}
+$$
+
+於是取一個訓練樣本只要三件事：**抽一個 $t$、抽一個 $\epsilon\sim\mathcal N(0,I)$、算一次乘加。** 那 800 步的遞迴完全不用跑。
+
+這一行在說的事情其實很單純：任意時刻的 $x_t$ 就是「**縮小的資料 + 一個高斯噪聲**」，而且兩個係數的平方和恆為 1。
+
+要注意的是這裡的 $\epsilon$ **不是**任何一步加進去的 $\epsilon_t$，而是把 $t$ 個小噪聲合併之後、重新命名的**單一**高斯變數；它與 $x_0$ 獨立。下一篇的訓練目標會直接針對它，所以這個區別要記住。
+</Answer>
+</Question>
+
+## 這條路長什麼樣子
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w3-1-forward.html" class="demo-frame" title="Forward process 加噪滑桿：互動 demo" style="height: 1060px; width: 100%; border: none;"></iframe>
+
+**互動 demo：加噪滑桿。** 拖 $t$ 看 $x_t=\sqrt{\bar\alpha_t}\,x_0+\sigma_t\epsilon$ 怎麼從資料變成一團高斯，右邊同步顯示 $\bar\alpha_t$、$1-\bar\alpha_t$ 與 SNR。切換 linear／cosine 會看到**同樣的兩端、不同的速度**：cosine 在中段把結構留得比較久。
+
+## 這是一個選擇，不是定律
+
+回頭看，上面每一件事都是人挑的：加的是**高斯**噪聲、縮放挑成 $\sqrt{1-\beta_t}$、終點挑成 $\mathcal N(0,I)$、schedule 挑 linear 還是 cosine。這些選擇讓數學變得非常乾淨——從頭到尾都只有高斯，所以每一個 $q(x_t\mid x_0)$ 都有閉式。
+
+但乾淨是有代價的，它把幾件事綁在一起了：
+
+- **起點分布只能是高斯**，因為 forward process 就是往那裡收斂的。
+- **路徑完全被 $\bar\alpha_t$ 決定**：$x_0$ 到 $x_T$ 之間的分布怎麼變，除了調 schedule 之外沒有別的自由度。
+
+現在先接受這些選擇，把這條路走完。<Ref week="dma-week-flow-matching"/> 會回頭問：如果不想被綁住呢？
+
+<Remark summary="$x_T$ 真的等於 $\mathcal N(0,I)$ 嗎？">
+嚴格說不等於，只是很接近。$\bar\alpha_T$ 很小但不是 0，所以 $x_T=\sqrt{\bar\alpha_T}\,x_0+\sigma_T\epsilon$ 裡還殘留著一點點資料的痕跡。
+
+而取樣的時候，我們是直接從 $\mathcal N(0,I)$ 出發的——等於把這一點差距當成誤差吃下來，這件事叫 **prior mismatch**。它通常很小（DDPM 的 $\bar\alpha_T\approx 4\times10^{-5}$），但它是真的存在，也是為什麼 schedule 不能設得太「慢」。
+</Remark>
+
+## 消化一下
+
+<QuizBlock id="w3-1-a">
+若 $\operatorname{Var}(x_0)=I$，用 VP forward process 時 $\operatorname{Var}(x_t)$ 是多少？
+<Option>$\bar\alpha_t I$</Option>
+<Option correct>$I$</Option>
+<Option>$(1-\bar\alpha_t)I$</Option>
+<Option>$tI$</Option>
+<Explanation>
+$\operatorname{Var}(x_t)=\bar\alpha_t\operatorname{Var}(x_0)+(1-\bar\alpha_t)I=I$：信號縮小多少、噪聲就補上多少，總量不變。這就是 variance-preserving 這個名字的來源。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w3-1-b">
+關於 $x_t=\sqrt{\bar\alpha_t}\,x_0+\sigma_t\epsilon$ 裡的 $\epsilon$，哪個說法正確？
+<Option>它就是第 $t$ 步加進去的那個 $\epsilon_t$。</Option>
+<Option>它的變異數是 $\sigma_t^2$。</Option>
+<Option correct>它是前 $t$ 步所有小噪聲合併後的單一標準高斯，與 $x_0$ 獨立。</Option>
+<Explanation>
+$\epsilon\sim\mathcal N(0,I)$，變異數是 $I$；$\sigma_t$ 是乘在外面的係數。它由 $\epsilon_1,\dots,\epsilon_t$ 加權合併而來，不等於任何單獨一步的噪聲。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w3-1-c">
+把所有 $\beta_t$ 都調大十倍（仍落在 $(0,1)$ 內）、$T$ 不變，會發生什麼？
+<Option correct>$x_T$ 更接近 $\mathcal N(0,I)$，但每一步的變化更大、反向每一步更難學。</Option>
+<Option>$x_T$ 離 $\mathcal N(0,I)$ 更遠。</Option>
+<Option>$q(x_t\mid x_0)$ 不再是高斯。</Option>
+<Explanation>
+$\bar\alpha_T$ 更快趨近 0，終點更乾淨（prior mismatch 更小），但「切碎」的好處被犧牲掉了。schedule 設計就是在這兩件事之間取捨。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-denoising-regression">
+forward process 給了我們無限多組 $(x_0,x_t,\epsilon,t)$ 的配對，而且產生它們幾乎零成本。下一篇就用這些配對，把「倒著走一步」寫成一個貨真價實的回歸 loss。
+</Bridge>
+
+## 參考文獻
+
+1. Sohl-Dickstein, J., Weiss, E. A., Maheswaranathan, N., Ganguli, S. [*Deep Unsupervised Learning using Nonequilibrium Thermodynamics.*](https://arxiv.org/abs/1503.03585) ICML 2015. （「加噪再倒回來」這個想法的出處。）
+2. Ho, J., Jain, A., Abbeel, P. [*Denoising Diffusion Probabilistic Models.*](https://arxiv.org/abs/2006.11239) NeurIPS 2020. （本篇的 VP forward process 與 linear schedule。）
+3. Nichol, A., Dhariwal, P. [*Improved Denoising Diffusion Probabilistic Models.*](https://arxiv.org/abs/2102.09672) ICML 2021. （cosine schedule。）

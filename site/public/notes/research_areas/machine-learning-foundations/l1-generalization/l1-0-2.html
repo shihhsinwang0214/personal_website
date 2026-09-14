@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>U 形：谷底的位置由資料量決定</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：訓練誤差對容量<b>永遠單調下降</b>，所以它單獨不含泛化的資訊。母體風險是 U 形，而<b>谷底的位置隨 n 移動</b>——「模型太複雜」永遠是相對於資料量的陳述。</p>
+  <canvas id="fit" style="aspect-ratio:5/3" aria-label="散點＝訓練資料；灰虛線＝真值；實線＝目前 d 的擬合"></canvas>
+  <p class="cap">散點＝訓練資料；灰虛線＝真值；實線＝目前 d 的擬合</p>
+  <canvas id="curve" style="aspect-ratio:5/2" aria-label="縱軸 log：訓練誤差與母體風險對 d；水平線＝σ²；▼＝U 形谷底；垂直線＝目前的 d"></canvas>
+  <p class="cap">縱軸 log：訓練誤差與母體風險對 d；水平線＝σ²；▼＝U 形谷底；垂直線＝目前的 d</p>
+  <div class="controls">
+    <div class="row">
+      <label for="d">次數 d</label><input id="d" type="range" min="1" max="25" step="1" value="5" />
+      <label for="n">n（log）</label><input id="n" type="range" min="10" max="1000" step="1" value="30" />
+    </div>
+    <div class="row">
+      <label for="sg">噪聲 σ</label><input id="sg" type="range" min="0" max="0.5" step="0.01" value="0.15" />
+      <label class="chk"><input id="band" type="checkbox" /> 顯示 40 次重抽的四分位帶</label>
+      <button id="seed" class="ghost">🎲</button>
+    </div>
+    <div class="stats"><span>n = <b id="vn">30</b></span> <span>U 形谷底 d = <b id="vd">—</b></span> <span>谷底風險 = <b id="vb">—</b></span> <span>目前訓練誤差 = <b id="v1">—</b></span> <span>目前母體風險 = <b id="v2">—</b></span></div>
+  </div>
+  <p class="observe">觀察：拉大 n，<b>谷底往右移、整條 U 變平</b>，原本掉到天花板的大 d 會回到地板上。把 σ 設成 0，水平參考線落到 0 而<b>U 的右半仍然上翹</b>。打開四分位帶，大 d 那一段寬得離譜——那個寬度就是下一篇要拆出來的 variance。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var DMAX = 25, R = 40;
+  var el = function (i) { return document.getElementById(i); };
+  var dF = MLF.hiDPICanvas(el('fit')), dC = MLF.hiDPICanvas(el('curve'));
+  var pal = MLF.palette(), seed = 0, data = null, cur = null, band = null;
+
+  function nVal() { return Math.round(+el('n').value); }
+
+  function rebuild() {
+    var n = nVal(), sg = +el('sg').value, d;
+    data = MLF.toy1d(n, sg, seed);
+    cur = { tr: [], te: [] };
+    for (d = 1; d <= DMAX; d++) {
+      var f = MLF.polyfit(data.x, data.y, d);
+      cur.tr.push(Math.max(MLF.mse(f, data.x, data.y), 1e-7));
+      cur.te.push(Math.max(MLF.risk(f, sg), 1e-7));
+    }
+    band = null;
+    if (el('band').checked) {
+      band = { lo: [], md: [], hi: [] };
+      var all = [];
+      for (var r = 0; r < R; r++) {
+        var t = MLF.toy1d(n, sg, 1000 + r), row = [];
+        for (d = 1; d <= DMAX; d++) row.push(MLF.risk(MLF.polyfit(t.x, t.y, d), sg));
+        all.push(row);
+      }
+      for (d = 0; d < DMAX; d++) {
+        var col = all.map(function (row) { return row[d]; });
+        band.lo.push(MLF.quantile(col, 0.25));
+        band.md.push(MLF.quantile(col, 0.5));
+        band.hi.push(MLF.quantile(col, 0.75));
+      }
+    }
+    var bi = 0;
+    for (d = 1; d < DMAX; d++) if (cur.te[d] < cur.te[bi]) bi = d;
+    cur.best = bi + 1; cur.bestv = cur.te[bi];
+  }
+
+  function drawFit() {
+    var s = dF.resize(), ctx = dF.ctx; MLF.clear(ctx, s, pal);
+    var ax = MLF.axes(ctx, s, { x: [-0.02, 1.02], y: [-1.9, 1.9], pal: pal,
+      xticks: [0, 0.5, 1], yticks: [-1, 0, 1], xlab: 'x', ylab: 'y' });
+    var g = MLF.grid(240), i, t = [];
+    for (i = 0; i < g.length; i++) t.push([g[i], MLF.truth(g[i])]);
+    MLF.line(ctx, ax, t, MLF.rgb(pal.a, 0.45), 1.6, [5, 4]);
+    for (i = 0; i < data.x.length; i++) MLF.dot(ctx, ax, data.x[i], data.y[i], MLF.rgb(pal.b, 0.55), 2.1);
+    var d = +el('d').value, f = MLF.polyfit(data.x, data.y, d), p = [];
+    for (i = 0; i < g.length; i++) p.push([g[i], Math.max(-3, Math.min(3, MLF.polyval(f, g[i])))]);
+    MLF.line(ctx, ax, p, MLF.rgb(pal.d), 2.2);
+    el('v1').textContent = cur.tr[d - 1].toFixed(4);
+    el('v2').textContent = cur.te[d - 1].toFixed(4);
+  }
+
+  function drawCurve() {
+    var s = dC.resize(), ctx = dC.ctx; MLF.clear(ctx, s, pal);
+    var sg = +el('sg').value, lo = 1e-4, hi = 3, i, A = [], B = [];
+    var cl = function (v) { return Math.min(hi, Math.max(lo, v)); };
+    var ax = MLF.axes(ctx, s, { x: [1, DMAX], y: [lo, hi], logy: true, pal: pal,
+      xticks: [1, 5, 10, 15, 20, 25], yticks: [1e-4, 1e-2, 1, 3],
+      fmty: function (v) { return v >= 1 ? String(v) : v.toExponential(0); }, xlab: '多項式次數 d' });
+    if (band) {
+      ctx.save(); ctx.beginPath();
+      for (i = 0; i < DMAX; i++) { var px = ax.X(i + 1), py = ax.Y(cl(band.hi[i])); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
+      for (i = DMAX - 1; i >= 0; i--) ctx.lineTo(ax.X(i + 1), ax.Y(cl(band.lo[i])));
+      ctx.closePath(); ctx.fillStyle = MLF.rgb(pal.d, 0.18); ctx.fill(); ctx.restore();
+    }
+    if (sg > 0) {
+      MLF.ref(ctx, ax, { y: sg * sg, color: MLF.rgb(pal.c) });
+      MLF.label(ctx, ax.box.l + 5, ax.Y(sg * sg) - 7, 'σ² = ' + (sg * sg).toFixed(4), MLF.rgb(pal.c));
+    }
+    for (i = 0; i < DMAX; i++) { A.push([i + 1, cl(cur.tr[i])]); B.push([i + 1, cl(cur.te[i])]); }
+    MLF.line(ctx, ax, A, MLF.rgb(pal.b), 2);
+    MLF.line(ctx, ax, B, MLF.rgb(pal.d), 2, [5, 4]);
+    MLF.ref(ctx, ax, { x: +el('d').value, color: pal.accent, dash: [] });
+    var bx = ax.X(cur.best), by = ax.Y(cl(cur.bestv));
+    ctx.fillStyle = MLF.rgb(pal.d); ctx.beginPath();
+    ctx.moveTo(bx - 5, by - 12); ctx.lineTo(bx + 5, by - 12); ctx.lineTo(bx, by - 4); ctx.closePath(); ctx.fill();
+    MLF.legend(ctx, ax, [{ t: '訓練誤差', c: MLF.rgb(pal.b) }, { t: '母體風險', c: MLF.rgb(pal.d) }], 'tr', pal);
+  }
+
+  function draw() {
+    el('vn').textContent = nVal();
+    el('vd').textContent = cur.best;
+    el('vb').textContent = cur.bestv.toFixed(4);
+    drawFit(); drawCurve();
+  }
+  function full() { rebuild(); draw(); }
+  el('d').oninput = draw;
+  ['n', 'sg'].forEach(function (i) { el(i).oninput = full; });
+  el('band').onchange = full;
+  el('seed').onclick = function () { seed = (seed + 1) % 997; full(); };
+  window.addEventListener('resize', draw);
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  full();
+
+})();
+</script>
+</body>
+</html>

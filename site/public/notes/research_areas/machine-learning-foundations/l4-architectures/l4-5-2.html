@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>把條件接進去的三個位置，以及純量條件特有的那個坑</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：條件要接在哪裡，由<b>條件的形狀</b>決定。而純量條件有一個和形狀無關的坑：<b>把一個數字直接接成一個輸入座標，網路對它的高頻學不動</b>——這正是前一節那個頻譜偏好，解法是先把它展成一組不同頻率的座標。右邊是另一件事：classifier-free guidance 的 null token <b>不是設計出來的，是訓練出來的</b>，而它需要條件 dropout 才會被訓練到。</p>
+  <canvas id="freq" style="aspect-ratio:5/2" aria-label="左＝固定 t 時模型的輸出對真值 sin(2πx + 2πkt)；右＝訓練 MSE 對步數，三條線＝純量／嵌入／寬兩倍的純量"></canvas>
+  <p class="cap">左＝固定 t 時模型的輸出對真值 sin(2πx + 2πkt)；右＝訓練 MSE 對步數，三條線＝純量／嵌入／寬兩倍的純量</p>
+  <canvas id="null" style="aspect-ratio:5/2" aria-label="c=0 與 c=1 兩類的輸出（第一個 seed），加上三個不同初始化各自的 null 輸出；灰虛線＝兩類的真平均（＝0）"></canvas>
+  <p class="cap">c=0 與 c=1 兩類的輸出（第一個 seed），加上三個不同初始化各自的 null 輸出；灰虛線＝兩類的真平均（＝0）</p>
+  <div class="controls">
+    <div class="row">
+      <label for="k">條件頻率 k</label><input id="k" type="range" min="1" max="12" step="1" value="6" />
+      <label for="J">嵌入的頻率數 J</label><input id="J" type="range" min="1" max="8" step="1" value="4" />
+      <label for="t">看哪一個 t</label><input id="t" type="range" min="0" max="1" step="0.02" value="0.3" />
+    </div>
+    <div class="row">
+      <label for="p">條件 dropout p</label><input id="p" type="range" min="0" max="0.4" step="0.02" value="0" />
+      <button id="re" class="ghost">▶ 重跑訓練</button>
+      <span id="prog" style="font-size:0.78rem"></span>
+    </div>
+    <div class="stats"><span>k = <b id="vk">—</b></span> <span>純量條件的訓練 MSE = <b id="v1">—</b></span> <span>嵌入（J 個頻率） = <b id="v2">—</b></span> <span>純量但寬兩倍 = <b id="v3">—</b></span> <span>null 輸出離「兩類平均」的距離 = <b id="v4">—</b></span> <span>3 個 seed 的 null 曲線彼此散佈 = <b id="v5">—</b></span></div>
+  </div>
+  <p class="observe">觀察：k = 1 的時候三條曲線疊在一起（都在 4e-4 附近）——條件變化得夠慢，接法怎麼挑都無所謂。把 k 拉到 6，<b>「純量」跳到 4.45e-1、「寬兩倍」3.49e-1，而「嵌入」還在 3.65e-4</b>：差了三個數量級，而且<b>加寬完全沒有用</b>，所以這不是容量問題，是梯度下降在這個參數化下先學低頻。嵌入也不是萬靈丹：把 k 拉到 12 而 J 還停在 4 時，嵌入那條也爬到 <b>6.1e-3</b>（它的最高頻蓋不過 k 了），把 J 加到 8 才掉回 <b>1.1e-4</b>——<b>嵌入要蓋得過條件的頻率才算數</b>。下圖是另一件事：<b>p = 0 的時候三個 seed 的 null 曲線完全散開（散佈 0.274）</b>，因為那個方向從來沒有收到過梯度，輸出純粹是初始化的產物；<b>p 只要調到 0.06，散佈就掉到 0.028</b>，三條線疊成一條。null token 的位置不是設計出來的，是訓練出來的。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var NPAIR = 400, STEPS = 620, NSTEPS = 460, NSEED = 3, CHUNK = 12, G = 160;
+  var el = function (i) { return document.getElementById(i); };
+  var dF = MLF.hiDPICanvas(el('freq')), dN = MLF.hiDPICanvas(el('null'));
+  var pal = MLF.palette(), gx = MLF.grid(G), JOB = null, raf = null, NUL = null, nraf = null;
+
+  function kv() { return +el('k').value; }
+  function Jv() { return +el('J').value; }
+
+  /* ---------- 小型 MLP（輸入維度可變），全部用平坦陣列 ---------- */
+  function mk(nin, W, sd) {
+    var r = MLF.rng(sd), i;
+    var M = { nin: nin, W: W,
+      W1: new Float64Array(W * nin), b1: new Float64Array(W),
+      W2: new Float64Array(W * W), b2: new Float64Array(W),
+      w3: new Float64Array(W), b3: new Float64Array(1), t: 0 };
+    for (i = 0; i < W * nin; i++) M.W1[i] = r.normal() * Math.sqrt(2 / nin);
+    for (i = 0; i < W * W; i++) M.W2[i] = r.normal() * Math.sqrt(2 / W);
+    for (i = 0; i < W; i++) M.w3[i] = r.normal() * Math.sqrt(1 / W);
+    M.ps = [M.W1, M.b1, M.W2, M.b2, M.w3, M.b3];
+    M.gs = M.ps.map(function (a2) { return new Float64Array(a2.length); });
+    M.ms = M.ps.map(function (a2) { return new Float64Array(a2.length); });
+    M.vs = M.ps.map(function (a2) { return new Float64Array(a2.length); });
+    M.h1 = new Float64Array(W); M.h2 = new Float64Array(W);
+    return M;
+  }
+  function fwd(M, x) {
+    var W = M.W, nin = M.nin, i, j, s;
+    for (i = 0; i < W; i++) { s = M.b1[i]; for (j = 0; j < nin; j++) s += M.W1[i * nin + j] * x[j]; M.h1[i] = Math.tanh(s); }
+    for (i = 0; i < W; i++) { s = M.b2[i]; for (j = 0; j < W; j++) s += M.W2[i * W + j] * M.h1[j]; M.h2[i] = Math.tanh(s); }
+    s = M.b3[0];
+    for (i = 0; i < W; i++) s += M.w3[i] * M.h2[i];
+    return s;
+  }
+  function trainStep(M, X, Y, eta) {
+    var W = M.W, nin = M.nin, n = X.length, i, j, q, k;
+    for (k = 0; k < M.gs.length; k++) M.gs[k].fill(0);
+    var G1 = M.gs[0], Gb1 = M.gs[1], G2 = M.gs[2], Gb2 = M.gs[3], G3 = M.gs[4], Gb3 = M.gs[5];
+    var d1 = new Float64Array(W), d2 = new Float64Array(W), L = 0;
+    for (q = 0; q < n; q++) {
+      var y = fwd(M, X[q]), e = y - Y[q], dz = 2 * e / n;
+      L += e * e / n;
+      Gb3[0] += dz;
+      d1.fill(0);
+      for (i = 0; i < W; i++) { G3[i] += M.h2[i] * dz; d2[i] = M.w3[i] * dz * (1 - M.h2[i] * M.h2[i]); }
+      for (i = 0; i < W; i++) {
+        Gb2[i] += d2[i];
+        var ro = i * W;
+        for (j = 0; j < W; j++) { G2[ro + j] += d2[i] * M.h1[j]; d1[j] += M.W2[ro + j] * d2[i]; }
+      }
+      for (i = 0; i < W; i++) {
+        var dd = d1[i] * (1 - M.h1[i] * M.h1[i]), ro2 = i * nin;
+        Gb1[i] += dd;
+        for (j = 0; j < nin; j++) G1[ro2 + j] += dd * X[q][j];
+      }
+    }
+    M.t++;
+    var c1 = 1 - Math.pow(0.9, M.t), c2 = 1 - Math.pow(0.999, M.t);
+    for (k = 0; k < M.ps.length; k++) {
+      var P = M.ps[k], Gk = M.gs[k], Mk = M.ms[k], Vk = M.vs[k];
+      for (i = 0; i < P.length; i++) {
+        Mk[i] = 0.9 * Mk[i] + 0.1 * Gk[i];
+        Vk[i] = 0.999 * Vk[i] + 0.001 * Gk[i] * Gk[i];
+        P[i] -= eta * (Mk[i] / c1) / (Math.sqrt(Vk[i] / c2) + 1e-8);
+      }
+    }
+    return L;
+  }
+
+  /* ---------- 左圖：純量 vs 嵌入 ---------- */
+  function embed(t, J) {
+    var v = [], j;
+    for (j = 0; j < J; j++) { v.push(Math.sin(Math.PI * Math.pow(2, j) * t)); v.push(Math.cos(Math.PI * Math.pow(2, j) * t)); }
+    return v;
+  }
+  function target(x, t, k) { return Math.sin(2 * Math.PI * x + 2 * Math.PI * k * t); }
+  function makeData(k, kind, J) {
+    var X = [], Y = [], i, r = MLF.rng(101);
+    for (i = 0; i < NPAIR; i++) {
+      var x = r(), t = r();
+      X.push(kind === 1 ? [x].concat(embed(t, J)) : [x, t]);
+      Y.push(target(x, t, k));
+    }
+    return { X: X, Y: Y };
+  }
+  function newJob() {
+    var k = kv(), J = Jv();
+    var d0 = makeData(k, 0, J), d1 = makeData(k, 1, J), d2 = makeData(k, 0, J);
+    return { s: 0, k: k, J: J, runs: [
+      { name: '純量', M: mk(2, 24, 7), D: d0, h: [] },
+      { name: '嵌入', M: mk(1 + 2 * J, 24, 7), D: d1, h: [] },
+      { name: '純量、寬兩倍', M: mk(2, 48, 9), D: d2, h: [] }
+    ] };
+  }
+  function tick() {
+    var c, i;
+    for (c = 0; c < CHUNK && JOB.s < STEPS; c++, JOB.s++)
+      for (i = 0; i < JOB.runs.length; i++) {
+        var L = trainStep(JOB.runs[i].M, JOB.runs[i].D.X, JOB.runs[i].D.Y, 0.02);
+        if (JOB.s % 8 === 0) JOB.runs[i].h.push([JOB.s + 1, Math.max(L, 1e-6)]);
+      }
+    el('prog').textContent = JOB.s < STEPS ? '訓練中 ' + Math.round(JOB.s / STEPS * 100) + '%' : '';
+    drawFreq(); updStats();
+    raf = JOB.s < STEPS ? requestAnimationFrame(tick) : null;
+  }
+  function restart() { if (raf) cancelAnimationFrame(raf); JOB = newJob(); raf = requestAnimationFrame(tick); }
+
+  /* ---------- 右圖：null token ---------- */
+  /* 條件是兩類的 one-hot 加一個 null 座標；p 的比例把條件換成 null。
+     同時跑 NSEED 個不同初始化，看「沒被訓練到的方向」有多任意。 */
+  function nullData(p, sd) {
+    var r = MLF.rng(sd), X = [], Y = [], i, j, NN = 300;
+    for (j = 0; j < 2; j++) for (i = 0; i < NN; i++) {
+      var x = r();
+      var c = [j === 0 ? 1 : 0, j === 1 ? 1 : 0, 0];
+      if (r() < p) c = [0, 0, 1];
+      X.push([x].concat(c));
+      Y.push(Math.sin(2 * Math.PI * x) * (j === 0 ? 1 : -1) + (j === 0 ? 0.3 : -0.3));
+    }
+    return { X: X, Y: Y };
+  }
+  function newNull() {
+    var p = +el('p').value, runs = [], i;
+    var D = nullData(p, 13);     /* 同一份資料、同一組 dropout 遮罩，只換初始化 */
+    for (i = 0; i < NSEED; i++) runs.push({ M: mk(4, 24, 21 + 40 * i), D: D });
+    return { s: 0, runs: runs, p: p };
+  }
+  function ntick() {
+    var c, i;
+    for (c = 0; c < CHUNK && NUL.s < NSTEPS; c++, NUL.s++)
+      for (i = 0; i < NUL.runs.length; i++) trainStep(NUL.runs[i].M, NUL.runs[i].D.X, NUL.runs[i].D.Y, 0.02);
+    drawNull(); updStats();
+    nraf = NUL.s < NSTEPS ? requestAnimationFrame(ntick) : null;
+  }
+  function nrestart() { if (nraf) cancelAnimationFrame(nraf); NUL = newNull(); nraf = requestAnimationFrame(ntick); }
+
+  /* ---------- 畫圖 ---------- */
+  function drawFreq() {
+    var s = dF.resize(), ctx = dF.ctx; MLF.clear(ctx, s, pal);
+    var W = s.w, half = W * 0.5, i, sL = { w: half, h: s.h }, sR = { w: W - half, h: s.h };
+    var t = +el('t').value, k = JOB.k, J = JOB.J;
+    ctx.save();
+    var axL = MLF.axes(ctx, sL, { x: [0, 1], y: [-1.6, 1.6], pal: pal, xticks: [0, 0.5, 1],
+      yticks: [-1, 0, 1], xlab: 'x', ylab: 'y', pad: { l: 0.19, r: 0.05 } });
+    var tr = [], p0 = [], p1 = [];
+    for (i = 0; i < G; i++) {
+      tr.push([gx[i], target(gx[i], t, k)]);
+      p0.push([gx[i], Math.max(-2, Math.min(2, fwd(JOB.runs[0].M, [gx[i], t])))]);
+      p1.push([gx[i], Math.max(-2, Math.min(2, fwd(JOB.runs[1].M, [gx[i]].concat(embed(t, J)))))]);
+    }
+    MLF.line(ctx, axL, tr, MLF.rgb(pal.a, 0.55), 1.6, [4, 3]);
+    MLF.line(ctx, axL, p0, MLF.rgb(pal.d), 2);
+    MLF.line(ctx, axL, p1, MLF.rgb(pal.c), 2);
+    MLF.label(ctx, axL.box.l + 5, axL.box.t + 11, 't = ' + t.toFixed(2) + '，k = ' + k, pal.muted);
+    MLF.legend(ctx, axL, [{ t: '真值', c: MLF.rgb(pal.a, 0.7) }, { t: '純量', c: MLF.rgb(pal.d) },
+      { t: '嵌入', c: MLF.rgb(pal.c) }], 'bl', pal);
+    ctx.restore();
+
+    ctx.save(); ctx.translate(half, 0);
+    var lo = 1e-4, hi = 2;
+    var axR = MLF.axes(ctx, sR, { x: [1, STEPS], y: [lo, hi], logx: true, logy: true, pal: pal,
+      xticks: [1, 10, 100, STEPS], yticks: [lo, 1e-2, hi],
+      fmty: function (v) { return v.toExponential(0); }, xlab: '步數（log）', ylab: '訓練 MSE',
+      pad: { l: 0.22, r: 0.05 } });
+    var cols = [pal.d, pal.c, pal.e];
+    JOB.runs.forEach(function (R, i2) {
+      MLF.line(ctx, axR, R.h.map(function (q) { return [q[0], Math.max(lo, Math.min(hi, q[1]))]; }), MLF.rgb(cols[i2]), 2);
+    });
+    MLF.legend(ctx, axR, JOB.runs.map(function (R, i2) { return { t: R.name, c: MLF.rgb(cols[i2]) }; }), 'bl', pal);
+    ctx.restore();
+  }
+
+  function nullCurves() {
+    var i, k, M0 = NUL.runs[0].M, a = [], b = [], mid = [], nls = [];
+    for (k = 0; k < NUL.runs.length; k++) nls.push([]);
+    for (i = 0; i < G; i++) {
+      var x = gx[i];
+      a.push([x, fwd(M0, [x, 1, 0, 0])]);
+      b.push([x, fwd(M0, [x, 0, 1, 0])]);
+      mid.push([x, 0]);                  // 兩類的真平均：(+sin+0.3) 與 (−sin−0.3) 的平均是 0
+      for (k = 0; k < NUL.runs.length; k++) nls[k].push([x, fwd(NUL.runs[k].M, [x, 0, 0, 1])]);
+    }
+    var dev = 0, spread = 0;
+    for (k = 0; k < nls.length; k++) {
+      var d2 = 0;
+      for (i = 0; i < G; i++) d2 += nls[k][i][1] * nls[k][i][1];
+      dev += Math.sqrt(d2 / G) / nls.length;
+    }
+    for (i = 0; i < G; i++) {
+      var m = 0, v = 0;
+      for (k = 0; k < nls.length; k++) m += nls[k][i][1] / nls.length;
+      for (k = 0; k < nls.length; k++) v += (nls[k][i][1] - m) * (nls[k][i][1] - m) / nls.length;
+      spread += v / G;
+    }
+    return { a: a, b: b, nls: nls, mid: mid, dev: dev, spread: Math.sqrt(spread) };
+  }
+  function drawNull() {
+    var s = dN.resize(), ctx = dN.ctx; MLF.clear(ctx, s, pal);
+    var C = nullCurves(), i, lo = -2.2, hi = 2.2;
+    var ax = MLF.axes(ctx, s, { x: [0, 1], y: [lo, hi], pal: pal, xticks: [0, 0.5, 1],
+      yticks: [-2, 0, 2], xlab: 'x', ylab: '模型輸出' });
+    var cl = function (p) { return [p[0], Math.max(lo + 0.02, Math.min(hi - 0.02, p[1]))]; };
+    MLF.line(ctx, ax, C.mid, MLF.rgb(pal.a, 0.6), 1.6, [4, 3]);
+    MLF.line(ctx, ax, C.a.map(cl), MLF.rgb(pal.b), 2);
+    MLF.line(ctx, ax, C.b.map(cl), MLF.rgb(pal.d), 2);
+    C.nls.forEach(function (n, k) { MLF.line(ctx, ax, n.map(cl), MLF.rgb(pal.e, k === 0 ? 0.95 : 0.5), k === 0 ? 2.4 : 1.6); });
+    var out = 0;
+    for (i = 0; i < C.nls[0].length; i++) C.nls.forEach(function (n) { if (n[i][1] > hi || n[i][1] < lo) out++; });
+    MLF.label(ctx, ax.box.l + ax.box.w / 2, ax.box.t + 12,
+      (out > 0 ? '↕ 有 ' + Math.round(out / (C.nls.length * G) * 100) + '% 跑出畫面外　' : '') +
+      NSEED + ' 個 seed 的 null 曲線彼此散佈 ' + C.spread.toFixed(3),
+      MLF.rgb(pal.e), 'center');
+    MLF.legend(ctx, ax, [{ t: 'c = 0', c: MLF.rgb(pal.b) }, { t: 'c = 1', c: MLF.rgb(pal.d) },
+      { t: 'null（' + NSEED + ' 個 seed）', c: MLF.rgb(pal.e) }, { t: '兩類的真平均 = 0', c: MLF.rgb(pal.a, 0.7) }], 'tr', pal);
+  }
+
+  function updStats() {
+    el('vk').textContent = JOB.k;
+    ['v1', 'v2', 'v3'].forEach(function (id, i) {
+      var h = JOB.runs[i].h;
+      el(id).textContent = h.length ? h[h.length - 1][1].toExponential(2) : '—';
+    });
+    if (NUL) { var C = nullCurves(); el('v4').textContent = C.dev.toFixed(3); el('v5').textContent = C.spread.toFixed(3); }
+  }
+
+  ['k', 'J'].forEach(function (i) { el(i).onchange = function () { restart(); }; });
+  el('t').oninput = function () { drawFreq(); };
+  el('p').onchange = function () { nrestart(); };
+  el('re').onclick = function () { restart(); nrestart(); };
+  window.addEventListener('resize', function () { drawFreq(); drawNull(); });
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; drawFreq(); drawNull(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  JOB = newJob(); NUL = newNull();
+  restart(); nrestart();
+
+})();
+</script>
+</body>
+</html>

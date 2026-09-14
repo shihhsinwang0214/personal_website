@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>梯度下降：門檻由最陡的方向決定，速度由最平的方向決定</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：在一個二次碗上，梯度下降的<b>發散門檻</b>是 η* = 2/λ<sub>max</sub>（最陡的方向），而<b>收斂速度</b>由條件數 κ = λ<sub>max</sub>/λ<sub>min</sub>（最平的方向）決定。把特徵乘一個尺度，這三個數字一起被改寫；打開標準化，碗變圓。</p>
+  <canvas id="bowl" style="aspect-ratio:1/1" aria-label="等高線＝損失；折線＝梯度下降的軌跡（起點固定在右上）；✕＝最佳解"></canvas>
+  <p class="cap">等高線＝損失；折線＝梯度下降的軌跡（起點固定在右上）；✕＝最佳解</p>
+  <canvas id="loss" style="aspect-ratio:5/2" aria-label="縱軸 log：損失對步數。虛線＝用 η* 的一半時的理論收縮率"></canvas>
+  <p class="cap">縱軸 log：損失對步數。虛線＝用 η* 的一半時的理論收縮率</p>
+  <div class="controls">
+    <div class="row">
+      <label for="lr">η（相對 η*）</label><input id="lr" type="range" min="-3" max="0.12" step="0.01" value="-0.5" />
+      <label for="sc">特徵尺度 s</label><input id="sc" type="range" min="-1" max="2" step="0.05" value="0" />
+    </div>
+    <div class="row">
+      <label class="chk"><input id="std" type="checkbox" /> 每欄標準化</label>
+      <button id="run" class="ghost">▶ 重跑</button>
+    </div>
+    <div class="stats"><span>λmax = <b id="vL">—</b></span> <span>κ = <b id="vK">—</b></span> <span>η* = <b id="vE">—</b></span> <span>目前 η = <b id="vN">—</b></span> <span>50 步後的損失 = <b id="vF">—</b></span></div>
+  </div>
+  <p class="observe">觀察：把 η 推過 η*（滑桿最右端），軌跡從<b>之字收斂變成之字放大</b>，下圖變成一條往上的直線。拉動特徵尺度，λ<sub>max</sub> 與 η* 掃過好幾個數量級而碗肉眼可見地被拉長；<b>打開標準化，碗變圓、κ 掉下來、同樣的步數走得遠得多</b>——標準化不是清潔工作，是在改碗的形狀。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var el = function (i) { return document.getElementById(i); };
+  var dB = MLF.hiDPICanvas(el('bowl')), dL = MLF.hiDPICanvas(el('loss'));
+  var pal = MLF.palette(), M = null, path = [], losses = [];
+
+  /* 兩個特徵：phi1 = x, phi2 = x^2（乘上尺度 s，或每欄標準化）。
+     損失 L(w) = mean_i (w·phi_i - y_i)^2 是一個精確的二次式。 */
+  function build() {
+    var t = MLF.toy1d(60, 0.15, 3), n = t.x.length, i;
+    var s = Math.pow(10, +el('sc').value);
+    var P = [];
+    for (i = 0; i < n; i++) P.push([t.x[i] * s, t.x[i] * t.x[i] * s]);
+    if (el('std').checked) {
+      for (var j = 0; j < 2; j++) {
+        var m = 0, v = 0;
+        for (i = 0; i < n; i++) m += P[i][j]; m /= n;
+        for (i = 0; i < n; i++) v += (P[i][j] - m) * (P[i][j] - m); v = Math.sqrt(v / n) || 1;
+        for (i = 0; i < n; i++) P[i][j] = (P[i][j] - m) / v;
+      }
+    }
+    var H = [[0, 0], [0, 0]], b = [0, 0];
+    for (i = 0; i < n; i++) {
+      H[0][0] += 2 * P[i][0] * P[i][0] / n; H[0][1] += 2 * P[i][0] * P[i][1] / n;
+      H[1][0] = H[0][1]; H[1][1] += 2 * P[i][1] * P[i][1] / n;
+      b[0] += 2 * P[i][0] * t.y[i] / n; b[1] += 2 * P[i][1] * t.y[i] / n;
+    }
+    var tr = H[0][0] + H[1][1], det = H[0][0] * H[1][1] - H[0][1] * H[1][0];
+    var disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
+    var lmax = tr / 2 + disc, lmin = Math.max(tr / 2 - disc, 1e-12);
+    var wst = MLF.solveSym([H[0].slice(), H[1].slice()], b.slice());
+    var c0 = 0; for (i = 0; i < n; i++) c0 += t.y[i] * t.y[i] / n;
+    M = { H: H, b: b, w: wst, lmax: lmax, lmin: lmin, kappa: lmax / lmin, c0: c0, eta: 2 / lmax };
+  }
+  function L(w) {
+    return 0.5 * (M.H[0][0] * w[0] * w[0] + 2 * M.H[0][1] * w[0] * w[1] + M.H[1][1] * w[1] * w[1])
+      - (M.b[0] * w[0] + M.b[1] * w[1]) + M.c0;
+  }
+  function run() {
+    var eta = M.eta * Math.pow(10, +el('lr').value);
+    var R = Math.max(Math.abs(M.w[0]), Math.abs(M.w[1]), 1) * 1.6;
+    var w = [M.w[0] + R * 0.75, M.w[1] + R * 0.62];
+    path = [w.slice()]; losses = [L(w)];
+    for (var k = 0; k < 50; k++) {
+      var g0 = M.H[0][0] * w[0] + M.H[0][1] * w[1] - M.b[0];
+      var g1 = M.H[1][0] * w[0] + M.H[1][1] * w[1] - M.b[1];
+      w = [w[0] - eta * g0, w[1] - eta * g1];
+      if (!isFinite(w[0]) || Math.abs(w[0]) > 1e12 || Math.abs(w[1]) > 1e12) break;
+      path.push(w.slice()); losses.push(L(w));
+    }
+    return eta;
+  }
+
+  function drawBowl() {
+    var s = dB.resize(), ctx = dB.ctx; MLF.clear(ctx, s, pal);
+    var R = 0;
+    path.forEach(function (p) { R = Math.max(R, Math.abs(p[0] - M.w[0]), Math.abs(p[1] - M.w[1])); });
+    R = Math.min(Math.max(R * 1.2, 1e-6), 1e6);
+    var ax = MLF.axes(ctx, s, { x: [M.w[0] - R, M.w[0] + R], y: [M.w[1] - R, M.w[1] + R], pal: pal,
+      xticks: [], yticks: [], pad: { l: 0.05, r: 0.05, t: 0.05, b: 0.09 }, xlab: '橫軸 w₁、縱軸 w₂（等高線＝損失）' });
+    // 等高線：L 是精確的二次式，所以 level set 就是以 w* 為中心的橢圓
+    var H = M.H, tr = H[0][0] + H[1][1];
+    var disc = Math.sqrt(Math.max(0, (H[0][0] - H[1][1]) * (H[0][0] - H[1][1]) / 4 + H[0][1] * H[0][1]));
+    var l1 = tr / 2 + disc, l2 = Math.max(tr / 2 - disc, 1e-14);
+    var th = 0.5 * Math.atan2(2 * H[0][1], H[0][0] - H[1][1]);
+    var kx = ax.box.w / (2 * R), ky = ax.box.h / (2 * R);
+    var cx0 = ax.X(M.w[0]), cy0 = ax.Y(M.w[1]);
+    var Lref = 0.5 * l1 * R * R, i;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ax.box.l, ax.box.t, ax.box.w, ax.box.h); ctx.clip();
+    for (i = 9; i >= 1; i--) {
+      var c = Lref * Math.pow(i / 9, 2);
+      var a1 = Math.sqrt(2 * c / l1), a2 = Math.sqrt(2 * c / l2);
+      ctx.save(); ctx.translate(cx0, cy0); ctx.rotate(-th);
+      ctx.beginPath(); ctx.ellipse(0, 0, a1 * kx, a2 * ky, 0, 0, 6.2832);
+      ctx.fillStyle = MLF.lerpColor(pal.dark ? [30, 32, 40] : [255, 253, 251], pal.a, 0.10 + 0.055 * (9 - i));
+      ctx.fill();
+      ctx.strokeStyle = MLF.rgb(pal.a, 0.35); ctx.lineWidth = 1; ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+    ctx.strokeStyle = pal.axis; ctx.lineWidth = 1;
+    ctx.strokeRect(ax.box.l, ax.box.t, ax.box.w, ax.box.h);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ax.box.l, ax.box.t, ax.box.w, ax.box.h); ctx.clip();
+    ctx.strokeStyle = MLF.rgb(pal.d); ctx.lineWidth = 1.8; ctx.beginPath();
+    path.forEach(function (p, k) {
+      var px = ax.X(p[0]), py = ax.Y(p[1]);
+      if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+    path.forEach(function (p, k) { if (k % 2 === 0) MLF.dot(ctx, ax, p[0], p[1], MLF.rgb(pal.d, 0.9), 1.8); });
+    ctx.restore();
+    ctx.strokeStyle = pal.ink; ctx.lineWidth = 1.6;
+    var cx = ax.X(M.w[0]), cy = ax.Y(M.w[1]);
+    ctx.beginPath(); ctx.moveTo(cx - 5, cy - 5); ctx.lineTo(cx + 5, cy + 5);
+    ctx.moveTo(cx + 5, cy - 5); ctx.lineTo(cx - 5, cy + 5); ctx.stroke();
+    if (losses[losses.length - 1] > losses[0]) {
+      ctx.strokeStyle = MLF.rgb(pal.d, 0.9); ctx.lineWidth = 3;
+      ctx.strokeRect(1.5, 1.5, s.w - 3, s.h - 3);
+      MLF.label(ctx, s.w / 2, 14, '發散：η 超過 η*', MLF.rgb(pal.d), 'center', 12);
+    }
+  }
+
+  function drawLoss(eta) {
+    var s = dL.resize(), ctx = dL.ctx; MLF.clear(ctx, s, pal);
+    var lmin = L(M.w), i, pts = [], hi = 1e-8, lo = 1e-8;
+    for (i = 0; i < losses.length; i++) hi = Math.max(hi, losses[i] - lmin);
+    hi = Math.max(hi * 2, 1e-6); lo = hi * 1e-9;
+    var ax = MLF.axes(ctx, s, { x: [0, 50], y: [lo, hi], logy: true, pal: pal,
+      xticks: [0, 10, 20, 30, 40, 50], yticks: [lo, Math.sqrt(lo * hi), hi],
+      fmty: function (v) { return v.toExponential(0); }, xlab: '步數' });
+    for (i = 0; i < losses.length; i++) pts.push([i, Math.min(hi, Math.max(lo, losses[i] - lmin))]);
+    MLF.line(ctx, ax, pts, MLF.rgb(pal.d), 2);
+    var rate = Math.pow(1 - M.eta / 2 * M.lmin, 2), q = [], v = pts.length ? pts[0][1] : hi;
+    for (i = 0; i < 50; i++) { q.push([i, Math.min(hi, Math.max(lo, v))]); v *= rate; }
+    MLF.line(ctx, ax, q, MLF.rgb(pal.c), 1.5, [5, 4]);
+    MLF.label(ctx, ax.box.r - 4, ax.box.b - 9, 'η = η*/2 的理論收縮率', MLF.rgb(pal.c), 'right');
+  }
+
+  function draw() {
+    build();
+    var eta = run();
+    el('vL').textContent = M.lmax.toExponential(2);
+    el('vK').textContent = M.kappa.toExponential(2);
+    el('vE').textContent = M.eta.toExponential(2);
+    el('vN').textContent = eta.toExponential(2);
+    var last = losses[losses.length - 1] - L(M.w);
+    el('vF').textContent = (losses.length < 51 || !isFinite(last)) ? '發散' : last.toExponential(2);
+    drawBowl(); drawLoss(eta);
+  }
+  ['lr', 'sc'].forEach(function (i) { el(i).oninput = draw; });
+  el('std').onchange = draw;
+  el('run').onclick = draw;
+  window.addEventListener('resize', draw);
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  draw();
+
+})();
+</script>
+</body>
+</html>

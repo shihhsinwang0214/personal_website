@@ -5,157 +5,285 @@ title: "一張地圖讀完整門課"
 category: "research-areas"
 group: "Diffusion & Flow Models"
 status: "available"
-updated: 2026-06-26
-summary: "把每個方法先放到 path、target、sampler、guidance、evaluation 五個位置，後面的公式就有了座標。"
+updated: 2026-09-04
+summary: "把生成方法拆成十個可定位的技術位置：從 path 與 training target，到 dynamics、sampler、guidance、fast generation、structured data 與 evaluation。"
 demos:
   - "notes/research_areas/diffusion-flow-course/principles-course-map.html"
 references:
-  - label: "Sohl-Dickstein et al., Deep Unsupervised Learning using Nonequilibrium Thermodynamics (ICML 2015)"
-    href: "https://arxiv.org/abs/1503.03585"
   - label: "Ho, Jain & Abbeel, Denoising Diffusion Probabilistic Models (NeurIPS 2020)"
     href: "https://arxiv.org/abs/2006.11239"
   - label: "Song et al., Score-Based Generative Modeling through Stochastic Differential Equations (ICLR 2021)"
     href: "https://arxiv.org/abs/2011.13456"
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
+    href: "https://arxiv.org/abs/2210.02747"
+  - label: "Dhariwal & Nichol, Diffusion Models Beat GANs on Image Synthesis (NeurIPS 2021)"
+    href: "https://arxiv.org/abs/2105.05233"
+  - label: "Ho & Salimans, Classifier-Free Diffusion Guidance (2022)"
+    href: "https://arxiv.org/abs/2207.12598"
+  - label: "Song et al., Consistency Models (ICML 2023)"
+    href: "https://proceedings.mlr.press/v202/song23a.html"
+  - label: "Austin et al., Structured Denoising Diffusion Models in Discrete State-Spaces (NeurIPS 2021)"
+    href: "https://arxiv.org/abs/2107.03006"
+  - label: "Kynkäänniemi et al., Improved Precision and Recall Metric for Assessing Generative Models (NeurIPS 2019)"
+    href: "https://arxiv.org/abs/1904.06991"
+  - label: "Lai et al., The Principles of Diffusion Models (2025)"
+    href: "https://arxiv.org/abs/2510.21890"
 ---
 import Quiz from '../../components/Quiz.astro';
 
 # 一張地圖讀完整門課
 
-> Diffusion & Flow Models 第 1 講，第 3 篇。這篇不再多發明一個名詞，而是給你一個讀論文時可以反覆拿出來用的座標系。
+> Diffusion & Flow Models 課程 W2（技術第 1 講），第 5 篇。這篇放在 W2 最後：不是用名詞預告名詞，而是把前四篇真的算過的物件放回一張可以拿去讀論文、選專題與設計實驗的地圖。
 
-你很快會遇到一堆看似不同的名字：DDPM、score-based SDE、DDIM、flow matching、rectified flow、consistency models、classifier-free guidance。初學時最累的地方，不是每個方法都很難，而是它們看起來像各自開了一套語言。這門課的做法是反過來：先畫一張地圖，再把方法放上去。
+一篇新論文可能同時出現 DDPM、score、ODE、guidance、distillation 和一個新 metric。每個字都似曾相識，卻很難回答它到底改了什麼。這時最沒效率的做法，是從標題猜它屬於哪個「模型家族」；更穩的做法，是把方法拆開，找出它在哪個技術位置做選擇。
 
-## 先把論文放到地圖上
+W2 前四篇已經替這張地圖準備了四個支點：
 
-> 讀一個 diffusion / flow 方法時，先問五件事：它選了什麼 path、學什麼 target、用什麼 sampler、如何做 guidance、最後用什麼 evaluation 判斷成敗。
+- [生成就是把分布搬過去](/personal_website/zh/notes/dfc-principles-transport-map) 分清 finite samples、unknown $p_{\mathrm{data}}$、particle 與 distribution；
+- [Corrupt Then Reverse](/personal_website/zh/notes/dfc-principles-corrupt-and-reverse) 用 Gaussian Markov chain 建出一條 data-to-noise path；
+- [同一個 Noisy Point，可以學哪一種訊號？](/personal_website/zh/notes/dfc-principles-prediction-targets) 分開 clean data、noise、score、velocity 與 sampler；
+- [Flow Matching：直接學每個位置該往哪裡走](/personal_website/zh/notes/dfc-principles-flow-matching) 從 conditional path 造出 velocity target，再用 ODE 生成。
 
-這五個問題不會替你讀完論文，但會讓你知道該把力氣花在哪裡。
+現在把它們疊成同一個流程：
 
-## 用互動地圖看五個位置
+```text
+有限 data samples + 可取樣的 base
+                ↓
+        probability path
+                ↓
+   可計算的 conditional training target
+                ↓
+      neural network 學局部物件
+                ↓
+        SDE / ODE / flow map
+                ↓
+       numerical sampling
+                ↓
+  generated samples + task-specific evidence
+```
 
-下面的 demo 不是演算法，而是一張索引卡。切換「讀圖角度」，看同一個生成流程中哪幾個位置被點亮。後面每一講都會回來更新這張圖。
+這不是說所有方法都一樣。它說的是：**先看每一格放了什麼，再判斷論文真正改了哪一格，以及那個改動如何傳到下游。**
 
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-flow-course/principles-course-map.html" class="demo-frame" title="Diffusion and flow course map demo" style="height: 690px; width: 100%; border: none;"></iframe>
+## 先用五格版本找到方向
 
-如果你讀一篇新論文時能先把它放進這張圖，很多名詞就會停止互相打架。
+下面的互動圖保留最粗的五層：path、target、sampler、guidance、evaluation。切換讀圖角度，看每個研究問題先點亮哪一層；接著再用下一節的十格版本做精確定位。
 
-## 五個物件，一套記號
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-flow-course/principles-course-map.html" class="demo-frame" title="Diffusion and flow course map overview" style="height: 690px; width: 100%; border: none;"></iframe>
 
-我們把一個生成方法粗略拆成五個物件。第一個是 probability path：
+粗圖的用途是避免迷路，不是替代數學。真正讀方法時，我們把五格展開成十個位置。
+
+## 十個位置，十個後續問題
+
+| 位置 | 代表寫法 | 讀論文時先問 |
+|---|---|---|
+| 1. Data、state space、base | $X_1\sim p_{\mathrm{data}}$，$X_0\sim p_{\mathrm{base}}$ | 合法 sample 長什麼樣？為何這個 base 容易抽？ |
+| 2. Probability path | $(p_t)_{t\in[0,1]}$ 或 $X_t=I_t(X_0,X_1,Z)$ | 中間 distributions 怎麼定？endpoints 與 time convention 是什麼？ |
+| 3. Conditional construction / target | $A_t=A_t(X_0,X_1,Z)$ | 哪些 latent variables 只在訓練時知道？target 為何可計算？ |
+| 4. Learned object / objective | $\min_\theta\mathbb E[w(t)\|F_\theta(X_t,t,c)-A_t\|^2]$ | 網路實際輸出 noise、score、denoiser 還是 velocity？ |
+| 5. Dynamics | $dX_t=b_t(X_t)dt+g_t\,dW_t$ 或 $\dot X_t=v_t(X_t)$ | 哪個 dynamics 真的具有想要的 marginals？ |
+| 6. Numerical sampler | $x_{k+1}=x_k+h\hat v_\theta(x_k,t_k)$ | 有限步如何近似 dynamics？NFE、error、stability 怎麼取捨？ |
+| 7. Guidance / conditioning | $\nabla_x\log p_t(x\mid c)=\nabla_x\log p_t(x)+\nabla_x\log p_t(c\mid x)$ | 條件資訊在哪裡改變局部方向？quality–coverage trade-off 是什麼？ |
+| 8. Fast generation / flow map | $G_\theta(x_s,s,t)\approx\Phi_{s\to t}(x_s)$ | 能否學跨時間的大步，而非每次只走 infinitesimal step？ |
+| 9. Structured state / application constraints | $q_t(x'\mid x)$ on $\mathcal X$ | Gaussian corruption 是否合法？representation、transition、constraint 要改什麼？ |
+| 10. Evaluation / evidence | $\widehat{\mathbb E}[g(X)]=\frac1m\sum_{j=1}^m g(\tilde x^{(j)})$ | 哪組 evidence 同時檢查 quality、coverage、constraint、cost 與 failure modes？ |
+
+一張表看完不等於學完；它只是讓後面的推導各有座標。以下把十格之間最重要的依賴補起來。
+
+## 前四格決定「模型要學哪一道題」
+
+第一格先決定問題本身。圖片常被表示成 continuous-valued tensor，token 是 discrete state，分子或物理場可能還有 symmetry、conservation 或 feasibility constraints。$p_{\mathrm{base}}=\mathcal N(0,I)$ 很常見，但不是生成模型定義的一部分；重點是能夠可靠 sampling，並有一條可處理的路連到資料。
+
+第二格的 probability path 不只畫兩個 endpoints。以 diffusion forward clock 為例，
 
 $$
-(p_t)_{t\in[0,1]},\qquad p_0=\mathcal N(0,I_d),\quad p_1\approx p_{\mathrm{data}}.
+Y_\tau=\alpha_\tau X+\sigma_\tau\epsilon
 $$
 
-第二個是模型學的局部訊號。它可能是 noise predictor $\epsilon_\theta(x_t,t)$、score $s_\theta(x_t,t)\approx\nabla_x\log p_t(x_t)$、velocity $v_\theta(x_t,t)$，或 denoiser $\hat x_{\theta}(x_t,t)$。很多訓練目標可以寫成加權平方回歸的樣子：
+同時決定每個 noise level 的 marginal distribution 與 SNR。以直線 Flow Matching 為例，
 
 $$
-\min_\theta\;
+X_t=(1-t)X_0+tX_1
+$$
+
+則 coupling 也參與決定中間的 conditional paths。即使 endpoints 相同，改 schedule、interpolation 或 coupling，training examples 仍會改變。
+
+第三格問的是「老師怎麼出有答案的題目」。diffusion 訓練時知道自己抽的 $X,\epsilon,\tau$；Flow Matching 訓練時知道抽到的 $X_0,X_1,t$。這些 latent variables 在生成時不會提供給模型，卻能製造 conditional target $A_t$。
+
+第四格才是 neural network 接到的 objective：
+
+$$
+\mathcal L(\theta)
+=
 \mathbb E\left[
-w(t)\left\|F_\theta(X_t,t,c)-A_t(X_t,Y,c)\right\|^2
+w(t)\left\|F_\theta(X_t,t,c)-A_t\right\|^2
 \right].
 $$
 
-這裡 $F_\theta$ 是模型輸出，$A_t$ 是可計算的訓練 target，$Y$ 表示生成 $X_t$ 時保留下來的輔助變數，例如乾淨資料、噪聲、或 flow matching 的端點配對；$c$ 是條件資訊，可以不存在。第 3、4、6 講會分別把 DDPM、score matching、flow matching 的 $A_t$ 寫清楚。
-
-第三個是 sampler。學到局部訊號後，生成要從 $p_0$ 走到 $p_1$。確定性 ODE 取樣可以抽象寫成
+固定 $(X_t,t,c)$ 後，L2 optimum 是
 
 $$
-\frac{dX_t}{dt}=\hat v_\theta(X_t,t),
-\qquad X_0\sim p_0,
+F^*(x,t,c)
+=
+\mathbb E[A_t\mid X_t=x,t,c].
 $$
 
-再用數值方法離散化。隨機 sampler 則加入 Brownian motion：
+這一行是 denoising 與 conditional Flow Matching 共用的 regression backbone。但不要因此說它們完全相同：$p_t$、$A_t$、weight $w(t)$、time sampling 和下游 dynamics 都可能不同。
+
+讀論文時若只看到「我們改成預測 $v$」就停下來，會漏掉前三格；而前三格常常正是 training difficulty 與 inductive bias 的來源。
+
+## 第五、六格決定「學到之後怎麼走」
+
+learned object 必須被放進 dynamics 才能產生一條 sample path。Flow Matching 直接提供 ODE velocity：
 
 $$
-dX_t=b_\theta(X_t,t)\,dt+g(t)\,dW_t.
+\frac{dX_t}{dt}=v_\theta(X_t,t).
 $$
 
-第四個是 guidance。若有條件 $c$，Bayes rule 給出一個基本分解：
+score-based diffusion 可以使用 reverse-time SDE。若這一小段暫時採用 diffusion 的 data-to-noise forward clock $\tau$，並把 forward SDE 寫成 $dY_\tau=f_\tau(Y_\tau)d\tau+g_\tau dW_\tau$，那麼在適當 regularity conditions 下，與它共享同一族 forward marginals 的 probability-flow ODE 是
+
+$$
+\frac{dY_\tau}{d\tau}
+=
+f_\tau(Y_\tau)-\frac12g_\tau^2\nabla_y\log p_\tau(Y_\tau).
+$$
+
+生成時從 noise 端把 $\tau$ 由大積到小。本課其他 flow 圖使用相反的 generation clock $t=1-\tau$；看到正負號以前，先確認作者的 time convention。
+
+「共享 marginals」不表示 individual trajectories 相同。SDE 沿路有 Brownian noise，ODE 在給定初始 seed 後是 deterministic；它們可以在每個時刻產生相同 distribution，particle path 卻完全不同。W4 會從 Fokker–Planck equation 把這件事推清楚。
+
+即使 continuous dynamics 完全正確，電腦仍要選 finite steps。Euler 只用目前 slope：
+
+$$
+x_{k+1}=x_k+h\,\hat v_\theta(x_k,t_k).
+$$
+
+較高階 solver 會多看幾次 field，以減少 local truncation error。這裡至少有兩種誤差：field prediction error 與 discretization error。增加 sampling steps 主要處理後者，未必修得好前者；換更大 network 主要處理前者，也不保證粗步長穩定。後面比較 sampler 時，會固定其中一項再看另一項。
+
+## 第七、八格改變目的地與步數
+
+conditional generation 多一個條件 $c$：文字、label、觀測、幾何限制或其他 context。Bayes identity 給出 classifier guidance 的基本方向：
 
 $$
 \nabla_x\log p_t(x\mid c)
 =
-\nabla_x\log p_t(x)+\nabla_x\log p(c\mid x_t=x),
+\nabla_x\log p_t(x)
++
+\nabla_x\log p_t(c\mid x).
 $$
 
-因為 $\log p(c)$ 對 $x$ 是常數。這告訴你：條件控制本質上是在改變局部方向，而不是在最後一步重新排序圖片。實際的 classifier guidance 和 classifier-free guidance 會在第 9 講推。
+它告訴我們 conditioning 不是生成結束後才替 samples 排名；條件可以在每個 noisy state 改變局部 score。classifier-free guidance 則用 conditional 與 unconditional model outputs 的組合，避免額外 classifier。guidance scale 提高時可能改變 fidelity 與 diversity 的平衡，因此「更聽 prompt」不能單獨代表 distribution 更好。
 
-第五個是 evaluation。生成後得到一個模型分布 $\hat p_1$，我們要問的是 $\hat p_1$ 和 $p_{\mathrm{data}}$ 的關係，而不只是某幾張樣本好不好看。likelihood、sample quality、coverage、precision/recall 會在第 12 講分開處理。
-
-## 統一語言：SDE、ODE、interpolant
-
-這門課會一直在三種描述之間切換。
-
-第一種是 SDE：
+另一條研究線問：為什麼一定要查詢 field 許多次？若 exact ODE flow map 記作 $\Phi_{s\to t}$，它把時間 $s$ 的狀態直接送到時間 $t$，並滿足 composition：
 
 $$
-dX_t=b_t(X_t)\,dt+g(t)\,dW_t.
-$$
-
-在足夠平滑、密度為正、score 存在的條件下，Song 等人的 score-based SDE 框架會給出與它共享邊際分布的 probability-flow ODE：
-
-$$
-\frac{dX_t}{dt}
+\Phi_{s\to t}
 =
-b_t(X_t)-\frac{1}{2}g(t)^2\nabla_x\log p_t(X_t).
+\Phi_{u\to t}\circ\Phi_{s\to u},
+\qquad s<u<t.
 $$
 
-這條式子現在先當地圖上的橋；第 5 講會推它。
-
-第二種是純 ODE / velocity field：
+fast generation 希望學一個近似的大步 map
 
 $$
-\frac{dX_t}{dt}=v_t(X_t).
+G_\theta(x_s,s,t)
+\approx
+\Phi_{s\to t}(x_s),
 $$
 
-flow matching 會直接學這個 $v_t$。第三種是 interpolant：
+或讓同一 trajectory 上不同時間的預測保持 consistency。這改的不是單純把 Euler 的 $h$ 調大；模型學習的 object、teacher information、consistency constraint 與 error accumulation 都可能一起改變。後面的 fast-generation 單元會把 solver acceleration、distillation、consistency 與 flow-map learning 分開定位。
+
+## 第九、十格問「換資料後還成立嗎」
+
+continuous image model 常把 Gaussian noise 直接加到 real-valued coordinates；但 token、graph edge、molecule type 或其他 structured state 不一定允許這個 operation。若 state space 是 finite set $\mathcal X$，forward corruption 可以改由 transition kernel 或 matrix 描述：
 
 $$
-X_t=I_t(X_0,X_1,Z),
+q_k(x_k\mid x_{k-1}),
+\qquad x_k\in\mathcal X.
 $$
 
-其中 $X_0\sim p_0$、$X_1\sim p_{\mathrm{data}}$，$Z$ 是額外噪聲。stochastic interpolants 會把 diffusion 和 flow matching 放進這個更大的盒子裡。
+Austin 等人的 D3PM 展示了 discrete state space 中可設計不同 transition matrices，包括 uniform、鄰近關係與 absorbing-state 類型。重點不是把 continuous 公式換一個字母，而是重新回答：哪些中間 state 合法、怎麼移動、reverse target 是什麼、sampling cost 如何計算。
 
-## 幾個容易想歪的地方
+真實 application 還會把 constraint 放回地圖。image、molecule、PDE field 與 trajectory 可以共享 path／target／sampler 的抽象問題，但它們不共享同一個「有效 sample」定義。representation 可能需要保留 symmetry；sampling 可能必須符合 boundary 或 feasibility；evaluation 可能更在意 rare failure，而不是平均視覺品質。
+
+最後一格因此沒有一個萬用 scalar。抽 $m$ 個 generated samples $\tilde x^{(j)}$ 後，任何 empirical metric 都只檢查某個 test function $g$：
+
+$$
+\widehat{\mathbb E}_{p_\theta}[g(X)]
+=
+\frac1m\sum_{j=1}^m g(\tilde x^{(j)}).
+$$
+
+若 $g$ 只量清晰度，它看不見 mode coverage；若只量 constraint violation rate，它不會告訴你 samples 是否有用；若只報最好看的例子，它甚至不估計 expectation。研究設計要把 quality、coverage、constraint、compute、stability 和 task-specific failure evidence 組起來，並明說每一項仍看不見什麼。
+
+## 用地圖讀三種典型方法
+
+把十格壓回三列，可以看出名稱之外的差異：
+
+| 方法視角 | Path / conditional target | Learned object | Dynamics / sampler |
+|---|---|---|---|
+| DDPM / denoising | Gaussian Markov corruption；已知 $x_0,\epsilon,k$ | reverse mean 的 parameterization，常以 $\epsilon$ 或 $x_0$ regression | discrete reverse kernels |
+| Score-based SDE | forward SDE 的 marginals；perturbation kernel | $s_\theta(x,t)\approx\nabla_x\log p_t(x)$ | reverse SDE 或 probability-flow ODE + solver |
+| Flow Matching | chosen conditional paths；conditional velocity | marginal velocity $v_\theta(x,t)$ | ODE + solver |
+
+這張表不把三者硬說成同一個演算法。它只指出它們共享「設計 path → 造 conditional supervision → 學 local object → 數值生成」的骨架。Lai 等人的 *The Principles of Diffusion Models* 以 variational、score-based 與 flow-based 三個觀點整理 diffusion 的共同原理；W3–W5 會沿這三個入口，各自推到能檢查的式子，再在 dynamics 層統一。
+
+## 停一下：三個定位測試
 
 <Quiz
-  q="看到一個新的 diffusion 或 flow 論文時，最有用的第一個動作是？"
+  q="兩篇方法都使用 ε-prediction network，是否足以判斷它們的生成過程相同？"
   options={[
-    { text: "先背它的新縮寫，因為每篇方法通常互不相干。", explain: "縮寫會很多，但大多數方法仍能放回 path、target、sampler、guidance、evaluation 這些位置。" },
-    { text: "先判斷它主要改了 path、training target、sampler、guidance 還是 evaluation。", correct: true, explain: "正解。先定位，才知道它是在改訓練、改路徑、改取樣，還是改控制與評估。" },
-    { text: "先看 demo 圖漂亮不漂亮，漂亮就代表方法比較好。", explain: "單張樣本只能提供部分訊號。分布是否覆蓋、likelihood、速度、穩定性都可能不同。" },
+    { text: "足夠；prediction target 相同就唯一決定 path、dynamics 與 solver。", explain: "同一輸出可在不同 schedule、reverse dynamics、weighting 與 solver 中使用。target 只是十格中的一格。" },
+    { text: "不足；還要比較 probability path、time convention、如何轉成 dynamics，以及 numerical sampler。", correct: true, explain: "對。先把 learned object 和 sampling mechanism 分開，才能知道真正相同與不同的部分。" },
+    { text: "不足，因為 ε-prediction 從來不能用來生成。", explain: "DDPM 正是常見反例；ε prediction 可換算成 reverse mean、clean prediction 或 score，再供 sampler 使用。" },
   ]}
 />
 
 <Quiz
-  q="guidance 在這張地圖裡比較像什麼？"
+  q="某個新方法讓 conditional paths 看起來更直。最嚴謹的下一個問題是什麼？"
   options={[
-    { text: "生成結束後，把不符合條件的樣本刪掉。", explain: "有些 rejection 方法可以這樣做，但 diffusion guidance 的核心通常是在取樣過程中改變局部方向。" },
-    { text: "把 base distribution 換成另一個完全不同的 distribution。", explain: "通常不需要換 base。條件資訊主要進入 score、velocity 或 denoiser，影響中途怎麼走。" },
-    { text: "在每個 noisy state 上改變局部 score 或 velocity，讓軌跡往條件 c 支持的區域偏。", correct: true, explain: "正解。Bayes rule 已經暗示了這件事：條件項會加到局部方向上。" },
+    { text: "既然圖更直，就直接推論 sample quality、training 與少步 sampling 全部更好。", explain: "straightness 可能是有用 proxy，但不會自動消除 field approximation、target variance 或 solver error。" },
+    { text: "只比較 path 圖，不必固定 network、training budget 或 NFE。", explain: "這會讓 path、optimization 與 numerical budget 的效果混在一起。" },
+    { text: "它改了 coupling、interpolation 還是 learned object？target variability、field error 與 finite-step error各自怎麼變？", correct: true, explain: "正解。地圖的目的就是把一個漂亮敘事拆成可分辨、可驗證的機制。" },
   ]}
 />
 
 <Quiz
-  q="為什麼 evaluation 不能只看幾張最漂亮的 sample？"
+  q="把 diffusion 搬到 molecule、graph 或 trajectory 時，最好的起點是哪一個？"
   options={[
-    { text: "因為生成模型學的是整個分布；漂亮樣本可能仍然漏 mode、缺多樣性或 likelihood 很差。", correct: true, explain: "正解。單張品質和分布覆蓋不是同一個量，這正是第 12 講會拆開的主題。" },
-    { text: "因為好看的 sample 通常都是假的，不能相信。", explain: "這太強，也不準確。好看樣本是真實訊號之一，只是不足以代表整個分布。" },
-    { text: "因為 diffusion 模型不能用任何定量指標。", explain: "可以用許多指標，只是每個指標都有盲點，需要知道它衡量什麼。" },
+    { text: "先寫清楚 state representation、合法 transitions、constraints 與 failure evidence，再選 path 和 sampler。", correct: true, explain: "對。application 不是最後換 dataset 名稱；它會回頭改變地圖最前面與最後面的設計。" },
+    { text: "直接沿用 image 的 Gaussian corruption，因為 diffusion 定義上只能這樣。", explain: "diffusion-like models 也能定義在 discrete 或 structured spaces；corruption 必須適合 state space。" },
+    { text: "先選最新的方法名稱，再找一個能套上的資料集。", explain: "這會讓問題與 evidence 由方法倒推。專題應先從現象、限制與可反駁的問題出發。" },
   ]}
 />
 
-## 這怎麼接到研究？
+## 從地圖長出一個 project seed
 
-Sohl-Dickstein 等人的工作主要讓「path」和「reverse process」成為可訓練的生成方法。Ho、Jain 與 Abbeel 的 DDPM 把 training target 和 sampler 做成了簡潔的工程配方。Song 等人的 SDE 框架則把 path、target、sampler 三者連成一個連續時間語言，讓我們能比較隨機 SDE、確定性 ODE、score 和 denoiser。這門課後面的每篇論文，都會先用這張地圖定位，再進入它真正的技術貢獻。
+W2 的最後一步不是選一篇最熱門的 paper，而是挑一個**可改動的位置**，並把它接回一個可觀察的問題。可以從下面七格選一個主要位置：
 
-## 下一步
+`path`　`prediction target`　`sampler`　`guidance / conditioning`　`representation`　`evaluation`　`application constraint`
 
-下一講會進入 forward / reverse SDE，補上 Fokker-Planck 與 Anderson reverse-time SDE。若你想先暖身，可以回到既有系列的 [Continuity Equation：分布如何流動？](/personal_website/zh/notes/n2d-continuity-equation)，因為 L2 會在它右邊加上 diffusion term。
+每個 seed 先填四句：
+
+> 我想研究＿＿＿＿情境中的＿＿＿＿現象或限制。
+>
+> 它主要落在地圖的＿＿＿＿位置，並可能影響下游的＿＿＿＿。
+>
+> 最小可重現的 toy、baseline 或 analytic case 是＿＿＿＿。
+>
+> 如果觀察到＿＿＿＿證據，我會放棄或修改原本的判斷。
+
+同一個人先寫兩個 seeds，不急著承諾。只有「用 diffusion 做醫療／分子／圖」還不是研究問題；只有「換一個 sampler」也還不是 mechanism。地圖要逼我們多說一步：**哪個 object 改了、為什麼可能改善哪個 failure、用什麼 evidence 能推翻這個解釋。**
+
+W3 會從這張低解析度地圖進入第一條完整數學線：Gaussian corruption 的 conditional 與 marginal、L2 denoiser 的 optimum、score，以及 denoising–score bridge。想在課前先用較慢的節奏暖身，可以依序讀 [Denoising：生成可以被看成局部修復](/personal_website/zh/notes/n2d-denoising) 與 [Score Function：資料分布的局部方向感](/personal_website/zh/notes/n2d-score-function)。
 
 ## 參考文獻
 
-1. Sohl-Dickstein, J., Weiss, E. A., Maheswaranathan, N., Ganguli, S. [*Deep Unsupervised Learning using Nonequilibrium Thermodynamics.*](https://arxiv.org/abs/1503.03585) ICML 2015.
-2. Ho, J., Jain, A., Abbeel, P. [*Denoising Diffusion Probabilistic Models.*](https://arxiv.org/abs/2006.11239) NeurIPS 2020.
-3. Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Ermon, S., Poole, B. [*Score-Based Generative Modeling through Stochastic Differential Equations.*](https://arxiv.org/abs/2011.13456) ICLR 2021.
+1. Ho, J., Jain, A., Abbeel, P. [*Denoising Diffusion Probabilistic Models.*](https://arxiv.org/abs/2006.11239) NeurIPS 2020.
+2. Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Ermon, S., Poole, B. [*Score-Based Generative Modeling through Stochastic Differential Equations.*](https://arxiv.org/abs/2011.13456) ICLR 2021.
+3. Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., Le, M. [*Flow Matching for Generative Modeling.*](https://arxiv.org/abs/2210.02747) ICLR 2023.
+4. Dhariwal, P., Nichol, A. [*Diffusion Models Beat GANs on Image Synthesis.*](https://arxiv.org/abs/2105.05233) NeurIPS 2021.
+5. Ho, J., Salimans, T. [*Classifier-Free Diffusion Guidance.*](https://arxiv.org/abs/2207.12598) 2022.
+6. Song, Y., Dhariwal, P., Chen, M., Sutskever, I. [*Consistency Models.*](https://proceedings.mlr.press/v202/song23a.html) ICML 2023.
+7. Austin, J., Johnson, D. D., Ho, J., Tarlow, D., van den Berg, R. [*Structured Denoising Diffusion Models in Discrete State-Spaces.*](https://arxiv.org/abs/2107.03006) NeurIPS 2021.
+8. Kynkäänniemi, T., Karras, T., Laine, S., Lehtinen, J., Aila, T. [*Improved Precision and Recall Metric for Assessing Generative Models.*](https://arxiv.org/abs/1904.06991) NeurIPS 2019.
+9. Lai, C.-H., Song, Y., Kim, D., Mitsufuji, Y., Ermon, S. [*The Principles of Diffusion Models.*](https://arxiv.org/abs/2510.21890) 2025.

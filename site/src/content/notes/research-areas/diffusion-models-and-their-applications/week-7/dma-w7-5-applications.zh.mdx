@@ -1,0 +1,217 @@
+---
+slug: "dma-w7-5-applications"
+label: "dma-discrete-applications"
+prereqs:
+  - math-markov-chain
+  - math-absorbing-state
+lang: "zh"
+title: "應用：語言模型、蛋白質序列、圖"
+category: "courses"
+group: "Week 7 · Discrete Diffusion II"
+status: "available"
+updated: 2026-09-07
+summary: "用 path / target / sampler 三個槽位讀三類真實系統：LLaDA 等 masked diffusion 語言模型（與 autoregressive 的速度／品質權衡）、蛋白質序列生成（EvoDiff、DPLM、Multiflow 的結構＋序列共同生成）、圖生成（DiGress 的節點與邊）。每一個都能放回這兩週的框架，沒有新的數學。"
+demos: []
+references:
+  - label: "Nie et al., Large Language Diffusion Models (2025)"
+    href: "https://arxiv.org/abs/2502.09992"
+  - label: "Sahoo et al., Simple and Effective Masked Diffusion Language Models (NeurIPS 2024)"
+    href: "https://arxiv.org/abs/2406.07524"
+  - label: "Lou, Meng & Ermon, Discrete Diffusion Modeling by Estimating the Ratios of the Data Distribution (ICML 2024)"
+    href: "https://arxiv.org/abs/2310.16834"
+  - label: "Alamdari et al., Protein Generation with Evolutionary Diffusion: Sequence is All You Need (bioRxiv 2023)"
+    href: "https://www.biorxiv.org/content/10.1101/2023.09.11.556673"
+  - label: "Campbell et al., Generative Flows on Discrete State-Spaces: Enabling Multimodal Flows and Applications to Protein Co-Design (ICML 2024)"
+    href: "https://arxiv.org/abs/2402.04997"
+  - label: "Vignac et al., DiGress: Discrete Denoising Diffusion for Graph Generation (ICLR 2023)"
+    href: "https://arxiv.org/abs/2209.14734"
+  - label: "Chang et al., MaskGIT: Masked Generative Image Transformer (CVPR 2022)"
+    href: "https://arxiv.org/abs/2202.04200"
+  - label: "Wang et al., Remasking Discrete Diffusion Models with Inference-Time Scaling (2025)"
+    href: "https://arxiv.org/abs/2503.00307"
+  - label: "Arriola et al., Block Diffusion: Interpolating Between Autoregressive and Diffusion Language Models (ICLR 2025)"
+    href: "https://arxiv.org/abs/2503.09573"
+  - label: "Inception Labs et al., Mercury: Ultra-Fast Language Models Based on Diffusion (2025)"
+    href: "https://arxiv.org/abs/2506.17298"
+  - label: "Wang et al., Diffusion Language Models Are Versatile Protein Learners (ICML 2024)"
+    href: "https://arxiv.org/abs/2402.18567"
+---
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 應用：語言模型、蛋白質序列、圖
+
+<Objectives>
+- 把任何一個離散生成系統拆成三個槽位——**path**（forward chain / source 與 $\kappa_t$）、**target**（網路回歸什麼）、**sampler**（步數、每步翻開幾個、有沒有 $\sigma_t$）——並用它讀三類真實系統。
+- 說出 masked diffusion 語言模型與 autoregressive 模型在速度與品質上的權衡，以及它在這兩週的哪一篇被解釋過。
+- 說出蛋白質序列與圖這兩類資料為什麼特別適合離散擴散，各自把噪聲放在哪裡。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+<Ask>
+看到一篇離散生成的論文，<br />
+要怎麼一句話說出「它動了哪一格」？
+</Ask>
+
+## 一個離散模型要填哪三格
+
+這兩週建立的東西可以壓成一張表的三欄。任何一個離散生成系統，只要回答三個問題就能定位：
+
+| 槽位 | 問題 | 這兩週的選項 |
+|---|---|---|
+| **path** | forward chain 是什麼？source 是什麼、$\kappa_t$（或 $\alpha_t$）長什麼樣？ | absorbing / uniform / 朝某個 marginal 走 / 混合；線性或其他 schedule（<Ref to="dma-d3pm"/>、<Ref to="dma-discrete-flow-matching"/>） |
+| **target** | 網路輸出什麼、用什麼 loss？ | $p_\theta(x_0^\ell\mid x_t)$ 的 logits + 加權 cross-entropy（<Ref to="dma-masked-diffusion"/>）；或比值 + score entropy（<Ref to="dma-concrete-score"/>） |
+| **sampler** | 走幾步、每步翻開幾個、翻開的字能不能改？ | 步數 $N$ 與因子化誤差（<Ref to="dma-factorization-error"/>）；信心排序；remasking $\sigma_t$（<Ref to="dma-remasking"/>） |
+
+下面三個應用，每一個都只是在這三格裡填字。這一篇沒有新的數學；它的目的是讓你看到論文時能立刻說出「它動了哪一格」。
+
+## 語言：LLaDA 與 masked diffusion 語言模型
+
+LLaDA [1] 是目前最有代表性的例子：一個 8B 參數、從頭訓練的 masked diffusion 語言模型，在多數標準 benchmark 上與同規模的 autoregressive（AR）模型相當。
+
+- **path**：absorbing，線性 schedule $\alpha_t=1-t$。整串 `[MASK]` 是起點。
+- **target**：$p_\theta(x_0^\ell\mid x_t)$，loss 是 <Ref to="dma-masked-diffusion"/> 那條加權 masked cross-entropy——線性 schedule 下權重是 $1/t$。網路是一個**雙向** transformer（沒有 causal mask），如 <Ref to="dma-masked-diffusion"/> 的 Details 所說，可以不吃 $t$。預訓練之後用同一個 loss 做 supervised fine-tuning（只遮 response 部分）。
+- **sampler**：固定步數；為了長序列的品質，採用**半 autoregressive** 的 block 取樣——把序列切成 block、block 之間從左到右、block 內用 masked diffusion 平行翻開；每步翻開哪些位置用 **low-confidence remasking**：先對所有被遮位置抽樣，只保留信心高的，其餘遮回去（MaskGIT [7] 式）。注意這個 remasking 是 heuristic、不保持邊際，與 <Ref to="dma-remasking"/> 那族有區別。
+
+**與 AR 的權衡**，全部在 <Ref to="dma-factorization-error"/> 那張表裡：
+
+- **速度**：AR 生成 $L$ 個 token 要 $L$ 次前向；masked diffusion 走 $N$ 步，每步翻開 $L/N$ 個。$N\ll L$ 時快很多——這是「可平行」的意思。但 $N$ 越小、每步翻開越多、因子化誤差越大；實務上要達到 AR 的品質，$N$ 常常接近 $L$，速度優勢就縮小了。另外雙向 attention 讓 KV cache 無法直接沿用（每一步整串都在變），單步的成本比 AR 一步貴。
+- **品質**：每步翻開一個時沒有因子化誤差，等於任意順序的 AR。但雙向 context 帶來兩件 AR 做不到的事：天生會**填空**（infilling），以及不受生成方向的限制——LLaDA 報告在「倒著補全詩句」這類 reversal 任務上明顯優於 AR 模型，因為 AR 只在一個方向上學過條件分佈。
+- **修正**：純 absorbing 翻開就固定；<Ref to="dma-remasking"/> 的 $\sigma_t$ 是保持邊際的修正方式，ReMDM [8] 把它用在 MDLM 規模的模型上。
+
+<Question id="Q1">
+masked diffusion 語言模型最常被講的優點是**可以平行生成**。可是上面那條權衡說，要達到 AR 的品質，$N$ 常常需要接近 $L$——那平行到底平行在哪裡？**如果速度優勢會縮回去，這條路線真正贏的是什麼？**
+
+<Answer>
+會被想到的回答大致有三類：「其實沒有贏，只是另一種寫法」、「贏在硬體利用率」、「贏在可以填空」。第三類是對的方向，但在講它之前要先把「平行」這件事講準。
+
+**平行的上限不是架構決定的，是資料的條件相依決定的。** 一步同時填 $k$ 個位置，付的代價就是那 $k$ 個位置之間的相依被丟掉（<Ref to="dma-factorization-error"/>）。所以「能平行多少」是**這份資料**的性質，不是模型的宣傳詞：相依弱的資料可以放心平行，相依強的資料每一次平行都在賠。下面的 demo 量得到這件事。
+
+在這個前提下，AR 換成 masked diffusion 真正留下來的是三件事：
+
+1. **雙向 context。** 填空（infilling）與不受生成方向限制——LLaDA 報告在「倒著補全」這類 reversal 任務上明顯優於同規模 AR，因為 AR 只在一個方向上學過條件分佈。這不是取樣器補得回來的東西，是訓練目標的差別。
+2. **取樣預算變成一顆可調的旋鈕。** block 大小、每個 block 走幾步、$\sigma_t$——全部在取樣器裡，**不必重訓就能換品質**。AR 的生成步數就是 $L$，沒有這條軸可以調。
+3. **同一個 loss 同時是表徵學習的目標。** <Ref to="dma-masked-diffusion"/> 說 masked diffusion 是 BERT 加上隨機遮罩比例與權重；下一節的 DPLM 就是把這件事直接用在蛋白質上。
+
+所以「AR 還是 diffusion 比較快」問錯了。該問的是：**這份資料的條件相依有多強、我願意花幾次網路呼叫。** 順著這個問法，還有一項對 diffusion 不利的成本要記住：雙向 attention 讓 KV cache 沒辦法直接沿用（每一步整串都在變），所以單步比 AR 一步貴——BD3-LM [9] 那種 block 設計，一部分就是為了把 cache 拿回來。
+</Answer>
+</Question>
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w7-5-blocks.html" class="demo-frame" title="block 大小對誤差與呼叫次數：互動 demo" style="height: 900px; width: 100%; border: none;"></iframe>
+
+**互動 demo：block 這顆旋鈕在賣什麼。** 還是 Markov toy（$L=16$、相鄰格以 0.9 相同，切換率真值 0.10），橫軸是**網路呼叫次數**、縱軸是樣本的切換率，每個點標它的 block 大小。兩個端點先看：$B=1$（一次一格、16 次呼叫）量到 **0.098**——那就是 autoregressive，沒有因子化誤差；$B=16$ 且只走 1 步（一次呼叫全部填完）衝到 **0.504**，等於每格獨立。中間才是有意思的地方：$B=4$、每個 block 走 2 步（**8 次呼叫**）量到 **0.172**，用一半的呼叫次數走完這段路的大約八成。把相依強度切到 0.7（真值變成 0.30）：兩端變成 0.498 與 0.299，可讀的範圍整個變窄——**相依越弱，平行翻開的代價越小**，這正是 Q1 說「平行的上限由資料決定」的樣子。
+
+<Remark label="補充" summary="這一篇的數字哪些是量出來的、哪些是論文報告的">
+上面 demo 的數字是在一個 16 格的 toy 上量出來的，可以自己重跑。而三個應用的敘述——LLaDA 與同規模 AR 相當、EvoDiff 能生成可摺疊的蛋白、DiGress 比連續版好——都是**各篇論文報告的結果**，設定、資料與評分方式都不一樣，彼此不能直接比大小。
+
+這一篇要記住的是槽位，不是名次：一個系統動了哪一格、為什麼那一格值得動。名次會隨模型規模與 benchmark 改變，槽位不會。
+</Remark>
+
+<Details summary="這條線上其他值得知道的名字">
+- **MDLM [2]、SEDD [3]**：語言上兩條 target 路線的代表——加權 cross-entropy 與 score entropy——<Ref to="dma-concrete-score"/> 說過在 absorbing 鏈上它們學的是同一組數字。
+- **Block diffusion（BD3-LM）**：把 AR 與 masked diffusion 內插——block 之間 AR、block 內 diffusion，block 大小是「每步翻開幾個」之外的另一個速度／品質旋鈕，也讓 KV cache 部分回來 [9]。
+- **商用系統**：Mercury（Inception Labs [10]）與 Gemini Diffusion 都是以 diffusion 為骨架的語言模型，主打生成速度。Mercury 的技術報告有 path 與 sampler 的粗略描述，Gemini Diffusion 目前沒有公開細節可以放進三個槽位。
+</Details>
+
+## 蛋白質序列
+
+一段蛋白質是二十種胺基酸的序列，長度幾十到幾千。它比自然語言更適合離散擴散的理由有兩個：序列裡的相依是**長程且雙向**的（相隔很遠的殘基在摺疊後靠在一起），而且最常見的任務不是「從頭寫一段」而是**填空**——固定一段 motif 或活性位點、生成其餘部分（scaffolding），或者給結構、生成配得上它的序列。這兩件事都是雙向 context 的主場。
+
+- **EvoDiff [4]**：在演化尺度的序列資料上訓練離散擴散。path 有兩種：order-agnostic AR（每步只遮／翻一個殘基，即 <Ref to="dma-factorization-error"/> 說的「任意順序 AR」）與 D3PM 式的 uniform 變體（含一個依胺基酸替換矩陣設計的 transition matrix，讓「噪聲」偏向生物上合理的替換）。target 是 $x_0$ 的 logits；sampler 是反向 posterior。它示範了「不看結構、只看序列」也能生成可摺疊的蛋白。
+- **DPLM**：把 masked diffusion 當成蛋白質語言模型的預訓練目標，同時做生成與表徵學習——<Ref to="dma-masked-diffusion"/> 說 masked diffusion 是 BERT 加上隨機遮罩比例與權重，DPLM [11] 是這句話在蛋白質上的直接應用。
+- **Multiflow [5]**：結構與序列**共同生成**。結構（每個殘基的位置與朝向）是連續的，用 flow matching；序列是離散的，用 discrete flow matching；兩條路徑共用一個網路、共用時間。這是 <Ref to="dma-discrete-flow-matching"/> Q1 說「配對留下對齊的意義」的具體例子——$(x_0^{\text{struct}},x_0^{\text{seq}})$ 是成對的，不是各自獨立抽。它也是 <Ref to="dma-remasking"/> 提到的 stochasticity $\eta$ 的出處。
+
+三個系統的 path 各不相同，但 target 都是 $x_0$ 的 posterior，sampler 都在「每步翻開幾個」上做取捨。序列長度短（幾百）讓 $N\approx L$ 的取樣仍然便宜，這是蛋白質比語言更早大規模採用離散擴散的實務原因之一。
+
+## 圖：DiGress
+
+一個分子圖是節點（原子種類）加上邊（鍵的種類，含「沒有鍵」）。<Ref to="dma-discrete-data"/> 說過它是離散資料；DiGress [6] 說明了為什麼**不該**把它當連續資料處理：對 adjacency matrix 加 Gaussian noise，中間狀態是一個稠密的實數矩陣，不再是圖——稀疏性、整數度數、原子價的約束全部消失，網路要花大量容量學「什麼是圖」而不是「什麼是好的分子」。離散 forward chain 讓**每個中間狀態都仍是一個合法的圖**。
+
+- **path**：對每個節點與每條（可能的）邊獨立地跑一條 uniform 型的鏈——但終點不是均勻分佈，而是資料裡節點種類與邊種類的 **marginal**（大部分是「沒有鍵」）。也就是 $Q_t=\bar\alpha_t I+(1-\bar\alpha_t)\mathbb 1 m^{\!\top}$，$m$ 是 marginal 向量；<Ref to="dma-d3pm"/> 的代數一字不改（$\mathbb 1m^{\!\top}$ 也是投影）。DiGress 報告這比均勻終點好，直覺是噪聲圖的稀疏程度與真實圖相近。
+- **target**：對每個節點與每條邊輸出 $x_0$ 的 logits，cross-entropy。網路是 graph transformer，**permutation equivariant**：forward 對每個節點與邊獨立加噪聲、本身就是 equivariant 的，所以 equivariant 的網路加上 equivariant 的 forward 給出 permutation-invariant 的 likelihood——不需要像 AR 那樣選一個節點順序。
+- **sampler**：反向 posterior，每步同時更新所有節點與邊。因子化誤差在這裡特別明顯：邊與邊之間高度相依（一個碳原子最多四根鍵），同時翻開所有邊會生出違反價數的分子。DiGress 的做法是把一些圖層次的統計量（例如各節點的度數、環的數量）當額外輸入餵給網路，讓 marginal 更準；<Ref to="dma-factorization-error"/> 那張表最後一行的「顯式建模相依」在這裡是進行中的研究。
+
+## 回頭看這張表
+
+三個應用放回三個槽位：
+
+| | path | target | sampler |
+|---|---|---|---|
+| LLaDA | absorbing，線性 | $x_0$ logits，加權 CE | block 半 AR + 信心排序 remasking |
+| EvoDiff | OA-AR / uniform 變體（替換矩陣） | $x_0$ logits | 反向 posterior |
+| Multiflow | DFM（序列）+ FM（結構），成對 | $x_0$ posterior（兩種模態） | 帶 $\eta$ 的 CTMC 取樣 |
+| DiGress | 朝 marginal 走的 uniform 型鏈 | 節點與邊的 $x_0$ logits | 反向 posterior，一步更新全圖 |
+
+兩個觀察。第一，**target 那一欄幾乎沒有變化**：所有系統都在學 $x_0$ 的 posterior，差別全在 path 與 sampler——這印證了 <Ref to="dma-discrete-data"/> 的盤點：「在每個 $t$ 做回歸」是離散世界裡活得最好的那一環。第二，**sampler 那一欄是目前變動最快的地方**：信心排序、block、remasking、$\eta$——它們都在對付同一個東西，<Ref to="dma-factorization-error"/> 的因子化誤差，而且都是取樣時的旋鈕、不必重訓。這和連續世界裡 solver 與 $\varepsilon_t$ 的研究地位一樣。
+
+<VizPlan id="w7-5-three-slots" title="三個應用放回三個槽位" type="static">
+- **位置**：本節之後。**檔名**：`imgs/w7-5-1.png`（16:9，四列三欄的格狀圖）。
+- **三欄**（由左至右）：path、target、sampler，欄首用醒目色框，欄首下方一行小字各寫該欄對應的筆記主題（「forward chain / source」「網路回歸什麼」「步數、翻開幾個、σ」；不寫編號）。
+- **四列**：LLaDA、EvoDiff、Multiflow、DiGress，每列左端一個小 icon（一排文字 token、一串胺基酸珠鍊、一段結構+序列並排、一個分子圖）。
+- **每格**畫一個極簡示意而非文字：path 格畫「起點 → 終點」的兩個小狀態（全 `[MASK]` 灰底 / 均勻雜色 / 稀疏噪聲圖）與一條 $\kappa_t$ 小曲線；target 格畫一個小長條圖（$K$ 根柱子）標 $p_\theta(x_0\mid x_t)$，Multiflow 那格多一支箭頭代表連續的結構；sampler 格畫一排格子與「每步翻開幾個」的小數字，LLaDA 格畫成幾個 block、DiGress 格畫全圖一次更新、Multiflow 格加一個 $\eta$ 的小旋鈕。
+- **底部一行**：target 欄整欄用淡色底標「幾乎沒變」，sampler 欄整欄標「變動最快」。
+- **圖說（.mdx 內）**：「**圖：三個應用放回三個槽位。** 所有系統都在學 $x_0$ 的 posterior；差別在 forward chain 與取樣器。取樣器那一欄的每個花樣都在對付同一個東西——因子化誤差——而且都不必重訓。」
+- 術語一律英文（path、target、sampler、posterior、block、remasking）。
+</VizPlan>
+
+## 先消化一下
+
+<QuizBlock id="w7-5-a">
+LLaDA 用 $N$ 步生成長度 $L$ 的序列。「$N\ll L$ 時比 AR 快很多」這句話的代價是：
+<Option>需要更大的網路。</Option>
+<Option correct>每步同時翻開 $L/N$ 個位置，它們被獨立抽樣，因子化誤差隨 $L/N$ 增大；實務上要達到 AR 的品質，$N$ 常需接近 $L$。</Option>
+<Option>無法做填空。</Option>
+<Explanation>
+這是 <Ref to="dma-factorization-error"/> 的權衡原封不動搬到 8B 規模。填空反而是 masked diffusion 的優勢（雙向 context）。網路大小與步數是獨立的軸。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w7-5-b">
+DiGress 把邊的 forward chain 終點設成資料裡邊種類的 marginal（大多是「沒有鍵」），而不是均勻分佈。這動的是哪個槽位、為什麼？
+<Option>target：讓網路更容易輸出「沒有鍵」。</Option>
+<Option correct>path：噪聲圖的稀疏程度與真實圖相近，中間狀態始終像一個圖；$\bar Q_t=\bar\alpha_tI+(1-\bar\alpha_t)\mathbb 1m^{\!\top}$ 的代數與 uniform 完全相同。</Option>
+<Option>sampler：讓每步翻開的邊變少。</Option>
+<Explanation>
+終點分佈是 forward chain 的一部分，屬於 path。$\mathbb 1m^{\!\top}$ 和 $J$ 一樣是投影，closed form 不變。target 仍是 $x_0$ 的 logits，sampler 也沒動。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w7-5-c">
+Multiflow 讓結構（連續）與序列（離散）共同生成。這裡「配對」旋鈕的角色是：
+<Option>用 OT 把序列配到最近的結構，拉直路徑。</Option>
+<Option>沒有角色，兩條路徑各自獨立。</Option>
+<Option correct>結構與序列在資料裡本來就是成對的，兩條路徑的端點 $(x_0^{\text{struct}},x_0^{\text{seq}})$ 一起抽——配對是任務給的對齊，不是為了拉直。</Option>
+<Explanation>
+這正是 <Ref to="dma-discrete-flow-matching"/> Q1 的結論：離散世界裡配對留下的是對齊的意義。兩條路徑共用時間與網路，端點成對，才學得到結構與序列之間的相依。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-lab-ctmc">
+本篇用 path / target / sampler 讀了三類系統，看到 target 幾乎不變、sampler 變動最快。最後一篇動手：把 <Ref to="dma-lab-discrete-time"/> 的取樣器改寫成 CTMC 的 τ-leaping、加上 remasking rate 畫「強度 vs 合法率」、並在同一個 toy 上比較 SEDD 的比值學習與 MDLM 的 cross-entropy。
+</Bridge>
+
+## 參考文獻
+
+1. Nie, S., Zhu, F., You, Z., Zhang, X., Ou, J., Hu, J., Zhou, J., Lin, Y., Wen, J.-R., Li, C. [*Large Language Diffusion Models.*](https://arxiv.org/abs/2502.09992) 2025.（LLaDA。）
+2. Sahoo, S. S. et al. [*Simple and Effective Masked Diffusion Language Models.*](https://arxiv.org/abs/2406.07524) NeurIPS 2024.（MDLM。）
+3. Lou, A., Meng, C., Ermon, S. [*Discrete Diffusion Modeling by Estimating the Ratios of the Data Distribution.*](https://arxiv.org/abs/2310.16834) ICML 2024.（SEDD。）
+4. Alamdari, S., Thakkar, N., van den Berg, R., Tenenholtz, N., Strome, B., Moses, A., Lu, A. X., Fusi, N., Amini, A. P., Yang, K. K. [*Protein Generation with Evolutionary Diffusion: Sequence is All You Need.*](https://www.biorxiv.org/content/10.1101/2023.09.11.556673) bioRxiv 2023（v2, 2024-11）.（EvoDiff。）
+5. Campbell, A., Yim, J., Barzilay, R., Rainforth, T., Jaakkola, T. [*Generative Flows on Discrete State-Spaces: Enabling Multimodal Flows and Applications to Protein Co-Design.*](https://arxiv.org/abs/2402.04997) ICML 2024.（Multiflow。）
+6. Vignac, C., Krawczuk, I., Siraudin, A., Wang, B., Cevher, V., Frossard, P. [*DiGress: Discrete Denoising Diffusion for Graph Generation.*](https://arxiv.org/abs/2209.14734) ICLR 2023.
+7. Chang, H., Zhang, H., Jiang, L., Liu, C., Freeman, W. T. [*MaskGIT: Masked Generative Image Transformer.*](https://arxiv.org/abs/2202.04200) CVPR 2022.（信心排序的 remasking heuristic。）
+8. Wang, G., Schiff, Y., Sahoo, S. S., Kuleshov, V. [*Remasking Discrete Diffusion Models with Inference-Time Scaling.*](https://arxiv.org/abs/2503.00307) 2025.（ReMDM。）
+9. Arriola, M., Gokaslan, A., Chiu, J. T., Yang, Z., Qi, Z., Han, J., Sahoo, S. S., Kuleshov, V. [*Block Diffusion: Interpolating Between Autoregressive and Diffusion Language Models.*](https://arxiv.org/abs/2503.09573) ICLR 2025.（BD3-LM：block 之間 AR、block 內 diffusion，KV cache 部分回來。）
+10. Inception Labs, Khanna, S., Kharbanda, S., Li, S., Varma, H., Wang, E., Birnbaum, S., Luo, Z., Miraoui, Y., Palrecha, A., Ermon, S., Grover, A., Kuleshov, V. [*Mercury: Ultra-Fast Language Models Based on Diffusion.*](https://arxiv.org/abs/2506.17298) 2025.（商用規模的 diffusion 語言模型。）
+11. Wang, X., Zheng, Z., Ye, F., Xue, D., Huang, S., Gu, Q. [*Diffusion Language Models Are Versatile Protein Learners.*](https://arxiv.org/abs/2402.18567) ICML 2024.（DPLM。）

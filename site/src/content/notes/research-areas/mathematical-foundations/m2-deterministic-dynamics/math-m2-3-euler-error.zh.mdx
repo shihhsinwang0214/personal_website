@@ -1,0 +1,214 @@
+---
+slug: "math-m2-3-euler-error"
+label: "math-euler-error"
+prereqs:
+  - math-taylor
+  - math-vector-field-ode
+lang: "zh"
+title: "導航每 30 秒更新一次：Euler 法與它的誤差"
+category: "courses"
+group: "M2 · Deterministic Dynamics"
+status: "available"
+updated: 2026-09-06
+summary: "導航每 30 秒才更新一次位置，中間假設車子直走；追一條彎路，終點會偏多遠？直路呢？把「假設直走」寫成 Euler 法，用 Taylor 算出每一步的局部誤差 (h²/2)‖ẍ‖，用 Grönwall 不等式把它們累積成全域誤差——結果是一階的 h，乘上整條路的「加速度積分」，再乘上一個會放大的常數。"
+demos: []
+references:
+  - label: "Hairer, Nørsett & Wanner, Solving Ordinary Differential Equations I: Nonstiff Problems (Springer, 2nd ed. 1993)"
+    href: "https://doi.org/10.1007/978-3-540-78862-1"
+  - label: "Butcher, Numerical Methods for Ordinary Differential Equations (Wiley, 3rd ed. 2016)"
+    href: "https://doi.org/10.1002/9781119121534"
+  - label: "Grönwall, Note on the Derivatives with Respect to a Parameter of the Solutions of a System of Differential Equations (Annals of Mathematics 1919)"
+    href: "https://doi.org/10.2307/1967124"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+
+# 導航每 30 秒更新一次：Euler 法與它的誤差
+
+<Objectives>
+- 把「每隔 $h$ 秒看一次方向、中間直走」寫成 Euler 法，並用 Taylor 展開算出一步的局部誤差 $\tfrac{h^2}{2}\|\ddot x\|$。
+- 用 Grönwall 不等式把 $N$ 步的局部誤差累積成全域誤差 $\le \tfrac{h}{2}\,e^{LT}\!\int_0^T\|\ddot x\|\,dt$，說出每個因子從哪來、哪個是你不知道大小的常數。
+- 對「導航追一條彎路會偏多遠」這類情境，用這個界判斷更新頻率夠不夠、說出它依賴的假設（Lipschitz、$\ddot x$ 有界），並用一個小模擬對照理論預測。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 一條彎路，一台省電的導航
+
+你的車以時速 60 公里在一條大彎道上行駛：彎道是四分之一圓，半徑 2 公里。導航為了省電，**每 30 秒**才讀一次車子的行進方向；在兩次讀取之間，它假設你一直沿著上次讀到的方向**直走**，把位置往前推 30 秒的距離。
+
+走完這個四分之一圓（約 3.1 公里、三分多鐘），導航上的位置和你真正的位置會差多遠？如果換成一條筆直的路呢？
+
+先用直覺回答，並寫下你有多確定、依據是什麼。常見的直覺是「直路完全不會錯；彎路會偏一點，大概幾十公尺吧」。第一句對。第二句對不對——以及「幾十公尺」是怎麼估出來的——直覺說不出來。而且有一個更重要的問題直覺回答不了：**如果改成每 10 秒更新一次，誤差會縮成多少？三分之一？九分之一？**
+
+<Question id="Q1">
+翻成數學。「真正的位置」是哪個物件？「導航算出的位置」又是哪個？「每 30 秒直走一段」寫成式子是什麼？我們想知道的量是什麼？
+
+<Answer>
+這一題可以直接對上前一篇的語言：真正的位置是 ODE $\dot x=u(x,t)$ 的解 $x(t)$，$u$ 是「在位置 $x$ 時車的速度向量」——沿著路的方向、大小 $v=60\text{ km/h}\approx16.7\text{ m/s}$（<Ref to="math-vector-field-ode"/>）。
+
+導航算的是另一串東西。令 $h=30$ 秒，$t_n=nh$。導航記錄的位置 $x_n$ 由
+
+$$
+x_{n+1}=x_n+h\,u(x_n,t_n)
+$$
+
+一步一步算出來：在目前的位置看一次方向，往那個方向直走 $h$ 秒。這條規則叫 **Euler 法**，它就是 <Ref to="math-vector-field-ode"/> 結尾那段「順著箭頭走」的程式。
+
+我們想知道的量是**全域誤差** $e_N=\|x(t_N)-x_N\|$：走完全程（$N=T/h$ 步）之後，真實位置與導航位置的距離。以及它怎麼隨 $h$ 變化。這裡沒有隨機變數；誤差完全來自「兩次讀取之間假設直走」。
+</Answer>
+</Question>
+
+## 先看畫面：切線離開了圓
+
+把彎道畫成一段圓弧，車在圓弧上。Euler 的一步是沿著**切線**往前走 500 公尺（30 秒 × 16.7 m/s）。切線是直的、圓弧是彎的，走完這一步，導航的點落在圓的外側——這是**一步**的誤差，叫**局部誤差**。
+
+下一步從那個已經偏外的點出發。它會犯同樣的錯（又沿切線離開），還會多一件事：它現在站在一個「真車從來沒去過」的位置，讀到的方向也不是真車此刻的方向。前面的錯誤會被帶著走，有時還會被放大。全程的誤差就是這兩件事的疊加：**每步新犯的錯**，加上**舊錯被帶著走的方式**。
+
+直路上切線就是路本身，一步的誤差是零，帶著走的也是零。這就是「直路完全不會錯」的畫面版。
+
+<VizPlan id="m2-3-tangent" title="沿切線走一步：局部誤差與它被帶著走" type="static">
+- **檔名**：`m2-deterministic-dynamics/imgs/m2-3-1.svg`，16:9。
+- **版面**：左格一段半徑 $R$ 的圓弧（真實路徑），從弧上一點畫一段長 $h v$ 的切線（Euler 一步），切線終點與弧上真正的終點之間用雙箭頭標出「局部誤差 $\approx\tfrac{h^2}{2}\tfrac{v^2}{R}$」；並畫出 Taylor 的兩項：切線是一階項，弧與切線的差距畫成一段小小的拋物線標「二階項」。
+- 中格：連續六步的 Euler 折線（每步 500 m）疊在四分之一圓弧上，折線像一個多邊形外接在圓上、逐步往外偏；每個頂點旁標當前偏離半徑的距離：$62,\;125,\;\dots,\;375$ m。
+- 右格：同一條路改成直線，Euler 折線與路完全重合，標「$\ddot x=0$，誤差 $=0$」。
+- **圖說**：「Euler 每步沿切線直走，離開彎路的量是 Taylor 二階項 $\tfrac{h^2}{2}\|\ddot x\|$；一步一步累積，還會被場的變化放大。直路上 $\ddot x=0$，一步都不錯。」
+</VizPlan>
+
+## 寫成數學：一步的錯、多步的累積
+
+**局部誤差。** 假設第 $n$ 步從**正確**的位置 $x(t_n)$ 出發。真實的下一個位置用 Taylor 展開（<Ref to="math-taylor"/>）：
+
+$$
+x(t_n+h)=x(t_n)+h\,\dot x(t_n)+\tfrac{h^2}{2}\,\ddot x(\xi_n),\qquad \xi_n\in[t_n,t_n+h].
+$$
+
+Euler 給的是 $x(t_n)+h\,u(x(t_n),t_n)=x(t_n)+h\,\dot x(t_n)$——恰好是 Taylor 的前兩項。兩者相減：
+
+$$
+\big\|x(t_n+h)-\big[x(t_n)+h\,u(x(t_n),t_n)\big]\big\|=\tfrac{h^2}{2}\,\|\ddot x(\xi_n)\|.
+$$
+
+一步的誤差是 $h^2$ 的量級，係數是**加速度** $\ddot x$。沿著解，$\ddot x=\tfrac{d}{dt}u(x(t),t)=\partial_t u+(\nabla u)\,u$（<Ref to="math-total-derivative"/>）；對等速轉彎的車，$\|\ddot x\|=v^2/R$。
+
+**全域誤差。** 記 $e_n=x(t_n)-x_n$。第 $n$ 步 Euler 不是從正確位置出發，而是從 $x_n$：
+
+$$
+e_{n+1}=\underbrace{x(t_n)+h\,u(x(t_n),t_n)+\tfrac{h^2}{2}\ddot x(\xi_n)}_{x(t_{n+1})}-\underbrace{\big[x_n+h\,u(x_n,t_n)\big]}_{x_{n+1}}
+= e_n+h\big[u(x(t_n),t_n)-u(x_n,t_n)\big]+\tfrac{h^2}{2}\ddot x(\xi_n).
+$$
+
+中括號裡是「在兩個相距 $\|e_n\|$ 的位置讀到的方向差」，Lipschitz 條件（<Ref to="math-vector-field-ode"/>）說它不超過 $L\|e_n\|$。所以
+
+$$
+\|e_{n+1}\|\le(1+hL)\,\|e_n\|+\tfrac{h^2}{2}M_n,\qquad M_n=\max_{[t_n,t_{n+1}]}\|\ddot x\|.
+$$
+
+這就是**離散版 Grönwall 不等式**的形狀：每步舊誤差乘上 $(1+hL)$、再加上新的局部誤差。從 $e_0=0$ 展開，用 $(1+hL)^k\le e^{khL}\le e^{LT}$：
+
+$$
+\|e_N\|\;\le\;\sum_{n=0}^{N-1}(1+hL)^{N-1-n}\,\tfrac{h^2}{2}M_n
+\;\le\;e^{LT}\,\tfrac{h}{2}\sum_{n=0}^{N-1}h\,M_n
+\;\approx\;\boxed{\;\frac{h}{2}\,e^{LT}\int_0^T\|\ddot x(t)\|\,dt\;}
+$$
+
+$\square$（最後一步把黎曼和換成積分。）三個因子各有意思：**$h$**——步長縮一半、誤差縮一半，Euler 是一階方法；**$\int\|\ddot x\|dt$**——整條路的加速度總量，路越彎、轉得越急，誤差越大；直路是零。**$e^{LT}$**——場對位置越敏感（$L$ 越大），舊誤差被放大得越凶。這是一個**上界**，不是等式：前兩個因子通常抓得很準，$e^{LT}$ 常常太悲觀。
+
+<Details summary="連續版 Grönwall 不等式與它的證明（四行）">
+連續版：若 φ(t) ≥ 0 滿足 φ(t) ≤ A + L∫₀ᵗ φ(s) ds，則 φ(t) ≤ A·e^(Lt)。
+證明：令 Ψ(t) = A + L∫₀ᵗ φ。則 Ψ′ = Lφ ≤ LΨ，所以 d/dt [Ψ e^(−Lt)] = (Ψ′ − LΨ)e^(−Lt) ≤ 0，Ψ(t)e^(−Lt) ≤ Ψ(0) = A，故 φ ≤ Ψ ≤ A e^(Lt)。□
+用法：兩條從相距 δ 的起點出發的軌跡，其距離 φ(t) = ‖x(t) − y(t)‖ 滿足 φ(t) ≤ δ + L∫₀ᵗ φ，所以 φ(t) ≤ δ e^(Lt)——起點的差距至多指數放大。Euler 的舊誤差被「帶著走」時放大的就是這個倍數；離散版只是把積分換成和、把 e^(Lh) 換成 (1+hL)。
+</Details>
+
+## 回到彎道：直覺對了一半，數字對不上
+
+用界估一次。$v=16.7$ m/s、$R=2000$ m，$\|\ddot x\|=v^2/R\approx0.139$ m/s²，全程 $T\approx188$ s，所以 $\int\|\ddot x\|dt\approx26$ m/s。$h=30$：$\tfrac{h}{2}\times26\approx390$ m。$L$ 是場對位置的敏感度：方向隨位置改變的速率約 $v/R\approx0.008$ /s，$LT\approx1.6$，$e^{LT}\approx4.8$，上界約 1900 m。
+
+真實跑出來（下一節）是 **486 公尺**。所以：直覺的「幾十公尺」錯了一個數量級——隱含的假設是「每步只偏一點」，忘了六步會累積、還會被帶著放大；「直路不會錯」則完全正確，因為 $\ddot x=0$。上界 1900 m 抓到了正確的數量級，但 $e^{LT}$ 把它撐大了四倍——這正是理論常見的處境：**它告訴你誤差隨哪些量、以什麼速率變化，但常數要靠實作校準。**
+
+而那個直覺回答不了的問題現在有答案：更新間隔改成 10 秒，$h$ 縮三倍，誤差也縮**三倍**（不是九倍）；要縮九倍得每 3.3 秒更新一次。
+
+還有一件容易忘的假設：$\ddot x$ 是**加速度**，不只是轉彎。直路上如果你一直在加減速，$\ddot x\ne0$，Euler 也會錯——只是錯在沿路的前後位置，不是偏出路面。
+
+## 回到彎道：跑一次，再把 $h$ 調到壞掉
+
+```python
+import numpy as np
+R, v = 2000.0, 60/3.6
+T = (np.pi/2)*R/v                          # 走完四分之一圓的時間
+def u(x): r = np.hypot(*x); return v*np.array([-x[1], x[0]])/r   # 沿圓切線
+def euler(h):
+    N = int(round(T/h)); x = np.array([R, 0.0])
+    for _ in range(N): x = x + (T/N)*u(x)
+    return np.linalg.norm(x - np.array([0.0, R]))   # 與真實終點 (0, R) 的距離
+for h in [30, 10, 3, 1]: print(h, round(euler(h)))
+# 486, 161, 49, 17：h 縮三倍、誤差縮三倍——一階
+```
+
+四個數字每次縮三倍，符合「一階」。再把 $h$ 往另一邊推：對 $\dot x=-kx$（往路中央拉回的修正力，$k$ 大表示拉得急），Euler 一步是 $x_{n+1}=(1-hk)x_n$。$hk<1$ 時單調收斂；$1<hk<2$ 時來回震盪但仍收斂；**$hk>2$ 時 $|1-hk|>1$，每步放大，發散**——這對應到界裡的 $(1+hL)^N$ 真的爆掉，界不再「太悲觀」，而是老實地預告了災難。步長不只影響精度，還影響穩定。
+
+<VizPlan id="m2-3-euler" title="導航追彎路：步長、曲率、與發散" type="interactive">
+- **位置**：本節之後。**檔名**：`m2-deterministic-dynamics/m2-3-1.html`。
+- **版面**：左格俯視的道路與兩條軌跡（真實路徑實線、Euler 折線帶頂點）；右格是 log–log 的「$h$ 對全域誤差」圖，理論斜率 1 的參考線用虛線畫出。
+- **控制項**：滑桿「更新間隔 $h$」（$1$–$60$ 秒）；滑桿「彎道半徑 $R$」（$500$ m–$\infty$，最右端變成直路）；滑桿「車速 $v$」；下拉「路型」：等速圓弧、S 形彎（$\ddot x$ 變號）、直路但加減速（$\ddot x\ne0$ 卻不偏出路面）。按鈕「跑一次」逐步畫出 Euler 折線（不自動循環）。
+- **右上角數字**：實測全域誤差；理論的 $\tfrac{h}{2}\int\|\ddot x\|dt$（不含 $e^{LT}$）與含 $e^{LT}$ 的上界，三個數字並排，讓讀者看到「不含放大因子的估計通常最接近、上界最保守」。
+- **Hover** 折線任一頂點：顯示該步的局部誤差 $\tfrac{h^2}{2}\|\ddot x\|$、到此為止累積的誤差、以及累積 ÷ 局部誤差之和的比值（放大倍數）。
+- **拖 $R\to\infty$**：折線與直路重合、誤差歸零；再切到「直路但加減速」，誤差重新出現、但方向沿著路。
+- **穩定性子面板**：一維 $\dot x=-kx$，滑桿 $hk\in[0,3]$，畫 $x_n$ 的序列；$hk<1$ 單調、$1<hk<2$ 震盪收斂、$hk>2$ 發散並亮紅。
+- **底部觀察句**：「觀察：Euler 每步偏 $\tfrac{h^2}{2}\|\ddot x\|$，全程約偏 $\tfrac{h}{2}\int\|\ddot x\|dt$ 再乘上一個放大因子——$h$ 縮一半誤差縮一半。直路且等速時一步都不錯；步長太大時誤差不只變大，還會發散。」
+- **匯出 PNG**：兩格併成 16:9，含當前 $h$、$R$、$v$ 與誤差數字。
+</VizPlan>
+
+## 先消化一下
+
+<QuizBlock id="m2-3-a">
+一台掃地機器人每 0.5 秒讀一次自己的速度、中間假設等速直走，藉此估計自己的位置。哪種情況下它的位置估計會最準？
+<Option>沿著一條蛇形路線慢慢走。</Option>
+<Option correct>沿著直線等速走，即使走得很快。</Option>
+<Option>沿著小圓圈快速轉。</Option>
+<Explanation>
+誤差界的核心是 $\int\|\ddot x\|dt$：直線等速時 $\ddot x=0$，不論速度多快都精確。蛇形路線 $\ddot x$ 一直不為零；小圓圈快速轉的 $\|\ddot x\|=v^2/R$ 最大。「走得慢比較準」是把速度與加速度混在一起——決定誤差的是加速度。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m2-3-b">
+你把導航的更新間隔從 30 秒改成 10 秒，發現終點誤差從 486 m 降到 161 m。若再改成 1 秒，最合理的預期是：
+<Option correct>約 16 m——Euler 是一階方法，誤差大致與 $h$ 成正比。</Option>
+<Option>約 1.6 m——誤差與 $h^2$ 成正比。</Option>
+<Option>幾乎為零——更新夠頻繁就沒有誤差。</Option>
+<Explanation>
+局部誤差是 $h^2$ 的量級，但一共要走 $T/h$ 步，乘起來是 $h$ 的一階。30→10 已經驗證了三倍對三倍；10→1 縮十倍，161/10≈16。「$h^2$」是把局部誤差誤當成全域誤差；「幾乎為零」則忘了只要路是彎的，任何有限的 $h$ 都會留下正比於 $h$ 的誤差。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m2-3-c">
+誤差界 $\tfrac{h}{2}e^{LT}\!\int\|\ddot x\|dt$ 裡，若場的 Lipschitz 常數 $L$ 很大（方向對位置極敏感，例如在岔路口附近），會發生什麼？
+<Option>局部誤差 $\tfrac{h^2}{2}\|\ddot x\|$ 變大。</Option>
+<Option>誤差界不受影響，因為 $L$ 只出現在存在唯一定理裡。</Option>
+<Option correct>局部誤差不變，但舊誤差每步被放大 $(1+hL)$ 倍；$hL$ 大到一定程度時甚至會發散——這時要縮小 $h$ 不是為了精度，而是為了穩定。</Option>
+<Explanation>
+$L$ 不進局部誤差（那只看 $\ddot x$），它控制的是「站錯位置之後讀到錯方向」的放大效應。$\dot x=-kx$ 的例子裡 $L=k$，$hk>2$ 就發散。「$L$ 只跟存在唯一有關」漏掉了它在誤差傳播裡的角色。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="math-higher-order">
+本篇把「中間假設直走」寫成 Euler 法，用 Taylor 得到局部誤差 $\tfrac{h^2}{2}\|\ddot x\|$、用 Grönwall 累積成一階的全域誤差，並看到它由步長、路的加速度積分、與場的敏感度三者決定。要縮小誤差，最直接的做法是縮小 $h$——但每縮一次就多讀一次方向。下一篇問：如果在 30 秒的中點多看一眼方向，能不能用同樣的讀取次數換到更小的誤差？
+</Bridge>
+
+## 參考文獻
+
+1. Hairer, E., Nørsett, S. P., Wanner, G. [*Solving Ordinary Differential Equations I: Nonstiff Problems.*](https://doi.org/10.1007/978-3-540-78862-1) Springer, 2nd ed., 1993.（第 I.7 節與第 II.3 節：Euler 法的局部與全域誤差、Grönwall 型的累積論證。）
+2. Butcher, J. C. [*Numerical Methods for Ordinary Differential Equations.*](https://doi.org/10.1002/9781119121534) Wiley, 3rd ed., 2016.（第 2 章：Euler 法的收斂與穩定性。）
+3. Grönwall, T. H. [*Note on the Derivatives with Respect to a Parameter of the Solutions of a System of Differential Equations.*](https://doi.org/10.2307/1967124) Annals of Mathematics 20(4), 1919.（Grönwall 不等式的原始出處。）

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>損失變小不等於學到東西：自我一致性的平凡解</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：當目標由模型自己產生，<b>一個常數函數就能讓損失變成零</b>。這個 demo 用一個線性模型（8 個傅立葉基底）跑自我一致性，三個開關分開：<b>錨</b>決定非平凡解存不存在、<b>EMA</b> 決定動力系統穩不穩、<b>stop-gradient</b> 兩件都不決定——它換掉的是那個向量場。</p>
+  <canvas id="fn" style="aspect-ratio:5/3" aria-label="灰虛線＝真值 sin(2πx)（振幅 2.00）；實線＝訓練完的模型；實心點＝錨點"></canvas>
+  <p class="cap">灰虛線＝真值 sin(2πx)（振幅 2.00）；實線＝訓練完的模型；實心點＝錨點</p>
+  <canvas id="hist" style="aspect-ratio:5/2" aria-label="縱軸 log：一致性損失（藍）與模型輸出的振幅（紅）對步數；水平線＝真值振幅 2.00"></canvas>
+  <p class="cap">縱軸 log：一致性損失（藍）與模型輸出的振幅（紅）對步數；水平線＝真值振幅 2.00</p>
+  <div class="controls">
+    <div class="row">
+      <label class="chk"><input id="sg" type="checkbox" /> stop-gradient</label>
+      <label class="chk"><input id="em" type="checkbox" /> EMA 目標</label>
+      <label for="tau">τ</label><input id="tau" type="range" min="0.8" max="0.999" step="0.001" value="0.99" />
+    </div>
+    <div class="row">
+      <label for="na">錨點數</label><input id="na" type="range" min="0" max="8" step="1" value="0" />
+      <label for="wa">錨的權重</label><input id="wa" type="range" min="-2" max="1.5" step="0.1" value="0" />
+    </div>
+    <div class="stats"><span>最終一致性損失 = <b id="v1">—</b></span> <span>最終振幅 = <b id="v2">—</b></span> <span>真值振幅 = <b id="v3">2.00</b></span> <span>到真值的均方誤差 = <b id="v4">—</b></span></div>
+  </div>
+  <p class="observe">觀察：沒有錨的時候，<b>損失一路掉到 4.9e-14 而振幅也一路掉到 4.9e-6</b>——模型塌成一條水平線，而損失曲線看起來一切正常。打開 stop-gradient 仍然塌（振幅 8.0e-3），加上 EMA 只是慢下來（0.56）：<b>兩者都不是防塌陷的機制</b>。把錨點數拉到 3 以上，模型立刻長回真值的形狀（到真值的均方誤差 1.1e-2）——讓非平凡解存在的是錨。（筆記裡那個設定下，stop-gradient 是往另一個方向壞掉、炸到 10⁷；這個線性 toy 的向量場剛好仍然是收縮的，所以它塌而不是炸。<b>兩種都是同一個教訓：要監控的是振幅，不是損失。</b>）</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var K = 8, G = 160, STEPS = 3000, DX = 0.02;
+  var el = function (i) { return document.getElementById(i); };
+  var dF = MLF.hiDPICanvas(el('fn')), dH = MLF.hiDPICanvas(el('hist'));
+  var pal = MLF.palette(), gx = MLF.grid(G), R = null;
+
+  function phi(x) {
+    var v = [1], k;
+    for (k = 1; k <= (K - 1) / 2; k++) { v.push(Math.sin(2 * Math.PI * k * x)); v.push(Math.cos(2 * Math.PI * k * x)); }
+    while (v.length < K) v.push(0);
+    return v.slice(0, K);
+  }
+  function f(th, x) { var p = phi(x), s = 0, k; for (k = 0; k < K; k++) s += th[k] * p[k]; return s; }
+
+  function run() {
+    var sg = el('sg').checked, em = el('em').checked, tau = +el('tau').value;
+    var na = +el('na').value, wa = Math.pow(10, +el('wa').value);
+    var r = MLF.rng(5), th = [], thm = [], k, i, step;
+    for (k = 0; k < K; k++) { th.push(0.15 * r.normal()); }
+    thm = th.slice();
+    var anchors = [];
+    for (i = 0; i < na; i++) { var xa = (i + 0.5) / na; anchors.push([xa, MLF.truth(xa)]); }
+    var xs = [];
+    for (i = 0; i < 64; i++) xs.push(i / 64);
+    var hist = { loss: [], amp: [] }, eta = 0.25;
+    for (step = 0; step < STEPS; step++) {
+      var g = new Array(K).fill(0), L = 0;
+      for (i = 0; i < xs.length; i++) {
+        var x = xs[i], xp = (x + DX) % 1;
+        var pa = phi(x), pb = phi(xp);
+        var fa = 0, fb = 0;
+        for (k = 0; k < K; k++) { fa += th[k] * pa[k]; fb += (sg && em ? thm[k] : th[k]) * pb[k]; }
+        var e = fa - fb; L += e * e / xs.length;
+        for (k = 0; k < K; k++) g[k] += 2 * e * (sg ? pa[k] : pa[k] - pb[k]) / xs.length;
+      }
+      for (i = 0; i < anchors.length; i++) {
+        var p = phi(anchors[i][0]), fv = 0;
+        for (k = 0; k < K; k++) fv += th[k] * p[k];
+        var ea = fv - anchors[i][1];
+        for (k = 0; k < K; k++) g[k] += wa * 2 * ea * p[k] / anchors.length;
+      }
+      for (k = 0; k < K; k++) th[k] -= eta * g[k];
+      if (em) for (k = 0; k < K; k++) thm[k] = tau * thm[k] + (1 - tau) * th[k];
+      if (!isFinite(th[0]) || Math.abs(th[0]) > 1e15) { th = th.map(function () { return NaN; }); break; }
+      if (step % 10 === 0) {
+        var lo = 1e9, hi2 = -1e9;
+        for (i = 0; i < G; i += 4) { var vv = f(th, gx[i]); if (vv < lo) lo = vv; if (vv > hi2) hi2 = vv; }
+        hist.loss.push([step + 1, Math.max(L, 1e-14)]);
+        hist.amp.push([step + 1, Math.max(hi2 - lo, 1e-14)]);
+      }
+    }
+    var mse = 0;
+    for (i = 0; i < G; i++) { var d = f(th, gx[i]) - MLF.truth(gx[i]); mse += d * d; }
+    return { th: th, hist: hist, anchors: anchors,
+      loss: hist.loss.length ? hist.loss[hist.loss.length - 1][1] : NaN,
+      amp: hist.amp.length ? hist.amp[hist.amp.length - 1][1] : NaN,
+      mse: mse / G };
+  }
+
+  function drawFn() {
+    var s = dF.resize(), ctx = dF.ctx; MLF.clear(ctx, s, pal);
+    var ax = MLF.axes(ctx, s, { x: [0, 1], y: [-2.4, 2.4], pal: pal,
+      xticks: [0, 0.5, 1], yticks: [-2, -1, 0, 1, 2], xlab: 'x', ylab: 'f(x)' });
+    var i, t = [], p = [];
+    for (i = 0; i < G; i++) { t.push([gx[i], MLF.truth(gx[i])]); p.push([gx[i], Math.max(-4, Math.min(4, f(R.th, gx[i])))]); }
+    MLF.line(ctx, ax, t, MLF.rgb(pal.a, 0.5), 1.6, [5, 4]);
+    if (isFinite(R.th[0])) MLF.line(ctx, ax, p, MLF.rgb(pal.d), 2.2);
+    else MLF.label(ctx, (ax.box.l + ax.box.r) / 2, (ax.box.t + ax.box.b) / 2, '發散（超出浮點數範圍）', MLF.rgb(pal.d), 'center', 13);
+    R.anchors.forEach(function (a) { MLF.dot(ctx, ax, a[0], a[1], MLF.rgb(pal.c), 4); });
+  }
+
+  function drawHist() {
+    var s = dH.resize(), ctx = dH.ctx; MLF.clear(ctx, s, pal);
+    var hi = 4, lo = 1e-12, i;
+    R.hist.amp.forEach(function (p) { hi = Math.max(hi, p[1]); });
+    R.hist.loss.forEach(function (p) { hi = Math.max(hi, p[1]); });
+    hi = Math.min(hi * 2, 1e16);
+    var ax = MLF.axes(ctx, s, { x: [1, STEPS], y: [lo, hi], logx: true, logy: true, pal: pal,
+      xticks: [1, 10, 100, 1000, 3000], yticks: [lo, 1, hi],
+      fmty: function (v) { return v.toExponential(0); }, xlab: '步數（log）' });
+    var cl = function (v) { return Math.min(hi, Math.max(lo, v)); };
+    MLF.ref(ctx, ax, { y: 2, color: MLF.rgb(pal.a, 0.8) });
+    MLF.label(ctx, ax.box.l + 5, ax.Y(2) - 7, '真值振幅 2.00', MLF.rgb(pal.a, 0.9));
+    MLF.line(ctx, ax, R.hist.loss.map(function (p) { return [p[0], cl(p[1])]; }), MLF.rgb(pal.b), 2);
+    MLF.line(ctx, ax, R.hist.amp.map(function (p) { return [p[0], cl(p[1])]; }), MLF.rgb(pal.d), 2);
+    MLF.legend(ctx, ax, [{ t: '一致性損失', c: MLF.rgb(pal.b) }, { t: '模型輸出的振幅', c: MLF.rgb(pal.d) }], 'bl', pal);
+  }
+
+  function draw() {
+    R = run();
+    el('v1').textContent = isFinite(R.loss) ? R.loss.toExponential(2) : '發散';
+    el('v2').textContent = isFinite(R.amp) ? R.amp.toExponential(2) : '發散';
+    el('v4').textContent = isFinite(R.mse) ? R.mse.toExponential(2) : '發散';
+    drawFn(); drawHist();
+  }
+  ['sg', 'em'].forEach(function (i) { el(i).onchange = draw; });
+  ['tau', 'na', 'wa'].forEach(function (i) { el(i).onchange = draw; });
+  window.addEventListener('resize', function () { drawFn(); drawHist(); });
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; drawFn(); drawHist(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  draw();
+
+})();
+</script>
+</body>
+</html>

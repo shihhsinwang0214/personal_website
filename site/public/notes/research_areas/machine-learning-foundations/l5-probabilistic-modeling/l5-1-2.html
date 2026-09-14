@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ELBO 是一個下界，而 E-step 把那道縫剛好補平</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：log p(x) ＝ ELBO(q,θ) ＋ KL(q ‖ p(z|x))。<b>那道縫就是 KL，而 KL ≥ 0</b>，所以 ELBO 永遠是下界。EM 把它拆成兩半：<b>E-step 把 q 換成後驗，縫變成精確的 0（下界貼到頂）</b>；<b>M-step 把貼好的下界往上推</b>。所以 log p(x) 一步都不會掉——但每一步的保證來源不一樣。</p>
+  <canvas id="fit" style="aspect-ratio:5/2" aria-label="資料（下緣的短線）與目前的兩成分混合；虛線＝真分布"></canvas>
+  <p class="cap">資料（下緣的短線）與目前的兩成分混合；虛線＝真分布</p>
+  <canvas id="elbo" style="aspect-ratio:5/2" aria-label="上＝每半步的 log p(x) 與 ELBO；下＝同一個時間軸上的縫 KL(q‖p(z|x))，log 軸（E-step 之後貼底，那是精確的 0）"></canvas>
+  <p class="cap">上＝每半步的 log p(x) 與 ELBO；下＝同一個時間軸上的縫 KL(q‖p(z|x))，log 軸（E-step 之後貼底，那是精確的 0）</p>
+  <div class="controls">
+    <div class="row">
+      <label for="sep">兩個成分的分離度</label><input id="sep" type="range" min="0.6" max="4" step="0.1" value="2.2" />
+      <label for="n">樣本數 n</label><input id="n" type="range" min="20" max="300" step="10" value="120" />
+      <label for="bad">q 故意偏掉</label><input id="bad" type="range" min="0" max="0.45" step="0.05" value="0" />
+    </div>
+    <div class="row">
+      <button id="st" class="ghost">▶ 走一個半步</button>
+      <button id="run" class="ghost">▶▶ 跑 20 步</button>
+      <button id="re" class="ghost">↺ 重新開始</button>
+      <span id="lbl" style="font-size:0.78rem"></span>
+    </div>
+    <div class="stats"><span>目前是哪一步 = <b id="v0">—</b></span> <span>log p(x)／筆 = <b id="v1">—</b></span> <span>ELBO／筆 = <b id="v2">—</b></span> <span>縫 ＝ KL(q‖p(z|x)) = <b id="v3">—</b></span> <span>E-step 之後的縫 = <b id="v4">—</b></span> <span>log p(x) 這一步的變化 = <b id="v5">—</b></span></div>
+  </div>
+  <p class="observe">觀察：按「走一個半步」。<b>E-step 那一步：上面那條 log p(x) 完全不動，下面的 ELBO 直接跳上來貼住它，縫變成 0.00e+0（浮點數的零）</b>——E-step 沒有改模型，它只是把界拉緊。<b>M-step 那一步：ELBO 往上推，log p(x) 跟著上去，而縫又張開</b>——因為 θ 動了，舊的 q 就不再是後驗。兩件事輪流做，log p(x) 一路單調上升。把「q 故意偏掉」拉大，縫一開始就是正的，而且 E-step 還是一次補平；把分離度調小，兩個成分重疊，<b>收斂變慢而且 log p(x) 停在比較低的地方</b>。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var NG = 320, XLO = -6, XHI = 8, dx = (XHI - XLO) / (NG - 1);
+  var el = function (i) { return document.getElementById(i); };
+  var dF = MLF.hiDPICanvas(el('fit')), dE = MLF.hiDPICanvas(el('elbo'));
+  var pal = MLF.palette(), ST = null, raf = null;
+
+  function gx(i) { return XLO + i * dx; }
+  function npdf(x, m, s) { var z = (x - m) / s; return Math.exp(-0.5 * z * z) / (s * Math.sqrt(2 * Math.PI)); }
+  function trueParams() { var d = +el('sep').value; return { m: [-d / 2, d / 2], s: [0.8, 1.0], w: [0.45, 0.55] }; }
+  function ptrue(x) {
+    var T = trueParams();
+    return T.w[0] * npdf(x, T.m[0], T.s[0]) + T.w[1] * npdf(x, T.m[1], T.s[1]);
+  }
+  function sample(n, sd) {
+    var T = trueParams(), r = MLF.rng(sd), out = [], i;
+    for (i = 0; i < n; i++) {
+      var k = r() < T.w[0] ? 0 : 1;
+      out.push(T.m[k] + T.s[k] * r.normal());
+    }
+    return out;
+  }
+
+  /* 模型：兩成分高斯混合；q 是每一筆資料上的責任度（responsibility） */
+  function mixPdf(P, x) { return P.w[0] * npdf(x, P.m[0], P.s[0]) + P.w[1] * npdf(x, P.m[1], P.s[1]); }
+  function logLik(P, xs) {
+    var s = 0, i;
+    for (i = 0; i < xs.length; i++) s += Math.log(Math.max(mixPdf(P, xs[i]), 1e-300));
+    return s / xs.length;
+  }
+  /* ELBO(q,θ) = (1/n) Σ_i Σ_k q_ik [ log π_k + log N(x_i|θ_k) − log q_ik ] */
+  function elbo(P, Q, xs) {
+    var s = 0, i, k;
+    for (i = 0; i < xs.length; i++) for (k = 0; k < 2; k++) {
+      var q = Q[i][k];
+      if (q < 1e-12) continue;
+      s += q * (Math.log(Math.max(P.w[k], 1e-300)) + Math.log(Math.max(npdf(xs[i], P.m[k], P.s[k]), 1e-300)) - Math.log(q));
+    }
+    return s / xs.length;
+  }
+  function posterior(P, xs) {
+    var Q = [], i;
+    for (i = 0; i < xs.length; i++) {
+      var a = P.w[0] * npdf(xs[i], P.m[0], P.s[0]), b = P.w[1] * npdf(xs[i], P.m[1], P.s[1]);
+      var z = a + b;
+      Q.push(z > 0 ? [a / z, b / z] : [0.5, 0.5]);
+    }
+    return Q;
+  }
+  function bendQ(Q, t) {                 // 把 q 故意往 0.5 拉，製造一道非零的縫
+    if (t <= 0) return Q;
+    return Q.map(function (q) { return [(1 - t) * q[0] + t * 0.5, (1 - t) * q[1] + t * 0.5]; });
+  }
+  function mstep(Q, xs) {
+    var n = xs.length, w = [0, 0], m = [0, 0], s = [0, 0], i, k;
+    for (k = 0; k < 2; k++) {
+      var N = 0, mu = 0;
+      for (i = 0; i < n; i++) { N += Q[i][k]; mu += Q[i][k] * xs[i]; }
+      N = Math.max(N, 1e-9); mu /= N;
+      var v = 0;
+      for (i = 0; i < n; i++) v += Q[i][k] * (xs[i] - mu) * (xs[i] - mu);
+      w[k] = N / n; m[k] = mu; s[k] = Math.max(Math.sqrt(v / N), 0.2);
+    }
+    return { w: w, m: m, s: s };
+  }
+
+  function reset() {
+    var n = +el('n').value, xs = sample(n, 11);
+    var P = { w: [0.5, 0.5], m: [-0.8, 1.0], s: [1.4, 1.4] };
+    var Q = bendQ(posterior(P, xs), 0.45);
+    ST = { xs: xs, P: P, Q: Q, hist: [], phase: 'E', half: 0, prevLL: null, lastGap: null };
+    record('起始');
+    draw();
+  }
+  function record(tag) {
+    var LL = logLik(ST.P, ST.xs), EB = elbo(ST.P, ST.Q, ST.xs);
+    ST.hist.push({ t: ST.half, LL: LL, EB: EB, tag: tag });
+  }
+  function halfStep() {
+    var prev = logLik(ST.P, ST.xs);
+    if (ST.phase === 'E') {
+      ST.Q = bendQ(posterior(ST.P, ST.xs), +el('bad').value);
+      ST.phase = 'M';
+      ST.half++;
+      record('E-step');
+      ST.lastGap = logLik(ST.P, ST.xs) - elbo(ST.P, ST.Q, ST.xs);
+    } else {
+      ST.P = mstep(ST.Q, ST.xs);
+      ST.phase = 'E';
+      ST.half++;
+      record('M-step');
+    }
+    ST.prevLL = logLik(ST.P, ST.xs) - prev;
+    draw();
+  }
+  function runMany() {
+    var left = 40;
+    if (raf) cancelAnimationFrame(raf);
+    (function go() {
+      halfStep();
+      if (--left > 0) raf = requestAnimationFrame(go); else raf = null;
+    })();
+  }
+
+  function drawFit() {
+    var s = dF.resize(), ctx = dF.ctx; MLF.clear(ctx, s, pal);
+    var i, hi = 0;
+    for (i = 0; i < NG; i++) hi = Math.max(hi, ptrue(gx(i)), mixPdf(ST.P, gx(i)));
+    hi *= 1.2;
+    var ax = MLF.axes(ctx, s, { x: [XLO, XHI], y: [0, hi], pal: pal,
+      xticks: [-6, -3, 0, 3, 6], yticks: [0, hi / 2, hi],
+      fmty: function (v) { return v.toFixed(2); }, xlab: 'x', ylab: '密度' });
+    var T = [], M = [], A = [], B = [];
+    for (i = 0; i < NG; i++) {
+      T.push([gx(i), ptrue(gx(i))]);
+      M.push([gx(i), mixPdf(ST.P, gx(i))]);
+      A.push([gx(i), ST.P.w[0] * npdf(gx(i), ST.P.m[0], ST.P.s[0])]);
+      B.push([gx(i), ST.P.w[1] * npdf(gx(i), ST.P.m[1], ST.P.s[1])]);
+    }
+    MLF.line(ctx, ax, T, MLF.rgb(pal.a, 0.8), 2, [5, 4]);
+    MLF.line(ctx, ax, A, MLF.rgb(pal.b, 0.7), 1.5);
+    MLF.line(ctx, ax, B, MLF.rgb(pal.e, 0.7), 1.5);
+    MLF.line(ctx, ax, M, MLF.rgb(pal.d), 2.2);
+    ctx.strokeStyle = MLF.rgb(pal.b, 0.5); ctx.lineWidth = 1.1;
+    for (i = 0; i < ST.xs.length; i++) {
+      ctx.beginPath(); ctx.moveTo(ax.X(ST.xs[i]), ax.box.b); ctx.lineTo(ax.X(ST.xs[i]), ax.box.b - 8); ctx.stroke();
+    }
+    MLF.legend(ctx, ax, [{ t: '真分布', c: MLF.rgb(pal.a, 0.8) }, { t: '目前的混合', c: MLF.rgb(pal.d) },
+      { t: '成分 1', c: MLF.rgb(pal.b, 0.7) }, { t: '成分 2', c: MLF.rgb(pal.e, 0.7) }], 'tr', pal);
+  }
+
+  function drawElbo() {
+    var s = dE.resize(), ctx = dE.ctx; MLF.clear(ctx, s, pal);
+    var H = ST.hist, lo = 1e30, hi = -1e30, i;
+    H.forEach(function (h) { lo = Math.min(lo, h.EB, h.LL); hi = Math.max(hi, h.EB, h.LL); });
+    var pad = Math.max((hi - lo) * 0.12, 0.02);
+    var T = Math.max(ST.half, 6);
+    var H1 = s.h * 0.66, H2 = s.h - H1;
+
+    ctx.save();
+    var ax = MLF.axes(ctx, { w: s.w, h: H1 }, { x: [0, T], y: [lo - pad, hi + pad], pal: pal,
+      xticks: [], yticks: [lo - pad, (lo + hi) / 2, hi + pad],
+      pad: { b: 0.04, t: 0.09 },
+      fmty: function (v) { return v.toFixed(3); }, ylab: 'nats／筆' });
+    MLF.line(ctx, ax, H.map(function (h) { return [h.t, h.LL]; }), MLF.rgb(pal.d), 2.4);
+    MLF.line(ctx, ax, H.map(function (h) { return [h.t, h.EB]; }), MLF.rgb(pal.c), 2.4);
+    H.forEach(function (h) {
+      MLF.dot(ctx, ax, h.t, h.LL, MLF.rgb(pal.d), 2.6);
+      MLF.dot(ctx, ax, h.t, h.EB, MLF.rgb(pal.c), 2.6);
+    });
+    MLF.legend(ctx, ax, [{ t: 'log p(x)', c: MLF.rgb(pal.d) }, { t: 'ELBO', c: MLF.rgb(pal.c) }], 'br', pal);
+    ctx.restore();
+
+    /* 下面這一條把「縫」放到 log 軸上，不然 10⁻⁵ 的縫在上圖裡看不見 */
+    ctx.save(); ctx.translate(0, H1);
+    var GLO = 1e-17, GHI = 1e-1;
+    var ax2 = MLF.axes(ctx, { w: s.w, h: H2 }, { x: [0, T], y: [GLO, GHI], logy: true, pal: pal,
+      xticks: [0, Math.round(T / 2), T], yticks: [GLO, 1e-9, GHI],
+      pad: { t: 0.06, b: 0.34 },
+      fmty: function (v) { return v.toExponential(0); }, fmtx: function (v) { return String(Math.round(v)); },
+      xlab: '半步數（E、M 交替）' });
+    H.forEach(function (h) {
+      var g = Math.max(h.LL - h.EB, 0);
+      if (g <= 1e-14) {                  // 精確的 0：畫一個貼底的小方塊
+        ctx.fillStyle = MLF.rgb(pal.c, 0.95);
+        ctx.fillRect(ax2.X(h.t) - 2, ax2.box.b - 4, 4, 4);
+        return;
+      }
+      ctx.strokeStyle = MLF.rgb(pal.e, 0.9); ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(ax2.X(h.t), ax2.box.b); ctx.lineTo(ax2.X(h.t), ax2.Y(Math.min(g, GHI))); ctx.stroke();
+    });
+    MLF.legend(ctx, ax2, [{ t: 'M-step 之後的縫', c: MLF.rgb(pal.e) },
+      { t: 'E-step 之後：精確的 0', c: MLF.rgb(pal.c) }], 'tr', pal);
+    ctx.restore();
+  }
+
+  function draw() {
+    var LL = logLik(ST.P, ST.xs), EB = elbo(ST.P, ST.Q, ST.xs);
+    el('v0').textContent = ST.half === 0 ? '起始' : ST.hist[ST.hist.length - 1].tag;
+    el('v1').textContent = LL.toFixed(5);
+    el('v2').textContent = EB.toFixed(5);
+    el('v3').textContent = Math.max(LL - EB, 0).toExponential(2);
+    el('v4').textContent = ST.lastGap === null ? '—' : Math.max(ST.lastGap, 0).toExponential(2);
+    el('v5').textContent = ST.prevLL === null ? '—' : (ST.prevLL >= 0 ? '+' : '') + ST.prevLL.toExponential(2);
+    el('lbl').textContent = '下一步：' + (ST.phase === 'E' ? 'E-step（把 q 換成後驗）' : 'M-step（更新 θ）');
+    drawFit(); drawElbo();
+  }
+  el('st').onclick = function () { if (raf) { cancelAnimationFrame(raf); raf = null; } halfStep(); };
+  el('run').onclick = runMany;
+  el('re').onclick = function () { if (raf) { cancelAnimationFrame(raf); raf = null; } reset(); };
+  ['sep', 'n'].forEach(function (i) { el(i).onchange = function () { if (raf) { cancelAnimationFrame(raf); raf = null; } reset(); }; });
+  el('bad').onchange = draw;
+  window.addEventListener('resize', function () { drawFit(); drawElbo(); });
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  reset();
+
+})();
+</script>
+</body>
+</html>

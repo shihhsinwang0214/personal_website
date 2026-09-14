@@ -39,7 +39,11 @@ const all = await getCollection('handbook');
 const nav = handbookNav(all, lang);
 // Only offer a role whose section actually has visible pages right now.
 const liveSections = new Set(nav.map((g) => g.section.key));
-const visibleRoles = roleCards.filter((r) => liveSections.has(r.section));
+// Keep only the sections that actually have visible pages, then drop any role
+// left with nothing to point at.
+const visibleRoles = roleCards
+  .map((r) => ({ ...r, sections: r.sections.filter((k) => liveSections.has(k)) }))
+  .filter((r) => r.sections.length > 0);
 const codex = visibleMonsters();
 
 const crewCount = labMembers.reduce((n, g) => n + g.people.length, 0);
@@ -58,7 +62,7 @@ const t = {
   recruitment: { en: 'Recruitment', zh: '招募狀態' }[lang],
   joinLink: { en: 'Join the expedition →', zh: '加入研究室 →' }[lang],
   crewLink: { en: 'Full crew →', zh: '所有成員 →' }[lang],
-  leaderLink: { en: 'Profile →', zh: '個人頁 →' }[lang],
+  leaderLink: { en: 'About me →', zh: '關於我 →' }[lang],
   manual: { en: 'Field Manual', zh: '遠征攻略' }[lang],
   manualHint: { en: 'pick a path', zh: '選一條開始' }[lang],
 };
@@ -128,12 +132,14 @@ const t = {
             height="960"
             loading="lazy"
           />
-          <div>
-            <div class="person-name">{profile.name} <span class="person-name-zh">{profile.nameZh}</span></div>
-            <div class="person-role">{profile.roleShort[lang]}</div>
+          <div class="panel-leader-id">
+            <span class="person-name">{profile.name}</span>
+            <span class="person-name-zh">{profile.nameZh}</span>
+            <span class="person-role">{lang === 'zh' ? '臺大資訊工程學系' : 'NTU CSIE'}</span>
+            <span class="person-role">{lang === 'zh' ? '助理教授' : 'Assistant Professor'}</span>
           </div>
         </div>
-        <a class="panel-link" href={withBase(peopleRoute(lang))}>{t.leaderLink}</a>
+        <a class="panel-link" href={withBase(lang === 'zh' ? 'zh/about' : 'about')}>{t.leaderLink}</a>
       </section>
 
       {/* ── Crew ── */}
@@ -190,7 +196,12 @@ const t = {
       <nav class="lab-roles" aria-label={lang === 'zh' ? '路線建議' : 'Suggested paths'}>
         <span class="lab-roles-q">{lang === 'zh' ? '你是誰？' : 'Who are you?'}</span>
         {visibleRoles.map((r) => (
-          <a class="lab-role" href={`#path-${r.section}`} data-section={r.section} title={r.desc[lang]}>
+          <a
+            class="lab-role"
+            href={`#path-${r.sections[0]}`}
+            data-sections={r.sections.join(' ')}
+            title={r.desc[lang]}
+          >
             <span aria-hidden="true">{r.icon}</span> {r.title[lang]}
           </a>
         ))}
@@ -278,17 +289,38 @@ const t = {
      add the highlight so the choice is visible after landing. */
   const roles = Array.from(document.querySelectorAll<HTMLAnchorElement>('.lab-role'));
   const paths = Array.from(document.querySelectorAll<HTMLElement>('.lab-tree-path'));
-  const focusPath = (key: string) => {
-    roles.forEach((r) => r.classList.toggle('is-active', r.dataset.section === key));
+  const sectionsOf = (el: HTMLElement) => (el.dataset.sections ?? '').split(' ').filter(Boolean);
+  /** A role can light up several paths at once, so this takes a set. */
+  const focusPaths = (keys: string[]) => {
+    const on = new Set(keys);
+    roles.forEach((r) => {
+      const mine = sectionsOf(r);
+      r.classList.toggle('is-active', mine.length > 0 && mine.every((k) => on.has(k)) && mine.length === on.size);
+    });
     paths.forEach((p) => {
-      p.classList.toggle('is-focus', p.dataset.section === key);
-      p.classList.toggle('is-dim', p.dataset.section !== key);
+      const hit = Boolean(p.dataset.section && on.has(p.dataset.section));
+      p.classList.toggle('is-focus', hit);
+      p.classList.toggle('is-dim', !hit);
     });
   };
   roles.forEach((r) => {
-    r.addEventListener('click', () => {
-      if (r.dataset.section) focusPath(r.dataset.section);
+    r.addEventListener('click', (e) => {
+      // The paths sit below the fold, so following the anchor would throw the
+      // reader to the bottom of the page and take the picker off screen. Keep
+      // the viewport still and just light the paths up. `replaceState` does not
+      // scroll, so the URL stays shareable. Without JS the anchor still jumps,
+      // which is the right fallback.
+      e.preventDefault();
+      const keys = sectionsOf(r);
+      focusPaths(keys);
+      if (keys[0]) history.replaceState(null, '', '#path-' + keys[0]);
     });
   });
-  if (location.hash.startsWith('#path-')) focusPath(location.hash.slice(6));
+  if (location.hash.startsWith('#path-')) {
+    const key = location.hash.slice(6);
+    // Landing on a role's anchor should light up everything that role covers,
+    // not just the section the anchor happens to point at.
+    const role = roles.find((r) => sectionsOf(r)[0] === key);
+    focusPaths(role ? sectionsOf(role) : [key]);
+  }
 </script>

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>隨機搜尋贏的不是隨機，是不製造重複</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：格子搜尋把預算 B 均分到 d 個維度，每個維度只得到 <b>B<sup>1/d</sup></b> 個不同的值；隨機搜尋在<b>每一個維度上都給出 B 個不同的值</b>。如果只有 k 個維度真的重要，前者的有效解析度就是後者的 B<sup>1/d</sup>/B。</p>
+  <canvas id="sq" style="aspect-ratio:1/1" aria-label="單位正方形上的取樣點（取前兩個維度）；背景等高線＝目標函數；下緣與左緣的刻度＝各自在該軸上的投影"></canvas>
+  <p class="cap">單位正方形上的取樣點（取前兩個維度）；背景等高線＝目標函數；下緣與左緣的刻度＝各自在該軸上的投影</p>
+  <canvas id="best" style="aspect-ratio:5/2" aria-label="縱軸 log：找到的最佳值對預算 B，兩條曲線（各 40 次重複取中位數）"></canvas>
+  <p class="cap">縱軸 log：找到的最佳值對預算 B，兩條曲線（各 40 次重複取中位數）</p>
+  <div class="controls">
+    <div class="row">
+      <label for="B">預算 B</label><input id="B" type="range" min="4" max="10" step="1" value="6" />
+      <label for="d">名目維度 d</label><input id="d" type="range" min="1" max="6" step="1" value="5" />
+      <label for="k">有效維度 k</label><input id="k" type="range" min="1" max="6" step="1" value="1" />
+    </div>
+    <div class="row">
+      <button id="re" class="ghost">🎲 重抽</button>
+    </div>
+    <div class="stats"><span>B = <b id="vB">—</b></span> <span>格子在每軸的不同值 = <b id="v1">—</b></span> <span>隨機在每軸的不同值 = <b id="v2">—</b></span> <span>格子找到的最佳 = <b id="v3">—</b></span> <span>隨機找到的最佳 = <b id="v4">—</b></span> <span>比值 = <b id="v5">—</b></span></div>
+  </div>
+  <p class="observe">觀察：把名目維度 d 從 1 拉到 5，<b>格子在每個軸上的不同值從 B 塌到 B<sup>1/5</sup></b>（例如 64 → 2），而隨機那一欄完全不動。接著把有效維度 k 調到等於 d，<b>下圖兩條曲線就合起來了</b>——所有維度都重要的時候，隨機搜尋沒有優勢。這也說明該先做的事是用散點圖查出哪些維度真的重要。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var REP = 40;
+  var el = function (i) { return document.getElementById(i); };
+  var dQ = MLF.hiDPICanvas(el('sq')), dB = MLF.hiDPICanvas(el('best'));
+  var pal = MLF.palette(), seed = 1, S = null;
+
+  function Bval() { return Math.pow(2, +el('B').value); }
+  function kEff() { return Math.min(+el('k').value, +el('d').value); }
+
+  /* 目標：只有前 k 個維度有影響，最佳值在隨機位置 c。回傳「損失」，越小越好。 */
+  function makeObj(d, k, sd) {
+    var r = MLF.rng(sd), c = [];
+    for (var i = 0; i < d; i++) c.push(0.15 + 0.7 * r());
+    return { c: c, f: function (x) {
+      var s = 0;
+      for (var i = 0; i < k; i++) { var e = (x[i] - c[i]) / 0.25; s += e * e; }
+      return Math.exp(-s) * -1 + 1;   // 1 - exp(-...)：最小值 0
+    } };
+  }
+  function gridPts(B, d, sd) {
+    var per = Math.max(2, Math.round(Math.pow(B, 1 / d))), pts = [], i, j;
+    var total = Math.pow(per, d);
+    for (i = 0; i < Math.min(total, B * 4); i++) {
+      var x = [], t = i;
+      for (j = 0; j < d; j++) { x.push((t % per + 0.5) / per); t = Math.floor(t / per); }
+      pts.push(x);
+    }
+    return { pts: pts.slice(0, B), per: per };
+  }
+  function randPts(B, d, sd) {
+    var r = MLF.rng(sd), pts = [], i, j;
+    for (i = 0; i < B; i++) { var x = []; for (j = 0; j < d; j++) x.push(r()); pts.push(x); }
+    return { pts: pts, per: B };
+  }
+  function best(o, P) {
+    var b = 1e9;
+    for (var i = 0; i < P.length; i++) b = Math.min(b, o.f(P[i]));
+    return b;
+  }
+
+  function compute() {
+    var d = +el('d').value, k = kEff(), B = Bval(), i;
+    var g = gridPts(B, d, seed), r = randPts(B, d, seed * 31 + 7);
+    var o = makeObj(d, k, seed * 13 + 3);
+    var curve = { B: [], g: [], r: [] };
+    for (var e = 4; e <= 10; e++) {
+      var bb = Math.pow(2, e), gs = [], rs = [];
+      for (i = 0; i < REP; i++) {
+        var oo = makeObj(d, k, 1000 + i);
+        gs.push(best(oo, gridPts(bb, d, i).pts));
+        rs.push(best(oo, randPts(bb, d, 7000 + i).pts));
+      }
+      curve.B.push(bb); curve.g.push(Math.max(MLF.median(gs), 1e-6)); curve.r.push(Math.max(MLF.median(rs), 1e-6));
+    }
+    S = { g: g, r: r, o: o, curve: curve, d: d, k: k, B: B };
+  }
+
+  function drawSq() {
+    var s = dQ.resize(), ctx = dQ.ctx; MLF.clear(ctx, s, pal);
+    var ax = MLF.axes(ctx, s, { x: [0, 1], y: [0, 1], pal: pal, xticks: [0, 0.5, 1], yticks: [0, 0.5, 1],
+      pad: { l: 0.1, r: 0.05, t: 0.05, b: 0.13 }, xlab: '第 1 個超參數（第 2 個在縱軸）' });
+    var NX = 40, i, j;
+    ctx.save(); ctx.beginPath(); ctx.rect(ax.box.l, ax.box.t, ax.box.w, ax.box.h); ctx.clip();
+    for (i = 0; i < NX; i++) for (j = 0; j < NX; j++) {
+      var x = new Array(S.d).fill(0.5);
+      x[0] = (i + 0.5) / NX; if (S.d > 1) x[1] = (j + 0.5) / NX;
+      var v = 1 - S.o.f(x);
+      ctx.fillStyle = MLF.lerpColor(pal.dark ? [26, 28, 34] : [255, 253, 251], pal.a, 0.08 + 0.75 * v);
+      ctx.fillRect(ax.box.l + i * ax.box.w / NX, ax.box.b - (j + 1) * ax.box.h / NX,
+        ax.box.w / NX + 1, ax.box.h / NX + 1);
+    }
+    S.g.pts.forEach(function (p) { MLF.dot(ctx, ax, p[0], S.d > 1 ? p[1] : 0.5, MLF.rgb(pal.d, 0.9), 3); });
+    S.r.pts.forEach(function (p) { MLF.dot(ctx, ax, p[0], S.d > 1 ? p[1] : 0.5, MLF.rgb(pal.c, 0.9), 3); });
+    ctx.restore();
+    ctx.strokeStyle = pal.axis; ctx.lineWidth = 1;
+    ctx.strokeRect(ax.box.l, ax.box.t, ax.box.w, ax.box.h);
+    // 投影刻度（畫在格子內側的下緣，不要壓到座標軸標籤）
+    S.g.pts.forEach(function (p) {
+      ctx.strokeStyle = MLF.rgb(pal.d, 0.95); ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(ax.X(p[0]), ax.box.b - 13); ctx.lineTo(ax.X(p[0]), ax.box.b - 8); ctx.stroke();
+    });
+    S.r.pts.forEach(function (p) {
+      ctx.strokeStyle = MLF.rgb(pal.c, 0.95); ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(ax.X(p[0]), ax.box.b - 7); ctx.lineTo(ax.X(p[0]), ax.box.b - 2); ctx.stroke();
+    });
+    MLF.label(ctx, ax.box.l + 4, ax.box.b - 19, '↓ 在第 1 軸上的投影', pal.muted);
+    MLF.legend(ctx, ax, [{ t: '格子搜尋', c: MLF.rgb(pal.d) }, { t: '隨機搜尋', c: MLF.rgb(pal.c) }], 'tl', pal);
+  }
+
+  function drawBest() {
+    var s = dB.resize(), ctx = dB.ctx; MLF.clear(ctx, s, pal);
+    var hi = 1e-9, lo = 1e9, i;
+    S.curve.g.concat(S.curve.r).forEach(function (v) { hi = Math.max(hi, v); lo = Math.min(lo, v); });
+    hi *= 2; lo = Math.max(lo / 3, 1e-6);
+    var ax = MLF.axes(ctx, s, { x: [16, 1024], y: [lo, hi], logx: true, logy: true, pal: pal,
+      xticks: [16, 64, 256, 1024], yticks: [lo, Math.sqrt(lo * hi), hi],
+      fmty: function (v) { return v.toExponential(0); }, xlab: '預算 B（log）', ylab: '找到的最佳損失' });
+    MLF.line(ctx, ax, S.curve.B.map(function (b, i) { return [b, S.curve.g[i]]; }), MLF.rgb(pal.d), 2.2);
+    MLF.line(ctx, ax, S.curve.B.map(function (b, i) { return [b, S.curve.r[i]]; }), MLF.rgb(pal.c), 2.2);
+    MLF.ref(ctx, ax, { x: S.B, color: pal.accent, dash: [] });
+    MLF.legend(ctx, ax, [{ t: '格子搜尋', c: MLF.rgb(pal.d) }, { t: '隨機搜尋', c: MLF.rgb(pal.c) }], 'bl', pal);
+  }
+
+  function draw() {
+    compute();
+    var bg = best(S.o, S.g.pts), br = best(S.o, S.r.pts);
+    el('vB').textContent = S.B;
+    el('v1').textContent = S.g.per;
+    el('v2').textContent = S.B;
+    el('v3').textContent = bg.toExponential(2);
+    el('v4').textContent = br.toExponential(2);
+    var i = S.curve.B.indexOf(S.B);
+    el('v5').textContent = i >= 0 ? (S.curve.g[i] / S.curve.r[i]).toFixed(1) + '×' : '—';
+    drawSq(); drawBest();
+  }
+  ['B', 'd', 'k'].forEach(function (i) { el(i).onchange = draw; });
+  el('re').onclick = function () { seed = (seed + 1) % 499; draw(); };
+  window.addEventListener('resize', function () { drawSq(); drawBest(); });
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; drawSq(); drawBest(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  draw();
+
+})();
+</script>
+</body>
+</html>

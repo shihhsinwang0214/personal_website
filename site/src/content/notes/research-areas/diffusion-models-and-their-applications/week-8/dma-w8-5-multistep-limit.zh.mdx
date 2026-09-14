@@ -1,0 +1,165 @@
+---
+slug: "dma-w8-5-multistep-limit"
+label: "dma-multistep-limit"
+prereqs:
+  - math-vector-field-ode
+  - math-w2
+lang: "zh"
+title: "多步 CM 的極限：每一步都得回到 x₀"
+category: "courses"
+group: "Week 8 · Consistency Models"
+status: "available"
+updated: 2026-09-06
+summary: "CM 可以多步取樣：跳到終點、重新加噪、再跳。為什麼兩步比一步好很多，之後卻不再照那個速率改善？因為每次重加噪都是一次獨立配對（條件直線交叉）、f 是確定映射沒有 score 沒有修正、而且第二跳的起點不在任何一條原本的軌跡上。這與離散世界的因子化誤差和 remasking 是同一個結構問題。結論是 ODE 那個「多走幾步誤差就小」的保證在這裡沒有了。本篇收在問題上：病根是「必須回到 x₀ 再加噪」。"
+demos: []
+references:
+  - label: "Song, Dhariwal, Chen & Sutskever, Consistency Models (ICML 2023)"
+    href: "https://arxiv.org/abs/2303.01469"
+  - label: "Song & Dhariwal, Improved Techniques for Training Consistency Models (ICLR 2024)"
+    href: "https://arxiv.org/abs/2310.14189"
+  - label: "Liu, Gong & Liu, Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow (ICLR 2023)"
+    href: "https://arxiv.org/abs/2209.03003"
+  - label: "Sabour, Fidler & Kreis, Align Your Flow: Scaling Continuous-Time Flow Map Distillation (2025)"
+    href: "https://arxiv.org/abs/2506.14603"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 多步 CM 的極限：每一步都得回到 x₀
+
+<Objectives>
+- 寫出多步 CM 的取樣程序（跳到終點、重新加噪到 $\tau$、再跳），並說出它與 ODE 多步取樣在結構上的差別。
+- 用三個已有的工具解釋為什麼多步 CM 沒有 ODE 那個 $O(1/N)$ 的保證：重加噪是獨立配對（<Ref to="dma-linear-path"/> 的交叉）、$f_\theta$ 是確定映射沒有修正（<Ref to="dma-sampler-family"/>）、每一跳的誤差不隨步數縮小。
+- 把這個結構問題對到離散世界的 <Ref to="dma-factorization-error"/> 與 <Ref to="dma-remasking"/>，並把病根說成一句話。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 一步不夠，那就兩步
+
+$f_\theta$ 訓好了，一步生成是 $\hat x_0=f_\theta(x_T,T)$。品質不錯但不完美——$f_\theta$ 有逼近誤差，一步之內沒有任何機會修正它。前三週的直覺會說：多走幾步。
+
+CM 確實可以多步 [1]。程序是：
+
+1. 抽 $x_T\sim\mathcal N(0,T^2I)$，跳：$\hat x_0\leftarrow f_\theta(x_T,T)$。
+2. 選一個中間時刻 $\tau_1<T$，**重新加噪**：$x_{\tau_1}\leftarrow\hat x_0+\tau_1\,z_1$，$z_1\sim\mathcal N(0,I)$ 是**新抽**的噪聲。
+3. 再跳：$\hat x_0\leftarrow f_\theta(x_{\tau_1},\tau_1)$。
+4. 需要的話再選 $\tau_2<\tau_1$，重複 2–3。
+
+兩步（$T\to\hat x_0\to x_{\tau_1}\to\hat x_0$）在實務上比一步好很多——原文與 iCT 的表格裡，兩步的 FID 常常是一步的一半 [1, 2]。然後就不太動了：三步、四步、八步，增益迅速變小，遠不像 ODE 取樣那樣「步數翻倍、誤差減半」。
+
+<Question id="Q1">
+ODE 取樣的誤差隨步數 $N$ 以 $O(1/N)$ 下降（<Ref to="dma-error-theory"/>）。**多步 CM 為什麼不是這樣？為什麼第二步幫很多，之後就不再照那個速率改善？**
+
+<Answer>
+常見的答案主要有三種：「因為 $f_\theta$ 每一步都帶同樣的誤差，多幾步也不會變小」（對，但要說出**為什麼**ODE 不是這樣）、「因為重新加噪把資訊洗掉了」（對一半）、「因為 CM 沒有 score」（對，這是 <Ref to="dma-sampler-family"/> 的語言）。三個都對，而且它們是同一件事的三個面。
+
+**第一個面：這不是在離散化任何東西。** ODE 的 $N$ 步是**同一條軌跡**的 $N$ 段折線，每一段的誤差是 $O(h^2)$、加起來 $O(h)$，步數越多越貼近那條軌跡——存在一個「連續的極限」被逼近。多步 CM 不是這樣：第一跳落在 $\hat x_0$，重新加噪後的 $x_{\tau_1}=\hat x_0+\tau_1z_1$ 用的是**新的**噪聲 $z_1$，它與 $x_T$ 沒有任何關係。$x_{\tau_1}$ **不在** $x_T$ 那條 PF-ODE 軌跡上，也不在任何一條「原本的」軌跡上——它是從 $(\hat x_0,z_1)$ 這組**新的、獨立的配對**重新出發的一條條件直線上的點。第二跳算的是「經過 $x_{\tau_1}$ 的那條軌跡的終點」，那是另一條軌跡、另一個終點。所以多步 CM 沒有在逼近任何連續極限；它是一連串各自獨立的「加噪－去噪」，步數再多也不會收斂到什麼。
+
+這正是 <Ref to="dma-linear-path"/> Q1 的圖：條件直線 $\hat x_0+\tau z$ 與邊際軌跡不是同一條線，它們**交叉**。每一次重加噪就是畫一條新的、隨機方向的條件直線，然後從它上面的一點沿邊際軌跡走回來——起點與終點的對應每一步都在換。
+
+**第二個面：每一跳的誤差都是「滿的」。** 第 $k$ 跳的輸出是 $f_\theta(x_{\tau_{k}},\tau_k)$，它的誤差是 $f_\theta$ 在 $(x_{\tau_k},\tau_k)$ 處的逼近誤差 $\|f_\theta-f\|$，與 $k$ 無關、與前面跳過幾次無關。最後一跳決定輸出，而最後一跳的誤差不會因為前面多跳了幾次而變小。那第二步為什麼幫很多？因為 $\tau_1<T$：$f_\theta(\cdot,\tau_1)$ 要跨的距離短、要表達的映射簡單，**逼近誤差本來就比 $f_\theta(\cdot,T)$ 小**（<Ref to="dma-progressive-distillation"/> 說過一步跨整條軌跡是最難的）。第二步的增益不是「修正了第一步」，是「換了一個比較容易的問題」。而 $\tau$ 不能一路變小——$\tau$ 太小時 $x_\tau\approx\hat x_0$、$f_\theta(x_\tau,\tau)\approx x_\tau$，第二跳幾乎是恆等，第一跳的錯誤原樣保留。所以存在一個最佳的 $\tau_1$，通常在中段，而第三步以後已經沒有「更容易的問題」可以換了。
+
+**第三個面：沒有 score，就沒有拉回。** <Ref to="dma-sampler-family"/> 說自我修正是 Langevin 項的功勞：$\varepsilon\,s_t\,dt+\sqrt{2\varepsilon}\,dW$ 把偏離 $p_t$ 的樣本往高密度區推，噪聲再把它們攤開，兩者平衡時樣本就落在 $p_t$ 上。CM 手上**沒有 score**——$f_\theta$ 是一個確定映射，訓練時從來沒有學過 $\nabla\log p_t$。重加噪看起來像 Langevin 的噪聲項，但少了配套的 drift；它只是把 $\hat x_0$ 的誤差**平移**到 $x_{\tau_1}$，然後交給另一個同樣有誤差的確定映射。多步 CM 的重加噪是 <Ref to="dma-sampler-family"/> 那兩個旋鈕裡的「取樣噪聲」，卻沒有讓它發揮作用的 score。
+
+三個面合起來：**多步 CM 的每一步都必須回到 $x_0$、再從 $x_0$ 用一組獨立的噪聲重新出發。** 回到 $x_0$ 是因為 $f$ 只會跳到終點（它的定義就是 $\psi_{t\to\varepsilon}$）；重新出發是因為沒有別的辦法從 $x_0$ 得到一個 $t=\tau$ 的點。這兩件事讓多步 CM 既不是 ODE 的離散化（沒有連續極限）、也不是 SDE 的取樣器（沒有 score）。
+
+所以 <Ref to="dma-error-theory"/> 那個 $O(1/N)$ 的保證在這裡沒有了。它不保證誤差隨步數下降，也不保證持平：Sabour 等人 [4] 對 Gaussian 資料證明，存在一個次佳的 $f_\theta$ 使得步數超過某個 $N$ 之後 $W_2$ **上升**。換句話說，**多步 CM 不一定還保有「多走幾步就更好」這件事**——有沒有，要看那個 $f_\theta$。
+</Answer>
+</Question>
+
+<VizPlan id="w8-5-multistep" title="多步 CM：跳 → 重加噪 → 跳，疊上軌跡交叉" type="interactive">
+- **位置**：Q1 之後。**檔名**：`week-8/w8-5-1.html`。
+- **資料與座標**：2D toy（月牙），VE 座標 $T=10$。$f$ 的真值用精確 score 積分 PF-ODE 得到；$f_\theta$ 用 <Ref to="dma-lab-consistency"/> 訓好的 CT 模型（權重內嵌）。
+- **左格「一條樣本的路」**：由按鈕逐步驅動（不自動播放）。「步 1」：從 $x_T$ 畫一支長箭頭到 $\hat x_0^{(1)}=f_\theta(x_T,T)$，同時用淡灰畫出 $x_T$ 的**真實 PF-ODE 軌跡**與真實終點（星號）——讓讀者看到第一跳的誤差。「重加噪」：從 $\hat x_0^{(1)}$ 畫一條**虛線的條件直線**（方向 $z_1$）到 $x_{\tau_1}$；同時淡灰畫出**經過 $x_{\tau_1}$ 的那條真實軌跡**——它與第一條灰軌跡**交叉**、終點是另一個星號。「步 2」：從 $x_{\tau_1}$ 跳到 $\hat x_0^{(2)}$。繼續「重加噪」「步 3」……每一步各自一條灰軌跡、一個星號。到第 4 步時左格上有 4 條互相交叉的灰軌跡與 4 個不同的星號——**每一步在追的終點都不一樣**。
+- **滑桿 $\tau$ 序列**：預設 EDM 式的 $\tau_k$；可整體拉大或拉小。拉到 $\tau$ 很小時，第二跳幾乎不動（箭頭極短，恆等）；拉到 $\tau\approx T$ 時，第二跳等於重新抽一個樣本，與第一跳無關。
+- **右格上「$W_2$ 對步數」**：對 2000 個樣本跑 $k\in\{1,2,3,4,8,16\}$ 步，畫終點分佈與資料的 $W_2$；同一張圖疊上 <Ref to="dma-lab-interpolants"/> 那個 FM 模型的 Euler $k$ 步 $W_2$（斜率 $-1$ 的直線）。CM 曲線從 1 到 2 明顯下降，之後就不再照 $-1$ 的斜率走（$k$ 要掃到 64 才看得出來它接下來往哪裡去）。開關「用真值 $f$ 而非 $f_\theta$」：真值 $f$ 的多步 CM 在所有 $k$ 都是零誤差（每一跳都精確落在資料分佈上）——說明差別**全部來自 $f_\theta$**，不是程序本身生成錯的分佈。
+- **右格下「注入誤差」**（對照 <Ref to="dma-sampler-family"/> 的 demo）：在第一跳後把所有 $\hat x_0$ 人為往右推 0.3，看之後幾步能不能把它拉回。開關「換成 SDE 取樣器（有 score）」：同樣的注入在 SDE 下逐步被吸收，多步 CM 下幾乎原樣保留（只在 $\tau$ 中段略有縫合）。
+- **底部觀察句**：「觀察：每一次重加噪都畫一條新的條件直線、切進另一條軌跡、追另一個終點——多步 CM 不是在逼近任何一條路。第二步幫很多是因為換了一個比較容易的問題（$\tau<T$），不是修正了第一步；沒有 score，注入的誤差就留在那裡。」
+- **匯出 PNG**：左右併成 16:9，含當前步數與 $\tau$ 序列。
+</VizPlan>
+
+## 同一個結構問題，三種語言
+
+把這一篇和前兩週並排：
+
+| | 連續（本週） | 離散時間（<Ref to="dma-factorization-error"/>） | 離散連續時間（<Ref to="dma-remasking"/>） |
+|---|---|---|---|
+| 一步做的事 | $f_\theta$ 直接跳到終點 | 一步同時翻開多個 token | 同上，rate 語言 |
+| 一步裡假設了什麼 | 這一跳沒有誤差（沒有修正機會） | 翻開的位置條件獨立 | 同上 |
+| 想多步時怎麼做 | 回到 $x_0$、重加噪、再跳 | 少翻幾個、多走幾步 | 加一個「回到 `[MASK]`」的 rate |
+| 為什麼多步有限 | 重加噪是獨立配對、無 score、每跳誤差滿的 | 因子化誤差只在翻開的那一步減少 | remask 要付「重來」的代價 |
+
+三格說的是同一件事的三個版本：**一步生成把「走」壓成「跳」，跳的過程裡沒有中間狀態可以修正；要修正只能「回到起點重來一次」**——回到 $x_0$ 再加噪、回到 `[MASK]` 再翻開。remasking 在離散世界至少能靠 <Ref to="dma-sampler-family"/> 的旋鈕語言說清楚它的代價；多步 CM 連那個旋鈕都沒有，因為 $f_\theta$ 手上沒有 score。
+
+<Details summary="那 CD 呢？它有 teacher 的 score，能不能拿來做 SDE？">
+可以，但那已經不是 CM 的取樣器了——那是 teacher 的 SDE 取樣器，CM 只被用來做第一跳的「好起點」。原文的多步 CM 刻意不用 teacher，因為整個動機是取樣時**只呼叫 $f_\theta$**。而 CT 根本沒有 teacher，$\nabla\log p_t$ 從頭到尾不存在於任何網路裡。所以「多步 CM 沒有修正」不是實作上的疏忽，是這個物件的定義使然：$f=\psi_{t\to\varepsilon}$ 只知道終點，不知道密度。
+</Details>
+
+## 收在問題上
+
+這一週從「不走了，直接學那一步」出發，得到一個能一步生成、也能從任何 $t$ 一步到底的 $f_\theta$。它的極限也很清楚：**$f$ 只會跳到 $\varepsilon$**。所以想多步，就必須回到乾淨端、重新加噪、再從一個與原軌跡無關的點出發——每一次重來都是一次獨立配對的交叉，沒有連續極限、沒有 score、沒有修正。
+
+如果 $f$ 不只會跳到 $\varepsilon$，而是能從 $t$ 直接跳到**任何中間的 $s$**——不回到終點、不重新加噪、留在同一條軌跡上——多步就會變回「同一條路的幾段」，ODE 那種「步數增加、誤差下降」的結構就回來了。這樣一個雙時間的映射要滿足什麼條件、怎麼訓，是下一週的起點。這一週在這裡停住，不給解法。
+
+## 先消化一下
+
+<QuizBlock id="w8-5-a">
+多步 CM 的第二跳起點 $x_{\tau_1}=\hat x_0+\tau_1z_1$（$z_1$ 新抽）。關於這個點，正確的敘述是：
+<Option>它在 $x_T$ 那條 PF-ODE 軌跡上、時刻 $\tau_1$ 的位置。</Option>
+<Option correct>它在一條新的條件直線上，經過它的 PF-ODE 軌跡與 $x_T$ 的軌跡是不同的兩條（會交叉），終點也不同。</Option>
+<Option>它的分佈與 $p_{\tau_1}$ 無關。</Option>
+<Explanation>
+$z_1$ 與 $x_T$ 獨立，所以 $x_{\tau_1}$ 和原軌跡沒有關係——這正是 <Ref to="dma-linear-path"/> Q1 的交叉。它的分佈**是**接近 $p_{\tau_1}$ 的（若 $\hat x_0$ 接近資料分佈），問題不在邊際、在配對：起點與終點的對應每一步都換。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w8-5-b">
+兩步 CM 明顯比一步好，最主要的原因是：
+<Option>第二步修正了第一步的誤差。</Option>
+<Option>重加噪提供了 Langevin 式的自我修正。</Option>
+<Option correct>第二跳從 $\tau_1<T$ 出發，$f_\theta(\cdot,\tau_1)$ 要跨的軌跡短、彎的部分少，逼近誤差本來就比 $f_\theta(\cdot,T)$ 小——是換了一個較容易的問題。</Option>
+<Explanation>
+第二跳的輸出誤差就是 $f_\theta$ 在 $(x_{\tau_1},\tau_1)$ 的誤差，與第一跳對不對無關，談不上「修正」；沒有 score，重加噪也不是 Langevin。增益來自 $\tau_1<T$ 這個較短的跳躍。也因此 $\tau_1$ 太小時（幾乎恆等）增益消失，第三步以後沒有更容易的問題可換。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w8-5-c">
+若把 $f_\theta$ 換成**真值** $f$，多步 CM 的輸出分佈：
+<Option correct>在任何步數下都精確等於資料分佈——所以多步 CM 的問題完全來自 $f_\theta$，不是程序本身生成了錯的分佈。</Option>
+<Option>步數越多越偏離資料分佈，因為交叉累積。</Option>
+<Option>只有一步時正確。</Option>
+<Explanation>
+真值 $f$ 把 $p_\tau$ 精確推到 $p_{\text{data}}$；$\hat x_0\sim p_{\text{data}}$ 重加噪後 $x_\tau\sim p_\tau$，再跳仍是 $p_{\text{data}}$。交叉改變的是**配對**（哪個噪聲對哪個樣本），不是邊際。所以多步 CM 在分佈層面是合法的，第二個選項的「交叉累積」不是理由。但要注意這一題問的是**真值** $f$：換成 $f_\theta$ 之後就沒有這個保證了——ODE 有「多走幾步誤差就小」的保證，多步 CM 沒有。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w8-5-d">
+本篇把多步 CM、因子化誤差、remasking 放在同一張表裡，共同的結構是：
+<Option>三者都因為網路容量不足。</Option>
+<Option correct>一步生成沒有中間狀態可以修正，要修正只能「回到起點重來」——回到 $x_0$ 再加噪、回到 `[MASK]` 再翻開——而重來就是一次新的獨立配對。</Option>
+<Option>三者都可以靠增加取樣步數消除。</Option>
+<Explanation>
+容量不是共同點（因子化誤差在完美網路下仍存在）。「增加步數消除」對 ODE 成立、對這三者恰恰**不**成立，這正是本篇的觀察。共同點是缺乏留在同一條路上的中間狀態；下一週的 flow map 就是要補這個。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-lab-consistency">
+本篇說明多步 CM 為什麼沒有 ODE 那個 $O(1/N)$ 的保證：每一步都得回到 $x_0$ 再加噪，重加噪是獨立配對、$f_\theta$ 沒有 score、每一跳的誤差都是滿的。病根留給下一週。下一篇先動手：在同一個 toy 上訓 CD 與 CT，畫 CT 的 bias 對 $N$ 的曲線，把 reflow×2 放進來——三種「一步」方法同一張圖。
+</Bridge>
+
+## 參考文獻
+
+1. Song, Y., Dhariwal, P., Chen, M., Sutskever, I. [*Consistency Models.*](https://arxiv.org/abs/2303.01469) ICML 2023.（多步取樣程序；一步 vs 兩步的結果。）
+2. Song, Y., Dhariwal, P. [*Improved Techniques for Training Consistency Models.*](https://arxiv.org/abs/2310.14189) ICLR 2024.（一步與兩步的 FID 對照。）
+3. Liu, X., Gong, C., Liu, Q. [*Flow Straight and Fast.*](https://arxiv.org/abs/2209.03003) ICLR 2023.（ODE 誘導的配對不交叉，與重加噪的獨立配對對照。）
+4. Sabour, A., Fidler, S., Kreis, K. [*Align Your Flow: Scaling Continuous-Time Flow Map Distillation.*](https://arxiv.org/abs/2506.14603) 2025.（Theorem 3.1：對 Gaussian 資料，存在次佳的 consistency model 使得步數變多之後 $W_2$ 上升。）

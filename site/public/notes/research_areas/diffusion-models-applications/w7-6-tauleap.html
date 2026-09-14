@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>τ-leaping 與精確跳步：差在哪裡</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 500px; aspect-ratio: 4/3; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
+  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：<b>精確跳步</b>用的是 Q̄ 的閉式（(ᾱ<sub>s</sub>−ᾱ<sub>t</sub>)/(1−ᾱ<sub>t</sub>)），<b>τ-leaping</b> 用的是 rate 的一階近似（1−e<sup>−uτ</sup>）。兩者在 τ→0 一致；步數少的時候差多少，量出來就知道。</p>
+
+  <canvas id="cv" width="600" height="450" aria-label="兩種取樣器的合法率對步數"></canvas>
+  <p class="cap">橫軸＝步數（對數）　縱軸＝parity toy（L=8）的合法率，每個點 2000 條　兩條線＝兩種取樣器　右上小字＝兩者在該步數的「每步翻開機率」差多少</p>
+
+  <div class="controls">
+    <div class="row"><span class="lab">每步的位置選法</span>
+      <button data-m="coin" class="on">每格各自擲硬幣</button>
+      <button data-m="fixed">強制每步剛好一格</button>
+      <button id="run">重新跑</button>
+    </div>
+    <div class="stats">
+      <span>精確跳步（4 / 8 / 32 步）= <b id="v1">—</b></span>
+      <span>τ-leaping = <b id="v2">—</b></span>
+      <span>兩者最大差距 = <b id="v3">—</b></span>
+    </div>
+  </div>
+
+  <p class="observe">兩條線很接近但不重合：實測 4／8／32 步的合法率是精確跳步 <b>63–65 / 78–79 / 94–95%</b>、τ-leaping <b>57–59 / 73–74 / 93–94%</b>，最大差 <b>5–8 個百分點</b>，而且<b>差距集中在步數最少的那幾個點</b>——那裡的 τ 最大、一階近似最粗。切到「強制每步剛好一格」差別大得多：精確跳步在 8 步（＝L）就衝到 <b>100%</b>，因為它的每步機率剛好讓「一步一格」成立；τ-leaping 的機率不同，有些步一格都不開，最後被迫一次補完好幾格，8 步只有 <b>71–72%</b>，差將近 <b>30 個百分點</b>。每個點 2000 條樣本，數字每次跑都會動一兩個百分點。<b>這不是理論的差別，是「機率算得對不對」的差別</b>——步數到 32 兩條線就只差一兩個百分點了。順帶注意精確跳步<b>不需要</b> rate（只要 ᾱ 的閉式）；τ-leaping 需要 rate，但它對「forward 沒有閉式」的鏈（例如加了 remasking 的那些）照樣可用。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var L = 8, STEPS = [2, 4, 8, 16, 32, 64], R = 2000;
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var v1 = document.getElementById('v1'), v2 = document.getElementById('v2'), v3 = document.getElementById('v3');
+  var pal = NDFlow.palette();
+  var mode = 'coin', curves = [];
+
+  function marg(x) {
+    var free = 0, known = 0, i;
+    for (i = 0; i < L; i++) { if (x[i] === null) free++; else known += x[i]; }
+    var out = [];
+    for (i = 0; i < L; i++) out.push(x[i] !== null ? null : (free === 1 ? ((known % 2 === 0) ? 0 : 1) : 0.5));
+    return out;
+  }
+  function pOpen(kind, k, N) {
+    var t = 1 - k / N, s = 1 - (k + 1) / N;        // ᾱ_t = 1 − t
+    var abT = 1 - t, abS = 1 - s;
+    if (kind === 'exact') return (abS - abT) / (1 - abT);
+    // τ-leaping：absorbing 的生成 rate u_t = κ̇/(1−κ) 換到這裡是 1/t，τ = 1/N
+    var u = 1 / Math.max(1e-6, t), tau = 1 / N;
+    return 1 - Math.exp(-u * tau);
+  }
+  function oneRun(kind, N) {
+    var x = new Array(L).fill(null), i, k;
+    for (k = 0; k < N; k++) {
+      var p = (k === N - 1) ? 1 : pOpen(kind, k, N);
+      var mg = marg(x), open = [];
+      if (mode === 'fixed') {
+        var free = [];
+        for (i = 0; i < L; i++) if (x[i] === null) free.push(i);
+        if (free.length === 0) break;
+        var need = (k === N - 1) ? free.length : (Math.random() < Math.min(1, p * free.length) ? 1 : 0);
+        for (var z = free.length - 1; z > 0; z--) { var r2 = Math.floor(Math.random() * (z + 1)), tp = free[z]; free[z] = free[r2]; free[r2] = tp; }
+        open = free.slice(0, need);
+      } else {
+        for (i = 0; i < L; i++) if (x[i] === null && Math.random() < p) open.push(i);
+      }
+      for (var q = 0; q < open.length; q++) x[open[q]] = Math.random() < mg[open[q]] ? 1 : 0;
+    }
+    var mg2 = marg(x);
+    for (i = 0; i < L; i++) if (x[i] === null) x[i] = Math.random() < mg2[i] ? 1 : 0;
+    var sum = 0; for (i = 0; i < L; i++) sum += x[i];
+    return sum % 2 === 0;
+  }
+  function run() {
+    curves = ['exact', 'tau'].map(function (kind) {
+      return { kind: kind, ys: STEPS.map(function (N) {
+        var ok = 0;
+        for (var r = 0; r < R; r++) if (oneRun(kind, N)) ok++;
+        return ok / R;
+      }) };
+    });
+    function pick(c, ns) { return ns.map(function (n) { return (100 * c.ys[STEPS.indexOf(n)]).toFixed(0) + '%'; }).join(' / '); }
+    v1.textContent = pick(curves[0], [4, 8, 32]);
+    v2.textContent = pick(curves[1], [4, 8, 32]);
+    var mx = 0;
+    for (var i = 0; i < STEPS.length; i++) mx = Math.max(mx, Math.abs(curves[0].ys[i] - curves[1].ys[i]));
+    v3.textContent = (100 * mx).toFixed(1) + ' 個百分點';
+  }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx, i;
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    var Lm = 48, Rm = 16, T = 18, Bm = 34;
+    var X = function (n) { return Lm + (Math.log(n) - Math.log(STEPS[0])) / (Math.log(STEPS[STEPS.length - 1]) - Math.log(STEPS[0])) * (s.w - Lm - Rm); };
+    var lo = 0.42, hi = 1.03;
+    var Y = function (v) { return T + (hi - v) / (hi - lo) * (s.h - T - Bm); };
+    ctx.strokeStyle = 'rgba(255,255,255,0.09)'; ctx.lineWidth = 1;
+    ctx.font = '500 10px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.textAlign = 'center';
+    STEPS.forEach(function (n) {
+      ctx.beginPath(); ctx.moveTo(X(n), T); ctx.lineTo(X(n), s.h - Bm); ctx.stroke();
+      ctx.fillText(String(n), X(n), s.h - Bm + 15);
+    });
+    ctx.textAlign = 'right';
+    [0.5, 0.6, 0.7, 0.8, 0.9, 1.0].forEach(function (v) {
+      ctx.beginPath(); ctx.moveTo(Lm, Y(v)); ctx.lineTo(s.w - Rm, Y(v)); ctx.stroke();
+      ctx.fillText((100 * v).toFixed(0) + '%', Lm - 5, Y(v) + 3.5);
+    });
+    ctx.textAlign = 'center';
+    ctx.fillText('步數', (Lm + s.w - Rm) / 2, s.h - 4);
+    ctx.save(); ctx.translate(12, (T + s.h - Bm) / 2); ctx.rotate(-Math.PI / 2);
+    ctx.fillText('parity 合法率', 0, 0); ctx.restore();
+    var cols = [pal.accent, 'rgb(96,186,130)'], names = ['精確跳步', 'τ-leaping'];
+    curves.forEach(function (c, ci) {
+      ctx.strokeStyle = cols[ci]; ctx.lineWidth = 2.2; ctx.lineJoin = 'round';
+      if (ci === 1) ctx.setLineDash([5, 3]);
+      ctx.beginPath();
+      STEPS.forEach(function (n, i2) { i2 ? ctx.lineTo(X(n), Y(c.ys[i2])) : ctx.moveTo(X(n), Y(c.ys[i2])); });
+      ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = cols[ci];
+      STEPS.forEach(function (n, i3) { ctx.beginPath(); ctx.arc(X(n), Y(c.ys[i3]), 3.1, 0, 6.284); ctx.fill(); });
+      ctx.font = '700 10px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillRect(Lm + 6, T + 6 + ci * 14, 12, 2.5);
+      ctx.fillText(names[ci], Lm + 22, T + 11 + ci * 14);
+      ctx.font = '500 10px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+    });
+    // 每步翻開機率的差
+    ctx.font = '600 9px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.textAlign = 'right';
+    var dif = STEPS.map(function (N) { return Math.abs(pOpen('exact', 0, N) - pOpen('tau', 0, N)); });
+    ctx.fillText('第一步的翻開機率差：' + dif.map(function (v) { return v.toFixed(3); }).join(' / '), s.w - Rm, T + 11);
+  }
+  function go() { run(); draw(); }
+  document.getElementById('run').onclick = go;
+  Array.prototype.forEach.call(document.querySelectorAll('[data-m]'), function (b) {
+    b.onclick = function () {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-m]'), function (o) { o.classList.remove('on'); });
+      b.classList.add('on'); mode = b.dataset.m; go();
+    };
+  });
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  run(); applyTheme();
+})();
+</script>
+</body>
+</html>

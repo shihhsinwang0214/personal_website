@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>winner's curse：偏差隨 √log m 成長、正比於驗證集的抖動</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：在 m 個候選裡挑驗證分數最好的那一個，那個分數就帶著一個<b>系統性的樂觀量</b>。它隨 <b>√log m</b> 成長（所以「少試幾組」幫助有限），而且<b>正比於驗證集本身的抖動 σ</b>（所以「把驗證集加大」有效得多）。</p>
+  <canvas id="axis" style="aspect-ratio:5/3" aria-label="一條分數軸上的 m 個候選（點）；垂直線＝真實品質；高亮＝被挑中的那個；箭頭＝樂觀量"></canvas>
+  <p class="cap">一條分數軸上的 m 個候選（點）；垂直線＝真實品質；高亮＝被挑中的那個；箭頭＝樂觀量</p>
+  <canvas id="curve" style="aspect-ratio:5/2" aria-label="對 m（log 橫軸）：勝出者的驗證分數、勝出者的真實風險、以及理論的 σ√(2 log m)（虛線）"></canvas>
+  <p class="cap">對 m（log 橫軸）：勝出者的驗證分數、勝出者的真實風險、以及理論的 σ√(2 log m)（虛線）</p>
+  <div class="controls">
+    <div class="row">
+      <label for="m">候選數 m</label><input id="m" type="range" min="0" max="3" step="0.05" value="1.5" />
+      <label for="nv">驗證集 n</label><input id="nv" type="range" min="10" max="1000" step="10" value="100" />
+    </div>
+    <div class="row">
+      <label for="sp">候選品質的真實散佈</label><input id="sp" type="range" min="0" max="0.1" step="0.005" value="0" />
+      <label class="chk"><input id="nest" type="checkbox" /> 巢狀驗證（另留一份測試集）</label>
+    </div>
+    <div class="stats"><span>m = <b id="vm">—</b></span> <span>σ（驗證集的抖動） = <b id="vs">—</b></span> <span>勝出者的驗證分數 = <b id="v1">—</b></span> <span>勝出者的真實風險 = <b id="v2">—</b></span> <span>樂觀量 = <b id="v3">—</b></span> <span>理論 σ√(2 log m) = <b id="v4">—</b></span></div>
+  </div>
+  <p class="observe">觀察：把 m 拉大，被挑中的那個點<b>越來越偏離真實品質線</b>，而下圖兩條線越分越開——但那條分開得很慢，因為它是 √log m。把驗證集 n 加大四倍，<b>樂觀量大約減半</b>（σ ∝ 1/√n）：<b>「把驗證集加大」比「少試幾組」有效得多</b>。打開巢狀驗證，畫面上多出來的那條估計線貼回真實風險——代價是那份資料不能再拿來選。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var REP = 400;
+  var el = function (i) { return document.getElementById(i); };
+  var dA = MLF.hiDPICanvas(el('axis')), dC = MLF.hiDPICanvas(el('curve'));
+  var pal = MLF.palette(), S = null;
+
+  function mVal() { return Math.max(1, Math.round(Math.pow(10, +el('m').value))); }
+  function sigma(nv) { var p = 0.8; return Math.sqrt(p * (1 - p) / nv); }
+
+  /* 一次實驗：m 個候選，真實準確率 = 0.8 + spread*u；驗證分數 = 真值 + N(0, sigma^2)。 */
+  function once(m, nv, spread, r) {
+    var sg = sigma(nv), bi = -1, bv = -1, bt = 0, pts = [], j;
+    for (j = 0; j < m; j++) {
+      var p = 0.8 + spread * (j / Math.max(1, m - 1));
+      var v = p + sg * r.normal();
+      pts.push([v, p]);
+      if (v > bv) { bv = v; bi = j; bt = p; }
+    }
+    return { pts: pts, bi: bi, bv: bv, bt: bt, sg: sg };
+  }
+  function agg(m, nv, spread, sd) {
+    var r = MLF.rng(sd), vs = [], ts = [], i;
+    for (i = 0; i < REP; i++) { var o = once(m, nv, spread, r); vs.push(o.bv); ts.push(o.bt); }
+    return { v: MLF.median(vs), t: MLF.median(ts) };
+  }
+
+  function compute() {
+    var m = mVal(), nv = +el('nv').value, sp = +el('sp').value;
+    S = { one: once(m, nv, sp, MLF.rng(21)), m: m, nv: nv, sg: sigma(nv), curve: [] };
+    for (var e = 0; e <= 12; e++) {
+      var mm = Math.max(1, Math.round(Math.pow(10, e * 3 / 12)));
+      var a = agg(mm, nv, sp, 300 + e);
+      S.curve.push([mm, a.v, a.t, 0.8 + sp + S.sg * Math.sqrt(2 * Math.log(Math.max(mm, 1.0001)))]);
+    }
+    var A = agg(m, nv, sp, 77);
+    S.medV = A.v; S.medT = A.t;
+  }
+
+  function drawAxis() {
+    var s = dA.resize(), ctx = dA.ctx; MLF.clear(ctx, s, pal);
+    var lo = 0.8 - 5 * S.sg, hi = 0.8 + 6 * S.sg + (+el('sp').value);
+    var ax = MLF.axes(ctx, s, { x: [lo, hi], y: [0, 1], pal: pal,
+      xticks: [lo, (lo + hi) / 2, hi], yticks: [],
+      fmtx: function (v) { return v.toFixed(3); }, xlab: '驗證分數', pad: { l: 0.05, b: 0.16 } });
+    var r = MLF.rng(9), i, P = S.one.pts;
+    for (i = 0; i < P.length && i < 600; i++)
+      MLF.dot(ctx, ax, P[i][0], 0.18 + 0.64 * r(), MLF.rgb(pal.b, 0.45), 2.4);
+    MLF.ref(ctx, ax, { x: 0.8, color: MLF.rgb(pal.a, 0.9), dash: [4, 4] });
+    MLF.label(ctx, ax.X(0.8) - 4, ax.box.t + 10, '真實品質', MLF.rgb(pal.a), 'right');
+    var W = P[S.one.bi];
+    ctx.strokeStyle = MLF.rgb(pal.d); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(ax.X(W[0]), ax.Y(0.5), 6, 0, 6.2832); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(ax.X(W[1]), ax.Y(0.5)); ctx.lineTo(ax.X(W[0]) - 7, ax.Y(0.5)); ctx.stroke();
+    MLF.label(ctx, (ax.X(W[1]) + ax.X(W[0])) / 2, ax.Y(0.5) - 11,
+      '樂觀量 ' + (W[0] - W[1]).toFixed(4), MLF.rgb(pal.d), 'center');
+  }
+
+  function drawCurve() {
+    var s = dC.resize(), ctx = dC.ctx; MLF.clear(ctx, s, pal);
+    var lo = 1e9, hi = -1e9;
+    S.curve.forEach(function (p) { lo = Math.min(lo, p[2]); hi = Math.max(hi, p[1], p[3]); });
+    var pad = (hi - lo) * 0.15 + 1e-4;
+    var ax = MLF.axes(ctx, s, { x: [1, 1000], y: [lo - pad, hi + pad], logx: true, pal: pal,
+      xticks: [1, 10, 100, 1000], yticks: [lo - pad, (lo + hi) / 2, hi + pad],
+      fmty: function (v) { return v.toFixed(3); }, xlab: '候選數 m（log）' });
+    MLF.line(ctx, ax, S.curve.map(function (p) { return [p[0], p[1]]; }), MLF.rgb(pal.d), 2.2);
+    MLF.line(ctx, ax, S.curve.map(function (p) { return [p[0], p[2]]; }), MLF.rgb(pal.c), 2.2);
+    MLF.line(ctx, ax, S.curve.map(function (p) { return [p[0], p[3]]; }), MLF.rgb(pal.a, 0.8), 1.6, [5, 4]);
+    if (el('nest').checked)
+      MLF.line(ctx, ax, S.curve.map(function (p) { return [p[0], p[2]]; }), MLF.rgb(pal.e), 1.4, [2, 3]);
+    MLF.ref(ctx, ax, { x: S.m, color: pal.accent, dash: [] });
+    var items = [{ t: '勝出者的驗證分數', c: MLF.rgb(pal.d) }, { t: '勝出者的真實風險', c: MLF.rgb(pal.c) },
+      { t: '理論 0.8 + σ√(2 log m)', c: MLF.rgb(pal.a, 0.8) }];
+    if (el('nest').checked) items.push({ t: '巢狀驗證的估計', c: MLF.rgb(pal.e) });
+    MLF.legend(ctx, ax, items, 'tl', pal);
+  }
+
+  function draw() {
+    compute();
+    el('vm').textContent = S.m;
+    el('vs').textContent = S.sg.toFixed(4);
+    el('v1').textContent = S.medV.toFixed(4);
+    el('v2').textContent = S.medT.toFixed(4);
+    el('v3').textContent = (S.medV - S.medT).toFixed(4);
+    el('v4').textContent = (S.sg * Math.sqrt(2 * Math.log(Math.max(S.m, 1.0001)))).toFixed(4);
+    drawAxis(); drawCurve();
+  }
+  ['m', 'nv', 'sp'].forEach(function (i) { el(i).onchange = draw; });
+  el('nest').onchange = draw;
+  window.addEventListener('resize', function () { drawAxis(); drawCurve(); });
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; drawAxis(); drawCurve(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  draw();
+
+})();
+</script>
+</body>
+</html>

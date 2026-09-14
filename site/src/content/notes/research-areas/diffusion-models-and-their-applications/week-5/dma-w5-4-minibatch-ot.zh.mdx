@@ -1,0 +1,226 @@
+---
+slug: "dma-w5-4-minibatch-ot"
+label: "dma-minibatch-ot"
+prereqs:
+  - math-warehouse-ot
+  - math-monotone-1d
+  - math-large-scale-ot
+lang: "zh"
+title: "拉直（二）：在每個 batch 裡解一次配對"
+category: "courses"
+group: "Week 5 · Stochastic Interpolants 與共用技巧"
+status: "available"
+updated: 2026-09-13
+summary: "OT 配對是單調的，所以位移直線幾乎不交叉；只在每個 batch 內解一次指派問題就拿到大部分好處，而且終點分布完全不偏——影響的是曲率，不是正確性。"
+demos: []
+references:
+  - label: "Tong et al., Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport (TMLR 2024)"
+    href: "https://arxiv.org/abs/2302.00482"
+  - label: "Pooladian et al., Multisample Flow Matching: Straightening Flows with Minibatch Couplings (ICML 2023)"
+    href: "https://arxiv.org/abs/2304.14772"
+  - label: "Cuturi, Sinkhorn Distances: Lightspeed Computation of Optimal Transport (NeurIPS 2013)"
+    href: "https://arxiv.org/abs/1306.0895"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Details from '../../../components/Details.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 拉直（二）：在每個 batch 裡解一次配對
+
+<Objectives>
+- **用一行交換計算證出 OT 配對是單調的。** 並說清楚一維的單調等於「零交叉」，高維只能說「把交叉壓到很少」——實測全域 OT 也還有 0.2–0.8%。
+- **實作 minibatch OT：在每個 batch 內解一次指派問題，程式只多兩行。**
+- **分清「邊際正確」與「配對最佳」，並說出 batch size 影響的是哪一個。** 前者永遠正確（batch 內重排只是置換），後者隨 batch 變好。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 如果可以直接挑最好的配對呢
+
+<Ref to="dma-rectified-flow"/> 的做法是繞一圈：先訓一個模型、用它取樣、把結果當新配對。但 <Ref to="dma-error-theory"/> 的結論其實更直接——**我們要的是一組不交叉的配對**。那能不能不繞，一開始就挑一組好的？
+
+「好」在這裡有一個現成的定義：讓總位移最小，也就是 <Ref to="dma-what-are-we-learning"/> 倉庫搬貨那個問題的最佳解——optimal transport。
+
+<Ask>
+最省力的那組配對，<br />
+是不是剛好也是不交叉的那一組？
+</Ask>
+
+## 交換一次就看出來了
+
+是。而且理由用一行計算就講完。
+
+假設某個配對把 $a$ 送到 $A$、把 $b$ 送到 $B$。如果**交換終點**（$a\to B$、$b\to A$），二次成本的變化是
+
+$$
+\big(\|a-B\|^2+\|b-A\|^2\big)-\big(\|a-A\|^2+\|b-B\|^2\big)=2\,(a-b)^\top(A-B).
+$$
+
+（展開之後 $\|a\|^2,\|b\|^2,\|A\|^2,\|B\|^2$ 全部消掉，只剩交叉項。）
+
+所以：**如果 $(a-b)^\top(A-B) \lt 0$，交換一定更省。** 一個最佳的配對不可能還有這種可以改進的對，於是它必須滿足
+
+$$
+(a-b)^\top\big(T(a)-T(b)\big)\ \ge\ 0\qquad\text{對所有配對成立}.
+$$
+
+這就是**單調**。在一維，單調直接等於「位移直線完全不交叉」（兩條相交的線交換之後總長更短）。在高維，單調不是「零交叉」的等價敘述，但它把交叉壓到很少——下面 demo 量到的是從 20% 掉到 1% 以下。
+
+<Remark label="補充" summary="Brenier 定理說了什麼">
+在 $p_0$ 有密度、二次成本的條件下，OT 耦合其實是一個**確定映射** $X_1=T(X_0)$，而且 $T=\nabla\varphi$ 是某個凸函數的梯度。凸函數的梯度天生單調，這是上面那個不等式的另一種來源。
+
+值得注意的是這裡出現了 <Ref to="dma-unified-equation"/> 講過的張力：OT 配對是確定性的，所以 $\gamma\equiv0$ 時沒有可回歸的 score。不過**minibatch OT 沒有這個問題**，理由可以說得很具體：同一個 $x_0$ 在不同的 batch 裡會遇到不同的 32 個候選，解出來的最佳配對也就不同。所以 $x_0\mapsto x_1$ 不是一個函數，而是一個隨 batch 變動的隨機指派——**給定 $x_t$ 仍然有後驗可以平均**。batch 越大越接近全域 OT，那個隨機性就越小；$B\to\infty$ 的極限才真的塌成確定映射。
+</Remark>
+
+於是 OT 配對之下的 flow matching 就是最理想的情況：條件直線幾乎不交叉、邊際速度幾乎等於條件速度、$S\approx0$、一步 Euler 幾乎精確。它正是 <Ref to="dma-rectified-flow"/> 迭代想逼近的那個極限。
+
+問題只有一個：全域 OT 要在 $n$ 個資料點上解一個 $n\times n$ 的指派問題。$n$ 是五萬張圖的時候，這件事做不到。
+
+## Minibatch OT：只多兩行
+
+Tong 等人的 OT-CFM [1] 與 Pooladian 等人的 multisample FM [2] 的做法乾脆得有點好笑：**只在每個 batch 裡解 OT。**
+
+```
+repeat
+  x1 ← B 個資料樣本
+  x0 ← B 個噪聲樣本
+  C  ← 成本矩陣  C[i,j] = ‖x0[i] − x1[j]‖²
+  σ  ← 解指派問題  argmin_σ Σ_i C[i, σ(i)]     # scipy.optimize.linear_sum_assignment
+  x1 ← x1[σ]                                    # 重排，讓 x0[i] 對到 x1[σ(i)]
+  之後與 conditional flow matching 完全相同：抽 t、算 xt、target = x1 − x0
+```
+
+多的就是那兩行。精確指派是 $O(B^3)$，$B=256$ 時和一次前向傳播比起來可以忽略；batch 再大就換 Sinkhorn 近似 [3]。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-4-batch-ot.html" class="demo-frame" title="Batch 內解一次 OT：互動 demo" style="height: 970px; width: 100%; border: none;"></iframe>
+
+**互動 demo：batch 內解一次 OT。** 從「獨立」按到「192（全域）」，紅色那些「和別人交叉的配對」一路減少。實測交叉比例約 **20% → 9% → 4% → 1.4% → 0.6%**，1 步 Euler 的誤差 **1.5 → 0.77 → 0.41 → 0.21 → 0.08**。**batch 16 就走完八成的路，但後面還有得賺**——是報酬遞減，不是「16 就夠了」。
+
+> **OT 配對真正保證的是「單調」，不是「不交叉」。**
+
+一維的單調等於零交叉，高維只能說把交叉壓到很少。
+
+## 邊際正確，配對次佳
+
+Batch 內重排只是一個**置換**：$x_0$ 的集合和 $x_1$ 的集合都沒有變，只有誰配誰改了。所以 minibatch OT 給出的 $\pi_B$ 仍然是 $p_0$ 與 $p_1$ 的合法耦合，<Ref to="dma-conditional-flow-matching"/> 那兩個定理照樣成立，訓出來的速度場生成的終點分布仍然是 $p_1$。**沒有邊際偏差，$B$ 多小都沒有。**
+
+偏差在別的地方：$\pi_B$ **不是**全域 OT。一個 batch 裡的 $x_0$ 只能配到同一個 batch 裡的 $x_1$，而它真正的 OT 對象大概率不在這個 batch 裡。所以 $\pi_B$ 是「局部最佳、全域次佳」，條件直線還是會交叉（只是比獨立配對少很多），$S \gt 0$。$B\to\infty$ 時 $\pi_B$ 才趨近全域 OT。
+
+> **Minibatch OT 影響的是曲率，不是正確性。**
+
+講精確一點：它把你**在 <Ref to="dma-error-theory"/> 那張散點圖上的位置往左移**（曲率積分變小），而不是改變那條線的斜率。斜率是取樣器的階數，換配對動不了它。
+
+這一點和 reflow 不同：reflow 第 $k$ 輪的配對帶著第 $k-1$ 輪模型的誤差，所以邊際**有可能**偏。
+
+## reflow 與 minibatch OT，差在哪？
+
+| | Reflow | Minibatch OT |
+|---|---|---|
+| 改配對的時機 | 訓完一輪之後 | 每個 batch 當下 |
+| 額外計算 | 整輪 ODE 取樣 ＋ 重訓 | 每 batch 一次 $O(B^3)$ 指派 |
+| 邊際 | 會累積模型誤差 | 精確（只是置換） |
+| 極限 | 直（$S\to0$），不一定是 OT | 全域 OT（$B\to\infty$） |
+| 配對是否確定性 | 是（所以沒有可回歸的 score） | 不是（整體是很多置換的混合） |
+| 高維表現 | 不受距離集中影響 | 成本矩陣退化，增益減弱 |
+
+<Question id="Q1">
+最後一列是實務上最重要的一格。在 2D toy 上 minibatch OT 的效果非常漂亮，但在圖像（$d=3072$ 以上）上增益小得多。
+
+**為什麼？**
+
+<Answer>
+因為高維的距離會**集中**。
+
+取兩個獨立的 $x_0,x_1\sim\mathcal N(0,I_d)$，則
+
+$$
+\mathbb E\|x_0-x_1\|^2=2d,\qquad \operatorname{Var}\big(\|x_0-x_1\|^2\big)=8d .
+$$
+
+所以相對標準差是 $\sqrt{8d}/(2d)=\sqrt{2/d}$——**$d$ 越大，所有兩兩距離越接近同一個值**。$d=2$ 時是 100%，$d=3072$ 時只剩 2.5%。
+
+成本矩陣幾乎是常數的時候，「最佳指派」和「隨機指派」的總成本差不了多少，於是 OT 配對能買到的結構就很少。這不是實作沒調好，而是幾何本身的性質。
+
+兩個實務上的推論：
+
+- **在 latent space 做比在 pixel space 做有效。** latent 的維度低（例如 $64\times64\times4$ 壓到幾千維以下），而且不同 latent 之間的距離結構比 pixel 有意義。
+- **batch size 要大才看得到效果。** $B$ 小的時候一個 batch 內的點太少，本來就配不到好對象；而高維又讓「好對象」和「壞對象」的差距變小，兩個效應疊起來。
+
+順帶一提，這也解釋了為什麼 <Ref to="dma-rectified-flow"/> 在高維反而比較常見：reflow 用的是模型自己的 ODE 誘導的配對，那個配對的結構是**學出來的**，不依賴成本矩陣有沒有對比度。
+</Answer>
+</Question>
+
+<VizPlan id="w5-4-swap-argument" title="交換一次，就看出單調" type="static">
+- 檔名 `imgs/w5-4-1.png`，放在 Q1 之後、「消化一下」之前。
+- 版面：左右兩塊，中間一個大的「交換」箭頭。
+  - **左「交叉的配對」**：四個點 $a,b$（藍，在下方）與 $A,B$（橘，在上方），兩條綠線 $a\to A$、$b\to B$ 交叉成 X；交叉點畫一個小圈。旁邊寫 $\|a-A\|^2+\|b-B\|^2$。
+  - **右「交換終點之後」**：同樣四個點，改成 $a\to B$、$b\to A$，兩條線平行不交叉。旁邊寫 $\|a-B\|^2+\|b-A\|^2$。
+  - 中間箭頭上方寫差值 $2(a-b)^\top(A-B)$，下方一句「小於 0 就一定該換」。
+- 下方一條窄橫幅，寫結論：「最佳配對不可能還有該換的對 → $(a-b)^\top(T(a)-T(b))\ge0$ → 單調 → 幾乎不交叉」，四段用箭頭串起來。
+- 再往下一個小圖：橫軸 batch size（1、4、16、48、192），一條往下掉的折線標「交叉比例」（20%、9%、4%、1.4%、0.6%），並註明「報酬遞減」。
+- 底部一句：「這一整套只換誰配誰；$x_0$ 與 $x_1$ 的集合從頭到尾沒有動過。」
+- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、噪聲藍 `#4a90e2`／資料橘 `#f0803c`／強調靛 `#2a4ea3`／路徑綠 `#60ba82`，交叉用紅 `#d94f4f`）。
+- 長寬比：約 16:10。
+</VizPlan>
+
+## 消化一下
+
+<QuizBlock id="w5-4-a">
+OT 配對為什麼是單調的？
+<Option>因為 OT 耦合是獨立的。</Option>
+<Option correct>因為交換任何一對終點會讓成本改變 $2(a-b)^\top(A-B)$，所以最佳解不可能存在 $(a-b)^\top(A-B) \lt 0$ 的對。</Option>
+<Option>因為 OT 只在一維成立。</Option>
+<Explanation>
+一行展開就得到那個差值，剩下的是「最佳解沒有可改進的地方」。Brenier 定理（$T=\nabla\varphi$、凸函數梯度）是同一件事的另一種說法。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w5-4-b">
+用很小的 $B$（例如 $B=4$）做 minibatch OT 訓練，終點分布會怎樣？
+<Option>偏離 $p_1$，因為配對不是全域最佳。</Option>
+<Option correct>仍然是 $p_1$。只是軌跡比大 $B$ 時彎，少步取樣的誤差比較大。</Option>
+<Option>塌到少數幾個點上。</Option>
+<Explanation>
+batch 內重排是一個置換，兩邊的樣本集合都沒動，所以保邊際。$B$ 影響的是曲率，不是正確性。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w5-4-c">
+在 3072 維的圖像上 minibatch OT 的增益不如 2D 明顯，主要原因是什麼？
+<Option>指派問題太貴。</Option>
+<Option correct>高維獨立樣本的兩兩距離會集中（相對標準差約 $\sqrt{2/d}$），成本矩陣接近常數，OT 配對就退化成接近隨機配對。</Option>
+<Option>高維下 OT 不存在。</Option>
+<Explanation>
+距離集中現象。這也是為什麼「配對」這個旋鈕在高維比 2D 直覺難轉，以及為什麼在 latent space 做比在 pixel space 做有效。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w5-4-d">
+下列哪一句話同時對 reflow 與 minibatch OT 都成立？
+<Option>兩者都需要多訓一輪。</Option>
+<Option>兩者的極限都是全域 OT。</Option>
+<Option correct>兩者都只改配對，$p_0$ 與 $p_1$ 完全不動，中間路徑也還是同一條直線插值。</Option>
+<Explanation>
+reflow 要多訓一輪、minibatch OT 不用；reflow 的極限是「直」不一定是 OT。共同點是它們動的都是 <Ref to="dma-why-not-diffusion"/> 那三個旋鈕裡的**配對**。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-shared-techniques">
+拉直的兩條路講完了。下一篇把兩個框架共用的其他技巧收在一起，並用這一週建立的曲率語言重新看它們各自在做什麼。
+</Bridge>
+
+## 參考文獻
+
+1. Tong, A., Fatras, K., Malkin, N., Huguet, G., Zhang, Y., Rector-Brooks, J., Wolf, G., Bengio, Y. [*Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport.*](https://arxiv.org/abs/2302.00482) TMLR 2024. （OT-CFM；這一篇的主線。）
+2. Pooladian, A.-A., Ben-Hamu, H., Domingo-Enrich, C., Amos, B., Lipman, Y., Chen, R. T. Q. [*Multisample Flow Matching: Straightening Flows with Minibatch Couplings.*](https://arxiv.org/abs/2304.14772) ICML 2023. （同一個想法的另一條線，含 batch size 的分析。）
+3. Cuturi, M. [*Sinkhorn Distances: Lightspeed Computation of Optimal Transport.*](https://arxiv.org/abs/1306.0895) NeurIPS 2013. （batch 太大時用的熵正則化近似。）

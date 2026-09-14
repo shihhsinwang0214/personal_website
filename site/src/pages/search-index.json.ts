@@ -1,5 +1,6 @@
 import { getCollection } from 'astro:content';
 import { categoryLabels, isPublishedNote, noteRoute, researchAreaLabelForNote, sortNotes, statusLabels } from '../lib/notes';
+import { noteTitles } from '../lib/noteRefs';
 import { withBase } from '../lib/url';
 
 export async function GET() {
@@ -7,14 +8,17 @@ export async function GET() {
   const notes = sortNotes(await getCollection('notes')).filter(
     (note) => isPublishedNote(note) && note.data.status !== 'missing',
   );
+  const titles = await noteTitles();
   const entries = notes.map((note) => {
     const lang = note.data.lang;
     const category = categoryLabels[note.data.category][lang];
     const researchArea = researchAreaLabelForNote(note, lang) || '';
     const status = statusLabels[note.data.status][lang];
     const summary = note.data.summary || '';
+    // Indexed with its position code, so searching "W3.3" finds the note.
+    const title = titles.of(note);
     const text = [
-      note.data.title,
+      title,
       summary,
       category,
       researchArea,
@@ -26,7 +30,7 @@ export async function GET() {
 
     return {
       url: withBase(noteRoute(note.data.slug, lang)),
-      title: note.data.title,
+      title,
       excerpt: summary || [category, researchArea, note.data.group].filter(Boolean).join(' / '),
       text,
     };

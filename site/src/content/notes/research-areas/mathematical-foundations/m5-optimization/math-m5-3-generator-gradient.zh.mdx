@@ -1,0 +1,225 @@
+---
+slug: "math-m5-3-generator-gradient"
+label: "math-generator-gradient"
+prereqs:
+  - math-gradient
+  - math-kl
+  - math-total-derivative
+lang: "zh"
+title: "只看得到樣本，怎麼調機器：對 Generator 微分"
+category: "courses"
+group: "M5 · Optimization、Convexity 與距離"
+status: "available"
+updated: 2026-09-06
+summary: "一台機器把亂數變成產品，你只看得到吐出來的樣本，卻想調它讓產品的分佈接近目標。把「抽樣」寫成「固定亂數、再過一個可微的函數」（reparameterization），KL 對機器參數的梯度就能算，而且長得很乾淨：在每個樣本上，兩個 ∇log p 的差、乘上機器對參數的靈敏度。一維四行推導、一個會被忽略的零項、以及當你只有目標的樣本時這條公式還缺什麼。"
+demos: []
+references:
+  - label: "Kingma & Welling, Auto-Encoding Variational Bayes (ICLR 2014)"
+    href: "https://arxiv.org/abs/1312.6114"
+  - label: "Rezende, Mohamed & Wierstra, Stochastic Backpropagation and Approximate Inference in Deep Generative Models (ICML 2014)"
+    href: "https://arxiv.org/abs/1401.4082"
+  - label: "Mohamed, Rosca, Figurnov & Mnih, Monte Carlo Gradient Estimation in Machine Learning (JMLR 2020)"
+    href: "https://arxiv.org/abs/1906.10652"
+  - label: "Roeder, Wu & Duvenaud, Sticking the Landing: Simple, Lower-Variance Gradient Estimators for Variational Inference (NeurIPS 2017)"
+    href: "https://arxiv.org/abs/1703.09194"
+  - label: "Hyvärinen, Estimation of Non-Normalized Statistical Models by Score Matching (JMLR 2005)"
+    href: "https://jmlr.org/papers/v6/hyvarinen05a.html"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+
+# 只看得到樣本，怎麼調機器：對 Generator 微分
+
+<Objectives>
+- 把「從 $p_\theta$ 抽樣」改寫成 $x=G_\theta(z)$、$z$ 來自固定分佈（reparameterization），並說出為什麼這一步讓「對 $\theta$ 微分」變得可能。
+- 用一維四行推導寫出 $\nabla_\theta\,\mathrm{KL}(p_\theta\,\|\,p^*)=\mathbb E_z\big[\big(\nabla_x\log p_\theta(x)-\nabla_x\log p^*(x)\big)\,\partial_\theta G_\theta(z)\big]$，並說出那一項為零的期望是哪一項、為什麼。
+- 對一個「只能看樣本、要調分佈」的情境判斷這條公式能不能直接用、缺了什麼（$p^*$ 的 $\nabla\log$、$p_\theta$ 的 $\nabla\log$ 各從哪來），並用一維模擬驗證。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 一台把亂數變成產品的機器
+
+工廠裡有一台機器：每次按下按鈕，它內部擲一把骰子（亂數 $z$），然後照它的設定 $\theta$ 把骰子的結果加工成一個產品 $x=G_\theta(z)$。你看不到骰子、看不到內部，只看得到吐出來的產品。
+
+客戶給了你一個目標：產品的**分佈**要像某個規格 $p^*$——不是每個產品都一樣，而是整體的散佈要對。你可以轉機器上的旋鈕 $\theta$。你要往哪個方向轉？
+
+先用直覺回答：你會怎麼做？拿一批產品、跟規格比、然後怎麼把「比出來的差距」變成「旋鈕該轉的方向」？寫下你有多確定。
+
+課堂上的回答通常是「多抽一些，看哪邊多了就往反方向調」。這是對的方向，但它說不出**每個旋鈕該轉多少**——尤其當旋鈕很多（$\theta$ 是幾百萬維）時，「哪邊多了」根本無法逐一看。我們需要的是一個**梯度**：分佈的差距對每個旋鈕的偏導數。
+
+<Question id="Q1">
+翻成數學。「產品的分佈」是 $\theta$ 的什麼函數？「跟規格的差距」用哪個量寫？直接對它微分會卡在哪裡？
+
+<Answer>
+產品 $x=G_\theta(z)$，$z\sim p_z$（骰子的分佈，固定、與 $\theta$ 無關）。產品的分佈 $p_\theta$ 是 $p_z$ 經 $G_\theta$ 的 pushforward——同一把骰子、不同的 $\theta$，吐出不同的分佈。差距用 <Ref to="math-kl"/> 的 KL：
+
+$$
+L(\theta)=\mathrm{KL}(p_\theta\,\|\,p^*)=\mathbb E_{x\sim p_\theta}\big[\log p_\theta(x)-\log p^*(x)\big].
+$$
+
+（方向是 $\mathrm{KL}(p_\theta\|p^*)$：對「機器把產品放在規格幾乎不允許的地方」罰得重——這正是「不要生出不合規格的產品」要的方向。）
+
+直接微分會卡在兩處。第一，期望是**對 $p_\theta$ 取的**，而 $p_\theta$ 本身隨 $\theta$ 變——「抽樣」這個動作不可微，你沒辦法對「從一個分佈抽一個數」這件事求導。第二，被積函數裡有 $\log p_\theta(x)$，它也隨 $\theta$ 變。兩個 $\theta$ 糾在一起。
+
+解開第一個結的方法，就是這一篇的物件：**把隨機性搬到 $\theta$ 外面**。$x\sim p_\theta$ 與「$z\sim p_z$ 然後 $x=G_\theta(z)$」是同一件事，但第二種寫法裡隨機的只有 $z$，它不依賴 $\theta$；$\theta$ 只出現在一個普通的、可微的函數 $G_\theta$ 裡。這叫 **reparameterization**（重參數化）。
+</Answer>
+</Question>
+
+## 先抓住這個畫面：固定骰子，只轉旋鈕
+
+想像你把機器內部的骰子換成一疊**預先擲好**的紙條：$z_1,z_2,\dots,z_N$。現在機器不再隨機——同一張紙條、同一個 $\theta$，永遠吐出同一個產品 $G_\theta(z_i)$。轉一點旋鈕，每個產品都往某個方向動一點，動多少由 $\partial_\theta G_\theta(z_i)$ 決定：**旋鈕對第 $i$ 個產品的靈敏度**。
+
+現在「分佈的差距」怎麼變？每個產品 $x_i$ 站在一個地形上：地形的高度是 $\log p_\theta(x)-\log p^*(x)$——「機器認為這裡多常出現」減「規格認為這裡該多常出現」。產品站在**高處**（機器放太多、規格要太少）時，把它往地形**低處**推會讓差距變小。往低處推的方向是 $-\nabla_x\big[\log p_\theta-\log p^*\big]$（<Ref to="math-gradient"/>），而旋鈕能把它推的方向是 $\partial_\theta G$。兩者的內積，對所有紙條平均，就是梯度。
+
+所以整條公式的畫面是：**每個樣本站在「機器分佈 vs 規格」的地形上，地形的坡告訴它該往哪走，旋鈕的靈敏度告訴我們轉哪個旋鈕能讓它那樣走。**
+
+<VizPlan id="m5-3-landscape" title="固定骰子，看每個樣本站在哪個坡上" type="static">
+- **檔名**：`m5-optimization/imgs/m5-3-1.svg`，16:9。
+- **左格**：一排紙條 $z_1,\dots,z_6$ 進入一個標 $G_\theta$ 的方塊，出來六個產品落在橫軸上；方塊上一個旋鈕 $\theta$，旁邊小字「轉一點，每個 $x_i$ 動 $\partial_\theta G(z_i)\,d\theta$」。
+- **右格**：橫軸 $x$，畫兩條密度 $p_\theta$（實線）與 $p^*$（虛線），下方畫地形 $\log p_\theta-\log p^*$（機器多的地方是山、規格多的地方是谷）；六個產品站在地形上，每個標一支箭頭 $-\nabla_x[\log p_\theta-\log p^*]$ 指向坡下。
+- **底部一行**：「梯度 $=$ 平均（坡 $\times$ 靈敏度）$=\mathbb E_z\big[(\nabla\log p_\theta-\nabla\log p^*)(G_\theta(z))\cdot\partial_\theta G_\theta(z)\big]$」。
+- **圖說**：「把隨機性固定在紙條上，$\theta$ 就只是一個普通函數的參數。每個樣本站在『機器 vs 規格』的地形上，坡告訴它該往哪走，靈敏度告訴我們轉哪個旋鈕。」
+</VizPlan>
+
+## 在一維上把它算出來
+
+一維、$\theta$ 是一個實數。reparameterize 之後：
+
+$$
+L(\theta)=\mathbb E_{z}\Big[\log p_\theta\big(G_\theta(z)\big)-\log p^*\big(G_\theta(z)\big)\Big].
+$$
+
+期望現在是對固定的 $p_z$ 取的，可以直接把 $\partial_\theta$ 搬進去（<Ref to="math-total-derivative"/> 的微分穿過積分）。被積函數裡 $\theta$ 出現在兩處：$G_\theta$ 裡、以及 $p_\theta$ 的下標裡。用 chain rule 全部展開：
+
+$$
+\begin{aligned}
+\partial_\theta L
+&=\mathbb E_z\Big[\underbrace{\big(\partial_x\log p_\theta-\partial_x\log p^*\big)\big(G_\theta(z)\big)\cdot\partial_\theta G_\theta(z)}_{\text{(A) 沿 }x\text{ 的坡}\times\text{靈敏度}}
+\;+\;\underbrace{\big(\partial_\theta\log p_\theta\big)\big(G_\theta(z)\big)}_{\text{(B) 下標裡的 }\theta}\Big].
+\end{aligned}
+$$
+
+(B) 看起來很麻煩——它是「分佈本身對 $\theta$ 的變化率」在樣本處的值。但它的期望是零：
+
+$$
+\mathbb E_z\big[\partial_\theta\log p_\theta(G_\theta(z))\big]=\mathbb E_{x\sim p_\theta}\big[\partial_\theta\log p_\theta(x)\big]=\int p_\theta\,\frac{\partial_\theta p_\theta}{p_\theta}\,dx=\partial_\theta\!\int p_\theta\,dx=\partial_\theta1=0.
+$$
+
+（第一個等號只是把 $G_\theta(z)$ 換回名字 $x$；最後一步又是微分穿過積分。）所以
+
+$$
+\boxed{\;\partial_\theta\,\mathrm{KL}(p_\theta\|p^*)=\mathbb E_{z}\Big[\big(\partial_x\log p_\theta(x)-\partial_x\log p^*(x)\big)\Big|_{x=G_\theta(z)}\cdot\partial_\theta G_\theta(z)\Big].\;}
+$$
+
+多維時 $\partial_x\log$ 換成 $\nabla_x\log$、$\partial_\theta G$ 換成 Jacobian，形狀是「向量 $\times$ 矩陣」，其餘一字不改。
+
+讀一遍每個符號。$\nabla_x\log p(x)$ 是密度的**對數梯度**——有時叫 **score function**，它指向「密度上升最快」的方向，並且**不需要知道 normalizing constant**：$\log(\tilde p/Z)$ 對 $x$ 微分時 $\log Z$ 消失（<Ref to="math-gradient"/> 裡 $\nabla\log$ 的意義）。$\partial_\theta G_\theta(z)$ 是旋鈕的靈敏度，由機器本身給。整條公式說：**梯度 $=$ 在每個樣本處，機器的 score 減規格的 score，乘上靈敏度，取平均。**
+
+<Details summary="為什麼 (B) 消失這件事重要：兩種估計量與變異數">
+若不用 reparameterization，另一條路是「score-function estimator」（REINFORCE）：∂_θ E_\{p_θ\}[f(x)] = E_\{p_θ\}[f(x)·∂_θ log p_θ(x)]。它不需要 G 可微、連 x 是離散的都能用，但變異數通常很大——f(x) 的絕對大小整個進入估計量。reparameterization 把「分佈怎麼變」換成「每個樣本怎麼動」，估計量只含 f 的梯度，變異數小得多（Mohamed et al. [3] 的系統比較）。
+
+而 (B) 這一項：它的期望是零，但**單一樣本上不是零**。實作時若把 log p_θ(G_θ(z)) 對 θ 直接自動微分，autodiff 會忠實地算出 (A)+(B)——(B) 平均下來是零，卻帶進額外的雜訊。Roeder et al. [4] 指出把 (B) 手動去掉（對 p_θ 的參數做 stop-gradient、只讓梯度從 G_θ 流過）會得到變異數更低的估計量；在 p_θ = p* 的最佳點，去掉 (B) 的估計量每個樣本都恰好為零，保留 (B) 的則仍在抖。「一個期望為零的項，留著或去掉」是實作品質的分水嶺。
+</Details>
+
+## 回到工廠：公式能用，但缺一樣東西
+
+回答起點問題。要轉旋鈕，你需要在每個產品 $x_i=G_\theta(z_i)$ 處算三樣東西：
+
+1. **$\partial_\theta G_\theta(z_i)$**——機器的靈敏度。機器是你自己的，可微就有。
+2. **$\nabla_x\log p^*(x_i)$**——規格的 score。若客戶給的規格是一條公式（例如「常態、均值 5、標準差 1」），直接算。若客戶只給了**一批合規格的樣本**、沒有公式——這是現實中最常見的情形——這一項**你沒有**。從樣本估一個分佈的 score 是一個獨立的問題（score matching [5]），要另外訓一個模型。
+3. **$\nabla_x\log p_\theta(x_i)$**——機器自己的 score。這也不是免費的：你知道 $G_\theta$，但**你不知道 $p_\theta$ 的密度**——pushforward 的密度要算 $G_\theta^{-1}$ 的 Jacobian，一般的 $G$ 做不到。所以這一項也要另外估：拿機器吐出來的樣本、訓一個 score 模型。
+
+於是「只看得到樣本、要調分佈」這件事的完整流程是：**兩個 score 模型（一個學規格、一個學機器）加一個可微的機器**，梯度是兩個 score 的差乘靈敏度。直覺「哪邊多了就往反方向調」的精確版本正是這樣——「哪邊多」由兩個 score 的差說出，「怎麼調」由靈敏度說出。
+
+這個判斷依賴的假設：**$G_\theta$ 對 $\theta$ 可微、對 $z$ 是連續的**（產品若是離散的類別，reparameterization 就沒有直接版本，要用展開框裡的 score-function estimator 或其他 relaxation）；**兩個 score 估得夠準**（尤其在樣本稀疏的區域，估錯的 score 會把產品推向錯的方向）；以及 **KL 的方向**——$\mathrm{KL}(p_\theta\|p^*)$ 允許機器「漏掉」規格的某一塊（mode dropping），若客戶要求每一種合規格的產品都要出現，該用另一個方向或另一個距離。
+
+## 回到工廠：一維跑一次，然後把 (B) 留著看它抖
+
+一維、$G_\theta(z)=\theta+z$、$z\sim\mathcal N(0,1)$，所以 $p_\theta=\mathcal N(\theta,1)$；規格 $p^*=\mathcal N(5,1)$。此時一切都有 closed form：$\mathrm{KL}=(\theta-5)^2/2$，真梯度是 $\theta-5$。兩個 score：$\partial_x\log p_\theta(x)=-(x-\theta)$、$\partial_x\log p^*(x)=-(x-5)$，差是 $\theta-5$——與 $x$ 無關，每個樣本都給出精確的梯度；靈敏度 $\partial_\theta G=1$。
+
+```python
+import numpy as np
+rng = np.random.default_rng(0)
+theta, target, lr = 0.0, 5.0, 0.1
+for step in range(60):
+    z = rng.standard_normal(256)
+    x = theta + z                                              # reparameterization：固定骰子 z，x 是 θ 的可微函數
+    score_model  = -(x - theta)                                # ∇ₓ log p_θ(x)
+    score_target = -(x - target)                               # ∇ₓ log p*(x)
+    grad_A = np.mean((score_model - score_target) * 1.0)       # (A)：兩個 score 的差 × ∂G/∂θ
+    grad_B = np.mean((x - theta))                              # (B)：∂_θ log p_θ 在樣本處 —— 期望為零、單樣本不為零
+    theta -= lr * grad_A
+    if step % 15 == 0: print(step, round(theta, 3), round(grad_A, 3), round(grad_B, 3))
+print(theta)                                                   # → 5.0
+```
+
+$\theta$ 從 0 走到 5，`grad_A` 每步恰等於 $\theta-5$（因為兩個 score 的差不依賴 $x$，這個例子裡 (A) 沒有抽樣雜訊）。`grad_B` 每步在 $\pm0.06$ 附近抖——它的期望是零，但每一批都不是零；若把它加進更新，$\theta$ 收斂後仍會在 5 附近抖動，而只用 (A) 的版本在最佳點每一步都精確為零。
+
+**刻意違反一個假設。** 把 `score_target` 換成一個從 $p^*$ 的 200 個樣本估出來的粗糙版本（例如用核密度估計取對數再差分）：在樣本稀疏的尾端 score 估錯，$\theta$ 會收斂到 5 附近但帶偏差；樣本越少偏得越多。再把 $G_\theta(z)=\theta+z$ 換成 $G_\theta(z)=\theta+|z|$——機器只會吐正的產品，pushforward 的密度 $p_\theta$ 你不再有 closed form，`score_model` 那一行必須改成從機器樣本估——這就是「第三樣東西也不免費」的意思。
+
+<VizPlan id="m5-3-generator" title="轉旋鈕：兩個 score 的差 × 靈敏度" type="interactive">
+- **位置**：本節之後。**檔名**：`m5-optimization/m5-3-1.html`。
+- **版面**：上格是橫軸上的兩條密度：機器 $p_\theta$（實線，隨 $\theta$ 移動）與規格 $p^*$（虛線，固定）；下方地形 $\log p_\theta-\log p^*$，256 個產品站在地形上、各帶一支箭頭（坡 $\times$ 靈敏度）。右側三個數字：$\mathrm{KL}$、真梯度、估計梯度 (A)。下格是 $\theta$ 隨步數的曲線，兩條：只用 (A)、用 (A)+(B)。
+- **控制項**：按鈕「走一步」「走 50 步」（不自動循環）；滑桿 $\theta$ 的初值；下拉「機器」：$\theta+z$、$\theta+\tfrac12z$（靈敏度不變、score 變）、$\theta\cdot z$（靈敏度變成 $z$，梯度的權重隨樣本不同）、$\theta+|z|$（密度無 closed form，畫面標「$\nabla\log p_\theta$ 需另外估」並改用核密度估計）；下拉「規格」：closed form $\mathcal N(5,1)$、或「只有 $n$ 個樣本」（滑桿 $n$，score 用核密度估計；$n$ 小時尾端的箭頭明顯亂掉、收斂點偏移）。
+- **開關「保留 (B)」**：下格第二條曲線出現，在最佳點附近持續抖動；旁邊顯示兩條曲線最後 50 步的標準差。
+- **Hover** 任一個產品：顯示該處的 $\nabla\log p_\theta$、$\nabla\log p^*$、兩者的差、靈敏度 $\partial_\theta G(z)$，與這個樣本對梯度的貢獻。
+- **底部觀察句**：「觀察：固定骰子之後 $\theta$ 只是一個可微函數的參數。KL 的梯度 $=$ 每個樣本處『機器的 score 減規格的 score』乘靈敏度，取平均。規格只有樣本時，那個 score 要另外學；機器的密度沒有 closed form 時，它的 score 也要另外學。」
+- **匯出 PNG**：上下併成 16:9，含當前機器、規格、$\theta$ 與三個數字。
+</VizPlan>
+
+## 先消化一下
+
+<QuizBlock id="m5-3-a">
+一個推薦系統的「機器」輸出的是**離散的**商品編號 $x\in\{1,\dots,K\}$，由 $\theta$ 決定各編號的機率。你想調 $\theta$ 讓輸出分佈接近某個目標。本篇的 reparameterization 公式：
+<Option>直接可用，$G_\theta(z)$ 取 $\arg\max$ 即可。</Option>
+<Option correct>不能直接用——$\arg\max$ 對 $\theta$ 的導數幾乎處處為零，「每個樣本怎麼動」在離散空間沒有意義；要改用 score-function estimator $\mathbb E[f(x)\,\partial_\theta\log p_\theta(x)]$，或對離散變數做連續的 relaxation。</Option>
+<Option>可用，只要把 KL 換成別的距離。</Option>
+<Explanation>
+reparameterization 的核心是「轉一點旋鈕、每個樣本連續地動一點」；離散輸出沒有「動一點」。$\arg\max$ 的梯度處處為零（跳躍點除外），autodiff 會給你零梯度。換距離不解決可微性的問題。score-function estimator 不需要 $G$ 可微，但變異數大——這是它與 reparameterization 之間永遠的取捨。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m5-3-b">
+把 (B) 那一項 $\partial_\theta\log p_\theta$ 在樣本處的值留在梯度裡，不去掉。長期而言：
+<Option>梯度會偏，收斂到錯的 $\theta$。</Option>
+<Option correct>梯度**不偏**（(B) 的期望是零），但每一批的估計多了一份雜訊；在最佳點附近，只用 (A) 的估計量可以每個樣本都恰好為零，保留 (B) 的則持續抖動。</Option>
+<Option>沒有任何差別，autodiff 會自動處理。</Option>
+<Explanation>
+(B) 的期望為零是一個對整個分佈的陳述，不是對單一樣本的；所以它不引入偏差，但引入變異數。autodiff 若不加 stop-gradient 會忠實地把 (B) 算進去——它不知道你想去掉它。這正是「一個期望為零的項該不該留」成為實作議題的原因。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m5-3-c">
+客戶只給了 200 個合規格的樣本，沒有公式。你用本篇的梯度公式調機器，發現產品分佈在規格的**主體**吻合得很好、但**尾端**明顯偏掉。最合理的診斷是：
+<Option>學習率太大。</Option>
+<Option>reparameterization 在尾端失效。</Option>
+<Option correct>規格的 score $\nabla\log p^*$ 是從 200 個樣本估出來的，尾端幾乎沒有樣本、估出來的坡是錯的；產品在那裡被推向錯的方向。要修的是 score 的估計（更多樣本、更好的估計方法），不是梯度公式。</Option>
+<Explanation>
+公式本身在任何 $x$ 都成立；出錯的是輸入公式的那個量。樣本稀疏的地方 score 估計的變異數與偏差都大，這與學習率、與 reparameterization 都無關。理論告訴你「梯度是兩個 score 的差」，實作告訴你「其中一個 score 在尾端不可信」——兩者合起來才知道該往哪修。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="math-warehouse-ot">
+本篇把「抽樣」拆成「固定骰子 + 可微的機器」，於是 KL 對機器參數的梯度可以算：每個樣本處兩個 score 的差、乘靈敏度、取平均；那個期望為零的項留著只會增加雜訊。到這裡 M5 的四個工具——Jensen、KL、EMA、對 generator 微分——都建好了。下一個 class 換一種「距離」的想法：不問「兩個分佈在每一點差多少」，而問「把一堆貨從這個擺法搬成那個擺法，最少要多少油」。
+</Bridge>
+
+## 參考文獻
+
+1. Kingma, D. P., Welling, M. [*Auto-Encoding Variational Bayes.*](https://arxiv.org/abs/1312.6114) ICLR 2014.（reparameterization trick 的出處之一。）
+2. Rezende, D. J., Mohamed, S., Wierstra, D. [*Stochastic Backpropagation and Approximate Inference in Deep Generative Models.*](https://arxiv.org/abs/1401.4082) ICML 2014.（同時期獨立提出的「stochastic backpropagation」。）
+3. Mohamed, S., Rosca, M., Figurnov, M., Mnih, A. [*Monte Carlo Gradient Estimation in Machine Learning.*](https://arxiv.org/abs/1906.10652) JMLR 21, 2020.（score-function 與 pathwise（reparameterization）兩類估計量的系統比較與變異數分析。）
+4. Roeder, G., Wu, Y., Duvenaud, D. [*Sticking the Landing: Simple, Lower-Variance Gradient Estimators for Variational Inference.*](https://arxiv.org/abs/1703.09194) NeurIPS 2017.（把期望為零的 (B) 項去掉可以降低變異數。）
+5. Hyvärinen, A. [*Estimation of Non-Normalized Statistical Models by Score Matching.*](https://jmlr.org/papers/v6/hyvarinen05a.html) JMLR 6, 2005.（只有樣本時如何估 $\nabla_x\log p$。）

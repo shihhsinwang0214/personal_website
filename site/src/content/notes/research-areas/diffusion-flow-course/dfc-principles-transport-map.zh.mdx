@@ -5,8 +5,8 @@ title: "生成就是把分布搬過去"
 category: "research-areas"
 group: "Diffusion & Flow Models"
 status: "available"
-updated: 2026-06-26
-summary: "先把 diffusion 和 flow 放回同一個問題：從容易取樣的高斯分布，搬到資料分布。"
+updated: 2026-09-04
+summary: "從有限 samples 出發，分清 particle 與 distribution，再用一維 affine map 看見生成如何把容易取樣的 Gaussian 整團搬成資料。"
 demos:
   - "notes/research_areas/diffusion-flow-course/principles-pipeline.html"
 references:
@@ -16,20 +16,46 @@ references:
     href: "https://arxiv.org/abs/2006.11239"
   - label: "Song et al., Score-Based Generative Modeling through Stochastic Differential Equations (ICLR 2021)"
     href: "https://arxiv.org/abs/2011.13456"
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
+    href: "https://arxiv.org/abs/2210.02747"
+  - label: "Lai et al., The Principles of Diffusion Models (2025)"
+    href: "https://arxiv.org/abs/2510.21890"
 ---
 import Quiz from '../../components/Quiz.astro';
 
 # 生成就是把分布搬過去
 
-> Diffusion & Flow Models 第 1 講，第 1 篇。這門課先不從 DDPM 的 loss 開始，而是從一個更穩的問題開始：我們到底要搬動什麼？
+> Diffusion & Flow Models 課程 W2（技術第 1 講），第 1 篇。這門課先不從 DDPM 的 loss 開始，而是從一個更穩的問題開始：我們到底要搬動什麼？
 
 你面前有兩團點。左邊是一團圓圓的高斯雜訊，右邊是一個有形狀的資料分布：雙月、雙峰、環形，或高維世界裡的圖片、分子、軌跡。生成模型不是在問「怎麼從一顆雜訊點猜出某張圖」，而是在問一個分布層級的問題：**能不能把整團容易取樣的雜訊，搬成整團資料？**
-
-## 先抓住這句
 
 > diffusion、score-based SDE、flow matching 都是在設計一條路，讓 $p_0=\mathcal N(0,I)$ 逐步變成 $p_1\approx p_{\mathrm{data}}$；差別在於路怎麼定、局部方向怎麼學、生成時怎麼走。
 
 這句話很短，但它會是整門課的骨架。後面每個 loss、sampler、guidance 技巧，都可以先放回這條「從 $p_0$ 到 $p_1$」的路上。
+
+## 我們從來沒有看過真正的資料分布
+
+現實裡拿到的不是一條寫好的 probability density，而是一個有限 dataset：
+
+$$
+\mathcal D=\{x^{(1)},\ldots,x^{(n)}\},
+\qquad
+x^{(i)}\overset{\mathrm{i.i.d.}}{\sim}p_{\mathrm{data}}.
+$$
+
+$p_{\mathrm{data}}$ 是產生這些 samples 的未知 distribution；dataset 只是它留給我們的有限線索。經驗上可以把 dataset 寫成 empirical distribution
+
+$$
+\hat p_{\mathrm{data}}
+=
+\frac1n\sum_{i=1}^n\delta_{x^{(i)}},
+$$
+
+其中 $\delta_{x^{(i)}}$ 把質量放在第 $i$ 筆資料上。但生成的目標通常不是把這 $n$ 個位置背成一張表，而是從有限 samples 推斷哪些新組合仍屬於同一個資料生成機制。
+
+這也把 generation 和常見預測問題分開：classification 多半為給定輸入選 label，regression 常在條件下預測一個代表值；generation 則要保留一整個 distribution 的不確定性。給定同一段文字，「合理圖片」可能不只一張；給定一段歷史，「合理 trajectory」也可能有多條。模型必須能抽出不同答案，而不是永遠回傳一個平均。
+
+> 這篇不假設我們能寫出 $p_{\mathrm{data}}(x)$ 的 closed form。能從 dataset 抽樣，就足以開始構造訓練問題；後面的 diffusion 與 Flow Matching 都利用這一點。
 
 ## 先看一團點怎麼搬
 
@@ -38,6 +64,18 @@ import Quiz from '../../components/Quiz.astro';
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-flow-course/principles-pipeline.html" class="demo-frame" title="Diffusion and flow principles pipeline demo" style="height: 760px; width: 100%; border: none;"></iframe>
 
 拖動滑桿時，請不要只盯著某一顆點。更重要的是看整團點雲：哪裡變密、哪裡被抹平、什麼時候形狀開始出現。這個「整團點雲」才是 $p_t$。
+
+固定一顆 seed $z$，經過模型只得到一顆 sample $T_\theta(z)$。你可以檢查它是否清楚、是否符合 constraint，卻不能只靠它判斷模型是否涵蓋資料裡的各種可能。要看 distribution，至少要讓許多獨立 seeds 一起通過同一個生成機制：
+
+$$
+z^{(1)},\ldots,z^{(m)}\overset{\mathrm{i.i.d.}}{\sim}p_0,
+\qquad
+\tilde x^{(j)}=T_\theta(z^{(j)}).
+$$
+
+這批 $\tilde x^{(j)}$ 才形成 $p_\theta$ 的 empirical picture。若每一顆 seed 都被送到同一個漂亮 mode，單張看來可能成功，distribution 卻明顯失敗：coverage 消失、多樣性消失，稀有但重要的情況也可能從未出現。
+
+反過來，一顆生成 sample 也不必「找得到它對應的那一筆 training example」。base sample 與 data sample 之間通常沒有自然的一對一真值。生成模型要對齊的是整體 law；個別 particle 的路徑只是實現這件事的一種方式。
 
 ## 分布層級的定義
 
@@ -69,6 +107,29 @@ $$
 
 diffusion 和 flow-based 方法通常不把 $T_\theta$ 當成一步完成的黑盒，而是把它拆成一條時間路徑。採用本課的 flow convention：$t\in[0,1]$，$p_0=\mathcal N(0,I_d)$ 是 noise，$p_1\approx p_{\mathrm{data}}$ 是 data。中間的 $p_t$ 是我們設計或隱含得到的 probability path。
 
+## 先用一維 affine map 搬一次
+
+在最簡單的一維問題裡，transport 真的只需要一行。令
+
+$$
+Z\sim\mathcal N(0,1),
+\qquad
+X=T(Z)=aZ+b.
+$$
+
+若目標只是一個 Gaussian $\mathcal N(\mu,\sigma^2)$，選 $a=\sigma$、$b=\mu$ 就夠了。親手檢查 mean 與 variance：
+
+$$
+\begin{aligned}
+\mathbb E[X]&=a\mathbb E[Z]+b=b,\\
+\operatorname{Var}(X)&=a^2\operatorname{Var}(Z)=a^2.
+\end{aligned}
+$$
+
+因此 $a=2,b=3$ 會把標準 Gaussian 搬成 mean 為 $3$、variance 為 $4$ 的 Gaussian。這個小計算示範了 push-forward 的意思：不是替 density 表格逐格改值，而是先移動 random variable，distribution 會跟著變。
+
+它也立刻暴露一步 affine map 的限制。Gaussian 經 affine transformation 仍是 Gaussian；它不可能憑一條直線把單峰變成 two moons、環形或許多 modes。要搬出複雜結構，$T$ 必須夠 nonlinear，或由許多容易學的局部變換組成。diffusion 與 flow 採用的正是後一種思路。
+
 ## 場如何真的搬動密度
 
 先看確定性版本。令粒子滿足 ODE
@@ -83,23 +144,31 @@ $$
 p_t = (\Phi_t)_\# p_0.
 $$
 
-這不是比喻；它可以用弱形式直接驗算。對任意光滑且緊支撐的 $\varphi$，
-
-$$
-\frac{d}{dt}\mathbb E[\varphi(X_t)]
-=
-\mathbb E[\nabla\varphi(X_t)\cdot v_t(X_t)]
-=
-\int \nabla\varphi(x)\cdot v_t(x)\,p_t(x)\,dx.
-$$
-
-把右邊分部積分，就得到 continuity equation 的弱形式：
+這不是比喻；它可以用 continuity equation 精確描述。W2 先看結論：
 
 $$
 \partial_t p_t(x)+\nabla\cdot\big(p_t(x)v_t(x)\big)=0.
 $$
 
-這條方程說明了「學一個局部方向」為什麼能搬動「整個分布」。後面 flow matching 會直接回歸 $v_t$；diffusion 則多了一個隨機項，但最後仍會回到同一張 SDE/ODE 地圖。
+第一項問某處 density 隨時間如何變，第二項計算流入與流出造成的淨變化；兩者相加為零，就是 probability mass 沒有憑空消失。完整推導留到 W4，但若你想先驗算一次，可以看它的弱形式。
+
+> **`深一層`：用 test function 驗算整團真的被搬動。** 對任意 smooth 且 compactly supported 的 $\varphi$，
+>
+> $$
+> \frac{d}{dt}\mathbb E[\varphi(X_t)]
+> =
+> \mathbb E[\nabla\varphi(X_t)\cdot v_t(X_t)]
+> =
+> \int \nabla\varphi(x)\cdot v_t(x)\,p_t(x)\,dx.
+> $$
+>
+> 把右邊 integration by parts，就得到 continuity equation 的 weak form：
+>
+> $$
+> \partial_t p_t(x)+\nabla\cdot\big(p_t(x)v_t(x)\big)=0.
+> $$
+
+這條方程說明了「學一個局部方向」為什麼能搬動「整個 distribution」。後面 Flow Matching 會直接 regression $v_t$；diffusion 則多了一個 stochastic term，但最後仍會回到同一張 SDE／ODE 地圖。
 
 ## 幾個容易想歪的地方
 
@@ -121,7 +190,14 @@ $$
   ]}
 />
 
-## 這怎麼接到研究？
+<Quiz
+  q="模型生成出一張非常漂亮、而且不在 training set 裡的圖片，是否已足以證明它學對了 data distribution？"
+  options={[
+    { text: "足夠；只要不是複製訓練圖片，就代表整個 distribution 正確。", explain: "新穎的單張 sample 只能排除最直接的查表，不能檢查 coverage、frequency、rare modes 或 constraints。" },
+    { text: "不足；單張只提供 local quality 的證據，還要看許多 samples 是否涵蓋並以合理頻率重現資料結構。", correct: true, explain: "對。生成是 distribution-level 的任務，quality 與 coverage 都要由一批 samples 和 task-specific evidence 判斷。" },
+    { text: "不足，因為任何生成圖片都必須和某張 training example 完全一樣才算正確。", explain: "這又回到記憶資料。模型要逼近未知 data-generating distribution，不是逐張重播 dataset。" },
+  ]}
+/>
 
 Sohl-Dickstein 等人的 nonequilibrium thermodynamics 觀點把「逐步破壞資料，再學反向過程」放進生成模型；Ho、Jain 與 Abbeel 的 DDPM 把這條思路變成了可訓練、可擴展的 denoising 目標；Song 等人的 score-based SDE 框架則把離散 diffusion 推到連續時間，並把隨機 SDE 和確定性 probability-flow ODE 接在一起。三篇讀起來語言不同，但第一層問題都一樣：如何把一個簡單分布搬成資料分布。
 
@@ -135,10 +211,12 @@ Sohl-Dickstein 等人的 nonequilibrium thermodynamics 觀點把「逐步破壞�
 
 ## 下一步
 
-下一篇 [Corrupt Then Reverse：先毀掉，再學著回來](/personal_website/zh/notes/dfc-principles-corrupt-and-reverse) 會把 diffusion 這個「先破壞、再反轉」的視角寫成具體 Gaussian forward kernel，並解釋為什麼 reverse 不是單純倒帶。
+下一篇 [Corrupt Then Reverse：先毀掉，再學著回來](/personal_website/zh/notes/dfc-principles-corrupt-and-reverse) 會把 diffusion 這個「先破壞、再反轉」的視角寫成具體 Gaussian forward kernel，親手推出任意時間的 closed-form corruption，並解釋為什麼 reverse 不是單純倒帶。
 
 ## 參考文獻
 
 1. Sohl-Dickstein, J., Weiss, E. A., Maheswaranathan, N., Ganguli, S. [*Deep Unsupervised Learning using Nonequilibrium Thermodynamics.*](https://arxiv.org/abs/1503.03585) ICML 2015.
 2. Ho, J., Jain, A., Abbeel, P. [*Denoising Diffusion Probabilistic Models.*](https://arxiv.org/abs/2006.11239) NeurIPS 2020.
 3. Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Ermon, S., Poole, B. [*Score-Based Generative Modeling through Stochastic Differential Equations.*](https://arxiv.org/abs/2011.13456) ICLR 2021.
+4. Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., Le, M. [*Flow Matching for Generative Modeling.*](https://arxiv.org/abs/2210.02747) ICLR 2023.
+5. Lai, C.-H., Song, Y., Kim, D., Mitsufuji, Y., Ermon, S. [*The Principles of Diffusion Models.*](https://arxiv.org/abs/2510.21890) 2025.

@@ -28,8 +28,10 @@
      stacks, so Chinese in mono-styled labels (eyebrow, meta, category labels)
      matches the body instead of switching to an ugly monospace CJK face. */
   --font-cjk: "PingFang TC", "Microsoft JhengHei", "Noto Sans CJK TC", "Noto Sans TC", sans-serif;
-  --font-main: "Plus Jakarta Sans", var(--font-cjk);
-  --font-mono: "Space Mono", var(--font-cjk);
+  /* "CJKDash" first: it only claims U+2014/U+2015 (see @font-face below), so the
+     Latin web fonts still win everywhere else. */
+  --font-main: "CJKDash", "Plus Jakarta Sans", var(--font-cjk);
+  --font-mono: "CJKDash", "Space Mono", var(--font-cjk);
   --maxw: 1100px;
   --radius-sm: 8px;
   --radius: 12px;
@@ -412,6 +414,23 @@ to {
   font-weight:700;
   letter-spacing:-.01em;
   margin-top:6px}
+.note-course {
+  border-top:1px solid var(--border);
+  display:block}
+.note-course:last-child {
+  border-bottom:1px solid var(--border)}
+.note-course-summary {
+  padding:16px 0}
+.note-course-title {
+  color:var(--accent);
+  font-size:1.05rem;
+  font-weight:700;
+  letter-spacing:-.01em;
+  line-height:1.35}
+.note-course-content {
+  padding:0 0 10px}
+.note-course-content .note-group:last-child {
+  border-bottom:0}
 .note-group {
   border-top:1px solid var(--border);
   display:block}
@@ -564,6 +583,19 @@ to {
   color:var(--accent)}
 .note-body {
   min-width:0}
+/* 破折號「——」修正。U+2014 在 Plus Jakarta Sans / Space Mono 裡是帶左右留白的
+   西文 em dash，兩個並排就會斷成兩截。這裡只把 U+2014／U+2015 導到 CJK 字面
+   （全角、貼齊字身框），一對破折號就會連成一條線；其他字元完全不受影響。 */
+@font-face {
+  font-family: "CJKDash";
+  src: local("PingFang TC"), local("Heiti TC"), local("Microsoft JhengHei"),
+       local("Microsoft JhengHei UI"), local("Noto Sans CJK TC"), local("Noto Sans TC"),
+       local("Hiragino Sans"), local("Yu Gothic"), local("Meiryo"),
+       local("Microsoft YaHei"), local("Noto Sans SC");
+  unicode-range: U+2014, U+2015;
+  font-display: swap;
+}
+
 .markdown-body {
   font-size:1rem;
   line-height:1.8}
@@ -580,8 +612,17 @@ to {
   margin:1.8em 0 .7em}
 .markdown-body p,.markdown-body ul,.markdown-body ol,.markdown-body blockquote {
   margin:0 0 1em}
+.markdown-body blockquote {
+  margin:1.7em 0;
+  padding:.85em 0;
+  border-top:1px solid var(--border);
+  border-bottom:1px solid var(--border);
+  text-align:center}
+.markdown-body blockquote p {
+  margin:0}
 .markdown-body img,.markdown-body video,.markdown-body canvas,.markdown-body svg {
-  max-width:100%}
+  max-width:100%;
+  height:auto}
 .markdown-body table {
   border-collapse:collapse;
   display:block;
@@ -607,6 +648,13 @@ to {
   overflow-x:auto;
   overflow-y:hidden;
   padding:.35em 0}
+/* 行內數學不要在符號中間折行。KaTeX 自己不設 white-space，瀏覽器會把
+   $x_t$ 折成「x」換行「t」、把 $q(x_{t-1}\mid x_t)$ 折在「q(」後面。
+   2026-09-13 實測：week-3 六篇共 51 處，置中的 blockquote 匾額最明顯。
+   加上這條之後全部歸零，而且沒有任何一條行內公式超出 362px 的欄寬
+   （430px 視窗，站上最窄的情況）。 */
+.markdown-body .katex {
+  white-space:nowrap}
 .markdown-body iframe,.markdown-body .demo-frame {
   background:var(--surface);
   border:1px solid var(--border)!important;
@@ -1184,6 +1232,38 @@ nav.site-nav a[aria-current=page] {
   font-weight:700;
   letter-spacing:-.01em;
   padding-top:2px}
+.topic-cards {
+  display:grid;
+  gap:10px;
+  grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.topic-card {
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:8px;
+  color:inherit;
+  display:grid;
+  gap:6px;
+  padding:14px 16px;
+  text-decoration:none;
+  transition:border-color .2s ease,transform .2s ease}
+.topic-card:hover {
+  border-color:var(--accent);
+  transform:translateY(-2px)}
+.topic-card-title {
+  font-size:1rem;
+  font-weight:700;
+  letter-spacing:-.01em;
+  line-height:1.35}
+.topic-card:hover .topic-card-title {
+  color:var(--accent)}
+.topic-card-desc {
+  color:var(--text-muted);
+  font-size:.9rem;
+  line-height:1.5}
+.topic-card-meta {
+  color:var(--text-muted);
+  font-family:var(--font-mono);
+  font-size:.74rem}
 .writing-groups {
   display:grid}
 .writing-group {
@@ -1415,11 +1495,44 @@ nav.site-nav a[aria-current=page] {
 }
 .handbook-nav-group {
   margin-top:14px}
+/* Group heading doubles as the <summary> that collapses the group. Two rows:
+   name + chevron, then the mono tag underneath — the tags are long enough
+   (RECRUITMENT QUEST, HOW WE LEVEL UP) that keeping them inline squeezed the
+   name in a sidebar this narrow. */
 .handbook-nav-label {
+  display:block;
   font-size:.78rem;
   font-weight:700;
   color:var(--text);
-  margin-bottom:6px}
+  margin-bottom:6px;
+  cursor:pointer;
+  list-style:none}
+.nav-label-row {
+  display:flex;
+  align-items:center;
+  gap:6px}
+.handbook-nav-label::-webkit-details-marker {
+  display:none}
+.handbook-nav-label:hover {
+  color:var(--accent)}
+.nav-chevron {
+  width:13px;
+  height:13px;
+  margin-left:auto;
+  flex:none;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  opacity:.55;
+  transform:rotate(90deg);
+  transition:transform var(--dur-fast)}
+.handbook-nav-group:not([open]) .nav-chevron {
+  transform:rotate(0deg)}
+@media(prefers-reduced-motion:reduce) {
+  .nav-chevron { transition:none }
+}
 .handbook-nav ul {
   list-style:none;
   margin:0;
@@ -2186,8 +2299,8 @@ nav.site-nav a[aria-current=page] {
   white-space:nowrap}
 .handbook-nav-tag {
   display:inline-block;
-  margin-left:6px;
-  vertical-align:1px}
+  margin-top:4px;
+  font-weight:400}
 .section-tag {
   display:inline-block;
   margin-left:8px}
@@ -2952,3 +3065,31 @@ nav.site-nav a[aria-current=page] {
 .quest-empty {
   color:var(--text-muted);
   font-size:.86rem}
+
+/* Dev-only draft marker. Production never builds a drafted page, so this badge
+   can only ever appear in `npm run dev` — it exists so a preview is never
+   mistaken for something that is live. */
+.draft-badge {
+  font-family:var(--font-mono);
+  font-size:.64rem;
+  letter-spacing:.08em;
+  padding:2px 8px;
+  border:1px dashed var(--accent);
+  border-radius:var(--radius-sm);
+  color:var(--accent)}
+
+/* Leader panel identity block: name, Chinese name, department, title — each on
+   its own line. Four short lines read faster than one run-on line, and the
+   department/title split matches how it is written on a name card. */
+.panel-leader-id {
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  min-width:0}
+.panel-leader-id .person-name-zh {
+  margin-left:0;
+  font-size:.95rem}
+.panel-leader-id .person-role {
+  margin-top:0}
+.panel-leader-id .person-role + .person-role {
+  margin-top:4px}

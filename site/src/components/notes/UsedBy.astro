@@ -1,0 +1,51 @@
+---
+/**
+ * UsedBy.astro — reverse index on a foundation note: every course note whose `prereqs`
+ * names this note, grouped by course. Zero manual sync; place at the end of the body:
+ *
+ *   <UsedBy slug={frontmatter.slug} />
+ */
+import { usedBy, langFromUrl } from '../../lib/noteRefs';
+import type { Lang } from '../../lib/notes';
+
+interface Props { slug: string; lang?: Lang }
+const { slug } = Astro.props;
+const lang: Lang = Astro.props.lang ?? langFromUrl(Astro.url);
+const groups = await usedBy(slug, lang);
+const heading = lang === 'zh' ? '這個工具在哪裡被用到' : 'Where this tool is used';
+const empty = lang === 'zh' ? '目前還沒有課程筆記宣告重用這篇。' : 'No course note declares this as a prerequisite yet.';
+---
+<aside class="usedby">
+  <p class="usedby-title">{heading}</p>
+  {groups.length === 0 ? (
+    <p class="usedby-empty">{empty}</p>
+  ) : (
+    <ul>
+      {groups.map((g) => (
+        <li>
+          <span class="usedby-course">{g.courseTitle}</span>
+          {g.notes.map((n, i) => (
+            <>
+              {i > 0 && <span class="usedby-sep">·</span>}
+              <a href={n.href} title={n.shortTitle}>{n.code || n.shortTitle}</a>
+            </>
+          ))}
+        </li>
+      ))}
+    </ul>
+  )}
+</aside>
+
+<style>
+  .usedby {
+    margin: 32px 0 8px; padding: 14px 18px; border: 1px solid var(--border);
+    border-radius: var(--radius, 12px); font-size: 0.92rem; color: var(--text-muted);
+  }
+  .usedby-title { margin: 0 0 6px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); }
+  .usedby ul { margin: 0; padding-left: 1.1em; }
+  .usedby li { margin: 4px 0; line-height: 1.7; }
+  .usedby-course { font-weight: 600; color: var(--text); margin-right: 10px; }
+  .usedby-sep { margin: 0 6px; opacity: 0.6; }
+  .usedby a { color: var(--accent); text-decoration: none; font-weight: 600; border-bottom: 1px dotted currentColor; }
+  .usedby-empty { margin: 0; }
+</style>

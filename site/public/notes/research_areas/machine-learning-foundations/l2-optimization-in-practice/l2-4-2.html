@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>散佈與尺度是兩件事</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：同一個網路、同一組超參數，換一個隨機種子就得到不同的解——<b>那個散佈本身是可以量的</b>，而且它決定你該報什麼統計量。另一件事是尺度：初始化的 gain 決定梯度<b>消失還是爆炸</b>，而那是 gain 的函數，不是深度的函數。</p>
+  <canvas id="fits" style="aspect-ratio:5/3" aria-label="灰虛線＝真值；細線＝12 個 seed 各自訓練出來的網路（1→16→16→1 的 tanh，Adam）"></canvas>
+  <p class="cap">灰虛線＝真值；細線＝12 個 seed 各自訓練出來的網路（1→16→16→1 的 tanh，Adam）</p>
+  <canvas id="grad" style="aspect-ratio:5/2" aria-label="縱軸 log：第一層／最後一個隱藏層的梯度範數比對深度；水平線＝1（兩端一樣強）"></canvas>
+  <p class="cap">縱軸 log：第一層／最後一個隱藏層的梯度範數比對深度；水平線＝1（兩端一樣強）</p>
+  <div class="controls">
+    <div class="row">
+      <label for="gain">初始化 gain（10^）</label><input id="gain" type="range" min="-2" max="1.5" step="0.05" value="0" />
+      <label for="dep">深度</label><input id="dep" type="range" min="2" max="32" step="1" value="8" />
+    </div>
+    <div class="row">
+      <label class="chk"><input id="res" type="checkbox" /> 殘差（未縮放）</label>
+      <button id="run" class="ghost">▶ 重跑 12 個 seed</button>
+      <span id="prog" style="font-size:0.78rem"></span>
+    </div>
+    <div class="stats"><span>最終損失 中位數 = <b id="vm">—</b></span> <span>最小 = <b id="vlo">—</b></span> <span>最大 = <b id="vhi">—</b></span> <span>相對抖動 = <b id="vs">—</b></span> <span>目前深度的梯度比 = <b id="vg">—</b></span></div>
+  </div>
+  <p class="observe">觀察：把 gain 調小或調大，<b>12 條線從彼此貼近變成散開</b>，而右邊三個統計量（中位數、最小、最大）同時被拉寬——散佈是可以量的東西，不是玄學。下圖是另一件事（9 個 seed 的幾何中位數）：<b>gain 0.5 與 gain 1 那兩條從深度 2 到 32 大致持平</b>（約 0.2–0.35，不管疊多深，兩端的梯度一樣強），而 <b>gain 2 那條從 0.39 一路爬到 2.8</b>。所以「梯度消失／爆炸」在這張圖上是 <b>gain 的函數，不是深度的函數</b>。打開「殘差（未縮放）」，那條線同樣往上跑（0.27 → 1.3）——殘差修好了梯度的路徑，卻讓前向的尺度失控，這就是它通常要配正規化的原因。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var SEEDS = 12, NTR = 30, STEPS = 1200, CHUNK = 25, G = 140;
+  var el = function (i) { return document.getElementById(i); };
+  var dF = MLF.hiDPICanvas(el('fits')), dG = MLF.hiDPICanvas(el('grad'));
+  var pal = MLF.palette(), gx = MLF.grid(G), toy = MLF.toy1d(NTR, 0.15, 2);
+  var nets = [], step = 0, raf = null, losses = [];
+
+  function gainVal() { return Math.pow(10, +el('gain').value); }
+
+  function reset() {
+    nets = []; losses = []; step = 0;
+    for (var s = 0; s < SEEDS; s++) nets.push(MLF.mlpInit([1, 16, 16, 1], gainVal(), 100 + s));
+    if (raf) cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(tick);
+  }
+  function tick() {
+    var k, s;
+    for (k = 0; k < CHUNK && step < STEPS; k++, step++) {
+      for (s = 0; s < SEEDS; s++) {
+        var r = MLF.mlpGrads(nets[s], toy.x, toy.y, false);
+        MLF.mlpAdam(nets[s], r.G, 0.02);
+        if (step === STEPS - 1) losses[s] = r.loss;
+      }
+    }
+    el('prog').textContent = step < STEPS ? '訓練中 ' + Math.round(step / STEPS * 100) + '%' : '';
+    drawFits();
+    if (step < STEPS) raf = requestAnimationFrame(tick);
+    else {
+      raf = null;
+      el('vm').textContent = MLF.median(losses).toExponential(2);
+      el('vlo').textContent = Math.min.apply(null, losses).toExponential(2);
+      el('vhi').textContent = Math.max.apply(null, losses).toExponential(2);
+      el('vs').textContent = (MLF.std(losses) / MLF.median(losses) * 100).toFixed(0) + '%';
+    }
+  }
+
+  function drawFits() {
+    var s = dF.resize(), ctx = dF.ctx; MLF.clear(ctx, s, pal);
+    var ax = MLF.axes(ctx, s, { x: [0, 1], y: [-1.9, 1.9], pal: pal,
+      xticks: [0, 0.5, 1], yticks: [-1, 0, 1], xlab: 'x', ylab: 'y' });
+    var i, k, t = [];
+    for (i = 0; i < G; i++) t.push([gx[i], MLF.truth(gx[i])]);
+    MLF.line(ctx, ax, t, MLF.rgb(pal.a, 0.45), 1.6, [5, 4]);
+    for (i = 0; i < toy.x.length; i++) MLF.dot(ctx, ax, toy.x[i], toy.y[i], MLF.rgb(pal.b, 0.4), 2);
+    for (k = 0; k < nets.length; k++) {
+      var p = [];
+      for (i = 0; i < G; i++) p.push([gx[i], Math.max(-3, Math.min(3, MLF.mlpFwd(nets[k], gx[i], false).y))]);
+      MLF.line(ctx, ax, p, MLF.rgb(pal.d, 0.45), 1.2);
+    }
+  }
+
+  /* 初始化時的梯度比：只需要前向與反向各一次，不用訓練。
+     單一個 seed 太吵，所以取 9 個 seed 的幾何中位數。 */
+  function nrm(g) {
+    var s = 0, a, b;
+    for (a = 0; a < g.W.length; a++) for (b = 0; b < g.W[a].length; b++) s += g.W[a][b] * g.W[a][b];
+    return Math.sqrt(s);
+  }
+  var RC = {};
+  function ratio(depth, gain, skip) {
+    var key = depth + '|' + gain + '|' + (skip ? 1 : 0);
+    if (RC[key] != null) return RC[key];
+    var sizes = [1], i, ls = [];
+    for (i = 0; i < depth; i++) sizes.push(16);
+    sizes.push(1);
+    for (var s = 0; s < 9; s++) {
+      var P = MLF.mlpInit(sizes, gain, 11 + s * 13);
+      var r = MLF.mlpGrads(P, toy.x, toy.y, skip);
+      var v = nrm(r.G[0]) / Math.max(nrm(r.G[r.G.length - 2]), 1e-300);
+      if (isFinite(v) && v > 0) ls.push(Math.log(v));
+    }
+    RC[key] = ls.length ? Math.exp(MLF.median(ls)) : NaN;
+    return RC[key];
+  }
+
+  function drawGrad() {
+    var s = dG.resize(), ctx = dG.ctx; MLF.clear(ctx, s, pal);
+    var DS = [2, 4, 8, 12, 16, 24, 32], series, i;
+    series = [
+      { g: 0.5, c: pal.b, t: 'gain 0.5', skip: false },
+      { g: 1.0, c: pal.c, t: 'gain 1', skip: false },
+      { g: 2.0, c: pal.d, t: 'gain 2', skip: false }
+    ];
+    if (el('res').checked) series.push({ g: 1.0, c: pal.e, t: '殘差（gain 1）', skip: true });
+    var data = series.map(function (o) {
+      return DS.map(function (d) { return [d, Math.max(Math.min(ratio(d, o.g, o.skip), 1e12), 1e-12)]; });
+    });
+    var hi = 1e-12, lo = 1e12;
+    data.forEach(function (row) { row.forEach(function (p) { hi = Math.max(hi, p[1]); lo = Math.min(lo, p[1]); }); });
+    hi = Math.max(hi * 3, 3); lo = Math.min(lo / 3, 0.3);
+    var ax = MLF.axes(ctx, s, { x: [2, 32], y: [lo, hi], logy: true, pal: pal,
+      xticks: DS, yticks: [lo, 1, hi], fmty: function (v) { return v.toExponential(0); },
+      xlab: '深度（隱藏層數）' });
+    MLF.ref(ctx, ax, { y: 1, color: MLF.rgb(pal.a, 0.7) });
+    data.forEach(function (row, k) { MLF.line(ctx, ax, row, MLF.rgb(series[k].c), 2); });
+    MLF.ref(ctx, ax, { x: +el('dep').value, color: pal.accent, dash: [] });
+    MLF.legend(ctx, ax, series.map(function (o) { return { t: o.t, c: MLF.rgb(o.c) }; }), 'tl', pal);
+    el('vg').textContent = ratio(+el('dep').value, gainVal(), el('res').checked).toExponential(2);
+  }
+
+  el('gain').onchange = function () { reset(); drawGrad(); };
+  el('dep').onchange = drawGrad;
+  el('res').onchange = drawGrad;
+  el('run').onclick = reset;
+  window.addEventListener('resize', function () { drawFits(); drawGrad(); });
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; drawFits(); drawGrad(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  reset(); drawGrad();
+
+})();
+</script>
+</body>
+</html>

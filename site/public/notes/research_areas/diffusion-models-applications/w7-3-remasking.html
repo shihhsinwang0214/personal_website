@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Remasking 強度 vs 合法率</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 500px; aspect-ratio: 4/3; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
+  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：remasking 是<b>取樣器上的一個旋鈕</b>（σ），不動 forward、不用重訓。它讓早期填錯的字有機會被重填，代價是<b>每一步都要多做一些工作</b>——所以步數少的時候 σ 大反而更差。</p>
+
+  <canvas id="cv" width="600" height="450" aria-label="remasking 強度對合法率"></canvas>
+  <p class="cap">橫軸＝remasking 強度 σ　縱軸＝Markov toy（L=16）樣本的<b>切換率</b>，每個點 300 條樣本　虛線＝資料的真值 0.10　三條線＝三種步數</p>
+
+  <div class="controls">
+    <div class="row"><span class="lab">σ 的排法</span>
+      <button data-s="const" class="on">常數 σ</button>
+      <button data-s="bell">中段較大（鐘形）</button>
+    </div>
+    <div class="row"><span class="lab">網路</span>
+      <button data-m="exact" class="on">完美（查表）</button>
+      <button data-m="noisy">有誤差（往均勻拉 0.1）</button>
+      <button id="run">重新跑</button>
+    </div>
+    <div class="stats">
+      <span>σ=0 的切換率（N=8 / 32 / 128）= <b id="v0">—</b></span>
+      <span>各步數的最佳 σ = <b id="vb">—</b></span>
+    </div>
+  </div>
+
+  <p class="observe">σ=0 就是上週的 masked diffusion：步數越多、切換率越接近資料的 0.10。把 σ 往上推，三條線的反應不一樣。完美網路下，<b>N=8 從 0.14–0.15 降到 0.13 左右</b>（最佳 σ 每次跑落在 0.25～1 之間），而 <b>N=32 與 N=128 本來就已經貼在 0.10，沒有空間可以進步</b>。所以在這個 toy 上 remasking 補的是「<b>一步翻開太多格</b>」造成的誤差——步數少時那個誤差最大，補起來最有感。每個點只有 300 條樣本，數字每次跑都會動一點；要看的是三條線的高低關係，不是小數點。切到「有誤差的網路」：三條線整體往上抬，而且 σ <b>補不回來</b>——那個誤差不是缺 context 造成的，重填一次用的還是同一個偏掉的網路。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var L = 16, P_SAME = 0.9, NS = [8, 32, 128], SIGS = [0, 0.25, 0.5, 1, 2, 4], R = 300;
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var v0 = document.getElementById('v0'), vb = document.getElementById('vb');
+  var pal = NDFlow.palette();
+  var shape = 'const', model = 'exact', curves = [];
+
+  function norm(v) { var t = v[0] + v[1]; return t > 0 ? [v[0] / t, v[1] / t] : [0.5, 0.5]; }
+  // 前向後向：給定已填的位置，算每個位置 P(x=1)
+  function posterior(x) {
+    var T = [[P_SAME, 1 - P_SAME], [1 - P_SAME, P_SAME]], i, a, p;
+    var em = [];
+    for (i = 0; i < L; i++) em.push(x[i] === null ? [1, 1] : [x[i] === 0 ? 1 : 0, x[i] === 1 ? 1 : 0]);
+    var f = [norm([0.5 * em[0][0], 0.5 * em[0][1]])];
+    for (i = 1; i < L; i++) {
+      var nx = [0, 0];
+      for (a = 0; a < 2; a++) for (p = 0; p < 2; p++) nx[a] += f[i - 1][p] * T[p][a];
+      f.push(norm([nx[0] * em[i][0], nx[1] * em[i][1]]));
+    }
+    var b = new Array(L); b[L - 1] = [1, 1];
+    for (i = L - 2; i >= 0; i--) {
+      var bb = [0, 0];
+      for (a = 0; a < 2; a++) for (var q = 0; q < 2; q++) bb[a] += T[a][q] * em[i + 1][q] * b[i + 1][q];
+      b[i] = norm(bb);
+    }
+    var out = [];
+    for (i = 0; i < L; i++) out.push(norm([f[i][0] * b[i][0], f[i][1] * b[i][1]])[1]);
+    return out;
+  }
+  function pick(p) {
+    if (model === 'noisy') p = 0.9 * p + 0.1 * 0.5;
+    return Math.random() < p ? 1 : 0;
+  }
+  function sigAt(sig, u) { return shape === 'bell' ? sig * 4 * u * (1 - u) : sig; }
+  function oneRun(N, sig) {
+    var x = new Array(L).fill(null), i, k;
+    for (k = 0; k < N; k++) {
+      var t = 1 - k / N, s2 = 1 - (k + 1) / N;
+      var abT = 1 - t, abS = 1 - s2;
+      var pOpen = (k === N - 1) ? 1 : (abS - abT) / (1 - abT);
+      var sg = sigAt(sig, 1 - t) / N;
+      if (k < N - 1) for (i = 0; i < L; i++) if (x[i] !== null && Math.random() < sg) x[i] = null;
+      var mg = posterior(x), open = [];
+      for (i = 0; i < L; i++) if (x[i] === null && Math.random() < pOpen) open.push(i);
+      for (var q = 0; q < open.length; q++) x[open[q]] = pick(mg[open[q]]);
+    }
+    var mg2 = posterior(x);
+    for (i = 0; i < L; i++) if (x[i] === null) x[i] = pick(mg2[i]);
+    var c = 0;
+    for (i = 1; i < L; i++) if (x[i] !== x[i - 1]) c++;
+    return c / (L - 1);
+  }
+  function run() {
+    curves = NS.map(function (N) {
+      return { N: N, ys: SIGS.map(function (sig) {
+        var s3 = 0;
+        for (var r = 0; r < R; r++) s3 += oneRun(N, sig);
+        return s3 / R;
+      }) };
+    });
+    v0.textContent = curves.map(function (c) { return c.ys[0].toFixed(3); }).join(' / ');
+    vb.textContent = curves.map(function (c) {
+      var bi = 0;
+      for (var i = 1; i < SIGS.length; i++) if (Math.abs(c.ys[i] - 0.1) < Math.abs(c.ys[bi] - 0.1)) bi = i;
+      return 'N=' + c.N + '→σ=' + SIGS[bi] + '（' + c.ys[bi].toFixed(3) + '）';
+    }).join('，');
+  }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx, i;
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    var Lm = 46, Rm = 14, T = 18, B = 34;
+    var X = function (k) { return Lm + k / (SIGS.length - 1) * (s.w - Lm - Rm); };
+    var lo = 0.05, hi = 0.42;
+    var Y = function (v) { return T + (hi - v) / (hi - lo) * (s.h - T - B); };
+    ctx.strokeStyle = 'rgba(255,255,255,0.09)'; ctx.lineWidth = 1;
+    ctx.font = '500 10px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.textAlign = 'center';
+    SIGS.forEach(function (sg, k) {
+      ctx.beginPath(); ctx.moveTo(X(k), T); ctx.lineTo(X(k), s.h - B); ctx.stroke();
+      ctx.fillText(String(sg), X(k), s.h - B + 15);
+    });
+    ctx.textAlign = 'right';
+    [0.1, 0.2, 0.3, 0.4].forEach(function (v) {
+      ctx.beginPath(); ctx.moveTo(Lm, Y(v)); ctx.lineTo(s.w - Rm, Y(v)); ctx.stroke();
+      ctx.fillText(v.toFixed(1), Lm - 5, Y(v) + 3.5);
+    });
+    ctx.setLineDash([5, 4]); ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(Lm, Y(0.1)); ctx.lineTo(s.w - Rm, Y(0.1)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText('資料 0.10（越接近越好）', Lm + 6, Y(0.1) - 5);
+    ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.textAlign = 'center';
+    ctx.fillText('remasking 強度 σ', (Lm + s.w - Rm) / 2, s.h - 4);
+    ctx.save(); ctx.translate(12, (T + s.h - B) / 2); ctx.rotate(-Math.PI / 2);
+    ctx.fillText('樣本的切換率', 0, 0); ctx.restore();
+    var cols = ['#d94f4f', 'rgb(96,186,130)', pal.accent];
+    curves.forEach(function (c, ci) {
+      ctx.strokeStyle = cols[ci]; ctx.lineWidth = 2.2; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      SIGS.forEach(function (sg, k) { k ? ctx.lineTo(X(k), Y(c.ys[k])) : ctx.moveTo(X(k), Y(c.ys[k])); });
+      ctx.stroke();
+      ctx.fillStyle = cols[ci];
+      SIGS.forEach(function (sg, k) { ctx.beginPath(); ctx.arc(X(k), Y(c.ys[k]), 3.1, 0, 6.284); ctx.fill(); });
+      ctx.font = '700 10px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('N=' + c.N, Lm + 8, T + 11 + ci * 14);
+      ctx.fillRect(Lm - 2, T + 6 + ci * 14, 6, 2.5);
+      ctx.font = '500 10px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+    });
+  }
+  function go() { run(); draw(); }
+  document.getElementById('run').onclick = go;
+  [['[data-s]', 's'], ['[data-m]', 'm']].forEach(function (pair) {
+    Array.prototype.forEach.call(document.querySelectorAll(pair[0]), function (b) {
+      b.onclick = function () {
+        Array.prototype.forEach.call(document.querySelectorAll(pair[0]), function (o) { o.classList.remove('on'); });
+        b.classList.add('on');
+        if (pair[1] === 's') shape = b.dataset.s; else model = b.dataset.m;
+        go();
+      };
+    });
+  });
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  run(); applyTheme();
+})();
+</script>
+</body>
+</html>

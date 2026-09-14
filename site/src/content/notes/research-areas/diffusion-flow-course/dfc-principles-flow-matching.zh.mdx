@@ -1,0 +1,218 @@
+---
+slug: "dfc-principles-flow-matching"
+lang: "zh"
+title: "Flow Matching：直接學每個位置該往哪裡走"
+category: "research-areas"
+group: "Diffusion & Flow Models"
+status: "available"
+updated: 2026-09-04
+summary: "把 noise 與 data 配成路線，從直線 conditional path 推出可計算的 velocity target，再分清單一路線、marginal field 與 ODE sampler。"
+demos:
+  - "notes/research_areas/noise-to-data/flow-matching.html"
+references:
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
+    href: "https://arxiv.org/abs/2210.02747"
+  - label: "Liu, Gong & Liu, Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow (ICLR 2023)"
+    href: "https://arxiv.org/abs/2209.03003"
+  - label: "Albergo, Boffi & Vanden-Eijnden, Stochastic Interpolants: A Unifying Framework for Flows and Diffusions (2023)"
+    href: "https://arxiv.org/abs/2303.08797"
+  - label: "Holderrieth & Erives, An Introduction to Flow Matching and Diffusion Models (MIT 6.S184, 2026)"
+    href: "https://arxiv.org/abs/2506.02070"
+  - label: "Lai et al., The Principles of Diffusion Models (2025)"
+    href: "https://arxiv.org/abs/2510.21890"
+---
+import Quiz from '../../components/Quiz.astro';
+
+# Flow Matching：直接學每個位置該往哪裡走
+
+> Diffusion & Flow Models 課程 W2（技術第 1 講），第 4 篇。這篇完成 W2 的 Flow Matching preview；conditional-to-marginal theorem 與 continuity equation 的正式證明留到 W4。
+
+演唱會散場時，每位觀眾都有自己的起點與出口。如果你跟著某一個人走，他的路線很好描述；但站在大廳中央負責放指示牌時，你不能替每個人掛一支箭頭。你需要的是一條規則：**在這個位置、這個時刻，整體人流應該往哪裡走？**
+
+Flow Matching 把生成模型改寫成同一個問題。訓練時先造出許多「一顆 noise 要走到一顆 data」的簡單路線，沿路的速度都能直接算；再用 regression，把這些個別路線磨成一個給所有樣本共用的 velocity field。
+
+## 先替端點配對
+
+沿用本課的生成時間：$t=0$ 是 noise，$t=1$ 是 data。先抽
+
+$$
+X_0\sim p_0=\mathcal N(0,I),
+\qquad
+X_1\sim p_{\mathrm{data}}.
+$$
+
+還要決定兩端如何一起抽，也就是 coupling：一個 joint distribution $\pi(x_0,x_1)$，其兩個 marginal 分別是 $p_0$ 與 $p_{\mathrm{data}}$。最簡單的選擇是 independent coupling：各抽各的，noise 與 data 沒有預先配對規則。
+
+對一組已抽到的端點 $(X_0,X_1)$，定義直線 conditional path
+
+$$
+X_t=(1-t)X_0+tX_1.
+$$
+
+這裡 *conditional* 的意思不是「有文字 prompt」；它是說我們先把兩個端點固定，再看這一組端點條件下的中間位置。$t=0$ 時式子回到 $X_0$，$t=1$ 時回到 $X_1$，所以 endpoint 沒有偷換。
+
+親手代兩個數就看得見。若一維起點 $x_0=-2$、終點 $x_1=4$，那麼
+
+$$
+x_{0.25}=(1-0.25)(-2)+0.25(4)= -0.5,
+$$
+
+而 $x_{0.75}=2.5$。時間每增加 $0.25$，位置都增加 $1.5$；這正是在暗示它的速度是常數。
+
+## 路線一旦畫好，速度不用猜
+
+對直線 path 微分：
+
+$$
+\begin{aligned}
+X_t&=(1-t)X_0+tX_1,\\
+\frac{dX_t}{dt}&=-X_0+X_1,\\
+U_t&=X_1-X_0.
+\end{aligned}
+$$
+
+$U_t$ 是這一組端點的 **conditional velocity**：沿著個別路線時，此刻移動的方向與快慢。它在直線 interpolation 裡不隨 $t$ 改變，因此訓練 target 特別容易算。
+
+下面的 demo 會同時畫出個別路線與整體箭頭。拖動 $t$，先追一顆粒子，再把視線移到同一區域的多條路線；切換直線與彎曲 path，觀察「端點一樣」並不代表中間速度一樣。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/noise-to-data/flow-matching.html" class="demo-frame" title="Conditional paths and Flow Matching velocity" style="height: 800px; width: 100%; border: none;"></iframe>
+
+現在訓練一個 time-dependent velocity field $v_\theta(x,t)$：它在任何位置 $x$、時間 $t$ 都只輸出一支箭頭。最基本的 conditional Flow Matching objective 是
+
+$$
+\mathcal L_{\mathrm{CFM}}(\theta)
+=
+\mathbb E_{(X_0,X_1)\sim\pi,\,t\sim U[0,1]}
+\left[
+\left\|v_\theta(X_t,t)-(X_1-X_0)\right\|^2
+\right].
+$$
+
+訓練資料怎麼造，可以直接寫成幾行：
+
+```python
+x0 = sample_gaussian_noise()
+x1 = sample_data()
+t = sample_uniform_0_1()
+xt = (1 - t) * x0 + t * x1
+target_velocity = x1 - x0
+prediction = model(xt, t)
+loss = squared_error(prediction, target_velocity)
+```
+
+這段沒有先解 ODE，也沒有先知道 data density。它只需要 sample、interpolation 和一個可以微分的 neural network。Lipman 等人的 Flow Matching 工作把這種 simulation-free regression 用來訓練 continuous normalizing flows；更一般的 probability path 也可以產生自己的 conditional velocity target。
+
+## 同一個路口有很多答案，模型只能給一個
+
+個別路線很簡單，真正微妙的地方在這裡：很多不同端點對可能在相近的 $(x,t)$ 經過，卻帶著不同速度。模型只看到 $(X_t,t)$，看不到這顆點原本配到哪個 $X_0$、$X_1$；因此不可能同時照抄所有 $X_1-X_0$。
+
+平方誤差會做一個很熟悉的折衷。固定 $X_t=x$ 與時間 $t$，把 conditional target 簡寫成 $U$。對任何候選向量 $a$，
+
+$$
+\mathbb E[\|a-U\|^2\mid X_t=x]
+=
+\|a-\mathbb E[U\mid X_t=x]\|^2+	ext{constant}.
+$$
+
+所以理想 regression 解是
+
+$$
+v_t(x)
+=
+\mathbb E[X_1-X_0\mid X_t=x].
+$$
+
+白話就是：站在同一個路口，把所有「可能經過這裡的人」帶來的速度做 conditional average。這個 $v_t(x)$ 才是模型能學到的 marginal velocity field；它不記得任何一組固定配對。
+
+W2 先停在這一層。W4 會把下一個硬問題補完：為什麼這個 conditional average 不只是 L2 的折衷，還恰好讓 marginal density $p_t$ 滿足
+
+$$
+\partial_t p_t(x)+\nabla\cdot\big(p_t(x)v_t(x)\big)=0?
+$$
+
+那裡會從 local mass conservation 與 test function 兩條路驗證，而不是把 theorem 當口號。
+
+## 直線配對，不保證模型走直線
+
+這是 Flow Matching 最常被一句話抹掉的細節。每一條 **conditional path** 都是直線，只代表固定 $(X_0,X_1)$ 後，$X_t$ 在線段上；生成時的新粒子卻不會拿到一張寫著「你的終點是 $X_1$」的卡片。它在每個時刻只查詢同一個 marginal field：
+
+$$
+\frac{dZ_t}{dt}=v_\theta(Z_t,t).
+$$
+
+當不同 conditional 路線在附近提供不同方向，conditional average 會隨位置與時間改變。新粒子下一刻到了別處，又會重新查詢另一支平均箭頭。把這些局部方向接起來，marginal trajectory 可以彎曲，速度也可以改變。
+
+所以必須分開三個層次：
+
+| 層次 | 知道端點配對嗎？ | 描述什麼？ |
+|---|---:|---|
+| conditional path | 知道 | 一組 $(X_0,X_1)$ 的教學路線 |
+| conditional velocity | 知道 | 這條路線上的可計算 target |
+| marginal field | 不知道 | 所有可能路線在 $(x,t)$ 的平均導航規則 |
+
+coupling 也因此不是無關緊要的抽樣細節。它會改變哪些端點被配在一起、路線在哪裡交會、以及 regression target 的 variability。W5 才會正式比較 independent coupling、structured coupling 與 approximate optimal-transport coupling；這篇只先留下一個研究問題：**同樣的起終點 distributions，哪一種中間路線比較容易被有限模型學好？**
+
+## 從學會箭頭到真的生成
+
+訓練完成後，抽一顆新的 $Z_0\sim p_0$，再解 sampling ODE：
+
+$$
+\frac{dZ_t}{dt}=v_\theta(Z_t,t),
+\qquad t:0\rightarrow1.
+$$
+
+電腦不會一次「解完」這條 continuous trajectory。最簡單的 Euler discretization 是
+
+$$
+z_{k+1}
+=
+z_k+h\,v_\theta(z_k,t_k),
+\qquad h=t_{k+1}-t_k.
+$$
+
+例如 $h=0.1$ 時，模型在目前位置給一支速度箭頭，sampler 只先走它的十分之一；到了新位置再問一次。Flow Matching 決定的是訓練哪個 field，Euler／Heun／adaptive solver 決定的是如何近似積分。把兩者混成一句「Flow Matching 是直線取樣」會同時漏掉 regression averaging 與 numerical error。
+
+> **`深一層`：exact field、learned field、numerical path 是三個不同誤差來源。** 即使指定的 probability path 很好，有限資料與有限 network 仍可能使 $v_\theta\neq v_t$；即使 field 完全正確，有限步 solver 仍會使數值軌跡偏離 exact ODE。研究時要分清 path design error、field estimation/approximation error 與 discretization error，否則「多走幾步變好」可能被誤判成模型學得更好。
+
+## 三個讀論文時最容易踩的坑
+
+<Quiz
+  q="直線 conditional path 的 target 是 x₁−x₀。模型在位置 x 學到的 marginal velocity 一定等於某一組配對的 x₁−x₀ 嗎？"
+  options={[
+    { text: "一定；訓練會替每個 noise seed 記住唯一的 data 終點。", explain: "模型輸入只有目前位置與時間，並沒有端點配對的身分；它不能替每個 seed 查表。" },
+    { text: "不一定；理想 L2 解是在看到 Xₜ=x 後，所有可能 conditional velocities 的平均。", correct: true, explain: "正解。個別 target 是 x₁−x₀，模型學到的 field 是 E[x₁−x₀|Xₜ=x]。" },
+    { text: "一定不等於，因為 marginal velocity 必須與 conditional velocity 垂直。", explain: "沒有這個幾何限制；若某處只有一種可能路線，兩者甚至可以相同。" },
+  ]}
+/>
+
+<Quiz
+  q="每一組端點都用直線 interpolation，生成時的新粒子是否必然沿某一條訓練直線走到底？"
+  options={[
+    { text: "是；conditional path 與 ODE trajectory 是同一個物件。", explain: "conditional path 知道端點，生成 ODE 只查詢 marginal field；這兩者不能直接畫等號。" },
+    { text: "只有 Euler step 很小時才必然是直線。", explain: "步長小只減少 numerical error，不會把隨位置變化的 marginal field 變成常向量。" },
+    { text: "否；粒子沿 marginal field 前進，而平均箭頭可以隨位置與時間改變，所以軌跡可彎曲。", correct: true, explain: "對。『conditional straight』不等於『marginal trajectory straight』。" },
+  ]}
+/>
+
+<Quiz
+  q="Flow Matching 訓練完 vθ 之後，為什麼還要談 sampler？"
+  options={[
+    { text: "因為 vθ 只提供 continuous-time 的局部速度，電腦仍需 numerical solver 把它積分成有限步更新。", correct: true, explain: "正解。field 是導航規則；solver 決定用多少次查詢、以什麼誤差走完整段路。" },
+    { text: "因為 sampler 會重新訓練另一個 data distribution。", explain: "sampler 通常使用已學好的 field，不是重新定義或訓練 data distribution。" },
+    { text: "因為 velocity 只在 training data 上有值，生成時不存在。", explain: "neural field 的目的正是對新位置提供速度；問題在於如何數值積分，不是它完全沒有值。" },
+  ]}
+/>
+
+## 回到散場大廳
+
+我們不需要知道每位新觀眾最後會走到哪一扇門，才有辦法設計整體人流。訓練時，用許多可計算的個別路線提供 supervision；模型在每個路口學一支平均箭頭；生成時，新粒子沿這套共同導航一步步走。這就是 Flow Matching 在 W2 最值得帶走的三層圖像。
+
+下一篇 [一張地圖讀完整門課](/personal_website/zh/notes/dfc-principles-course-map) 會把前四篇放回同一張技術地圖：path、conditional target、learned object、dynamics 和 sampler 分別在哪裡，guidance、fast generation、discrete data、application constraints 與 evaluation 又改動哪一格。想先用更慢的版本重看 velocity，可回到 [Velocity 當成回歸目標](/personal_website/zh/notes/n2d-velocity-regression)。
+
+## 參考文獻
+
+1. Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., Le, M. [*Flow Matching for Generative Modeling.*](https://arxiv.org/abs/2210.02747) ICLR 2023.
+2. Liu, X., Gong, C., Liu, Q. [*Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow.*](https://arxiv.org/abs/2209.03003) ICLR 2023.
+3. Albergo, M. S., Boffi, N. M., Vanden-Eijnden, E. [*Stochastic Interpolants: A Unifying Framework for Flows and Diffusions.*](https://arxiv.org/abs/2303.08797) 2023.
+4. Holderrieth, P., Erives, E. [*An Introduction to Flow Matching and Diffusion Models.*](https://arxiv.org/abs/2506.02070) MIT 6.S184 course notes, 2026.
+5. Lai, C.-H., Song, Y., Kim, D., Mitsufuji, Y., Ermon, S. [*The Principles of Diffusion Models.*](https://arxiv.org/abs/2510.21890) 2025.

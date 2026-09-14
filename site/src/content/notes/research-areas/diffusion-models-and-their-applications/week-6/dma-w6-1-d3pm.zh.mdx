@@ -1,0 +1,245 @@
+---
+slug: "dma-w6-1-d3pm"
+label: "dma-d3pm"
+prereqs:
+  - math-markov-chain
+  - math-absorbing-state
+  - math-bayes-posterior
+  - math-kl
+lang: "zh"
+title: "D3PM：Transition Matrix、Closed Form 與 x₀-Parametrization"
+category: "courses"
+group: "Week 6 · Discrete Diffusion I"
+status: "available"
+updated: 2026-09-07
+summary: "把 uniform 與 absorbing 兩條鏈寫成 transition matrix Q_t，算出 q(x_t|x_0) 的 closed form 與 posterior；離散版 ELBO 逐項是類別分佈的 KL，網路輸出 p_θ(x_0|x_t) 的 logits——這正是 x₀-prediction 的離散翻譯。"
+demos: []
+references:
+  - label: "Austin et al., Structured Denoising Diffusion Models in Discrete State-Spaces (NeurIPS 2021)"
+    href: "https://arxiv.org/abs/2107.03006"
+  - label: "Sohl-Dickstein et al., Deep Unsupervised Learning using Nonequilibrium Thermodynamics (ICML 2015)"
+    href: "https://arxiv.org/abs/1503.03585"
+  - label: "Hoogeboom et al., Argmax Flows and Multinomial Diffusion (NeurIPS 2021)"
+    href: "https://arxiv.org/abs/2102.05379"
+  - label: "Ho, Jain & Abbeel, Denoising Diffusion Probabilistic Models (NeurIPS 2020)"
+    href: "https://arxiv.org/abs/2006.11239"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# D3PM：Transition Matrix、Closed Form 與 x₀-Parametrization
+
+<Objectives>
+- 把 uniform 與 absorbing 鏈寫成 transition matrix $Q_t$，並推出 $q(x_t\mid x_0)$ 的 closed form $\bar Q_t$。
+- 寫出 posterior $q(x_{t-1}\mid x_t,x_0)$，並認出它是 <Ref to="dma-denoising-regression"/> 那個 Gaussian posterior 的類別版。
+- 說出離散版 ELBO 逐項是什麼，以及為什麼網路該輸出 $p_\theta(x_0\mid x_t)$ 的 logits 而不是直接輸出 $x_{t-1}$。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+<Ask>
+上一篇挑好了兩條鏈。<br />
+那「$q(x_t\mid x_0)$ 有 closed form」在離散世界是什麼意思？
+</Ask>
+
+## 先只看一個 token
+
+一句話有很多 token，但 forward process 對每個位置是**獨立**地加噪聲，所以先只盯著一個位置。這個位置的狀態 $x\in\{1,\dots,K\}$，寫成 one-hot 的**列向量**（row vector）$x\in\{0,1\}^{K}$。
+
+一條 Markov chain 每一步的規則是一個 $K\times K$ 的 **transition matrix** $Q_t$：
+
+$$
+[Q_t]_{ij}=q(x_t=j\mid x_{t-1}=i),
+$$
+
+第 $i$ 列是「從狀態 $i$ 出發，下一步落在各狀態的機率」，每列和為 1。用 one-hot 列向量寫，$q(x_t\mid x_{t-1})=\mathrm{Cat}(x_{t-1}Q_t)$——$x_{t-1}$ 挑出 $Q_t$ 的那一列，那一列就是 $x_t$ 的分佈。
+
+走 $t$ 步就是連乘：
+
+$$
+q(x_t\mid x_0)=\mathrm{Cat}\big(x_0\,\bar Q_t\big),\qquad \bar Q_t=Q_1Q_2\cdots Q_t .
+$$
+
+這一行是整週的地基。<Ref to="dma-forward-process"/> 說「forward 是我們自己定的，所以任何 $t$ 的 $x_t$ 可以一步抽出來」——在離散世界裡，這句話就是「$\bar Q_t$ 有 closed form」。一般的矩陣連乘沒有 closed form，但我們選的兩條鏈剛好都有。
+
+## 這兩條鏈，$\bar Q_t$ 真的算得出來
+
+**Uniform。** 每步以機率 $\beta_t$ 把 token 換成均勻隨機的一個：
+
+$$
+Q_t=(1-\beta_t)\,I+\beta_t\,\tfrac1K\mathbb 1\mathbb 1^{\!\top}.
+$$
+
+令 $J=\tfrac1K\mathbb 1\mathbb 1^{\!\top}$（每個元素都是 $1/K$ 的矩陣），它滿足 $J^2=J$。形如 $aI+bJ$ 且 $a+b=1$ 的矩陣相乘還是這個形狀：$(aI+bJ)(cI+dJ)=ac\,I+(1-ac)\,J$。於是
+
+$$
+\bar Q_t=\bar\alpha_t\,I+(1-\bar\alpha_t)\,J,\qquad \bar\alpha_t=\prod_{s\le t}(1-\beta_s).
+$$
+
+讀法：到了第 $t$ 步，token 以機率 $\bar\alpha_t$ **從沒被動過**、還是原字；以機率 $1-\bar\alpha_t$ 已經被換成一個均勻隨機的字。$\bar\alpha_t\to0$ 時 $\bar Q_t\to J$，每個位置獨立均勻——這就是 uniform 鏈的終點。
+
+**Absorbing。** 字典加一個第 $K{+}1$ 個狀態 `[MASK]`，記它的 one-hot 為 $e_m$。每步以機率 $\beta_t$ 把 token 變成 `[MASK]`，`[MASK]` 自己不動：
+
+$$
+Q_t=(1-\beta_t)\,I+\beta_t\,\mathbb 1 e_m^{\!\top}.
+$$
+
+（檢查第 $m$ 列：$(1-\beta_t)e_m^{\!\top}+\beta_t e_m^{\!\top}=e_m^{\!\top}$，`[MASK]` 一定留在 `[MASK]`。）同樣的代數，因為 $e_m^{\!\top}\mathbb 1=1$：
+
+$$
+\bar Q_t=\bar\alpha_t\,I+(1-\bar\alpha_t)\,\mathbb 1 e_m^{\!\top}.
+$$
+
+讀法：到了第 $t$ 步，token 以機率 $\bar\alpha_t$ 還是原字，以機率 $1-\bar\alpha_t$ 已經是 `[MASK]`。**沒有第三種可能。** 這就是上一篇說的「沒被遮的位置一定是原字」，現在它是一個公式。
+
+兩條鏈的 $\bar\alpha_t$ 扮演的角色，和 <Ref to="dma-forward-process"/> 裡 $\sqrt{\bar\alpha_t}$ 對 $x_0$ 的係數一樣：**還剩多少原始訊號**。這是我們刻意沿用同一個符號的原因。
+
+<Remark label="符號" summary="這裡的 alpha bar 和連續世界的差一個平方根">
+連續世界寫 $x_t=\sqrt{\bar\alpha_t}\,x_0+\sigma_t\epsilon$，係數是 $\sqrt{\bar\alpha_t}$；這裡寫 $\bar Q_t=\bar\alpha_t I+(1-\bar\alpha_t)(\cdot)$，係數是 $\bar\alpha_t$ 本身。
+
+差別來自「係數」的意思不同：連續世界那個是**振幅**（能量是它的平方），這裡是**機率**（token 沒被動過的機率）。兩邊都用 $\bar\alpha_t$ 是為了讓「還剩多少原始訊號」這個直覺可以直接搬過來，但代進式子的時候不要記錯。
+</Remark>
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w6-1-qbar.html" class="demo-frame" title="Q̄ₜ 的熱圖隨 t 演化：互動 demo" style="height: 740px; width: 100%; border: none;"></iframe>
+
+**互動 demo：$\bar Q_t$ 的熱圖隨 $t$ 演化。** 拖 $t$：uniform 的對角線一路淡下去、其他格一起亮起來，最後整張變成一片均勻；absorbing 的質量**整批流進 `[MASK]` 那一欄**，而最後一列從頭到尾都是 `[MASK]` 自己。切到「$Q_t$（只走一步）」會看到單步矩陣**幾乎就是 identity**——是連乘 $t$ 次才把質量搬走的。另外對照兩條鏈的對角線：uniform 的「還是原字」比 $\bar\alpha_t$ **多一點**（多了「被換掉但剛好換回自己」）。
+
+## Posterior：多知道 $x_0$，一切都好算
+
+<Ref to="dma-denoising-regression"/> 有一個關鍵步驟：反向那一步 $q(x_{t-1}\mid x_t)$ 不好算，但**多給 $x_0$** 之後 $q(x_{t-1}\mid x_t,x_0)$ 是一個有 closed form 的 Gaussian。同一件事在這裡更簡單，因為一切都是有限個數字。Bayes 定理：
+
+$$
+q(x_{t-1}\mid x_t,x_0)\;\propto\;q(x_t\mid x_{t-1})\;q(x_{t-1}\mid x_0)
+\;=\;\big(x_t Q_t^{\!\top}\big)\odot\big(x_0\bar Q_{t-1}\big),
+$$
+
+$\odot$ 是逐元素相乘，兩個都是長度 $K$ 的向量（分別是「哪些 $x_{t-1}$ 走一步能到 $x_t$」和「從 $x_0$ 走 $t-1$ 步會到哪些 $x_{t-1}$」），乘起來再正規化，就是 $x_{t-1}$ 的類別分佈。
+
+對 absorbing 鏈這個 posterior 特別直白：若 $x_t$ 沒被遮，那 $x_{t-1}$ 一定也是同一個原字（機率 1）；若 $x_t=$ `[MASK]`，那 $x_{t-1}$ 以某個機率是 `[MASK]`、否則就是 $x_0$。**已知 $x_0$ 之後，反向每一步都只是「要不要把這個 `[MASK]` 換回 $x_0$」的一個硬幣。**
+
+## 那 loss 長什麼樣？
+
+現在寫訓練目標。<Ref to="dma-denoising-regression"/> 為了盡快到達那五行程式碼，直接用「預測 $x_0$ 的 MSE」當 loss，把 DDPM 原本的 variational bound 放在一旁。在離散世界裡值得把這個 bound 攤開看一次，因為它的每一項都是**有限個數字之間的 KL**，沒有任何近似。
+
+Reverse model 是 $p_\theta(x_{t-1}\mid x_t)$，起點 $p(x_T)$ 是鏈的終點分佈。DDPM [4] 的 bound 一字不改地成立 [1, 2]：
+
+$$
+-\log p_\theta(x_0)\;\le\;
+\underbrace{\mathbb E_q\big[-\log p_\theta(x_0\mid x_1)\big]}_{L_0}
++\sum_{t=2}^{T}\underbrace{\mathbb E_q\,\mathrm{KL}\big(q(x_{t-1}\mid x_t,x_0)\,\big\|\,p_\theta(x_{t-1}\mid x_t)\big)}_{L_{t-1}}
++\underbrace{\mathrm{KL}\big(q(x_T\mid x_0)\,\big\|\,p(x_T)\big)}_{L_T}.
+$$
+
+$L_T$ 沒有參數，而且對我們選的兩條鏈它趨近 0（$\bar\alpha_T\approx0$ 時 $q(x_T\mid x_0)$ 就是終點分佈）。$L_0$ 是一個普通的 cross-entropy。中間每一項 $L_{t-1}$ 是兩個 $K$ 維類別分佈的 KL——左邊是那條 Bayes 算出來的 posterior $q(x_{t-1}\mid x_t,x_0)$，右邊是網路。
+
+<Details summary="推導的骨架：為什麼 bound 長這樣（與 DDPM 逐字相同）">
+從 $\log p_\theta(x_0)=\log\int p_\theta(x_{0:T})\,dx_{1:T}$ 出發，用 $q(x_{1:T}\mid x_0)$ 當 proposal 套 Jensen 不等式：
+
+$$
+-\log p_\theta(x_0)\le\mathbb E_{q(x_{1:T}\mid x_0)}\Big[\log\frac{q(x_{1:T}\mid x_0)}{p_\theta(x_{0:T})}\Big].
+$$
+
+把 $q(x_{1:T}\mid x_0)=\prod_t q(x_t\mid x_{t-1})$ 用 Bayes 改寫成 $q(x_T\mid x_0)\prod_{t\ge2}q(x_{t-1}\mid x_t,x_0)$，$p_\theta(x_{0:T})=p(x_T)\prod_t p_\theta(x_{t-1}\mid x_t)$，逐項配對，就得到上面三種項。在連續世界裡積分換成離散世界的求和，其餘一步都不用改；這就是為什麼說「bound 一字不改地成立」。
+</Details>
+
+## 網路該輸出什麼
+
+還有一個設計決定：$p_\theta(x_{t-1}\mid x_t)$ 要怎麼參數化？
+
+最直接的想法是讓網路直接輸出 $x_{t-1}$ 的 $K$ 個 logits。D3PM [1] 的選擇不同，而且是這一篇最值得記的一句話：**讓網路預測 $x_0$，再用已知的 posterior 把它折回 $x_{t-1}$。**
+
+$$
+p_\theta(x_{t-1}\mid x_t)=\sum_{\tilde x_0}q(x_{t-1}\mid x_t,\tilde x_0)\;p_\theta(\tilde x_0\mid x_t).
+$$
+
+網路輸出的是 $p_\theta(\tilde x_0\mid x_t)$ 的 logits（每個位置 $K$ 個數）；$q(x_{t-1}\mid x_t,\tilde x_0)$ 是上面那個 closed form，不用學。這叫 **$x_0$-parametrization**，它就是 <Ref to="dma-denoising-regression"/> 裡 $x_0$-prediction 的離散翻譯——在那裡網路預測 $\hat x_0$、再用 $q(x_{t-1}\mid x_t,\hat x_0)$ 的 Gaussian posterior 往回走一步；在這裡完全一樣，只是「預測 $x_0$」從輸出一個向量變成輸出一個類別分佈。
+
+<Question id="Q1">
+<Ref to="dma-denoising-regression"/> 說 $x_0$-、$\epsilon$-、$v$-prediction 是三個線性可互換的座標，實務上常選 $\epsilon$。離散世界裡為什麼只剩 $x_0$-parametrization 這一種選擇？
+
+<Answer>
+因為那三個座標可以互換，靠的是 $x_t=\sqrt{\bar\alpha_t}\,x_0+\sigma_t\epsilon$ 這條 **affine** 關係——知道 $x_t$ 與任一個，就能解出另外兩個。離散世界沒有這條關係：$x_t$ 是從 $x_0$ **抽**出來的一個類別，沒有一個叫「$\epsilon$」的連續量可以被加上去、也就沒有東西可以被解回來。
+
+「直接輸出 $x_{t-1}$」也不是好選擇，原因有二。第一，$x_0$-parametrization 把已知的結構（posterior）交給公式、只讓網路學它必須學的東西（$x_0$ 長什麼樣），在每個 $t$ 網路面對的是同一個目標。第二，取樣時可以用同一個網路**跳步**：只要把 $q(x_{t-1}\mid x_t,\tilde x_0)$ 換成 $q(x_{t-k}\mid x_t,\tilde x_0)$（同樣有 closed form），就能一次走 $k$ 步——這是下一篇 masked diffusion 幾步就取樣完的基礎。
+</Answer>
+</Question>
+
+D3PM 實務上還在 ELBO 外面加了一項輔助的 cross-entropy $\lambda\,\mathbb E\big[-\log p_\theta(x_0\mid x_t)\big]$，讓網路直接對「預測 $x_0$」負責、訓練更穩。下一篇會看到：對 absorbing 鏈，ELBO 本身**就會塌成**這種形式的加權和，輔助項變得多餘。
+
+<VizPlan id="w6-1-x0-param" title="x₀-parametrization：網路只負責一件事" type="static">
+- 檔名 `imgs/w6-1-1.png`，放在 Q1 之後、「先消化一下」之前。
+- 版面：一條從左到右的流程，三個方塊，中間用粗箭頭連。
+  - 左「$x_t$」：一排十二格的序列，幾格是 `[MASK]`。
+  - 中「網路」：一個方塊寫 $p_\theta(\tilde x_0\mid x_t)$，下方標「**要學的只有這個**：每個位置 $K$ 個 logits」。方塊上方畫一個小的長條圖（$K$ 根柱子）示意輸出。
+  - 右「$x_{t-1}$」：另一排序列，比左邊少幾個 `[MASK]`。
+- 中到右的箭頭上標 $q(x_{t-1}\mid x_t,\tilde x_0)$，並在箭頭下方加一個灰底小框寫「**closed form，不用學**」。
+- 下方一條對照橫幅：左半寫連續世界 `網路預測 x̂₀ → 用 Gaussian posterior 走一步`，右半寫離散世界 `網路預測 p(x₀|x_t) → 用類別 posterior 走一步`，中間一個等號並標「同一招」。
+- 右下角一個小標註：把 $q(x_{t-1}\mid\cdot)$ 換成 $q(x_{t-k}\mid\cdot)$ 就能一次走 $k$ 步——標「跳步」。
+- 底部一句：「已知的結構交給公式，網路只學它必須學的那件事。」
+- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、原字橘 `#f0803c`／`[MASK]` 灰／強調靛 `#2a4ea3`）。
+- 長寬比：約 16:8。
+</VizPlan>
+
+## 先消化一下
+
+<QuizBlock id="w6-1-a">
+Uniform 鏈的 $\bar Q_t=\bar\alpha_tI+(1-\bar\alpha_t)J$，其中 $J$ 每個元素都是 $1/K$。$[\bar Q_t]_{ii}$（走 $t$ 步後仍是原字的機率）等於：
+<Option>$\bar\alpha_t$。</Option>
+<Option correct>$\bar\alpha_t+(1-\bar\alpha_t)/K$。</Option>
+<Option>$1/K$。</Option>
+<Explanation>
+「仍是原字」有兩種情形：從沒被動過（機率 $\bar\alpha_t$），或被動過但隨機換回了自己（機率 $(1-\bar\alpha_t)/K$）。這也是 uniform 與 absorbing 的一個差別：absorbing 鏈裡「還是原字」就等於「從沒被動過」，$[\bar Q_t]_{ii}=\bar\alpha_t$。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w6-1-b">
+對 absorbing 鏈，若 $x_t$ 在某個位置**不是** `[MASK]`，posterior $q(x_{t-1}\mid x_t,x_0)$ 在該位置是：
+<Option>以 $\beta_t$ 的機率是 `[MASK]`，否則是 $x_0$。</Option>
+<Option correct>機率 1 是同一個原字。</Option>
+<Option>均勻分佈。</Option>
+<Explanation>
+`[MASK]` 是吸收態，走到那裡就不會回來；反過來說，$x_t$ 沒被遮，表示 $x_{t-1}$ 也沒被遮，而沒被遮的 token 只能是原字。所有隨機性都在 `[MASK]` 位置上。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w6-1-c">
+$x_0$-parametrization 寫成 $p_\theta(x_{t-1}\mid x_t)=\sum_{\tilde x_0}q(x_{t-1}\mid x_t,\tilde x_0)\,p_\theta(\tilde x_0\mid x_t)$。這裡需要學的部分是：
+<Option>$q(x_{t-1}\mid x_t,\tilde x_0)$。</Option>
+<Option correct>$p_\theta(\tilde x_0\mid x_t)$，網路對每個位置輸出 $K$ 個 logits。</Option>
+<Option>兩者都要學。</Option>
+<Explanation>
+posterior 是 forward chain 的 closed form，完全已知。網路只負責「看到被弄髒的 $x_t$，原字是什麼」，這與 <Ref to="dma-denoising-regression"/> 的 $x_0$-prediction 是同一個分工。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w6-1-d">
+離散版 ELBO 的中間項 $L_{t-1}$ 是兩個類別分佈的 KL。它與 DDPM 對應項的差別是：
+<Option>DDPM 的對應項是 MSE，兩者結構不同。</Option>
+<Option>離散版多了一個沒辦法算的 normalizing constant。</Option>
+<Option correct>結構完全相同（posterior 與 model 之間的 KL），只是 DDPM 裡兩個都是 Gaussian、KL 化成均值差的平方；這裡兩個都是有限類別分佈、KL 是有限和。</Option>
+<Explanation>
+DDPM 那一項的 MSE 正是兩個等變異數 Gaussian 之間的 KL 算出來的結果。離散版把積分換成求和，沒有任何近似，也沒有 normalizing constant 的問題——$K$ 個機率加起來就是 1。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-masked-diffusion">
+本篇把兩條鏈寫成 $\bar Q_t=\bar\alpha_t I+(1-\bar\alpha_t)\times$終點，並確定網路輸出 $p_\theta(x_0\mid x_t)$。下一篇專注在 absorbing 鏈上，看 ELBO 怎麼塌成一個加權的 masked cross-entropy——以及它和 BERT 只差在哪裡。
+</Bridge>
+
+## 參考文獻
+
+1. Austin, J., Johnson, D. D., Ho, J., Tarlow, D., van den Berg, R. [*Structured Denoising Diffusion Models in Discrete State-Spaces.*](https://arxiv.org/abs/2107.03006) NeurIPS 2021.（D3PM：transition matrix 的一般框架、uniform / absorbing 鏈、$x_0$-parametrization、輔助 loss $L_\lambda$。）
+2. Sohl-Dickstein, J., Weiss, E. A., Maheswaranathan, N., Ganguli, S. [*Deep Unsupervised Learning using Nonequilibrium Thermodynamics.*](https://arxiv.org/abs/1503.03585) ICML 2015.（最早的 diffusion 論文之一，同時處理了二元狀態的離散版本。）
+3. Hoogeboom, E., Nielsen, D., Jaini, P., Forré, P., Welling, M. [*Argmax Flows and Multinomial Diffusion: Learning Categorical Distributions.*](https://arxiv.org/abs/2102.05379) NeurIPS 2021.
+4. Ho, J., Jain, A., Abbeel, P. [*Denoising Diffusion Probabilistic Models.*](https://arxiv.org/abs/2006.11239) NeurIPS 2020.（ELBO 的三種項與 $x_0$-prediction 的連續版。）

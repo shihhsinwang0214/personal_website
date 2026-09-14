@@ -12,6 +12,8 @@ import {
   siblingNotes,
   statusLabels,
 } from '../lib/notes';
+import { inlineMath } from '../lib/inlineMath';
+import { noteTitles } from '../lib/noteRefs';
 import { withBase } from '../lib/url';
 import Comments from './Comments.astro';
 
@@ -24,6 +26,10 @@ interface Props {
 const { entry, allNotes, lang } = Astro.props;
 const { Content, headings } = await render(entry);
 const { previous, next } = siblingNotes(allNotes, entry);
+// Position codes ("W3.3") are derived from the note's group + order, never typed into
+// frontmatter, so a week can be renumbered without touching any note.
+const titles = await noteTitles();
+const displayTitle = titles.of(entry);
 const otherLang = lang === 'zh' ? 'en' : 'zh';
 const alternateEntry = findNote(allNotes, entry.data.slug, otherLang);
 // Missing translations no longer get standalone pages — only link real ones.
@@ -36,7 +42,38 @@ const alternates = alternate
     ]
   : undefined;
 const researchAreaLabel = researchAreaLabelForNote(entry, lang);
-const tocHeadings = headings.filter((heading) => heading.depth > 1 && heading.depth <= 3);
+// 目錄的文字不能用 Astro 給的 `heading.text`：它取的是**渲染完 KaTeX 之後**節點的
+// textContent，所以 `## 真的要跑 $t$ 次嗎？` 會變成「真的要跑 ttt 次嗎？」——MathML、
+// annotation、HTML 三層的文字被串在一起。改成從原始 mdx 讀那一行、用 inlineMath()
+// 補上 KaTeX。`href` 仍然用 Astro 的 slug，所以錨點完全不受影響。
+const headingLines = (() => {
+  const out: { depth: number; raw: string }[] = [];
+  let inFence = false;
+  let inMath = false;
+  for (const line of (entry.body ?? '').split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('```') || trimmed.startsWith('~~~')) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (trimmed === '$$') {
+      inMath = !inMath;
+      continue;
+    }
+    if (inMath) continue;
+    const m = /^(#{1,6})\s+(.*\S)\s*$/.exec(line);
+    if (m) out.push({ depth: m[1].length, raw: m[2] });
+  }
+  return out.filter((h) => h.depth > 1 && h.depth <= 3);
+})();
+const astroHeadings = headings.filter((heading) => heading.depth > 1 && heading.depth <= 3);
+// 對不上就退回 Astro 的文字（寧可醜，不要錯位）。
+const aligned = headingLines.length === astroHeadings.length;
+const tocHeadings = astroHeadings.map((heading, i) => ({
+  ...heading,
+  html: inlineMath(aligned ? headingLines[i].raw : heading.text),
+}));
 const description =
   entry.data.status === 'missing'
     ? 'This translation is explicitly marked missing and has not been generated.'
@@ -53,7 +90,7 @@ const readingTimeLabel = lang === 'zh' ? `${readingMinutes} 分鐘閱讀` : `${r
 const articleJsonLd = {
   '@context': 'https://schema.org',
   '@type': 'Article',
-  headline: entry.data.title,
+  headline: displayTitle,
   description: entry.data.summary,
   inLanguage: lang === 'zh' ? 'zh-Hant' : 'en',
   dateModified: entry.data.updated.toISOString().slice(0, 10),
@@ -63,7 +100,7 @@ const articleJsonLd = {
 ---
 
 <Base
-  title={`${entry.data.title} — Notes`}
+  title={`${displayTitle} — Notes`}
   description={description}
   active="notes"
   lang={lang}
@@ -89,7 +126,7 @@ const articleJsonLd = {
           {' / '}
           {entry.data.group} / {formatNoteDate(entry.data.updated, lang)}
         </p>
-        <h1>{entry.data.title}</h1>
+        <h1>{displayTitle}</h1>
         <div class="note-header-actions">
           <span class={`status-badge status-${entry.data.status}`}>
             {statusLabels[entry.data.status][lang]}
@@ -115,7 +152,7 @@ const articleJsonLd = {
               <ol>
                 {tocHeadings.map((heading) => (
                   <li class={`toc-depth-${heading.depth}`}>
-                    <a href={`#${heading.slug}`}>{heading.text}</a>
+                    <a href={`#${heading.slug}`} set:html={heading.html} />
                   </li>
                 ))}
               </ol>
@@ -135,7 +172,7 @@ const articleJsonLd = {
           previous ? (
             <a href={withBase(noteRoute(previous.data.slug, lang))}>
               <span>{lang === 'zh' ? '上一篇' : 'Previous'}</span>
-              {previous.data.title}
+              {titles.of(previous)}
             </a>
           ) : (
             <span />
@@ -145,7 +182,7 @@ const articleJsonLd = {
           next ? (
             <a href={withBase(noteRoute(next.data.slug, lang))}>
               <span>{lang === 'zh' ? '下一篇' : 'Next'}</span>
-              {next.data.title}
+              {titles.of(next)}
             </a>
           ) : (
             <span />

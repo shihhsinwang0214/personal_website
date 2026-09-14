@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>局部、共享、等變：把兩個宣告分開量</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：卷積把<b>局部</b>與<b>共享</b>兩件事綁在一起，但它們可以拆開。三個模型（MLP／局部未共享／卷積）在三個條件下各跑一次，就能看出<b>哪一個宣告買到「換位置還算同一件事」</b>，以及<b>哪一個宣告在像素被打亂時真的受傷</b>。上圖另外量一件和訓練無關的事：等變是精確成立的，而它建立出來的不變性<b>在邊界有縫</b>。</p>
+  <canvas id="map" style="aspect-ratio:5/2" aria-label="左＝12×12 的探針影像（線段可拖動；這一格量的是結構性質，所以不加雜訊）；右＝同一個隨機初始化、未經訓練的層給出的特徵圖"></canvas>
+  <p class="cap">左＝12×12 的探針影像（線段可拖動；這一格量的是結構性質，所以不加雜訊）；右＝同一個隨機初始化、未經訓練的層給出的特徵圖</p>
+  <canvas id="bars" style="aspect-ratio:5/2" aria-label="三個條件 × 三個模型的測試準確率（在瀏覽器裡現場訓練：384 張圖、480 步，比筆記裡那組短得多，所以 MLP 停在 0.8 附近而不是 0.98；要看的是同一個模型在不同條件之間的落差）"></canvas>
+  <p class="cap">三個條件 × 三個模型的測試準確率（在瀏覽器裡現場訓練：384 張圖、480 步，比筆記裡那組短得多，所以 MLP 停在 0.8 附近而不是 0.98；要看的是同一個模型在不同條件之間的落差）</p>
+  <div class="controls">
+    <div class="row">
+      <label for="mo">模型</label><select id="mo"><option value="0">MLP</option><option value="1">局部未共享</option><option value="2" selected>卷積</option></select>
+      <label for="K">核大小 K</label><select id="K"><option>3</option><option selected>5</option><option>7</option></select>
+      <label for="C">通道數 C</label><input id="C" type="range" min="4" max="16" step="4" value="8" />
+    </div>
+    <div class="row">
+      <label for="cx">線段的位置</label><input id="cx" type="range" min="0" max="7" step="1" value="2" />
+      <label class="chk"><input id="vt" type="checkbox" /> 直線</label>
+      <label class="chk"><input id="sh" type="checkbox" /> 打亂像素</label>
+      <button id="re" class="ghost">▶ 重跑訓練</button>
+      <span id="prog" style="font-size:0.78rem"></span>
+    </div>
+    <div class="stats"><span>參數量 MLP = <b id="p0">—</b></span> <span>局部未共享 = <b id="p1">—</b></span> <span>卷積 = <b id="p2">—</b></span> <span>本模型的等變誤差 max|f(Tx) − Tf(x)| = <b id="v1">—</b></span> <span>特徵圖量級 max|f| = <b id="v3">—</b></span> <span>訓練好之後，平移一格輸出的平均變化 = <b id="v2">—</b></span></div>
+  </div>
+  <p class="observe">觀察：切換上面的「模型」，看第二列那個等變誤差。卷積是<b>精確的 0</b>——不是很小，是零；局部未共享是 <b>10⁻¹ 的量級</b>，和特徵本身同一個數量級（它有局部的形狀，但每個位置的權重不同，平移一格之後特徵圖整個換人）；MLP 連「把特徵圖也平移一下」都沒有定義。<b>等變來自共享，不來自局部。</b>下圖中間那一組是共享買到的：<b>只有卷積把從沒看過的右半也做對（1.000）</b>，MLP 與局部未共享都掉到亂猜——這裡的線段只有 5 像素長，左半訓練完全沒更新到右半的權重，所以比筆記裡那組整條線的實驗更極端。右邊那一組是共享的代價：<b>打亂像素之後只有卷積掉下去</b>（MLP 幾乎完全沒感覺）。最右邊那一組是刻意違反：任務答案就是位置，卷積照樣<b>明顯高於 0.5</b>——不變性只在畫面內部成立，邊界留下的縫被最佳化找到並用掉了。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var N = 12, NN = 144, LEN = 5, HID = 64, NTR = 384, NTE = 128, BATCH = 40, STEPS = 480, CHUNK = 5;
+  var CONDS = ['全位置', '左訓右測', '打亂像素'], MODELS = ['MLP', '局部未共享', '卷積'];
+  var el = function (i) { return document.getElementById(i); };
+  var dM = MLF.hiDPICanvas(el('map')), dB = MLF.hiDPICanvas(el('bars'));
+  var pal = MLF.palette(), JOB = null, raf = null, REF = null;
+
+  function C() { return +el('C').value; }
+  function Kv() { return +el('K').value; }
+
+  /* ---------- 資料 ---------- */
+  function perm144(sd) {
+    var r = MLF.rng(sd), a = [], i, j, t;
+    for (i = 0; i < NN; i++) a.push(i);
+    for (i = NN - 1; i > 0; i--) { j = Math.floor(r() * (i + 1)); t = a[i]; a[i] = a[j]; a[j] = t; }
+    return a;
+  }
+  var PERM = perm144(17);
+
+  function mkImg(o, ry, cx, r, shuf, shift, nz) {
+    var a = new Float64Array(NN), i, j, b, s0 = nz === undefined ? 0.15 : nz;
+    for (i = 0; i < NN; i++) a[i] = s0 * r.normal();
+    for (i = 0; i < LEN; i++) {
+      var q = o ? (ry + i) * N + cx : ry * N + (cx + i);
+      if (q >= 0 && q < NN) a[q] += 1;
+    }
+    if (shift) {                       // 把整張圖（含雜訊）往右平移，左緣補 0
+      b = new Float64Array(NN);
+      for (i = 0; i < N; i++) for (j = shift; j < N; j++) b[i * N + j] = a[i * N + (j - shift)];
+      a = b;
+    }
+    if (!shuf) return a;
+    b = new Float64Array(NN);
+    for (i = 0; i < NN; i++) b[i] = a[PERM[i]];
+    return b;
+  }
+  function sample(n, r, lo, hi, shuf, posTask) {
+    var X = [], Y = [], i;
+    for (i = 0; i < n; i++) {
+      var o = r() < 0.5 ? 1 : 0, cx = lo + Math.floor(r() * (hi - lo + 1));
+      var ry = Math.floor(r() * (o ? (N - LEN + 1) : N));
+      X.push(mkImg(o, ry, cx, r, shuf));
+      Y.push(posTask ? (cx < 4 ? 1 : 0) : o);
+    }
+    return { X: X, Y: Y };
+  }
+
+  /* ---------- 模型 ---------- */
+  function patchIdx(K) {
+    var P = N - K + 1, KK = K * K, idx = new Int32Array(P * P * KK), p, q, u, v;
+    for (p = 0; p < P; p++) for (q = 0; q < P; q++) for (u = 0; u < K; u++) for (v = 0; v < K; v++)
+      idx[(p * P + q) * KK + u * K + v] = (p + u) * N + (q + v);
+    return { idx: idx, P: P, PP: P * P, KK: KK };
+  }
+  function nParams(type, c, K) {
+    var g = patchIdx(K);
+    if (type === 0) return HID * NN + HID + HID * HID + HID + HID + 1;
+    if (type === 1) return c * g.PP * g.KK + c * g.PP + c + 1;
+    return c * g.KK + c + c + 1;
+  }
+  function mkModel(type, c, K, sd) {
+    var g = patchIdx(K), n = nParams(type, c, K), w = new Float64Array(n), i;
+    var r = MLF.rng(sd), sc = type === 0 ? Math.sqrt(1 / NN) : Math.sqrt(2 / g.KK);
+    for (i = 0; i < n; i++) w[i] = sc * r.normal();
+    return { type: type, c: c, K: K, g: g, w: w, gr: new Float64Array(n),
+      m: new Float64Array(n), v: new Float64Array(n), t: 0, n: n,
+      h1: new Float64Array(HID), h2: new Float64Array(HID),
+      fm: new Float64Array(c * g.PP), mx: new Float64Array(c), ag: new Int32Array(c) };
+  }
+
+  /* 回傳 logit；同時填好中間量供 backward 使用 */
+  function fwd(M, x) {
+    var i, j, k, s, g = M.g, w = M.w, KK = g.KK, PP = g.PP;
+    if (M.type === 0) {
+      var o2 = HID * NN, o3 = o2 + HID, o4 = o3 + HID * HID, o5 = o4 + HID;
+      for (j = 0; j < HID; j++) { s = w[o2 + j]; for (i = 0; i < NN; i++) s += w[j * NN + i] * x[i]; M.h1[j] = Math.tanh(s); }
+      for (k = 0; k < HID; k++) { s = w[o4 + k]; for (j = 0; j < HID; j++) s += w[o3 + k * HID + j] * M.h1[j]; M.h2[k] = Math.tanh(s); }
+      s = w[o5 + HID];
+      for (k = 0; k < HID; k++) s += w[o5 + k] * M.h2[k];
+      return s;
+    }
+    var cN = M.c, local = M.type === 1, base, bb;
+    for (k = 0; k < cN; k++) {
+      var best = -1e9, arg = 0;
+      base = local ? k * PP * KK : k * KK;
+      bb = local ? (cN * PP * KK + k * PP) : (cN * KK + k);
+      for (i = 0; i < PP; i++) {
+        s = w[bb + (local ? i : 0)];
+        var off = local ? base + i * KK : base, ip = i * KK;
+        for (j = 0; j < KK; j++) s += w[off + j] * x[g.idx[ip + j]];
+        s = Math.tanh(s);
+        M.fm[k * PP + i] = s;
+        if (s > best) { best = s; arg = i; }
+      }
+      M.mx[k] = best; M.ag[k] = arg;
+    }
+    var hd = local ? cN * PP * KK + cN * PP : cN * KK + cN;
+    s = w[hd + cN];
+    for (k = 0; k < cN; k++) s += w[hd + k] * M.mx[k];
+    return s;
+  }
+
+  function accum(M, x, dz) {
+    var i, j, k, g = M.g, w = M.w, gr = M.gr, KK = g.KK, PP = g.PP;
+    if (M.type === 0) {
+      var o2 = HID * NN, o3 = o2 + HID, o4 = o3 + HID * HID, o5 = o4 + HID;
+      var d2 = new Float64Array(HID), d1 = new Float64Array(HID);
+      gr[o5 + HID] += dz;
+      for (k = 0; k < HID; k++) { gr[o5 + k] += M.h2[k] * dz; d2[k] = w[o5 + k] * dz * (1 - M.h2[k] * M.h2[k]); }
+      for (k = 0; k < HID; k++) {
+        gr[o4 + k] += d2[k];
+        for (j = 0; j < HID; j++) { gr[o3 + k * HID + j] += d2[k] * M.h1[j]; d1[j] += w[o3 + k * HID + j] * d2[k]; }
+      }
+      for (j = 0; j < HID; j++) {
+        var dj = d1[j] * (1 - M.h1[j] * M.h1[j]);
+        gr[o2 + j] += dj;
+        for (i = 0; i < NN; i++) gr[j * NN + i] += dj * x[i];
+      }
+      return;
+    }
+    var cN = M.c, local = M.type === 1;
+    var hd = local ? cN * PP * KK + cN * PP : cN * KK + cN;
+    gr[hd + cN] += dz;
+    for (k = 0; k < cN; k++) {
+      gr[hd + k] += M.mx[k] * dz;
+      var ds = w[hd + k] * dz * (1 - M.mx[k] * M.mx[k]), a = M.ag[k];
+      var off = local ? k * PP * KK + a * KK : k * KK;
+      var bb = local ? (cN * PP * KK + k * PP + a) : (cN * KK + k);
+      gr[bb] += ds;
+      for (j = 0; j < KK; j++) gr[off + j] += ds * x[g.idx[a * KK + j]];
+    }
+  }
+
+  function step(M, D, eta) {
+    var i, n = M.n, gr = M.gr;
+    for (i = 0; i < n; i++) gr[i] = 0;
+    var L = 0, m = Math.min(BATCH, D.X.length), off = (M.t * m) % D.X.length;
+    for (i = 0; i < m; i++) {
+      var q = (off + i) % D.X.length;
+      var z = fwd(M, D.X[q]), p = 1 / (1 + Math.exp(-z));
+      L += -(D.Y[q] ? Math.log(Math.max(p, 1e-12)) : Math.log(Math.max(1 - p, 1e-12)));
+      accum(M, D.X[q], (p - D.Y[q]) / m);
+    }
+    M.t++;
+    var b1 = 1 - Math.pow(0.9, M.t), b2 = 1 - Math.pow(0.999, M.t);
+    for (i = 0; i < n; i++) {
+      M.m[i] = 0.9 * M.m[i] + 0.1 * gr[i];
+      M.v[i] = 0.999 * M.v[i] + 0.001 * gr[i] * gr[i];
+      M.w[i] -= eta * (M.m[i] / b1) / (Math.sqrt(M.v[i] / b2) + 1e-8);
+    }
+    return L / m;
+  }
+  function acc(M, D) {
+    var i, h = 0;
+    for (i = 0; i < D.X.length; i++) if ((fwd(M, D.X[i]) > 0 ? 1 : 0) === D.Y[i]) h++;
+    return h / D.X.length;
+  }
+
+  /* ---------- 訓練工作 ---------- */
+  function newJob() {
+    var c = C(), K = Kv(), jobs = [], ci, mi;
+    for (ci = 0; ci < 3; ci++) {
+      var shuf = ci === 2, lo = ci === 1 ? 0 : 0, hi = ci === 1 ? 3 : 7;
+      var rtr = MLF.rng(101 + ci), rte = MLF.rng(555 + ci);
+      var tr = sample(NTR, rtr, lo, hi, shuf, false);
+      var te = sample(NTE, rte, ci === 1 ? 4 : 0, 7, shuf, false);
+      for (mi = 0; mi < 3; mi++)
+        jobs.push({ ci: ci, mi: mi, M: mkModel(mi, c, K, 7 + mi * 13 + ci), tr: tr, te: te, a: null });
+    }
+    var rp = MLF.rng(909), rq = MLF.rng(910);
+    var ptr = sample(NTR, rp, 0, 7, false, true), pte = sample(NTE, rq, 0, 7, false, true);
+    [0, 2].forEach(function (mi) {
+      jobs.push({ ci: 3, mi: mi, M: mkModel(mi, c, K, 400 + mi), tr: ptr, te: pte, a: null });
+    });
+    return { jobs: jobs, s: 0 };
+  }
+  function tick() {
+    var i, e;
+    for (e = 0; e < CHUNK && JOB.s < STEPS; e++, JOB.s++)
+      for (i = 0; i < JOB.jobs.length; i++) step(JOB.jobs[i].M, JOB.jobs[i].tr, 0.025);
+    if (JOB.s % 25 < CHUNK || JOB.s >= STEPS)
+      for (i = 0; i < JOB.jobs.length; i++) JOB.jobs[i].a = acc(JOB.jobs[i].M, JOB.jobs[i].te);
+    el('prog').textContent = JOB.s < STEPS ? '訓練中 ' + Math.round(JOB.s / STEPS * 100) + '%' : '';
+    drawBars();
+    raf = JOB.s < STEPS ? requestAnimationFrame(tick) : null;
+  }
+  function restart() {
+    if (raf) cancelAnimationFrame(raf);
+    JOB = newJob(); raf = requestAnimationFrame(tick);
+  }
+
+  /* ---------- 左圖：等變與不變 ---------- */
+  function refLayer() {
+    var c = C(), K = Kv(), ty = +el('mo').value;
+    REF = mkModel(ty, c, K, 2024);
+  }
+  function curImg(shift) {
+    var o = el('vt').checked ? 1 : 0, cx = +el('cx').value;
+    return mkImg(o, o ? 3 : 6, cx, MLF.rng(5), el('sh').checked, shift || 0, 0);
+  }
+  function featOf(x) {
+    fwd(REF, x);
+    if (REF.type === 0) return { v: Array.prototype.slice.call(REF.h1), P: 0 };
+    return { v: Array.prototype.slice.call(REF.fm.subarray(0, REF.g.PP)), P: REF.g.P,
+      pool: Array.prototype.slice.call(REF.mx) };
+  }
+
+  function cells(ctx, x0, y0, w, n, vals, lo, hi) {
+    var s = w / n, i, j;
+    for (i = 0; i < n; i++) for (j = 0; j < n; j++) {
+      var t = (vals[i * n + j] - lo) / Math.max(hi - lo, 1e-9);
+      ctx.fillStyle = MLF.lerpColor(pal.dark ? [24, 26, 32] : [255, 253, 250], pal.a, 0.05 + 0.85 * Math.max(0, Math.min(1, t)));
+      ctx.fillRect(x0 + j * s, y0 + i * s, s + 0.6, s + 0.6);
+    }
+    ctx.strokeStyle = pal.axis; ctx.lineWidth = 1; ctx.strokeRect(x0, y0, w, w);
+  }
+
+  function drawMap() {
+    var s = dM.resize(), ctx = dM.ctx; MLF.clear(ctx, s, pal);
+    var W = s.w, H = s.h, side = Math.min(H - 46, W * 0.3);
+    var x = curImg(0), f = featOf(x), i;
+    var lo = 1e9, hi = -1e9;
+    for (i = 0; i < NN; i++) { lo = Math.min(lo, x[i]); hi = Math.max(hi, x[i]); }
+    cells(ctx, W * 0.06, 26, side, N, x, lo, hi);
+    MLF.label(ctx, W * 0.06 + side / 2, 18, '輸入 12×12', pal.muted, 'center');
+
+    var flo = 1e9, fhi = -1e9;
+    for (i = 0; i < f.v.length; i++) { flo = Math.min(flo, f.v[i]); fhi = Math.max(fhi, f.v[i]); }
+    var fx = W * 0.56;
+    if (REF.type === 0) {
+      var cw = side / 8, r0, c0;
+      for (i = 0; i < HID; i++) {
+        r0 = Math.floor(i / 16); c0 = i % 16;
+        var t = (f.v[i] - flo) / Math.max(fhi - flo, 1e-9);
+        ctx.fillStyle = MLF.lerpColor(pal.dark ? [24, 26, 32] : [255, 253, 250], pal.d, 0.05 + 0.85 * t);
+        ctx.fillRect(fx + c0 * (side / 16), 26 + r0 * (side / 16), side / 16 + 0.6, side / 16 + 0.6);
+      }
+      ctx.strokeStyle = pal.axis; ctx.lineWidth = 1; ctx.strokeRect(fx, 26, side, side / 4);
+      MLF.label(ctx, fx + side / 2, 18, '隱藏層 64 個單元（沒有空間座標）', pal.muted, 'center');
+      MLF.label(ctx, fx, 26 + side / 4 + 16, '「把特徵圖也平移一下」在這裡沒有定義', pal.muted);
+    } else {
+      cells(ctx, fx, 26, side, f.P, f.v, flo, fhi);
+      MLF.label(ctx, fx + side / 2, 18, '特徵圖 ' + f.P + '×' + f.P + '（通道 0）', pal.muted, 'center');
+      var a = REF.ag[0], rr = Math.floor(a / f.P), cc = a % f.P, cs = side / f.P;
+      ctx.strokeStyle = MLF.rgb(pal.d); ctx.lineWidth = 2;
+      ctx.strokeRect(fx + cc * cs, 26 + rr * cs, cs, cs);
+      MLF.label(ctx, fx, 26 + side + 16, '紅框＝pooling 取到的位置', pal.muted);
+    }
+    ctx.strokeStyle = MLF.rgb(pal.muted, 0.7); ctx.lineWidth = 1.4;
+    var my = 26 + side * 0.45, ax0 = W * 0.06 + side + 10, ax1 = fx - 10;
+    ctx.beginPath(); ctx.moveTo(ax0, my); ctx.lineTo(ax1, my); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ax1, my); ctx.lineTo(ax1 - 6, my - 4); ctx.lineTo(ax1 - 6, my + 4); ctx.closePath();
+    ctx.fillStyle = MLF.rgb(pal.muted, 0.7); ctx.fill();
+    MLF.label(ctx, (ax0 + ax1) / 2, my - 8, MODELS[REF.type], pal.muted, 'center');
+  }
+
+  function measure() {
+    var x = curImg(0), xt = curImg(1), i, j;
+    var f0 = featOf(x), p0 = f0.pool ? f0.pool.slice() : null;
+    var f1 = featOf(xt), p1 = f1.pool ? f1.pool.slice() : null;
+    var eq = NaN, mag = 0;
+    for (i = 0; i < f0.v.length; i++) mag = Math.max(mag, Math.abs(f0.v[i]));
+    if (f0.P) {
+      var P = f0.P, e = 0;
+      for (i = 0; i < P; i++) for (j = 1; j < P; j++)
+        e = Math.max(e, Math.abs(f1.v[i * P + j] - f0.v[i * P + (j - 1)]));
+      eq = e;
+    }
+    return { eq: eq, mag: mag };
+  }
+
+  /* 訓練好的模型：同一批影像平移一格，輸出機率平均變多少 */
+  function shiftSens(mi) {
+    var J = null, i, j;
+    for (i = 0; i < JOB.jobs.length; i++) if (JOB.jobs[i].ci === 0 && JOB.jobs[i].mi === mi) J = JOB.jobs[i];
+    if (!J || J.a === null) return NaN;
+    var r = MLF.rng(77), s = 0, n = 24;
+    for (i = 0; i < n; i++) {
+      var o = r() < 0.5 ? 1 : 0, cx = Math.floor(r() * 7), ry = Math.floor(r() * (o ? (N - LEN + 1) : N));
+      var sd = Math.floor(r() * 1e6);
+      var x = mkImg(o, ry, cx, MLF.rng(sd), false, 0);
+      var xt = mkImg(o, ry, cx, MLF.rng(sd), false, 1);
+      var pa = 1 / (1 + Math.exp(-fwd(J.M, x))), pb = 1 / (1 + Math.exp(-fwd(J.M, xt)));
+      s += Math.abs(pa - pb);
+    }
+    return s / n;
+  }
+
+  /* ---------- 右圖：長條 ---------- */
+  function drawBars() {
+    var s = dB.resize(), ctx = dB.ctx; MLF.clear(ctx, s, pal);
+    var ax = MLF.axes(ctx, s, { x: [0, 1], y: [0, 1.05], pal: pal, xticks: [],
+      yticks: [0, 0.5, 1], fmty: function (v) { return v.toFixed(1); },
+      pad: { l: 0.09, r: 0.03, t: 0.08, b: 0.2 }, ylab: '測試準確率' });
+    MLF.ref(ctx, ax, { y: 0.5, color: MLF.rgb(pal.a, 0.7) });
+    MLF.label(ctx, ax.box.l + 4, ax.Y(0.5) - 7, '0.5＝亂猜', MLF.rgb(pal.a, 0.9));
+    var groups = ['全位置', '左訓右測', '打亂像素', '位置任務'];
+    var cols = [pal.b, pal.e, pal.d], gw = ax.box.w / 4, i, gi;
+    groups.forEach(function (g, gi2) {
+      var mis = gi2 === 3 ? [0, 2] : [0, 1, 2];
+      var bw = gw * 0.66 / mis.length, x0 = ax.box.l + gi2 * gw + gw * 0.17;
+      mis.forEach(function (mi, k) {
+        var J = null;
+        for (i = 0; i < JOB.jobs.length; i++)
+          if (JOB.jobs[i].ci === gi2 && JOB.jobs[i].mi === mi) J = JOB.jobs[i];
+        var v = J && J.a !== null ? J.a : 0;
+        ctx.fillStyle = MLF.rgb(cols[mi], 0.85);
+        ctx.fillRect(x0 + k * bw, ax.Y(v), bw - 3, ax.box.b - ax.Y(v));
+        MLF.label(ctx, x0 + k * bw + (bw - 3) / 2, ax.Y(v) - 11, v.toFixed(3), pal.ink, 'center');
+      });
+      MLF.label(ctx, ax.box.l + gi2 * gw + gw / 2, ax.box.b + 16, g, pal.muted, 'center');
+    });
+    MLF.legend(ctx, ax, MODELS.map(function (m, i2) { return { t: m, c: MLF.rgb(cols[i2]) }; }), 'bl', pal);
+  }
+
+  function draw() {
+    refLayer();
+    var c = C(), K = Kv(), m = measure();
+    el('p0').textContent = nParams(0, c, K);
+    el('p1').textContent = nParams(1, c, K);
+    el('p2').textContent = nParams(2, c, K);
+    el('v1').textContent = isNaN(m.eq) ? '（MLP 沒有空間座標，沒有定義）' : m.eq.toExponential(2);
+    el('v3').textContent = m.mag.toFixed(4);
+    var ss = shiftSens(+el('mo').value);
+    el('v2').textContent = isNaN(ss) ? '（訓練中）' : ss.toFixed(4);
+    drawMap(); drawBars();
+  }
+  ['mo', 'cx'].forEach(function (i) { el(i).oninput = draw; });
+  ['vt', 'sh'].forEach(function (i) { el(i).onchange = draw; });
+  ['K', 'C'].forEach(function (i) { el(i).onchange = function () { draw(); restart(); }; });
+  el('re').onclick = restart;
+  window.addEventListener('resize', function () { drawMap(); drawBars(); });
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  JOB = newJob();
+  draw();
+  restart();
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>加一條「回到 [MASK]」的管子，會壞掉什麼</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 500px; aspect-ratio: 16/11; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  input[type=range] { width: 190px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
+  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：在 transition matrix 上加一點「回到 [MASK]」的機會，兩件事會壞掉：<b>閉式消失</b>，而且<b>那個量沒有單位</b>——換步數 T 就得重新調。改用「單位時間的流量」來描述，第二個問題直接沒了。</p>
+
+  <canvas id="cv" width="640" height="440" aria-label="閉式的誤差與步數依賴"></canvas>
+  <p class="cap">上圖＝Q̄<sub>t</sub> 的實際值（連乘出來的）與「閉式猜測」ᾱ<sub>t</sub>I+(1−ᾱ<sub>t</sub>)·[MASK] 的最大差距　下圖＝同一個參數在三種步數 T 之下，走到終點時還剩多少原字</p>
+
+  <div class="controls">
+    <div class="row">
+      <span class="lab">「回到 [MASK]」的強度</span><input id="g" type="range" min="0" max="3" step="0.1" value="0" /><b id="vg">0.0</b>
+    </div>
+    <div class="row"><span class="lab">參數的單位</span>
+      <button data-u="perstep" class="on">每步的機率 γ（在 T=40 校準）</button>
+      <button data-u="rate">單位時間的 rate σ（γ = σ/T）</button>
+    </div>
+    <div class="stats">
+      <span>閉式的最大誤差 = <b id="ve">—</b></span>
+      <span>T=10 / 100 / 1000 的終點原字比例 = <b id="vt">—</b></span>
+    </div>
+  </div>
+
+  <p class="observe">γ=0 時上圖是一條貼在 0 上的線——<b>閉式完全正確</b>。把 γ 往上推，誤差立刻長出來，<b>Q̄<sub>t</sub> 再也不是「ᾱ 倍的 identity ＋ 剩下的全在 [MASK]」那個形狀</b>，每個 t 都得重新連乘一次矩陣。下圖是更麻煩的那件事：兩種模式的<b>遮罩總量都固定</b>（所以 γ=0 時三根柱子一樣高）。選「每步的機率 γ」——在 T=40 校準好的那個 γ 直接拿去 T=10、100、1000 用——三根柱子<b>高度差很多</b>；切到「單位時間的 rate σ」（也就是每步取 σ/T），三根柱子<b>幾乎一樣高</b>。這就是為什麼下一篇要換語言：<b>rate 有單位，每步的機率沒有。</b></p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var K = 3, TSHOW = 40, TS = [10, 100, 1000];
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var gEl = document.getElementById('g');
+  var vg = document.getElementById('vg'), ve = document.getElementById('ve'), vt = document.getElementById('vt');
+  var pal = NDFlow.palette();
+  var unit = 'perstep';
+
+  // 狀態 0,1 是字，2 是 [MASK]
+  function stepMat(beta, gam) {
+    var Q = [[0,0,0],[0,0,0],[0,0,0]], i;
+    for (i = 0; i < 2; i++) { Q[i][i] = 1 - beta; Q[i][2] = beta; }
+    // [MASK] 以 gam 的機率跳回一個字（均分），否則留下
+    Q[2][0] = gam / 2; Q[2][1] = gam / 2; Q[2][2] = 1 - gam;
+    return Q;
+  }
+  function mul(A, B) {
+    var C = [[0,0,0],[0,0,0],[0,0,0]];
+    for (var i = 0; i < K; i++) for (var j = 0; j < K; j++) { var s = 0; for (var k = 0; k < K; k++) s += A[i][k] * B[k][j]; C[i][j] = s; }
+    return C;
+  }
+  var BR = 3.0;                       // 遮罩的「總量」：ᾱ_T ≈ e^{-3} ≈ 0.05，與 T 無關
+  function run(T, g) {
+    // g 是滑桿的值。rate 模式：每步機率 = g/T（總量固定）；perstep 模式：每步機率固定在 g/TSHOW（只有 T=TSHOW 時才對）
+    var gStep = (unit === 'rate') ? g / T : g / TSHOW;
+    var bStep = BR / T;
+    var Qb = [[1,0,0],[0,1,0],[0,0,1]], out = [], ab = 1;
+    for (var t = 1; t <= T; t++) {
+      Qb = mul(Qb, stepMat(bStep, gStep));
+      ab *= (1 - bStep);
+      out.push({ Q: Qb.map(function (r) { return r.slice(); }), ab: ab });
+    }
+    return out;
+  }
+  function closedGuess(ab) {
+    var Q = [[0,0,0],[0,0,0],[0,0,0]];
+    for (var i = 0; i < 2; i++) { Q[i][i] = ab; Q[i][2] = 1 - ab; }
+    Q[2][2] = 1;
+    return Q;
+  }
+  function maxDiff(A, B) {
+    var m = 0;
+    for (var i = 0; i < K; i++) for (var j = 0; j < K; j++) m = Math.max(m, Math.abs(A[i][j] - B[i][j]));
+    return m;
+  }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx, i;
+    var gam = parseFloat(gEl.value);
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    var pad = 52, top = 22, h1 = 0.42 * s.h, y2 = 0.60 * s.h, h2 = 0.30 * s.h;
+
+    // 上圖：閉式誤差對 t
+    var seq = run(TSHOW, gam);
+    var errs = seq.map(function (o) { return maxDiff(o.Q, closedGuess(o.ab)); });
+    var mx = Math.max(0.02, Math.max.apply(null, errs));
+    ctx.font = '700 11px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.72)'; ctx.textAlign = 'left';
+    ctx.fillText('連乘出來的 Q̄ₜ 與「閉式猜測」的最大差距（T = ' + TSHOW + '）', pad, top - 6);
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad, top + h1); ctx.lineTo(s.w - 18, top + h1); ctx.stroke();
+    ctx.font = '500 9px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.textAlign = 'right';
+    ctx.fillText(mx.toFixed(2), pad - 5, top + 6);
+    ctx.fillText('0', pad - 5, top + h1 + 3);
+    ctx.strokeStyle = gam > 1e-9 ? '#d94f4f' : 'rgb(96,186,130)'; ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    for (i = 0; i < errs.length; i++) {
+      var px = pad + i / (errs.length - 1) * (s.w - pad - 18);
+      var py = top + h1 - errs[i] / mx * h1;
+      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.stroke();
+    ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.fillText('t', (pad + s.w - 18) / 2, top + h1 + 13);
+    if (gam < 1e-9) {
+      ctx.font = '700 11px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillStyle = 'rgb(96,186,130)'; ctx.textAlign = 'left';
+      ctx.fillText('γ = 0：閉式完全正確', pad + 10, top + h1 - 12);
+    }
+
+    // 下圖：三種 T 的終點原字比例
+    ctx.font = '700 11px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.72)'; ctx.textAlign = 'left';
+    ctx.fillText('同一個參數，三種步數 T 之下的終點（[MASK] 列跳回字的比例）', pad, y2 - 8);
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad, y2 + h2); ctx.lineTo(s.w - 18, y2 + h2); ctx.stroke();
+    var vals = TS.map(function (T) {
+      var sq = run(T, gam), last = sq[sq.length - 1].Q;
+      return last[0][0] + last[0][1];       // 從一個字出發，終點還是「某個字」的機率
+    });
+    var bw = (s.w - pad - 18) / 7;
+    ctx.font = '600 10px "Plus Jakarta Sans", system-ui, sans-serif';
+    for (i = 0; i < TS.length; i++) {
+      var hh = Math.max(1.5, vals[i] * h2);
+      ctx.fillStyle = 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',0.85)';
+      ctx.fillRect(pad + i * bw * 1.8 + bw * 0.4, y2 + h2 - hh, bw, hh);
+      ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.textAlign = 'center';
+      ctx.fillText('T=' + TS[i], pad + i * bw * 1.8 + bw * 0.9, y2 + h2 + 13);
+      ctx.fillText(vals[i].toFixed(3), pad + i * bw * 1.8 + bw * 0.9, y2 + h2 - hh - 5);
+    }
+    var spread = Math.max.apply(null, vals) - Math.min.apply(null, vals);
+    ctx.font = '700 11px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = spread > 0.05 ? '#d94f4f' : 'rgb(96,186,130)';
+    ctx.textAlign = 'left';
+    ctx.fillText(spread > 0.05 ? '三根差很多 → 參數和步數綁在一起' : '三根幾乎一樣 → 參數和步數脫鉤',
+                 pad + bw * 5.6, y2 + h2 * 0.4);
+
+    vg.textContent = gam.toFixed(1);
+    ve.textContent = Math.max.apply(null, errs).toFixed(4);
+    vt.textContent = vals.map(function (v) { return v.toFixed(3); }).join(' / ');
+  }
+  gEl.oninput = draw;
+  Array.prototype.forEach.call(document.querySelectorAll('[data-u]'), function (b) {
+    b.onclick = function () {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-u]'), function (o) { o.classList.remove('on'); });
+      b.classList.add('on'); unit = b.dataset.u; draw();
+    };
+  });
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  applyTheme();
+})();
+</script>
+</body>
+</html>

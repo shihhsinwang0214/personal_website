@@ -1,0 +1,226 @@
+---
+slug: "dma-w3-3-tweedie-and-score"
+label: "dma-tweedie-and-score"
+prereqs:
+  - ml-bias-variance
+  - math-conditional-expectation
+  - math-mse-conditional-expectation
+  - math-bayes-posterior
+  - math-tweedie
+  - math-total-derivative
+lang: "zh"
+title: "Tweedie 公式：Denoiser 就是 Score"
+category: "courses"
+group: "Week 3 · Diffusion Models"
+status: "available"
+updated: 2026-09-13
+summary: "回歸學到的是條件期望，loss 停在條件變異數上。想要 score，最直接的做法（先學密度再微分）會撞回 normalizing constant 那面牆；Tweedie 公式繞過它，把 E[x₀|x_t] 與 ∇log p_t 寫成同一條恆等式。"
+demos: []
+references:
+  - label: "Efron, Tweedie's Formula and Selection Bias (JASA 2011)"
+    href: "https://efron.ckirby.su.domains/papers/2011TweediesFormula.pdf"
+  - label: "Hyvärinen, Estimation of Non-Normalized Statistical Models by Score Matching (JMLR 2005)"
+    href: "https://jmlr.org/papers/v6/hyvarinen05a.html"
+  - label: "Song & Ermon, Generative Modeling by Estimating Gradients of the Data Distribution (NeurIPS 2019)"
+    href: "https://arxiv.org/abs/1907.05600"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# Tweedie 公式：Denoiser 就是 Score
+
+<Objectives>
+- **寫出回歸的最佳解與它的下界。** $\hat x_\theta\to\mathbb E[x_0\mid x_t]$、$\epsilon_\theta\to\mathbb E[\epsilon\mid x_t]$，而 loss 停在 $\mathbb E[\operatorname{tr}\operatorname{Var}(\epsilon\mid x_t)]$ 上——這是 <Ref to="dma-denoising-regression"/> 那個 conditional trick 的 MSE 版本。
+- **推導 Tweedie 公式，把 $\mathbb E[x_0\mid x_t]$ 與 $\nabla\log p_t(x_t)$ 連起來。** 說出關鍵那一步（除以 $p_t(x)$ 之後被積函數按 Bayes 正好是後驗），並分清它用到的兩個前提（forward kernel 是 Gaussian、梯度穿過積分）與它**沒有**假設的東西（$p_{\text{data}}$）。
+- **說出為什麼 score 這個建模對象完全不必理會 normalizing constant。** 並分清它是被**繞過**而不是被解決：代價是拿不到 likelihood。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 回歸學到的，是條件期望
+
+上一篇已經用過這個事實，這裡把它正式寫下來。對任何隨機變數 $Y$ 與輸入 $X$，
+
+$$
+\arg\min_f\ \mathbb E\big[\|f(X)-Y\|^2\big]=\mathbb E[Y\mid X].
+$$
+
+證明只要把 $Y$ 拆成 $\mathbb E[Y\mid X]+\big(Y-\mathbb E[Y\mid X]\big)$，交叉項的期望是零（<Ref to="math-mse-conditional-expectation"/>）。
+
+套到上一篇的 loss，$X=x_t$、$Y=x_0$，於是：**容量夠、訓練到收斂的話，$\hat x_\theta(x_t,t)\to\mathbb E[x_0\mid x_t]$**；同理 $\epsilon_\theta\to\mathbb E[\epsilon\mid x_t]$。
+
+這也是為什麼 denoising 回歸有意義：它學的不是「某一張圖」，而是「看到這個模糊的東西之後，所有可能原圖的平均」。
+
+同一個分解還順便告訴我們 **loss 會停在哪裡**。把 $\mathbb E\|f(X)-Y\|^2$ 拆成「偏差」與「殘差」兩項，最佳解讓第一項歸零，剩下的是
+
+$$
+\min_\theta\ \mathbb E\big[\|\epsilon_\theta(x_t,t)-\epsilon\|^2\big]
+=\mathbb E_{t,\,x_t}\big[\operatorname{tr}\operatorname{Var}(\epsilon\mid x_t)\big].
+$$
+
+**所以 loss 不會到 0**，而且它停住的高度是有意義的——那是「看到 $x_t$ 之後，$\epsilon$ 還剩多少不確定性」。<Ref to="dma-lab-diffusion"/> 會把這條線實際畫出來。
+
+這一整段是 <Ref to="dma-denoising-regression"/> 那個 conditional trick 的 **MSE 版本**：那裡我們證的是 KL 版（把 $x_0$ 放進條件裡，objective 只差一個與 $\theta$ 無關的常數），這裡是同一件事在平方誤差下的樣子——條件目標好算、邊際目標難算，而回歸自己把條件平均成邊際。
+
+不過**這一篇真正要做的是另一件事**。
+
+<Ask>
+我們從頭到尾只用了「一張圖 + 它的噪聲」這種配對，<br />
+從來沒有去表示過整批資料的分布。<br />
+那手上這個訓好的網路，和那個分布有什麼關係？
+</Ask>
+
+先把要講的那個分布寫下來。所有真實圖片加噪 $t$ 步之後的分布是
+
+$$
+p_t(x_t)=\int q(x_t\mid x_0)\,p_{\text{data}}(x_0)\,\mathrm dx_0 ,
+$$
+
+也就是 <Ref to="dma-denoising-regression"/> 裡卡住 Bayes 分母的那個 $q(x_t)$。從這一篇開始，這個「加噪 $t$ 步之後的邊際」都寫成 $p_t$。
+
+## 要拿到它的 score，非得先知道它不可嗎？
+
+<Question id="Q1">
+我們接下來想要的，是 $p_t$ 的 **score** $\nabla_{x_t}\log p_t(x_t)$——它指著「往密度上升最快的方向」，而生成正是要往資料多的地方走。
+
+最直接的做法看起來很清楚：**再訓一個網路去表示 $p_t$，然後對它微分。**
+
+**這條路會走到哪裡去？**
+
+<Answer>
+會走回 <Ref to="dma-what-are-we-learning"/> 那面牆。
+
+要讓一個網路輸出的東西是**機率密度**，它就得積分為 1，也就是得除以一個 normalizing constant $Z_\theta$。而訓練需要的是 $\nabla_\theta\log Z_\theta=\mathbb E_{x'\sim p_\theta}[\nabla_\theta E_\theta(x')]$——要估它，得先從 $p_\theta$ 抽樣。**我們想做的事，變成做這件事的前提。**
+
+但這裡有一個轉折：**我們要的從來就不是 $p_t$，是它的梯度。** 而梯度對 $Z_\theta$ 免疫——$\nabla_x\log p=\nabla_x\log\tilde p-\nabla_x\log Z$，後面那一項是零。
+
+所以真正該問的不是「怎麼學 $p_t$」，而是：**手上那個訓好的 $\hat x_\theta$，和 $\nabla\log p_t$ 之間有沒有一條直接的關係？** 下一節的 Tweedie 公式說：有，而且它是一條恆等式，不需要再訓任何東西。
+</Answer>
+</Question>
+
+## 把那個平均寫成一條等式：Tweedie 公式
+
+固定一個 $t$，為了少寫字母，令 $a=\sqrt{\bar\alpha_t}$、$\sigma=\sigma_t$。邊際分布是一堆 Gaussian 的混合：
+
+$$
+p_t(x)=\int \mathcal N\!\big(x;\,a x_0,\ \sigma^2 I\big)\,p_{\text{data}}(x_0)\,dx_0 .
+$$
+
+對 $x$ 取梯度，而梯度可以穿到積分裡面去（只有 Gaussian 被微分）：
+
+$$
+\nabla_x p_t(x)
+=\int \nabla_x\mathcal N\!\big(x;\,ax_0,\sigma^2I\big)\,p_{\text{data}}(x_0)\,dx_0
+=\int -\frac{x-ax_0}{\sigma^2}\,\mathcal N\!\big(x;\,ax_0,\sigma^2I\big)\,p_{\text{data}}(x_0)\,dx_0 .
+$$
+
+接著兩邊除以 $p_t(x)$。這一步是整個推導的關鍵：右邊出現的 $\mathcal N(x;ax_0,\sigma^2I)\,p_{\text{data}}(x_0)\big/p_t(x)$，按 Bayes 定理**正好就是後驗** $p(x_0\mid x_t=x)$（<Ref to="math-bayes-posterior"/>）：
+
+$$
+\nabla_x\log p_t(x)
+=\int -\frac{x-ax_0}{\sigma^2}\,p(x_0\mid x)\,dx_0
+=-\frac{x-a\,\mathbb E[x_0\mid x_t=x]}{\sigma^2}.
+$$
+
+也就是說，只要把「對後驗取平均」這件事做完，score 就自己出現了。整理成兩個等價的寫法：
+
+$$
+\boxed{\;\mathbb E[x_0\mid x_t]=\frac{x_t+\sigma_t^2\,\nabla\log p_t(x_t)}{\sqrt{\bar\alpha_t}},\qquad
+\nabla\log p_t(x_t)=-\frac{\mathbb E[\epsilon\mid x_t]}{\sigma_t}.\;}
+$$
+
+第二式直接把上一篇的 $\epsilon$-prediction 翻成 score：
+
+$$
+s_\theta(x_t,t):=-\frac{\epsilon_\theta(x_t,t)}{\sigma_t}\;\approx\;\nabla\log p_t(x_t).
+$$
+
+> **訓好的 denoiser 就是 score。**
+
+我們用一支五行的回歸程式，拿到了一個原本以為得先處理 normalizing constant 才拿得到的東西。
+
+值得停一下看清楚這條等式**用了什麼、沒用什麼**。用到的只有兩件事：**forward kernel 是 Gaussian**（被微分的就是它，$-\frac{x-ax_0}{\sigma^2}$ 這個因子是 Gaussian 專屬的），以及**梯度可以穿過那個積分**。對 $p_{\text{data}}$ 則**完全沒有假設**——資料長什麼樣都成立，這正是它強的地方。
+
+還有一個前提藏在更底層：**給定 $x_t$，$x_0$ 還有一個後驗可以平均**。它在這一週一直成立，但後面會被打破——<Ref to="dma-unified-equation"/> 會看到，把配對換成確定性的映射之後，給定 $x_t$ 端點就定死了，沒有後驗可以平均，也就沒有可回歸的 score。
+
+<Remark label="注意" summary="「繞過」和「解決」不一樣">
+Q1 說 score 對 normalizing constant 免疫，那是對的，但不要把它讀成「$Z$ 的問題被解決了」。我們從頭到尾**沒有去表示 $p_\theta$ 本身**，只表示它的坡度——所以也就沒有辦法回頭問「這張圖的機率是多少」。likelihood 這件事被交換掉了，換來的是可以訓練。<Ref week="dma-week-flow-matching"/> 比較兩個框架時會再回到這個取捨。
+</Remark>
+
+## 這個 score 長什麼樣子？
+
+回到 <Ref to="dma-what-are-we-learning"/> 那片地形。$\nabla\log p_t$ 指的是**站在目前位置、往密度上升最快的方向**——就是上坡最陡的那一邊。
+
+- $t$ 很大時 $p_t\approx\mathcal N(0,I)$，地形是一座單峰的小丘，score $\approx-x$：不管站在哪裡，箭頭都指回原點。
+- $t$ 很小時 $p_t\approx p_{\text{data}}$，地形回到原本崎嶇的樣子，箭頭指向最近的那一團資料。
+
+而 denoiser 做的事，就是沿著這個坡走一步。下一篇的反向過程，就是把「沿著坡走」變成一個嚴格的取樣演算法。
+
+![示意圖：左邊在等高線地形上，從 x_t 畫出兩支重疊的箭頭，分別標 ∇log p_t 與 √ᾱ_t·E[x₀|x_t] − x_t，並註明「方向相同，長度差 σ_t²」；右邊三張 x̂₀ 縮圖對應 t=100、500、900，從清楚的貓逐漸變成模糊的平均臉。](./imgs/w-3-3-1.png)
+
+**圖：同一個方向，但 $t$ 太大時 $\hat x_0$ 會退化。** 左邊是 Tweedie 公式的畫面——兩支箭頭完全同向，只差 $\sigma_t^2$ 倍。右邊是它的另一面：$t$ 越大，$\hat x_0$ 從清楚的貓變成一張「平均臉」。**公式沒有變壞，是 $x_t$ 裡的資訊變少了。**
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w3-3-score.html" class="demo-frame" title="Score field 與 denoising 方向：互動 demo" style="height: 940px; width: 100%; border: none;"></iframe>
+
+**互動 demo：score field 與 denoising 方向。** 箭頭是網格上每一點的 $\nabla\log p_t$（用資料樣本當混合 Gaussian 精確算出來的）。切到「denoising 方向」會看到 $\sqrt{\bar\alpha_t}\,\mathbb E[x_0\mid x_t]-x_t$ 的箭頭**方向完全一樣**，只差 $\sigma_t^2$ 倍——這就是 Tweedie 公式在畫面上的樣子。把 $t$ 拉大，箭頭會慢慢變成整片指向原點。
+
+## 消化一下
+
+<QuizBlock id="w3-3-a">
+若 $\epsilon_\theta$ 訓到最佳，$\epsilon_\theta(x_t,t)$ 等於什麼？
+<Option>訓練時抽到的那一個 $\epsilon$。</Option>
+<Option correct>$\mathbb E[\epsilon\mid x_t]$：所有能產生這個 $x_t$ 的 $(x_0,\epsilon)$ 組合裡，$\epsilon$ 的平均。</Option>
+<Option>$\nabla\log p_t(x_t)$。</Option>
+<Explanation>
+MSE 的最佳解是條件期望，所以是 $\mathbb E[\epsilon\mid x_t]$，不是訓練時抽到的那一個。而「等於 score」還差一個因子：$\nabla\log p_t=-\mathbb E[\epsilon\mid x_t]/\sigma_t$。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w3-3-b">
+Tweedie 公式的推導裡，「後驗 $p(x_0\mid x_t)$」是從哪一步冒出來的？
+<Option>假設它是 Gaussian。</Option>
+<Option correct>把 $\nabla p_t$ 兩邊除以 $p_t$ 時，被積函數 $\mathcal N(x;ax_0,\sigma^2)p_{\text{data}}(x_0)/p_t(x)$ 依 Bayes 定理正好是後驗。</Option>
+<Option>對 $x_0$ 取梯度。</Option>
+<Explanation>
+整個推導對 $p_{\text{data}}$ 沒有任何假設——它只用了「forward kernel 是 Gaussian」（被微分的就是它）、「梯度穿過積分」與 Bayes 定理。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w3-3-c">
+<Ref to="dma-what-are-we-learning"/> 說直接學密度會卡在 normalizing constant。score-based 的方法為什麼不卡？
+<Option>因為它假設 $Z=1$。</Option>
+<Option>因為它用蒙地卡羅估計 $Z$。</Option>
+<Option correct>因為 $\nabla\log p=\nabla\log\tilde p-\nabla\log Z$，而 $Z$ 不依賴 $x$，這一項的梯度是零。</Option>
+<Explanation>
+score 對 normalizing constant 完全不敏感，這是它作為建模對象最根本的優勢。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w3-3-d">
+$t$ 很大時，$\nabla\log p_t(x)$ 大約長什麼樣子？
+<Option correct>$\approx-x$：因為 $p_t$ 已經接近 $\mathcal N(0,I)$，箭頭處處指回原點。</Option>
+<Option>$\approx 0$：因為分布很平坦。</Option>
+<Option>指向最近的資料點，與 $t$ 無關。</Option>
+<Explanation>
+$\nabla\log\mathcal N(x;0,I)=-x$。這也是為什麼取樣的前幾步不太需要資料的細節，真正的內容是在 $t$ 變小之後才長出來的。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-reverse-process">
+兩件事現在都有了：<Ref to="dma-denoising-regression"/> 的 closed form 一步只缺 $\mathbb E[x_0\mid x_t]$，而我們剛剛確認網路給的就是它（也就是 score）。下一篇把 $\hat x_0$ 代進去、先算清楚這樣代要付什麼代價，再寫出真正的取樣器——而且會發現有兩種走法。
+</Bridge>
+
+## 參考文獻
+
+1. Efron, B. [*Tweedie's Formula and Selection Bias.*](https://efron.ckirby.su.domains/papers/2011TweediesFormula.pdf) JASA 2011. （本篇主角公式的現代整理；歷史出處見 <Ref to="math-tweedie"/>。）
+2. Hyvärinen, A. [*Estimation of Non-Normalized Statistical Models by Score Matching.*](https://jmlr.org/papers/v6/hyvarinen05a.html) JMLR 2005. （「不必知道 $Z$ 也能學」的起點。）
+3. Song, Y., Ermon, S. [*Generative Modeling by Estimating Gradients of the Data Distribution.*](https://arxiv.org/abs/1907.05600) NeurIPS 2019. （把 score 當成生成模型的建模對象。）

@@ -1,0 +1,205 @@
+---
+slug: "math-m4-1-absorbing-state"
+label: "math-absorbing-state"
+prereqs:
+  - math-markov-chain
+lang: "zh"
+title: "進去就出不來：Absorbing State 與吸收時間"
+category: "courses"
+group: "M4 · Markov Chains"
+status: "available"
+updated: 2026-09-06
+summary: "單人遊戲每回合有一成機率結束，平均玩十回合——這個「平均」怎麼來、為什麼中位數只有七回合、為什麼玩了二十回合後剩下的期望仍是十；absorbing state 讓 stationary distribution 變得無趣，有趣的量換成吸收時間，用 first-step analysis 一行解出。"
+demos: []
+references:
+  - label: "Norris, Markov Chains (Cambridge University Press 1997)"
+    href: "https://www.statslab.cam.ac.uk/~james/Markov/"
+  - label: "Grimmett & Stirzaker, Probability and Random Processes, 3rd ed. (Oxford University Press 2001)"
+  - label: "Kemeny & Snell, Finite Markov Chains (Springer 1976)"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+
+# 進去就出不來：Absorbing State 與吸收時間
+
+<Objectives>
+- 認出一條 chain 裡的 absorbing state（$P(x,x)=1$ 的格子），並說出它讓 stationary distribution 變得平凡、讓「吸收時間」成為真正要算的量。
+- 用 first-step analysis 寫出期望吸收時間的方程式，手算「每回合結束機率 $q$」的例子得到 $1/q$，並說出它的分佈是 geometric、中位數與期望為何不同。
+- 對一個生活情境（遊戲回合、顧客流失、零件故障）判斷「平均還要多久」這類問題的答案是否可信、說出它依賴的假設（每回合機率不變、結束後不復活），並用模擬驗證。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 一個會自己結束的遊戲
+
+一款單人手機遊戲，每一回合結束時系統擲一顆十面骰：擲到 0 遊戲結束，否則進入下一回合。結束了就是結束了——沒有復活、沒有續命，要玩得重開一局。
+
+請先用直覺回答，並寫下你有多確定：
+
+1. 一局遊戲**平均**玩幾回合？
+2. 你已經玩了二十回合還沒結束。接下來平均還能再玩幾回合？
+3. 「一半的玩家在第幾回合之前就結束了」——這個數字跟第一題一樣嗎？
+
+第一題幾乎所有人都說十，而且很有把握。第二題就開始分裂：有人說「已經二十回合了，應該快結束了，大概再兩三回合」；有人說「還是十」。第三題多數人下意識覺得跟第一題差不多。這一篇要做的是：把「十」的來源說清楚，然後看它**沒有**告訴你的事。
+
+<Question id="Q1">
+用上一篇的語言，這個遊戲是一條什麼樣的 Markov chain？狀態是什麼？我們要算的量「平均玩幾回合」在數學上是哪一個隨機變數的什麼？
+
+<Answer>
+課堂上第一個反應通常是「狀態是第幾回合」——這樣狀態會無限多，而且回合數本身不是隨機的，是我們在數的東西。更好的選擇是只用**兩個**狀態：「還在玩」（記作 $\mathrm{A}$，alive）與「已結束」（記作 $\mathrm{E}$，ended）。每回合的規則是：
+
+$$
+P=\begin{pmatrix}P(\mathrm A,\mathrm A)&P(\mathrm A,\mathrm E)\\P(\mathrm E,\mathrm A)&P(\mathrm E,\mathrm E)\end{pmatrix}
+=\begin{pmatrix}1-q&q\\0&1\end{pmatrix},\qquad q=0.1 .
+$$
+
+第二列 $(0,1)$ 寫的就是「結束了就出不來」。狀態 $\mathrm E$ 這種 $P(x,x)=1$ 的格子叫 **absorbing state**（吸收態）；其他格子叫 transient。
+
+我們要算的量是一個隨機變數：**首次到達 $\mathrm E$ 的時刻** $\tau=\min\{n\ge1:X_n=\mathrm E\}$，也就是玩到第幾回合結束。「平均玩幾回合」是 $\mathbb E[\tau\mid X_0=\mathrm A]$；第三題問的是 $\tau$ 的中位數；第二題問的是 conditional expectation $\mathbb E[\tau-20\mid \tau>20]$。三個問題問的是**同一個隨機變數的三個不同摘要**——這是它們答案可以不同的原因。
+</Answer>
+</Question>
+
+## 先抓住這個畫面
+
+回到上一篇的棋子。兩個格子，但這次「已結束」那格是個坑：棋子掉進去就留在裡面，每天擲的骰子都寫「留下」。放一千顆棋子在「還在玩」格。第一回合約一百顆掉坑，剩九百；第二回合九百顆的一成、九十顆掉坑，剩八百一十；每回合掉進去的**數量**越來越少，但**比例**永遠是一成。
+
+這個畫面立刻回答了第二題：站在「還在玩」格的棋子，不管已經站了多久，下一回合掉坑的機率都是一成——它沒有記憶。所以「玩了二十回合的人」跟「剛開始的人」面對的未來一模一樣，還能再玩的期望**還是十**。「應該快結束了」是把「平均十回合」誤讀成「配額」，好像每局有十回合的額度會用完；實際上額度不存在，只有每回合一成的骰子。
+
+<VizPlan id="m4-1-pit" title="一千顆棋子與一個坑" type="static">
+- **檔名**：`m4-markov-chains/imgs/m4-1-1.svg`（16:9）。
+- **版面**：左邊一個平台格標 A（還在玩），右邊一個坑標 E（已結束），A→A 的箭頭標 $1-q$、A→E 標 $q$、E→E 標 1 並用粗線強調「出不來」。
+- **右側**：長條圖，橫軸回合 $n=1,\dots,30$，每根柱子高度是「在第 $n$ 回合結束的玩家數」$1000\,q(1-q)^{n-1}$（100、90、81、73、…），呈幾何遞減；柱子上方畫一條「還在玩的人數」$1000(1-q)^{n}$ 的折線。在 $n=7$ 處畫一條豎線標「一半的人已經結束」，在 $n=10$ 處標「期望」。
+- **圖說**：「每回合掉坑的比例固定一成，掉坑的人數卻一回合比一回合少。一半的玩家在第 7 回合之前就結束了，但長尾把平均拉到 10。」
+</VizPlan>
+
+## 把畫面寫成方程式
+
+### 分佈：幾何遞減
+
+第 $n$ 回合還在玩，需要前 $n$ 次骰子都不是 0：
+
+$$
+\Pr(\tau>n)=(1-q)^n,\qquad \Pr(\tau=n)=(1-q)^{n-1}q .
+$$
+
+這是 **geometric distribution**：每回合以固定機率 $q$ 成功（這裡的「成功」是結束），數到第一次成功為止。用上一篇的矩陣語言，$\Pr(X_n=\mathrm A\mid X_0=\mathrm A)=P^n(\mathrm A,\mathrm A)=(1-q)^n$——$P$ 是上三角的，$P^n$ 的左上角就是 $(1-q)^n$。
+
+### 期望：一行 first-step analysis
+
+要算 $m=\mathbb E[\tau\mid X_0=\mathrm A]$，可以老實對 geometric 求和，但有一個更好的辦法，它適用於任何 absorbing chain。**看第一步**：走一回合（花掉 1），然後以機率 $q$ 結束（之後花 0），以機率 $1-q$ 回到同一個狀態、面對同樣的未來（再花 $m$）：
+
+$$
+m=1+q\cdot0+(1-q)\,m\quad\Longrightarrow\quad m=\frac1q=10 .
+$$
+
+這叫 **first-step analysis**：對每個 transient 狀態 $x$，令 $m(x)$ 是從 $x$ 出發的期望吸收時間，則
+
+$$
+m(x)=1+\sum_{y\ \text{transient}}P(x,y)\,m(y),
+$$
+
+一個線性方程組，未知數的個數等於 transient 狀態數。「回到同一個狀態就面對同樣的未來」用掉的正是 Markov property；上一篇的 $p_n=p_0P^n$ 是把規則往前推，這裡是把「未來的期望」往回推，兩者是同一條性質的兩個方向。
+
+### 中位數與變異數
+
+中位數解 $(1-q)^n=\tfrac12$：$n=\ln\tfrac12/\ln0.9\approx6.6$，所以一半的玩家在第 7 回合前就結束了。變異數是 $(1-q)/q^2=90$，標準差約 $9.5$——幾乎跟期望一樣大。**「平均十回合」這句話幾乎沒有告訴你任何一局會玩多久**；它只告訴你很多局加起來的總回合數。第三題的直覺（中位數≈期望）錯在把一個右偏、長尾的分佈當成對稱的。
+
+<Details summary="多個 transient 狀態：fundamental matrix 與兩關遊戲的手算">
+把 $P$ 依「transient / absorbing」分塊寫成 $P=\begin{pmatrix}Q&R\\0&I\end{pmatrix}$。$Q^n(x,y)$ 是「第 $n$ 步還在 transient 狀態 $y$」的機率，所以從 $x$ 出發在 $y$ 停留的期望總步數是 $\sum_{n\ge0}Q^n(x,y)=(I-Q)^{-1}(x,y)$。矩陣 $N=(I-Q)^{-1}$ 叫 fundamental matrix，期望吸收時間是 $m=N\mathbb 1$——這就是把 first-step analysis 的方程組 $m=\mathbb 1+Qm$ 解出來。$I-Q$ 可逆的條件是每個 transient 狀態都到得了某個 absorbing state。
+
+例：遊戲分兩關。第 1 關每回合以 0.5 升到第 2 關、0.4 留在第 1 關、0.1 結束；第 2 關每回合 0.8 留下、0.2 結束。方程組 $m_2=1+0.8\,m_2$ 給 $m_2=5$；$m_1=1+0.4\,m_1+0.5\,m_2=1+0.4\,m_1+2.5$ 給 $m_1=3.5/0.6\approx5.83$。從第 1 關開始平均玩約 5.8 回合。細節見 Kemeny–Snell [3] 第 3 章。
+</Details>
+
+### 跟上一篇的 chain 差在哪
+
+上一篇的 chain 有一個有意義的 stationary distribution $\pi=(\tfrac23,\tfrac13)$，長期會在兩格之間來回。這裡 $\pi P=\pi$ 的解是 $\pi=(0,1)$：**所有質量最後都在坑裡**，這個答案正確但無趣。有 absorbing state 的 chain 不是 irreducible（從 $\mathrm E$ 到不了 $\mathrm A$），上一篇的收斂定理不適用於「回到 $\mathrm A$」這件事。問題於是換了：不問「長期在哪」，問「**多久**到那裡」與「**從哪條路**到那裡」。
+
+## 回頭看那三個直覺
+
+**理論的判斷。** 在「每回合結束機率固定為 $q$、結束後不再回來」的假設下：期望 $1/q=10$（直覺對，原因是 first-step analysis）；已玩二十回合後剩餘期望仍是 10（「快結束了」錯在假想了一個不存在的配額——geometric 的 memoryless 性質 $\Pr(\tau>20+k\mid\tau>20)=(1-q)^k$ 與從頭開始一樣）；中位數約 7，不等於期望（直覺錯在忽略分佈的右偏）。
+
+**哪裡可能失準。** 兩個假設都可能不成立。若結束機率隨回合增加（難度爬升、玩家疲勞），$q_n$ 遞增，期望會低於 $1/q_1$，而且 memoryless 失效——這時「玩了很久應該快結束了」反而是**對的**。若結束後可以復活（$P(\mathrm E,\mathrm A)=r>0$），$\mathrm E$ 就不是 absorbing state，chain 變回 irreducible，「平均玩幾回合」要改問成「每一段連續遊玩的平均長度」，而長期在 $\mathrm E$ 的比例 $\pi_\mathrm E=q/(q+r)$ 又變得有意義。
+
+## 動手跑一次
+
+```python
+import numpy as np
+rng = np.random.default_rng(0)
+q, T = 0.1, 100_000
+tau = rng.geometric(q, size=T)                    # 每局的結束回合
+print("平均", tau.mean(), " 中位數", np.median(tau), " 標準差", tau.std())
+alive20 = tau[tau > 20]
+print("已玩 20 回合者，剩餘平均", (alive20 - 20).mean())   # ≈ 10
+# 違反假設：結束機率隨回合遞增 q_n = 0.1 + 0.02 (n-1)
+def play():
+    n = 1
+    while rng.random() >= min(1, 0.1 + 0.02 * (n - 1)): n += 1
+    return n
+tau2 = np.array([play() for _ in range(T)])
+print("遞增 q：平均", tau2.mean(), " 已玩 5 回合者剩餘", (tau2[tau2 > 5] - 5).mean())
+```
+
+<VizPlan id="m4-1-geometric" title="拉 q、看分佈；讓 q 隨回合變、看 memoryless 消失" type="interactive">
+- **位置**：本節之後。**檔名**：`site/public/notes/research_areas/mathematical-foundations/m4-markov-chains/m4-1-1.html`。
+- **版面**：左格是 $\tau$ 的長條圖（模擬 20,000 局），橫軸回合 $1\dots60$，疊上理論 $q(1-q)^{n-1}$ 的點線；三條豎線標中位數、期望、期望＋一個標準差，各附數值。右格是「已玩 $k$ 回合者的剩餘期望」折線，橫軸 $k=0,\dots,30$，理論值是水平線 $1/q$。
+- **控制項**：滑桿 $q\in[0.02,0.5]$（預設 0.1）；滑桿「每回合遞增量 $\delta$」$\in[0,0.05]$（預設 0，$q_n=\min(1,q+\delta(n-1))$）；滑桿「復活機率 $r$」$\in[0,0.3]$（預設 0）。
+- **拖 $q$**：期望 $1/q$、中位數 $\ln\tfrac12/\ln(1-q)$、標準差 $\sqrt{1-q}/q$ 即時更新；讀者看到 $q$ 不大時中位數約為期望的 $\ln2\approx0.69$ 倍、標準差約等於期望（比值 $\sqrt{1-q}$）——「平均」永遠不代表任何一局。
+- **拖 $\delta>0$**：左格長條圖變窄、右偏減弱，理論點線（仍用固定 $q$ 畫）與模擬分離；右格的剩餘期望折線**往下彎**——玩越久剩越少，memoryless 失效，「快結束了」在這個世界是對的。
+- **拖 $r>0$**：畫面上方多一條 A/E 色帶（一條 500 回合的軌跡），E 段之後又出現 A 段；右上角改顯示 $\pi_\mathrm E=q/(q+r)$ 與模擬的 E 佔比。註記：「$\mathrm E$ 不再是 absorbing state，問題從『多久被吸收』變回『長期比例』。」
+- **底部觀察句**：「觀察：$q$ 固定時，剩餘期望是一條水平線——玩了多久都一樣，這就是 memoryless；$q$ 隨回合上升時它才往下彎。平均 $1/q$ 告訴你很多局的總和，不告訴你這一局。」
+- **匯出 PNG**：左右兩格併成 16:9，含當前 $q,\delta,r$。
+</VizPlan>
+
+## 先消化一下
+
+<QuizBlock id="m4-1-a">
+一家訂閱服務的資料顯示，每個月有 5% 的用戶取消訂閱，且取消後不再回來。行銷部門問「一個新用戶平均會訂閱幾個月」。該用什麼工具？
+<Option>算 stationary distribution，讀出「訂閱中」的比例。</Option>
+<Option correct>把「已取消」當 absorbing state，用 first-step analysis 算期望吸收時間 $1/0.05=20$ 個月。</Option>
+<Option>算 $P^{12}$，看一年後還在訂閱的比例。</Option>
+<Explanation>
+「取消後不再回來」就是 absorbing state，「平均訂閱幾個月」是期望吸收時間，first-step analysis 一行給 $1/q=20$。Stationary distribution 在這裡是 $(0,1)$——所有人最終都取消——正確但答不了問題。$P^{12}$ 給的是 $\Pr(\tau>12)=0.95^{12}\approx0.54$，是另一個有用的數字，但不是平均月數。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m4-1-b">
+同一款遊戲，你的朋友說：「我剛玩了 30 回合還沒結束，運氣快用完了，下一回合結束的機率一定比 10% 高。」在「每回合結束機率固定為 0.1」的模型下，這句話：
+<Option>對，因為連續 30 次不擲到 0 的機率只有 $0.9^{30}\approx4\%$。</Option>
+<Option>對，因為期望是 10 回合，超過期望之後結束的機率會補償回來。</Option>
+<Option correct>錯，下一回合結束的機率仍是 0.1；$0.9^{30}$ 很小是事前的機率，事後已經發生就不再相關。</Option>
+<Explanation>
+Geometric 分佈是 memoryless：$\Pr(\tau=31\mid\tau>30)=q$，跟第一回合一樣。「$0.9^{30}$ 很小」說的是**開局前**「能撐過 30 回合」的機率，撐過之後這個數字就沒有用了。「超過期望會補償」是把期望當成配額——分佈裡沒有這種機制。當然，如果真實遊戲的 $q$ 隨回合上升，朋友就對了；但那是另一個模型。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="m4-1-c">
+把規則改成「結束後有 30% 機率獲得復活、回到遊戲」。下列哪個敘述正確？
+<Option>期望吸收時間變成 $1/(0.1\times0.7)$。</Option>
+<Option>「已結束」仍是 absorbing state，只是吸收得比較慢。</Option>
+<Option correct>「已結束」不再是 absorbing state；chain 變成 irreducible，長期在「已結束」的比例是 $0.1/(0.1+0.3)=0.25$，而「平均玩幾回合」要改問成「每段連續遊玩的平均長度」。</Option>
+<Explanation>
+Absorbing state 的定義是 $P(x,x)=1$，有 30% 會離開就不是了，「吸收得比較慢」不成立——它根本不吸收。既然沒有 absorbing state，「吸收時間」這個量就沒有定義，$1/(0.1\times0.7)$ 沒有對應的意義。取而代之的是上一篇的工具：流量平衡 $\pi_\mathrm A\cdot0.1=\pi_\mathrm E\cdot0.3$ 給 $\pi_\mathrm E=0.25$；每段連續遊玩的長度仍是 geometric、平均 10 回合。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="math-ctmc">
+這一篇認出「進去就出不來」的格子，看到它讓長期比例變得平凡、讓「多久被吸收」成為主角，並用 first-step analysis 一行解出期望。到目前為止時間都是一回合一回合走的。下一篇處理「隨時都可能發生」的事——電話隨時進來、隨時結束——那時 transition matrix 要換成另一個物件。
+</Bridge>
+
+## 參考文獻
+
+1. Norris, J. R. [*Markov Chains.*](https://www.statslab.cam.ac.uk/~james/Markov/) Cambridge University Press, 1997.（1.3 節 hitting times 與 first-step analysis。）
+2. Grimmett, G., Stirzaker, D. *Probability and Random Processes*, 3rd ed. Oxford University Press, 2001.（第 6 章。）
+3. Kemeny, J. G., Snell, J. L. *Finite Markov Chains.* Springer, 1976.（absorbing chain 與 fundamental matrix 的經典處理。）

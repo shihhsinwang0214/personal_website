@@ -1,0 +1,211 @@
+---
+slug: "dma-w4-1-flows-and-continuity"
+label: "dma-flows-and-continuity"
+prereqs:
+  - math-vector-field-ode
+  - math-pushforward-flow-map
+  - math-continuity-equation
+  - math-divergence
+lang: "zh"
+title: "速度場怎麼推動一整個分布？"
+category: "courses"
+group: "Week 4 · Flow Matching"
+status: "available"
+updated: 2026-09-13
+summary: "把速度場、軌跡、flow map 三個物件分清楚，寫出 continuity equation，並看見同一對端點分布其實有無限多條路徑、同一條路徑也有無限多個速度場。"
+demos: []
+references:
+  - label: "Chen, Rubanova, Bettencourt & Duvenaud, Neural Ordinary Differential Equations (NeurIPS 2018)"
+    href: "https://arxiv.org/abs/1806.07366"
+  - label: "Lipman, Chen, Ben-Hamu, Nickel & Le, Flow Matching for Generative Modeling (ICLR 2023)"
+    href: "https://arxiv.org/abs/2210.02747"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Try from '../../../components/Try.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 速度場怎麼推動一整個分布？
+
+<Objectives>
+- **分清速度場、ODE 軌跡、flow map 這三個物件，並說出網路學的是哪一個。** 以及為什麼是速度場而不是 flow map：只有前者有現成的回歸目標。
+- **從「東西不會憑空出現或消失」導出 continuity equation，並說出它為什麼是雙向的。** 一邊算分布怎麼變，另一邊驗一個速度場對不對——後者不需要解 ODE。
+- **說出「同一對端點有無限多條路徑、同一條路徑也有無限多個速度場」，以及這兩層自由度的代價落在哪裡。** 不影響走到哪裡，只影響要走幾步。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 先把三個容易混在一起的東西分開
+
+上一篇把問法換成了：**先決定中間分布，再找推動它的速度場。** 要把這句話寫成數學，得先分清三個常常被混著用的物件。
+
+可以想成開車。**速度場**是每個路口的指示牌——站在這裡、這個時刻，該往哪走、走多快；**軌跡**是某一台車照著指示牌走出來的那條路線；**flow map** 則是一張「所有車的位置對照表」：給定出發點，告訴你它在時刻 $t$ 會在哪裡。
+
+**速度場** $u_t(x):[0,1]\times\mathbb R^d\to\mathbb R^d$。這是網路要學的東西。
+
+> **三個物件裡只有速度場是被參數化的；軌跡與 flow map 都是它的後果。**
+
+**ODE 與軌跡。** 給一個起點 $x_0$，解
+
+$$
+\frac{d}{dt}x_t=u_t(x_t),\qquad x_{t=0}=x_0 ,
+$$
+
+就得到一條軌跡 $t\mapsto x_t$。在 Lipschitz 條件下解存在且唯一，所以軌跡**不會交叉**：兩條軌跡一旦在某個時刻碰到同一點，之後就是同一條。這件事在 <Ref to="dma-linear-path"/> 會變得很關鍵。
+
+**Flow map** $\psi_t(x_0):=x_t$，把每個起點送到它在時刻 $t$ 的位置。對每個固定的 $t$，$\psi_t$ 都是可逆的（把 ODE 反著解就是反函數）。
+
+於是生成器就是 $\psi_1$：抽 $x_0\sim p_0$、解 ODE 到 $t=1$、輸出 $x_1$。這正好回答了 <Ref to="dma-what-are-we-learning"/> 的問題——我們要的那個 $G$ 就是 $\psi_1$，只是它被一個速度場**隱式地**定義，而不是某個直接吐出 $x_1$ 的網路。
+
+<Ask>
+既然生成器就是 $\psi_1$，<br />
+為什麼不乾脆直接學 $\psi_1$，一次算完就好？
+</Ask>
+
+答案是：**我們寫不出 $\psi_1$ 的訓練目標。** 回想 <Ref to="dma-what-are-we-learning"/>：要直接回歸一個「噪聲 → 資料」的函數，就得知道哪個 $x_0$ 該對到哪個 $x_1$；沒有配對，$L_2$ 的最佳解會塌成一張平均圖。$\psi_1$ 正是那個我們沒辦法直接監督的物件。
+
+速度場不一樣。**一旦路徑被指定下來，中間每一個點「該往哪走」就是已知的**——那是一個現成的回歸目標。我們付出的代價是取樣時要解 ODE（很多小步），換到的是一個真的訓得動的 loss。
+
+這個取捨也不是永久的。<Ref week="dma-week-consistency"/> 與 <Ref week="dma-week-flow-maps"/> 會回頭直接學 $\psi$ 本身——但那時候我們手上已經有一個訓好的速度場可以當老師了。**先有速度場，才有辦法學 flow map。**
+
+## 從推動一顆點，到推動一整個分布
+
+一群粒子都在動，它們的分布 $p_t$ 當然也在變。$p_t$ 就是 $p_0$ 被 $\psi_t$ 推過去的結果，寫成 $p_t=[\psi_t]_\#p_0$——正是 <Ref to="dma-what-are-we-learning"/> 那個 pushforward，只是現在它隨 $t$ 連續變化。
+
+那 $p_t$ 隨時間怎麼變？想像空間裡一小塊區域：裡面的密度會變多還是變少，取決於**流進來的粒子減掉流出去的**。寫下來就是
+
+$$
+\boxed{\;\partial_t p_t(x)+\nabla\cdot\big(p_t(x)\,u_t(x)\big)=0\;}
+$$
+
+這就是 **continuity equation**（質量守恆）。$p_t u_t$ 是「流量」——多少東西正經過這裡、往哪個方向；它的散度就是淨流出。
+
+<Try summary="自己導一次：一維的小盒子，兩行就出來了">
+先在一維做，因為高維只是把「兩端」換成「表面」。
+
+取一段 $[x,\ x+\Delta x]$。裡面的質量是 $\int_x^{x+\Delta x}p_t(y)\,\mathrm dy\approx p_t(x)\,\Delta x$。
+
+質量只能從兩端進出，而單位時間通過一個點的量就是「密度 × 速度」$=p_tu_t$。所以
+
+$$
+\frac{\partial}{\partial t}\big(p_t(x)\,\Delta x\big)
+=\underbrace{p_t(x)u_t(x)}_{\text{左端流進}}-\underbrace{p_t(x+\Delta x)u_t(x+\Delta x)}_{\text{右端流出}} .
+$$
+
+兩邊除以 $\Delta x$、令 $\Delta x\to0$，右邊那個差商就是 $-\partial_x(p_tu_t)$：
+
+$$
+\partial_t p_t(x)=-\partial_x\big(p_t(x)u_t(x)\big).
+$$
+
+移項就是上面那條式子。高維唯一的差別是「兩端」變成一個封閉曲面，差商變成散度 $\nabla\cdot$（<Ref to="math-divergence"/>）。
+
+**注意這裡沒有用到任何機率的性質**——同一條式子對水、對車流、對熱都成立。它說的只是「東西不會憑空出現或消失」。
+</Try>
+
+這條式子真正好用的地方在於它是**雙向**的：
+
+- 給我一個速度場，它告訴我分布會怎麼變；
+- 反過來，如果我手上先有一條分布路徑 $p_t$，那**任何**滿足這條式子的 $u_t$ 都能推動它——注意這是一個**充分**條件，而且滿足它的 $u_t$ 通常不只一個（下一節會看到到底有多少個）。
+
+我們就說這樣的 $u_t$ **生成** $p_t$。這正是上一篇那個新問法能站得住的原因。
+
+> **要驗證一個速度場對不對，不必解 ODE——代進 continuity equation 就好。**
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w4-1-fields.html" class="demo-frame" title="速度場遊樂場：互動 demo" style="height: 840px; width: 100%; border: none;"></iframe>
+
+**互動 demo：速度場遊樂場。** 選一個速度場，按播放看粒子沿著它走。先試「**旋轉**」：每一顆粒子都在動、軌跡是一圈一圈的，但**整團雲從頭到尾一模一樣**——因為 Gaussian 是旋轉對稱的。這就是「粒子在動、分布不動」最乾淨的例子。再試「收縮」「鞍點」「推到雙月」，看分布真的被推著變形。
+
+## 同一對端點，無限多條路
+
+固定 $p_0=\mathcal N(0,I)$、$p_1=p_{\text{data}}$，中間怎麼走？
+
+- 可以讓 $p_t$ 沿 VP 路徑走——<Ref week="dma-week-diffusion"/> 的 PF-ODE 就是這樣。
+- 可以讓 $p_t$ 是兩端的線性插值。
+- 也可以先把所有東西縮成一個點、再展開（很怪，但合法）。
+
+每一條分布路徑都有速度場生成它。更麻煩的是，**同一條分布路徑也有無限多個速度場**：只要 $w$ 滿足 $\nabla\cdot(p_t w)=0$，那 $u_t+w$ 也生成同一個 $p_t$。粒子可以沿著等密度面繞圈圈，分布一點都不會變——demo 裡的「旋轉」就是這件事的具體例子。
+
+所以「找一個速度場」其實有**兩層**自由度：挑哪一條分布路徑，以及在那條路徑上挑哪一個速度場。
+
+<Question id="Q1">
+continuity equation 說：**任何**滿足它的 $u_t$ 都生成同一條 $p_t$。而生成要的只是最後那個 $p_1=p_{\text{data}}$。
+
+所以聽起來，這兩層自由度其實是**免費**的——隨便挑一個滿足式子的速度場，生出來的樣本分布都一樣。
+
+**這樣想哪裡不對？**
+
+<Answer>
+就「生出來的分布」而言，**完全沒有不對**——那正是 continuity equation 說的話。
+
+不對的是「所以隨便挑都一樣好」這個推論。因為我們不是把 $\psi_1$ 算出來，而是**用數值方法解 ODE**，而解 ODE 要花的步數取決於**軌跡長什麼樣子**。
+
+demo 裡的「旋轉」就是最極端的例子：粒子一圈一圈地繞，分布從頭到尾不動。它確實滿足 continuity equation（$\nabla\cdot(p_tw)=0$），但你要是把它加到一個正確的速度場上，軌跡會被繞得很長——而樣本分布一模一樣。
+
+> **兩層自由度不影響「走到哪裡」，只影響「要走幾步才走得到」。**
+
+所以挑速度場的標準不是對錯，是**代價**。<Ref to="dma-linear-path"/> 會看到路徑的選擇怎麼影響這件事，<Ref to="dma-error-theory"/> 會把「軌跡有多彎」寫成一個算得出來的數。
+</Answer>
+</Question>
+
+Flow matching 的做法很乾脆：用一個簡單的建構把**兩層一次固定下來**。那就是下一篇。
+
+<VizPlan id="w4-1-three-objects" title="速度場、軌跡、flow map：三個物件一張圖" type="static">
+- 檔名 `imgs/w4-1-1.png`，放在「先把三個容易混在一起的東西分開」這一節之後、`<Ask>` 之前。
+- 版面：左中右三格，同一個速度場的三種看法。
+  - **左「速度場 $u_t$」**：平面上一片箭頭（網格），下方標「每個路口的指示牌：往哪走、多快」。
+  - **中「一條軌跡」**：同一片箭頭淡化，只highlight 一個起點與它走出來的曲線，沿線畫幾個時間刻度 $t=0,0.25,0.5,0.75,1$，下方標「一台車照著指示牌走出來的路線」。
+  - **右「flow map $\psi_t$」**：一張規則方格網被 $\psi_t$ 拉成扭曲的網（$t=0$ 規則、$t=1$ 扭曲），下方標「所有起點的位置對照表——生成器就是 $\psi_1$」。
+- 底部一句：「網路只學左邊那一格；中間與右邊都是它的後果。」
+- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、噪聲藍／資料橘／強調靛）。
+</VizPlan>
+
+## 消化一下
+
+<QuizBlock id="w4-1-a">
+兩條 ODE 軌跡在 $t=0.5$ 相遇於同一點，之後會發生什麼？
+<Option>它們會分開，各自走向不同的終點。</Option>
+<Option correct>它們從此重合，終點相同。</Option>
+<Option>取決於速度場是不是線性。</Option>
+<Explanation>
+解的唯一性：從同一個 $(t,x)$ 出發只有一條解。這是 ODE 與 SDE 的根本差別之一——SDE 的軌跡可以相遇之後再分開。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w4-1-b">
+若 $u_t$ 生成 $p_t$，而 $w_t$ 滿足 $\nabla\cdot(p_t w_t)=0$，那麼：
+<Option>$u_t+w_t$ 生成另一條不同的分布路徑。</Option>
+<Option correct>$u_t+w_t$ 也生成同一個 $p_t$，只是粒子的軌跡不同。</Option>
+<Option>$w_t$ 一定是零。</Option>
+<Explanation>
+代進 continuity equation，多出來的那一項 $\nabla\cdot(p_t w_t)$ 是零。分布相同、走法不同——這就是 <Ref to="dma-reverse-process"/>「同一組邊際、兩種走法」在確定性世界裡的版本。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w4-1-c">
+為什麼我們學速度場，而不是直接學生成器 $\psi_1$？
+<Option>因為 $\psi_1$ 不可逆。</Option>
+<Option>因為速度場的網路比較小。</Option>
+<Option correct>因為路徑一旦指定，中間每個點的速度就是已知的回歸目標；而 $\psi_1$ 沒有現成的監督訊號。</Option>
+<Explanation>
+可逆性是結果不是原因。關鍵是「有沒有可以直接回歸的目標」——這也是 <Ref to="dma-what-are-we-learning"/> Q2 的那個坑。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-conditional-flow-matching">
+我們知道要學的是速度場，也知道它有兩層自由度。下一篇給出一個具體的建構，並證明它可以用回歸來訓練——而證明的核心，就是 <Ref to="dma-denoising-regression"/> 那個 **conditional trick**，只是換到速度場上。
+</Bridge>
+
+## 參考文獻
+
+1. Chen, R. T. Q., Rubanova, Y., Bettencourt, J., Duvenaud, D. [*Neural Ordinary Differential Equations.*](https://arxiv.org/abs/1806.07366) NeurIPS 2018. （用神經網路當速度場、解 ODE 當生成。）
+2. Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., Le, M. [*Flow Matching for Generative Modeling.*](https://arxiv.org/abs/2210.02747) ICLR 2023. （下一篇的主線。）

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>γ_t 這個旋鈕在做什麼</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 450px; aspect-ratio: 1/1; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  input[type=range] { width: 190px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
+  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：起點與終點都是同一個環，只換<b>誰配誰</b>。有些配對會讓中間的 p<sub>t</sub> <b>塌成低維</b>——那時候密度和 score 都沒有定義。而 <b>γ<sub>t</sub> z</b> 這一項就是用來把它撐開的。</p>
+
+  <canvas id="cv" width="560" height="560" aria-label="x_t 的散點與條件路徑"></canvas>
+  <p class="cap">淡藍圈＝起點分布 p₀　淡橘圈＝終點分布 p₁（同一個環）　白點＝當下的 x<sub>t</sub>　綠線＝十二組配對的條件路徑</p>
+
+  <div class="controls">
+    <div class="row"><span class="lab">配對</span>
+      <button data-c="anti" class="on">對徑（確定性）</button>
+      <button data-c="same">同位（確定性）</button>
+      <button data-c="indep">獨立</button>
+    </div>
+    <div class="row">
+      <span class="lab">t</span><input id="t" type="range" min="0" max="1" step="0.01" value="0.5" /><b id="vt">0.50</b>
+    </div>
+    <div class="row">
+      <span class="lab">γ 幅度</span><input id="g" type="range" min="0" max="1" step="0.02" value="0" /><b id="vg">0.00</b>
+      <button id="dice">🎲 重抽</button>
+    </div>
+    <div class="stats">
+      <span>γ<sub>t</sub> = <b id="vgt">—</b></span>
+      <span>散點的主方向標準差 σ₁ = <b id="v1">—</b></span>
+      <span>較薄的那一邊 σ₂ = <b id="v2">—</b></span>
+    </div>
+  </div>
+
+  <p class="observe">「對徑配對」＋γ=0：把 t 拉到 <b>0.5</b>，整個環<b>塌成一個點</b>（σ₁ 與 σ₂ 都掉到 0）。密度不存在，∇log p<sub>t</sub> 也就沒有定義。把 γ 幅度推上去，同一個 t 變成一團有厚度的雲——<b>這就是 γ<sub>t</sub> z 在買的東西</b>。再按「同位配對」：一樣是確定性配對，卻從頭到尾都是那個環，完全不塌。<b>所以「確定性配對」不等於「一定塌」，但只要有可能塌，靠密度的東西就不能無條件依賴。</b></p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var NP = 900, NPATH = 12, SPAN = 5.6, R = 1.25, JIT = 0.06;
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var tEl = document.getElementById('t'), gEl = document.getElementById('g');
+  var vt = document.getElementById('vt'), vg = document.getElementById('vg'), vgt = document.getElementById('vgt'),
+      v1 = document.getElementById('v1'), v2 = document.getElementById('v2');
+  var pal = NDFlow.palette();
+  var coup = 'anti', A = [], B = [], Z = [];
+
+  function ringPt() {
+    var a = Math.random() * 6.2832, r = R + NDFlow.randn() * JIT;
+    return [r * Math.cos(a), r * Math.sin(a)];
+  }
+  function rebuild() {
+    A = []; B = []; Z = [];
+    for (var i = 0; i < NP; i++) {
+      A.push(ringPt());
+      B.push(ringPt());                    // 只有「獨立」會用到
+      Z.push([NDFlow.randn(), NDFlow.randn()]);
+    }
+  }
+  function endB(i) {
+    if (coup === 'anti') return [-A[i][0], -A[i][1]];
+    if (coup === 'same') return [A[i][0], A[i][1]];
+    return B[i];
+  }
+  function gam(t, c) { return c * Math.sqrt(2 * t * (1 - t)); }
+  function xt(i, t, c) {
+    var b = endB(i), g = gam(t, c);
+    return [(1 - t) * A[i][0] + t * b[0] + g * Z[i][0],
+            (1 - t) * A[i][1] + t * b[1] + g * Z[i][1]];
+  }
+
+  function T2(s) {
+    var k = Math.min(s.w, s.h) / SPAN;
+    return { k: k, x: function (v) { return s.w / 2 + v * k; }, y: function (v) { return s.h / 2 - v * k; } };
+  }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx, tr = T2(s), i;
+    var t = parseFloat(tEl.value), c = parseFloat(gEl.value);
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+
+    // 兩端的分布（同一個環，畫成兩層淡點）
+    ctx.fillStyle = 'rgba(' + pal.noise[0] + ',' + pal.noise[1] + ',' + pal.noise[2] + ',0.22)';
+    for (i = 0; i < NP; i += 3) { ctx.beginPath(); ctx.arc(tr.x(A[i][0]), tr.y(A[i][1]), 1.2, 0, 6.284); ctx.fill(); }
+    ctx.fillStyle = 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',0.22)';
+    for (i = 1; i < NP; i += 3) { var b = endB(i); ctx.beginPath(); ctx.arc(tr.x(b[0]), tr.y(b[1]), 1.2, 0, 6.284); ctx.fill(); }
+
+    // 條件路徑（含 γ_t z 的鼓起）
+    ctx.strokeStyle = 'rgba(96,186,130,0.42)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    for (i = 0; i < NPATH; i++) {
+      var j = Math.floor(i * NP / NPATH);
+      ctx.beginPath();
+      for (var k = 0; k <= 40; k++) {
+        var tt = k / 40, p = xt(j, tt, c);
+        k ? ctx.lineTo(tr.x(p[0]), tr.y(p[1])) : ctx.moveTo(tr.x(p[0]), tr.y(p[1]));
+      }
+      ctx.stroke();
+    }
+
+    // 當下的 x_t
+    var mx = 0, my = 0, pts = [];
+    for (i = 0; i < NP; i++) { var p = xt(i, t, c); pts.push(p); mx += p[0]; my += p[1]; }
+    mx /= NP; my /= NP;
+    ctx.fillStyle = 'rgba(255,255,255,0.82)';
+    for (i = 0; i < NP; i++) { ctx.beginPath(); ctx.arc(tr.x(pts[i][0]), tr.y(pts[i][1]), 1.6, 0, 6.284); ctx.fill(); }
+
+    // 主成分標準差
+    var sxx = 0, syy = 0, sxy = 0;
+    for (i = 0; i < NP; i++) { var dx = pts[i][0] - mx, dy = pts[i][1] - my; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; }
+    sxx /= NP; syy /= NP; sxy /= NP;
+    var tr2 = sxx + syy, det = sxx * syy - sxy * sxy;
+    var disc = Math.sqrt(Math.max(0, tr2 * tr2 / 4 - det));
+    var l1 = tr2 / 2 + disc, l2 = tr2 / 2 - disc;
+
+    vt.textContent = t.toFixed(2);
+    vg.textContent = c.toFixed(2);
+    vgt.textContent = gam(t, c).toFixed(3);
+    v1.textContent = Math.sqrt(Math.max(0, l1)).toFixed(3);
+    v2.textContent = Math.sqrt(Math.max(0, l2)).toFixed(3);
+  }
+
+  function seg(sel, attr, set) {
+    Array.prototype.forEach.call(document.querySelectorAll(sel), function (b) {
+      b.onclick = function () {
+        Array.prototype.forEach.call(document.querySelectorAll(sel), function (o) { o.classList.remove('on'); });
+        b.classList.add('on'); set(b.dataset[attr]); draw();
+      };
+    });
+  }
+  seg('[data-c]', 'c', function (v) { coup = v; });
+  tEl.oninput = draw; gEl.oninput = draw;
+  document.getElementById('dice').onclick = function () { rebuild(); draw(); };
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  rebuild(); applyTheme();
+})();
+</script>
+</body>
+</html>

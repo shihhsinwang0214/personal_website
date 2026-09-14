@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>每步翻開幾個：marginal 的乘積 vs 真實的 joint</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 560px; aspect-ratio: 16/9; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
+  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：網路只給每個位置的 <b>marginal</b>。一次翻開 k 個位置，就是<b>假設它們條件獨立</b>——相依越強、k 越大，漏掉的越多。一次翻開一個永遠沒有這個誤差，而那就是 autoregressive。</p>
+
+  <canvas id="cv" width="640" height="360" aria-label="parity toy 的因子化誤差"></canvas>
+  <p class="cap">上排＝8 格 0/1 序列（灰＝還沒翻開）　左表＝將要翻開那組位置的<b>真實 joint</b>（灰＝不合法，機率 0）　右表＝<b>marginal 的乘積</b>（每一個組合都有值）　k≥4 時組合太多，畫成一排細柱</p>
+
+  <div class="controls">
+    <div class="row"><span class="lab">每步翻開幾個</span>
+      <button data-k="1" class="on">1（8 步）</button>
+      <button data-k="2">2（4 步）</button>
+      <button data-k="4">4（2 步）</button>
+      <button data-k="8">8（1 步）</button>
+    </div>
+    <div class="row">
+      <button id="next">下一步</button>
+      <button id="all">跑完一次</button>
+      <button id="reset">重來</button>
+      <button id="many">跑 1000 次看合法率</button>
+    </div>
+    <div class="stats">
+      <span>這一步的因子化誤差 FE = <b id="vfe">—</b></span>
+      <span>目前序列 = <b id="vseq">—</b></span>
+      <span>合法率（1000 次）= <b id="vlr">—</b></span>
+    </div>
+  </div>
+
+  <p class="observe">資料是 <b>parity</b>：8 格 0/1，唯一的約束是<b>總和是偶數</b>。前七格完全自由（marginal 都是 0.5/0.5），第八格被前七格決定。按 k=1：每一步只翻開一格，FE 一直是 0，合法率 <b>100%</b>。按 k=2 或更大：最後一步同時翻開最後兩格時，真實 joint 只有兩種合法組合、marginal 的乘積卻把四種都給了同樣的權重，<b>FE = log 2 ≈ 0.693</b>，合法率掉到 <b>50%</b>。誤差<b>只出現在有相依的那一步</b>——這就是離散世界的「彎」。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var L = 8;
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var pal = NDFlow.palette();
+  var vfe = document.getElementById('vfe'), vseq = document.getElementById('vseq'), vlr = document.getElementById('vlr');
+  var k = 1, cells = [], order = [], ptr = 0, curSet = [], joint = null, prod = null, fe = 0, legalRate = null;
+
+  function shuffled() {
+    var a = []; for (var i = 0; i < L; i++) a.push(i);
+    for (var j = L - 1; j > 0; j--) { var r = Math.floor(Math.random() * (j + 1)); var tmp = a[j]; a[j] = a[r]; a[r] = tmp; }
+    return a;
+  }
+  function reset() {
+    cells = new Array(L).fill(null); order = shuffled(); ptr = 0;
+    curSet = []; joint = null; prod = null; fe = 0; legalRate = null;
+    prepare(); draw();
+  }
+  // 真實的 joint：對還沒翻開的位置集合 S，列舉所有讓總和為偶數的填法
+  function jointOn(S) {
+    var free = [];
+    for (var i = 0; i < L; i++) if (cells[i] === null && S.indexOf(i) < 0) free.push(i);
+    var known = 0;
+    for (var q = 0; q < L; q++) if (cells[q] !== null) known += cells[q];
+    var n = S.length, tab = new Array(1 << n).fill(0), tot = 0;
+    for (var m = 0; m < (1 << n); m++) {
+      var sum = known, ones = 0;
+      for (var b = 0; b < n; b++) if (m & (1 << b)) { sum++; ones++; }
+      // 剩下的 free 位置可以自由選，只要能把總和補成偶數
+      var w;
+      if (free.length === 0) w = (sum % 2 === 0) ? 1 : 0;
+      else w = Math.pow(2, free.length - 1);      // 一半的填法能補成偶數
+      tab[m] = w; tot += w;
+    }
+    if (tot === 0) return null;
+    for (var z = 0; z < tab.length; z++) tab[z] /= tot;
+    return tab;
+  }
+  function marginals(tab, n) {
+    var mg = [];
+    for (var b = 0; b < n; b++) {
+      var p1 = 0;
+      for (var m = 0; m < (1 << n); m++) if (m & (1 << b)) p1 += tab[m];
+      mg.push(p1);
+    }
+    return mg;
+  }
+  function prepare() {
+    curSet = order.slice(ptr, ptr + k);
+    if (curSet.length === 0) { joint = prod = null; fe = 0; return; }
+    var n = curSet.length;
+    joint = jointOn(curSet);
+    var mg = marginals(joint, n);
+    prod = new Array(1 << n).fill(0);
+    for (var m = 0; m < (1 << n); m++) {
+      var p = 1;
+      for (var b = 0; b < n; b++) p *= (m & (1 << b)) ? mg[b] : (1 - mg[b]);
+      prod[m] = p;
+    }
+    // FE = KL(joint ‖ prod)
+    fe = 0;
+    for (var z = 0; z < joint.length; z++) if (joint[z] > 0) fe += joint[z] * Math.log(joint[z] / Math.max(1e-12, prod[z]));
+  }
+  function step() {
+    if (curSet.length === 0) return;
+    var n = curSet.length, mg = marginals(joint, n);
+    for (var b = 0; b < n; b++) cells[curSet[b]] = (Math.random() < mg[b]) ? 1 : 0;
+    ptr += n; prepare(); draw();
+  }
+  function runMany() {
+    var ok = 0, R = 1000;
+    for (var r = 0; r < R; r++) {
+      cells = new Array(L).fill(null); order = shuffled(); ptr = 0; prepare();
+      while (ptr < L) {
+        var n = curSet.length, mg = marginals(joint, n);
+        for (var b = 0; b < n; b++) cells[curSet[b]] = (Math.random() < mg[b]) ? 1 : 0;
+        ptr += n; prepare();
+      }
+      var sum = 0; for (var i = 0; i < L; i++) sum += cells[i];
+      if (sum % 2 === 0) ok++;
+    }
+    legalRate = ok / R;
+    reset(); legalRate = ok / R; draw();
+  }
+  function lay(s) {
+    var pad = 24, h = s.h;
+    return { pad: pad, cw: (s.w - 2 * pad) / L, cy: 0.08 * h, ch: 0.17 * h, ty: 0.40 * h, th: 0.50 * h };
+  }
+  function rrect(ctx, x, y, w, h, rr) {
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y); ctx.lineTo(x + w - rr, y); ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+    ctx.lineTo(x + w, y + h - rr); ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    ctx.lineTo(x + rr, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+    ctx.lineTo(x, y + rr); ctx.quadraticCurveTo(x, y, x + rr, y); ctx.closePath();
+  }
+  function drawTable(ctx, x0, y0, w, h, tab, n, title) {
+    ctx.font = '700 10px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.72)'; ctx.textAlign = 'left';
+    ctx.fillText(title, x0, y0 - 6);
+    if (!tab) return;
+    var m = tab.length, i;
+    var DATA = 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',';
+    if (n <= 3) {
+      var cols = Math.min(4, m), rows = Math.ceil(m / cols);
+      var cw = w / cols, chh = Math.min(h / rows, 34);
+      for (i = 0; i < m; i++) {
+        var r = Math.floor(i / cols), c = i % cols;
+        var p = tab[i], x = x0 + c * cw, y = y0 + r * chh, zero = p < 1e-9;
+        ctx.fillStyle = zero ? 'rgba(255,255,255,0.10)' : DATA + (0.22 + 0.72 * Math.min(1, p * m / 1.6)) + ')';
+        ctx.fillRect(x, y, cw - 3, chh - 3);
+        ctx.fillStyle = zero ? 'rgba(255,255,255,0.35)' : '#15161a';
+        ctx.textAlign = 'center';
+        var bits = '';
+        for (var b = n - 1; b >= 0; b--) bits += (i & (1 << b)) ? '1' : '0';
+        ctx.font = '700 10px "Plus Jakarta Sans", system-ui, sans-serif';
+        ctx.fillText(bits, x + (cw - 3) / 2, y + chh / 2 - 1);
+        ctx.font = '500 9px "Plus Jakarta Sans", system-ui, sans-serif';
+        ctx.fillText(zero ? '0' : p.toFixed(2), x + (cw - 3) / 2, y + chh / 2 + 10);
+      }
+    } else {
+      // 2^n 太多，畫成一排細柱
+      var bw = w / m, mx = 0;
+      for (i = 0; i < m; i++) mx = Math.max(mx, tab[i]);
+      var hh = Math.min(h * 0.62, 96);
+      ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x0, y0 + hh); ctx.lineTo(x0 + w, y0 + hh); ctx.stroke();
+      for (i = 0; i < m; i++) {
+        var q = tab[i];
+        if (q < 1e-12) { ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fillRect(x0 + i * bw, y0 + hh - 2, Math.max(0.8, bw - 0.3), 2); continue; }
+        var hgt = Math.max(1, q / mx * hh);
+        ctx.fillStyle = DATA + '0.85)';
+        ctx.fillRect(x0 + i * bw, y0 + hh - hgt, Math.max(0.8, bw - 0.3), hgt);
+      }
+      var nz = 0;
+      for (i = 0; i < m; i++) if (tab[i] > 1e-12) nz++;
+      ctx.font = '500 9px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.textAlign = 'left';
+      ctx.fillText(m + ' 個組合，其中 ' + nz + ' 個機率不是 0', x0, y0 + hh + 14);
+    }
+  }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx, Y = lay(s), i;
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    var ORANGE = 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',0.9)';
+    var GREY = 'rgba(255,255,255,0.18)';
+    for (i = 0; i < L; i++) {
+      var x = Y.pad + i * Y.cw, w = Y.cw - 4;
+      var sel = curSet.indexOf(i) >= 0;
+      ctx.fillStyle = cells[i] === null ? GREY : ORANGE;
+      rrect(ctx, x, Y.cy, w, Y.ch, 5); ctx.fill();
+      if (sel) { ctx.strokeStyle = pal.accent; ctx.lineWidth = 2.4; ctx.stroke(); }
+      ctx.fillStyle = cells[i] === null ? 'rgba(255,255,255,0.55)' : '#15161a';
+      ctx.font = '700 15px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(cells[i] === null ? '▨' : String(cells[i]), x + w / 2, Y.cy + Y.ch / 2 + 5.5);
+    }
+    var n = curSet.length;
+    if (n > 0) {
+      var half = (s.w - 2 * Y.pad - 24) / 2;
+      drawTable(ctx, Y.pad, Y.ty, half, Y.th, joint, n, '真實 joint（' + n + ' 個位置）');
+      drawTable(ctx, Y.pad + half + 24, Y.ty, half, Y.th, prod, n, 'marginal 的乘積');
+    } else {
+      ctx.font = '700 12px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.textAlign = 'center';
+      ctx.fillText('跑完了。按「重來」再看一次。', s.w / 2, Y.ty + Y.th / 3);
+    }
+    vfe.textContent = n === 0 ? '—' : (fe < 1e-9 ? '0.000' : fe.toFixed(3));
+    vseq.textContent = cells.map(function (c) { return c === null ? '▨' : c; }).join('');
+    vlr.textContent = legalRate === null ? '—' : (100 * legalRate).toFixed(1) + '%';
+  }
+  document.getElementById('next').onclick = step;
+  document.getElementById('all').onclick = function () { while (curSet.length > 0) step(); };
+  document.getElementById('reset').onclick = reset;
+  document.getElementById('many').onclick = runMany;
+  Array.prototype.forEach.call(document.querySelectorAll('[data-k]'), function (b) {
+    b.onclick = function () {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-k]'), function (o) { o.classList.remove('on'); });
+      b.classList.add('on'); k = parseInt(b.dataset.k, 10); reset();
+    };
+  });
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  reset(); applyTheme();
+})();
+</script>
+</body>
+</html>

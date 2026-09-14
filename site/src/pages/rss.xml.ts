@@ -2,6 +2,7 @@ import rss from '@astrojs/rss';
 import type { APIRoute } from 'astro';
 import { getCollection } from 'astro:content';
 import { isPublishedNote, noteResearchArea, noteRoute, sortNotes } from '../lib/notes';
+import { noteTitles } from '../lib/noteRefs';
 
 export const GET: APIRoute = async (context) => {
   const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
@@ -9,12 +10,14 @@ export const GET: APIRoute = async (context) => {
     (note) => note.data.status === 'available' && isPublishedNote(note),
   );
 
+  const titles = await noteTitles();
+
   return rss({
     title: 'Shih-Hsin Wang Notes & Guides',
     description: 'Research notes, technical guides, and academic skill resources.',
     site: context.site,
     items: notes.map((note) => ({
-      title: note.data.title,
+      title: titles.of(note),
       description: note.data.summary,
       pubDate: note.data.updated,
       link: `${base}${noteRoute(note.data.slug, note.data.lang)}`,

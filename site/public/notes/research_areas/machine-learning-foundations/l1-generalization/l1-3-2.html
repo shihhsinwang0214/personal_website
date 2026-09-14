@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>K 買到穩定度；讓 CV 說謊的是 fold 的邊界</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：交叉驗證的 K 買的是<b>估計的穩定度</b>，而且到 5–10 就幾乎買完了。真正會讓 CV 說謊的不是 K 選錯，是<b>fold 的邊界沒有沿著資料相依的邊界畫</b>。</p>
+  <canvas id="kk" style="aspect-ratio:5/3" aria-label="橫軸 K：CV 估計的標準差（實線）與偏誤（虛線）；✕＝單次留出的參考點"></canvas>
+  <p class="cap">橫軸 K：CV 估計的標準差（實線）與偏誤（虛線）；✕＝單次留出的參考點</p>
+  <canvas id="rho" style="aspect-ratio:5/2" aria-label="橫軸＝序列的自相關 ρ：隨機切分的 CV 分數 vs 尊重時間順序的前向鏈；虛線＝真實風險"></canvas>
+  <p class="cap">橫軸＝序列的自相關 ρ：隨機切分的 CV 分數 vs 尊重時間順序的前向鏈；虛線＝真實風險</p>
+  <div class="controls">
+    <div class="row">
+      <label for="n">n</label><input id="n" type="range" min="20" max="200" step="10" value="40" />
+      <label for="d">次數 d</label><input id="d" type="range" min="1" max="12" step="1" value="5" />
+    </div>
+    <div class="row">
+      <label for="sg">噪聲 σ</label><input id="sg" type="range" min="0.05" max="0.4" step="0.01" value="0.15" />
+      <label for="rp">重複次數</label><input id="rp" type="range" min="10" max="80" step="10" value="40" />
+    </div>
+    <div class="stats"><span>真實風險 = <b id="vt">—</b></span> <span>單次留出 std = <b id="v1">—</b></span> <span>5-fold std = <b id="v2">—</b></span> <span>10-fold std = <b id="v3">—</b></span> <span>LOO std = <b id="v4">—</b></span></div>
+  </div>
+  <p class="observe">觀察：K 從 2 走到 n，標準差掉得很快然後幾乎不再改善——<b>5 到 10 之後你買不到什麼了</b>。下圖是另一回事：把序列的自相關 ρ 從 0 拉到 0.95，隨機切分的 CV 分數<b>越來越樂觀</b>（fold 裡面有和訓練點幾乎一樣的鄰居），而尊重時間順序的前向鏈仍然貼著真實風險。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var el = function (i) { return document.getElementById(i); };
+  var dK = MLF.hiDPICanvas(el('kk')), dR = MLF.hiDPICanvas(el('rho'));
+  var pal = MLF.palette(), KS = null, RS = null;
+
+  function cvScore(x, y, d, K, order) {
+    var n = x.length, idx = order || x.map(function (_, i) { return i; }), s = 0, cnt = 0, k;
+    for (k = 0; k < K; k++) {
+      var tx = [], ty = [], vx = [], vy = [], i;
+      for (i = 0; i < n; i++) {
+        var j = idx[i];
+        if (i % K === k) { vx.push(x[j]); vy.push(y[j]); } else { tx.push(x[j]); ty.push(y[j]); }
+      }
+      if (vx.length === 0 || tx.length <= d) continue;
+      var f = MLF.polyfit(tx, ty, d);
+      for (i = 0; i < vx.length; i++) { var e = MLF.polyval(f, vx[i]) - vy[i]; s += e * e; cnt++; }
+    }
+    return cnt ? s / cnt : NaN;
+  }
+
+  function computeK() {
+    var n = +el('n').value, d = +el('d').value, sg = +el('sg').value, R = +el('rp').value;
+    var Ks = [2, 3, 4, 5, 7, 10, 15, 20, Math.min(n, 40)].filter(function (k, i, a) { return k <= n && a.indexOf(k) === i; });
+    var truth = MLF.risk(MLF.polyfit(MLF.toy1d(4000, sg, 5).x, MLF.toy1d(4000, sg, 5).y, d), sg);
+    KS = { K: Ks, sd: [], bias: [], truth: truth, hold: null };
+    var r, k;
+    var hs = [];
+    for (r = 0; r < R; r++) {
+      var t = MLF.toy1d(n, sg, 300 + r);
+      var cut = Math.floor(n * 0.8);
+      var f = MLF.polyfit(t.x.slice(0, cut), t.y.slice(0, cut), d), s = 0;
+      for (var i = cut; i < n; i++) { var e = MLF.polyval(f, t.x[i]) - t.y[i]; s += e * e; }
+      hs.push(s / (n - cut));
+    }
+    KS.hold = { sd: MLF.std(hs), bias: MLF.median(hs) - truth };
+    Ks.forEach(function (K) {
+      var vals = [];
+      for (r = 0; r < R; r++) {
+        var t = MLF.toy1d(n, sg, 300 + r);
+        var ord = [], i;
+        for (i = 0; i < n; i++) ord.push(i);
+        var rr = MLF.rng(900 + r);
+        for (i = n - 1; i > 0; i--) { var j = rr.int(i + 1), tmp = ord[i]; ord[i] = ord[j]; ord[j] = tmp; }
+        var v = cvScore(t.x, t.y, d, K, ord);
+        if (isFinite(v)) vals.push(v);
+      }
+      KS.sd.push(vals.length ? MLF.std(vals) : 0);
+      KS.bias.push(vals.length ? MLF.median(vals) - truth : 0);
+    });
+  }
+
+  /* 自相關序列：x_i 沿時間排，y = sin(2pi x) + AR(1) 噪聲 */
+  function computeRho() {
+    var n = 120, d = +el('d').value, sg = +el('sg').value, R = Math.max(12, +el('rp').value / 2);
+    RS = { rho: [], rand: [], fwd: [], truth: sg * sg };
+    for (var q = 0; q <= 10; q++) {
+      var rho = q / 10 * 0.95, ra = [], fw = [], r;
+      for (r = 0; r < R; r++) {
+        var rr = MLF.rng(4000 + r * 7 + q), x = [], y = [], e = 0, i;
+        for (i = 0; i < n; i++) x.push(i / (n - 1));
+        for (i = 0; i < n; i++) {
+          e = rho * e + Math.sqrt(1 - rho * rho) * rr.normal();
+          y.push(MLF.truth(x[i]) + sg * e);
+        }
+        var ord = [], j;
+        for (i = 0; i < n; i++) ord.push(i);
+        for (i = n - 1; i > 0; i--) { j = rr.int(i + 1); var tmp = ord[i]; ord[i] = ord[j]; ord[j] = tmp; }
+        ra.push(cvScore(x, y, d, 5, ord));
+        // 前向鏈：只用過去預測未來
+        var s = 0, c = 0;
+        for (var b = 1; b < 5; b++) {
+          var cut = Math.floor(n * b / 5), hi = Math.floor(n * (b + 1) / 5);
+          var f = MLF.polyfit(x.slice(0, cut), y.slice(0, cut), d);
+          for (i = cut; i < hi; i++) { var ee = MLF.polyval(f, x[i]) - y[i]; s += ee * ee; c++; }
+        }
+        fw.push(s / c);
+      }
+      RS.rho.push(rho);
+      RS.rand.push(MLF.median(ra.filter(isFinite)));
+      RS.fwd.push(MLF.median(fw.filter(isFinite)));
+    }
+  }
+
+  function drawK() {
+    var s = dK.resize(), ctx = dK.ctx; MLF.clear(ctx, s, pal);
+    var hi = Math.max(KS.hold.sd, Math.max.apply(null, KS.sd)) * 1.2 || 0.01;
+    var ax = MLF.axes(ctx, s, { x: [2, KS.K[KS.K.length - 1]], y: [0, hi], pal: pal,
+      xticks: KS.K, yticks: [0, hi / 2, hi], fmty: function (v) { return v.toFixed(3); },
+      xlab: 'K（fold 數）', ylab: '估計的標準差' });
+    var p = KS.K.map(function (k, i) { return [k, KS.sd[i]]; });
+    MLF.line(ctx, ax, p, MLF.rgb(pal.d), 2.2);
+    var bmax = Math.max.apply(null, KS.bias.map(Math.abs)) || 1;
+    var q = KS.K.map(function (k, i) { return [k, Math.abs(KS.bias[i]) / bmax * hi * 0.5]; });
+    MLF.line(ctx, ax, q, MLF.rgb(pal.a, 0.85), 1.6, [5, 4]);
+    var hx = ax.box.l + 4, hy = ax.Y(Math.min(hi, KS.hold.sd));
+    ctx.strokeStyle = MLF.rgb(pal.c); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(hx - 5, hy - 5); ctx.lineTo(hx + 5, hy + 5);
+    ctx.moveTo(hx + 5, hy - 5); ctx.lineTo(hx - 5, hy + 5); ctx.stroke();
+    MLF.label(ctx, hx + 9, hy, '單次留出', MLF.rgb(pal.c));
+    MLF.legend(ctx, ax, [{ t: '標準差', c: MLF.rgb(pal.d) }, { t: '|偏誤|（縮放後）', c: MLF.rgb(pal.a) }], 'tr', pal);
+  }
+
+  function drawRho() {
+    var s = dR.resize(), ctx = dR.ctx; MLF.clear(ctx, s, pal);
+    var hi = Math.max(Math.max.apply(null, RS.rand), Math.max.apply(null, RS.fwd)) * 1.15 || 0.1;
+    var ax = MLF.axes(ctx, s, { x: [0, 0.95], y: [0, hi], pal: pal,
+      xticks: [0, 0.25, 0.5, 0.75, 0.95], yticks: [0, hi / 2, hi],
+      fmty: function (v) { return v.toFixed(3); }, xlab: '序列的自相關 ρ' });
+    MLF.line(ctx, ax, RS.rho.map(function (r, i) { return [r, RS.rand[i]]; }), MLF.rgb(pal.d), 2.2);
+    MLF.line(ctx, ax, RS.rho.map(function (r, i) { return [r, RS.fwd[i]]; }), MLF.rgb(pal.c), 2.2);
+    MLF.ref(ctx, ax, { y: RS.truth, color: MLF.rgb(pal.a, 0.8) });
+    MLF.label(ctx, ax.box.l + 6, ax.Y(RS.truth) - 7, '不可約誤差 σ²', MLF.rgb(pal.a, 0.9));
+    MLF.legend(ctx, ax, [{ t: '隨機切分 5-fold', c: MLF.rgb(pal.d) }, { t: '前向鏈', c: MLF.rgb(pal.c) }], 'tl', pal);
+  }
+
+  function draw() {
+    computeK(); computeRho();
+    el('vt').textContent = KS.truth.toFixed(4);
+    el('v1').textContent = KS.hold.sd.toFixed(4);
+    function at(k) { var i = KS.K.indexOf(k); return i < 0 ? '—' : KS.sd[i].toFixed(4); }
+    el('v2').textContent = at(5);
+    el('v3').textContent = at(10);
+    el('v4').textContent = KS.sd[KS.sd.length - 1].toFixed(4);
+    drawK(); drawRho();
+  }
+  ['n', 'd', 'sg', 'rp'].forEach(function (i) { el(i).onchange = draw; });
+  window.addEventListener('resize', function () { drawK(); drawRho(); });
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; drawK(); drawRho(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  draw();
+
+})();
+</script>
+</body>
+</html>

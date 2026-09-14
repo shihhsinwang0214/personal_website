@@ -1,0 +1,243 @@
+---
+slug: "dma-w5-3-rectified-flow"
+label: "dma-rectified-flow"
+prereqs:
+  - math-jensen
+  - math-vector-field-ode
+lang: "zh"
+title: "拉直（一）：讓模型自己生出配對"
+category: "courses"
+group: "Week 5 · Stochastic Interpolants 與共用技巧"
+status: "available"
+updated: 2026-09-13
+summary: "ODE 軌跡不交叉，所以用模型自己的 ODE 生成配對就得到一組更不交叉的配對。定義 rectification 運算與它的三個性質、定義 straightness，並說明 reflow 要付的代價。"
+demos: []
+references:
+  - label: "Liu, Gong & Liu, Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow (ICLR 2023)"
+    href: "https://arxiv.org/abs/2209.03003"
+  - label: "Liu et al., InstaFlow: One Step is Enough for High-Quality Diffusion-Based Text-to-Image Generation (ICLR 2024)"
+    href: "https://arxiv.org/abs/2309.06380"
+  - label: "Esser et al., Scaling Rectified Flow Transformers for High-Resolution Image Synthesis (ICML 2024)"
+    href: "https://arxiv.org/abs/2403.03206"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Details from '../../../components/Details.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 拉直（一）：讓模型自己生出配對
+
+<Objectives>
+- **定義 rectification 運算，並說出它的三個性質：保邊際、不增運輸成本、軌跡不交叉。** 第一條是整個迭代能成立的前提。
+- **定義 straightness，並說出 Liu 等人那個「運輸成本是有限預算」的簿記論證為什麼逼著它趨近零。** 而下界正是 OT 的成本。
+- **說出 reflow 要付的三個代價。** 包含它會把上一輪的模型誤差帶進配對裡。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 一個很便宜的觀察
+
+<Ref to="dma-linear-path"/> Q1 的結論可以倒過來讀。那裡說：**邊際軌跡彎，因為條件直線交叉；交叉，因為配對是隨機的。** 而 <Ref to="dma-flows-and-continuity"/> 又說：**ODE 的軌跡不會交叉。**
+
+把這兩句話放在一起，就得到一個不必增加任何新機器的想法：如果配對是由某條 ODE 的「起點 → 終點」生出來的，那這組配對的軌跡本來就不交叉，它的條件直線也就不會亂交錯。
+
+> **配對不必自己設計——讓上一輪的模型生出來就好。**
+
+而我們手上正好有一條 ODE——就是訓好的模型自己。
+
+<Ask>
+能不能拿模型自己的取樣結果，<br />
+當成下一輪訓練的配對？
+</Ask>
+
+## 一輪要做哪三件事
+
+可以，而且整件事寫成三步就結束了。給一個耦合 $(X_0,X_1)\sim\pi$（一開始就用最沒有結構的獨立配對）：
+
+1. 照 <Ref to="dma-linear-path"/> 的直線插值 $X_t=(1-t)X_0+tX_1$，得到邊際速度 $v_t(x)=\mathbb E[X_1-X_0\mid X_t=x]$。
+2. 解 ODE $\dot Z_t=v_t(Z_t)$、$Z_0=X_0$，走到 $t=1$ 得到 $Z_1$。
+3. 把 $(Z_0,Z_1)$ 當成**新的**耦合：$\pi'=\mathsf R(\pi)$。
+
+這個運算叫 **rectification**，把它一輪一輪疊上去（$\pi^{k+1}=\mathsf R(\pi^k)$）就是 **reflow**——本篇之後都用這兩個名字。
+
+$\mathsf R$ 吃一個耦合、吐一個耦合，而它其實是：**「訓練一個 FM 模型，然後用 ODE 取樣」這件事，在耦合的層次上就是 $\mathsf R$。** 所以 reflow 不需要任何新的機器，只是把已經在做的事再做一次，並且把輸出接回輸入。
+
+## 這一招為什麼不需要新的機器
+
+**（一）保邊際。** $Z_0\sim p_0$ 是定義；$Z_1\sim p_1$ 來自 <Ref to="dma-conditional-flow-matching"/> 的定理 1（$v_t$ 生成 $p_t$，而 $p_1=p_{\text{data}}$）。所以 $\mathsf R(\pi)$ 仍然是 $p_0$ 與 $p_1$ 的耦合——**可以再餵回去**。這條性質是整個迭代能成立的前提。
+
+**（二）不增運輸成本。** 對任何凸函數 $c$，
+
+$$
+\mathbb E\big[c(Z_1-Z_0)\big]\ \le\ \mathbb E\big[c(X_1-X_0)\big].
+$$
+
+取 $c(\cdot)=\|\cdot\|^2$ 就是：**新配對的平均位移平方不會比舊的大。** 粒子不再繞路。
+
+<Details summary="不增運輸成本：兩次 Jensen">
+$Z_1-Z_0=\int_0^1 v_t(Z_t)\,dt$，而 $v_t(Z_t)=\mathbb E[X_1-X_0\mid X_t=Z_t]$。
+
+先對時間用 Jensen（$c$ 是凸的，$\int_0^1\cdot\,dt$ 是一個平均）：
+
+$$
+c\Big(\int_0^1 v_t(Z_t)\,dt\Big)\ \le\ \int_0^1 c\big(v_t(Z_t)\big)\,dt .
+$$
+
+再對條件期望用 Jensen：$c(\mathbb E[X_1-X_0\mid X_t])\le\mathbb E[c(X_1-X_0)\mid X_t]$。最後取期望，並用 $Z_t$ 與 $X_t$ 同分布（性質一的推論）把兩邊接起來：
+
+$$
+\mathbb E\big[c(Z_1-Z_0)\big]\le\int_0^1\mathbb E\big[c(X_1-X_0)\big]\,dt=\mathbb E\big[c(X_1-X_0)\big].\qquad\square
+$$
+
+兩次 Jensen 各對付一個「取平均」：一次是沿時間平均，一次是對後驗平均。
+</Details>
+
+**（三）不交叉。** $Z_t$ 是 ODE 的解，Lipschitz 之下唯一，所以兩條 $Z$ 軌跡不交叉。$\mathsf R(\pi)$ 的條件直線 $\lbrace(1-t)Z_0+tZ_1\rbrace$ 是這些不交叉軌跡的**弦**。
+
+嚴格說弦還是有可能交叉——但比原本的隨機配對少太多了。這件事就是下面 demo 要看的。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-3-reflow.html" class="demo-frame" title="Reflow：讓模型自己生出配對：互動 demo" style="height: 1060px; width: 100%; border: none;"></iframe>
+
+**互動 demo：reflow 一輪一輪看。** 按 0 → 1 → 2 → 3。第 0 輪的配對直線交錯成一團，ODE 軌跡明顯彎；第 1 輪之後配對幾乎互不相交、軌跡幾乎就是那些直線。**第一輪就吃掉大部分好處**：straightness（下一節會定義；直覺上就是「條件直線的方向和實際速度差多少」，直線時為 0）從約 1.4 掉到 0.03，1 步 Euler 的誤差從約 1.4 掉到 0.1，運輸成本（配對兩端距離平方的平均，$\mathbb E\|X_1-X_0\|^2$）從約 4.0 掉到 0.6。同時「終點分布與資料的距離」一直在 0.01 以下——**保邊際那條性質是真的**，這些改善不是拿樣本品質換來的。
+
+## 為什麼一直做下去會變直？
+
+把「直」寫成一個數：
+
+$$
+S(\pi)=\int_0^1\mathbb E\big[\|(X_1-X_0)-v_t(X_t)\|^2\big]\,dt .
+$$
+
+白話是：**每個粒子自己的條件速度，和它在那個位置實際被指派到的邊際速度，差多少。** $S=0$ 等價於 $v_t(X_t)=X_1-X_0$ 幾乎處處成立——粒子照著自己的直線走，軌跡是直線，而且**一步 Euler 就精確**。
+
+Liu et al. [1] 證明對迭代 $\pi^{k+1}=\mathsf R(\pi^k)$ 有
+
+$$
+\sum_{k=0}^{K}S(\pi^k)\ \le\ \mathbb E\|X_1-X_0\|^2\Big|_{\pi^0},
+\qquad\text{所以}\quad \min_{k\le K}S(\pi^k)=O(1/K).
+$$
+
+論證是一個很漂亮的簿記，而且它就是 Liu 等人 [1] 的定理本身，不只是直覺：**每一輪 rectification 省下來的運輸成本，至少等於那一輪的 straightness。** 而運輸成本有下界——它不可能小於「兩個邊際之間最省的那個配對」的成本，那個下界就是 **optimal transport**（OT）的成本（<Ref to="dma-minibatch-ot"/> 會正式定義並給出它的性質）。既然每一輪都要從一個有限的預算裡扣掉 $S(\pi^k)$，而預算扣不完，$\sum_k S(\pi^k)$ 就必須收斂，於是 $S(\pi^k)\to0$。
+
+<Remark label="補充" summary="這個 S 和上一篇的曲率積分是同一件事">
+<Ref to="dma-error-theory"/> 的 $\int\|\ddot x_t\|\,dt$ 與這裡的 $S$ 是同一件事的兩種寫法。
+
+$S=0$ 時 $v_t(Z_t)=Z_1-Z_0$ 是一個**不隨 $t$ 變**的常向量，於是
+
+$$
+\ddot Z_t=\frac{d}{dt}v_t(Z_t)=\frac{d}{dt}(Z_1-Z_0)=0 ,
+$$
+
+曲率積分也是零。差別只在 $S$ 是一個對訓練資料算得出來的量（不需要解 ODE），而曲率積分要沿著軌跡積——所以 reflow 直接壓 $S$。
+</Remark>
+
+## 直是有代價的
+
+> **reflow 買到的是「直」，付出的是多樣性與上一輪的模型誤差。**
+
+**誤差累積。** 第 $k$ 輪的配對來自第 $k-1$ 輪模型的 ODE 解，所以模型的逼近誤差和取樣的數值誤差會一起變成下一輪的訓練資料。**上面 demo 用的是精確算出來的場，所以它顯示的是這件事的上限，不是實際會拿到的。** 實務上一到兩輪就停。
+
+**多樣性。** 每一輪的配對都是確定性映射、$\gamma\equiv0$，<Ref to="dma-error-theory"/> Q1 說過這時候沒有可回歸的 score。模型變成一個純確定的映射，樣本的隨機性**完全**來自 $p_0$——而且沒有 SDE 取樣器可以退回去用。
+
+**極限未必是 OT。** 運輸成本單調下降，但沒有理由收斂到 OT 成本。經驗上很接近，但那是經驗，不是定理。
+
+<Question id="Q1">
+Reflow 和下一篇的 minibatch OT 都只改「配對」。端點分布 $p_0$、$p_1$ 完全沒動，中間路徑也還是同一條直線插值。
+
+**那為什麼只改配對，軌跡的曲率就變了？**
+
+<Answer>
+因為邊際速度是一個**條件期望**：
+
+$$
+v_t(x)=\mathbb E[X_1-X_0\mid X_t=x],
+$$
+
+而條件期望取決於**聯合分布**，不只是兩個邊際。同一組 $p_0,p_1$ 配上不同的 $\pi$，經過 $x$ 的那些條件直線就是不同的一批，方向的分布也不同，平均出來的 $v_t$ 自然不同。
+
+具體看兩端：
+
+- **獨立配對**：經過 $x$ 的直線來自四面八方，平均之後的方向偏離其中每一條——這就是 <Ref to="dma-conditional-flow-matching"/> demo 裡那支「明顯比細箭頭短」的粗箭頭。
+- **不交叉配對**：經過 $x$ 附近的直線幾乎彼此平行，平均之後幾乎就是那個共同方向，於是 $v_t(X_t)\approx X_1-X_0$、$S\approx0$。
+
+**中間的邊際分布 $p_t$ 也會隨 $\pi$ 改變**，即使兩端固定。<Ref to="dma-unified-equation"/> 的 demo 就是這件事最極端的版本——同一個環配同一個環，換配對可以讓 $p_{1/2}$ 從一個環變成一個點。
+
+所以「路徑」和「配對」這兩個旋鈕**不是完全獨立的**：配對決定了中間的 $p_t$ 長什麼樣，而路徑 $(\alpha_t,\beta_t)$ 只是決定在給定配對之下怎麼從 $x_0$ 走到 $x_1$。
+</Answer>
+</Question>
+
+<VizPlan id="w5-3-rectification-loop" title="Rectification 是一個迴圈" type="static">
+- 檔名 `imgs/w5-3-1.png`，放在 Q1 之後、「消化一下」之前。
+- 版面：一個順時針的大迴圈，四個節點，節點之間用粗箭頭連起來。
+  - 節點 1「配對 $\pi^k$」：兩團點之間的連線（第一輪畫成交錯的樣子）。
+  - 節點 2「訓練」：一個小方塊寫 $v_\theta\approx\mathbb E[X_1-X_0\mid X_t]$。
+  - 節點 3「用 ODE 取樣」：從藍點出發的一條彎曲軌跡走到橘點。
+  - 節點 4「新配對 $\pi^{k+1}=(Z_0,Z_1)$」：同樣兩團點，但連線幾乎平行、不交叉。
+  - 從節點 4 回到節點 1 的箭頭上標「再做一次」。
+- 迴圈中央放三行字（三個性質）：「保邊際：$Z_1\sim p_1$，所以接得回去」「不增成本：$\mathbb E\|Z_1-Z_0\|^2\le\mathbb E\|X_1-X_0\|^2$」「不交叉：ODE 軌跡不交叉」。
+- 右下角一個小的折線圖：橫軸輪數 0–3，三條線（成本、$S$、1 步誤差）都往下掉，並標出「第一輪掉最多」。
+- 底部一句：「$\mathsf R$ 不需要新機器——它就是『訓練 ＋ 取樣』這件事，只是把輸出接回輸入。」
+- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、噪聲藍 `#4a90e2`／資料橘 `#f0803c`／強調靛 `#2a4ea3`／路徑綠 `#60ba82`）。
+- 長寬比：約 16:10。
+</VizPlan>
+
+## 消化一下
+
+<QuizBlock id="w5-3-a">
+Rectification 為什麼保邊際？
+<Option>因為它是線性運算。</Option>
+<Option correct>因為 $Z_1$ 是由生成 $p_t$ 的速度場積分到 $t=1$ 得到的，所以 $Z_1\sim p_1$。</Option>
+<Option>因為它假設 $\pi$ 已經是 OT。</Option>
+<Explanation>
+這是 <Ref to="dma-conditional-flow-matching"/> 定理 1 的直接應用。沒有這條性質，$\mathsf R(\pi)$ 就不能再當配對餵回去，整個迭代也就不存在。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w5-3-b">
+$S(\pi)=0$ 代表什麼？
+<Option>$\pi$ 是 OT 耦合。</Option>
+<Option correct>每個粒子的邊際速度等於它自己的條件速度，軌跡是直線，一步 Euler 就精確。</Option>
+<Option>$p_0=p_1$。</Option>
+<Explanation>
+**直不等於最省。** $S=0$ 只保證不交叉且是直線，運輸成本不一定是最小的——這也是 reflow 的極限未必是 OT 的原因。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w5-3-c">
+做完三輪 reflow 之後，模型取樣的多樣性來自哪裡？
+<Option>配對更有結構，所以多樣性增加。</Option>
+<Option correct>只來自 $p_0$ 的隨機性。模型本身是確定映射，而且沒有可回歸的 score 可以拿來做加噪聲的取樣。</Option>
+<Option>不受影響。</Option>
+<Explanation>
+這是 <Ref to="dma-error-theory"/> Q1 那個張力在實務上的樣子：拉直換來的少步數能力，代價是失去 SDE 取樣這條退路。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w5-3-d">
+關於 demo 顯示的數字，下列哪一句**不對**？
+<Option>第一輪的改善遠大於後面幾輪。</Option>
+<Option>終點分布與資料的距離幾乎沒有變大。</Option>
+<Option correct>因為 demo 用的是精確算出來的場，所以實際訓練也會得到同樣的改善幅度。</Option>
+<Explanation>
+精確場等於「網路完美、取樣無誤差」，所以 demo 顯示的是**上限**。實際上每一輪的配對都帶著上一輪的模型誤差與數值誤差，這正是實務上只做一到兩輪的原因。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-minibatch-ot">
+Reflow 的代價是要多訓一輪，而且會把上一輪的誤差帶進來。下一篇的方法在訓練的當下就把配對換掉，不需要額外輪次。
+</Bridge>
+
+## 參考文獻
+
+1. Liu, X., Gong, C., Liu, Q. [*Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow.*](https://arxiv.org/abs/2209.03003) ICLR 2023. （rectification 運算、三個性質、straightness 與 $O(1/K)$ 的收斂。）
+2. Liu, X., et al. [*InstaFlow: One Step is Enough for High-Quality Diffusion-Based Text-to-Image Generation.*](https://arxiv.org/abs/2309.06380) ICLR 2024. （把 reflow 推到文字生圖上、真的做到一步。）
+3. Esser, P., et al. [*Scaling Rectified Flow Transformers for High-Resolution Image Synthesis.*](https://arxiv.org/abs/2403.03206) ICML 2024. （大規模用線性路徑訓練的實務細節；注意它並沒有做 reflow 迭代。）

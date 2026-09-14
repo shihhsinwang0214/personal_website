@@ -1,0 +1,281 @@
+---
+slug: "ml-l2-4-loss-landscape-init"
+label: "ml-loss-landscape"
+prereqs:
+  - math-gradient
+  - math-taylor
+lang: "zh"
+title: "同一張地圖從不同地方出發：損失曲面與初始化"
+category: "courses"
+group: "L2 · 實務中的最佳化"
+status: "available"
+updated: 2026-09-10
+summary: "L2 前面每一條結論都假設損失曲面是一個碗。真實網路不是——但實測的結果比「到處都是局部極小」溫和得多：同一個架構跑 200 個隨機起點，最終訓練 MSE 的中位數是 0.0034、最差 0.0085，只有 3% 落在中位數兩倍之外。真正該調的是初始化的尺度（gain 從 0.01 到 30 掃過，最好的是 1，兩端各差兩到五倍）。而「深就會梯度消失」在 tanh 加 1/√fan-in 的初始化下量不到——比值平在 0.2 到 32 層；反而是未縮放的殘差把它放大了 328 倍。"
+demos: []
+references:
+  - label: "Glorot & Bengio, Understanding the difficulty of training deep feedforward neural networks (AISTATS 2010)"
+    href: "https://proceedings.mlr.press/v9/glorot10a.html"
+  - label: "He et al., Delving Deep into Rectifiers (ICCV 2015)"
+    href: "https://arxiv.org/abs/1502.01852"
+  - label: "Li et al., Visualizing the Loss Landscape of Neural Nets (NeurIPS 2018)"
+    href: "https://arxiv.org/abs/1712.09913"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Ask from '../../../components/Ask.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Remark from '../../../components/Remark.astro';
+import Bridge from '../../../components/Bridge.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 同一張地圖從不同地方出發：損失曲面與初始化
+
+<Objectives>
+- **量出非凸帶來的實際散佈，而不是只說「有很多局部極小」。** 用 200 個隨機起點的最終損失分布說出散佈有多大、以及該報什麼統計量。
+- **說出初始化的尺度是一個要調的旋鈕，並用一條掃描把最佳位置找出來。** 解釋兩端各自壞在哪裡（訊號太小、飽和）。
+- **判斷「深就會梯度消失」這個說法在什麼條件下成立。** 用第一層／最後一層的梯度比值實測，並說出未縮放的殘差把問題換成了什麼。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 起點：同一張地圖，兩個登山口
+
+L2 前面四篇的每一條結論都建立在同一個圖像上：損失曲面是一個碗。<Ref to="ml-gradient-descent" mode="title"/> 的門檻 $2/\lambda_{\max}$、<Ref to="ml-optimizers" mode="title"/> 的 $\sqrt\kappa$、<Ref to="ml-minibatch-noise" mode="title"/> 的噪聲地板、<Ref to="ml-regularization" mode="title"/> 的逐方向縮放——全部都是在二次問題上算的。
+
+線性模型加平方損失確實是一個碗（Hessian 是常數，見 <Ref to="ml-gradient-descent"/>）。但只要模型裡有一層非線性，這件事就不成立了：同一張地圖，從不同的登山口出發，可能下到不同的谷底。
+
+這在實務上表現成一件每個人都遇過的事：**同一份程式、只換 random seed，跑出來的分數不一樣。**
+
+問題是這件事有多嚴重。常見的說法是「高維空間裡到處都是局部極小」，聽起來像是每次都在賭運氣。這一篇要把它量出來——結果比那個說法溫和得多，而真正該花時間調的是另一個東西。
+
+<Ask>
+同一個架構、同一份資料，只換隨機起點，<br />
+會下到同一個谷底嗎？<br />
+如果不會，那我該調的是哪個旋鈕？
+</Ask>
+
+<Question id="Q1">
+把「同一張地圖、不同登山口」翻成數學：非凸到底讓哪一個保證失效了？初始化在這件事裡扮演什麼角色——它只是「隨機起點」，還是一個要調的超參數？
+
+<Answer>
+**失效的是「局部訊息足以判斷全域」這個保證。** 凸函數有一個很強的性質：$\nabla L(\theta)=0$ 就是全域最小。梯度是**局部**的量（<Ref to="math-gradient" mode="title"/>），而凸性讓這個局部的量帶著全域的資訊。非凸之後這個橋斷了——$\nabla L=0$ 只告訴你「這裡是平的」，它可能是局部極小、鞍點、或一片平原。
+
+於是 <Ref to="ml-gradient-descent" mode="title"/> 的 Taylor 論證仍然成立（每一小步仍然下降），但「走到哪裡」不再由損失函數單獨決定，而是由**損失函數加上起點**共同決定。梯度下降變成一個由起點決定終點的映射。
+
+**初始化不只是「隨機起點」，它至少決定三件事。**
+
+1. **落在哪個盆地。** 這是上面說的那件事，它給了 seed 之間的散佈。
+2. **一開始的梯度有多大。** 權重的尺度直接決定前向訊號的尺度，而前向訊號的尺度又決定反向梯度的尺度。太小 → 幾乎沒有梯度可走；太大 → 落在飽和區（$\tanh$ 的導數趨近零）或直接越過穩定門檻。
+3. **每一層拿到的梯度比例。** 深層網路裡，第一層的梯度是一連串因子的乘積；那些因子的大小由初始化的尺度決定。這是「梯度消失／爆炸」真正的來源——**它是尺度的問題，不是深度本身的問題**，本篇最後會把這件事量出來。
+
+所以 gain（初始化的標準差乘數）是一個和學習率同等地位的超參數，而不是一個實作細節。
+</Answer>
+</Question>
+
+## 兩件要分開的事：散佈與尺度
+
+**散佈**是「同一個設定跑很多次會差多少」。它決定你該怎麼**報告**結果（<Ref to="ml-seeds-and-reporting" mode="title"/> 會處理報告的部分），以及「A 比 B 好 $2\%$」這句話有沒有意義。
+
+**尺度**是「初始化的權重該多大」。它決定訓練**能不能開始**。這是一個可以先驗算出來的東西，而經典的答案是讓每一層的前向訊號變異數大致守恆：權重取標準差 $\propto 1/\sqrt{\text{fan-in}}$（Glorot／He 初始化，參考文獻 1、2）。本篇用的 gain 就是在那個基準上再乘一個倍數，$\text{gain}=1$ 表示照基準。
+
+兩件事的診斷方式不同：散佈要**跑很多個 seed 看分布**；尺度要**在初始化時量前向與反向的統計量**，不必訓練。
+
+<VizPlan id="ml-l2-4-basins" title="散佈與尺度：兩張不同的圖" type="static">
+- **檔名**：`l2-optimization-in-practice/imgs/l2-4-1.svg`（16:9，左右兩格）。
+- **左格（散佈）**：200 個最終訓練 MSE 的直方圖（橫軸 log），標出中位數 $0.0034$、最小 $0.0023$、最大 $0.0085$、第 90 百分位 $0.0046$；右尾的那 $3\%$ 用另一個顏色標「比中位數差兩倍以上」。上方一條窄帶示意「同一個架構、只換 seed」。
+- **右格（尺度）**：橫軸 log 的 gain（$0.01$ 到 $30$），縱軸最終訓練 MSE（12 個 seed 的中位數與最差值畫成一條線加一條淡帶）。谷底標在 gain$=1$（$0.0031$），兩端各標 $0.0064$ 與 $0.0156$。左端標「訊號太小、梯度太小」，右端標「落在 tanh 的飽和區」。
+- **圖說**：「左邊是同一個設定的隨機散佈——它決定你該報什麼統計量；右邊是一個要調的旋鈕——它決定訓練能不能開始。兩件事不要混在一起診斷。」
+</VizPlan>
+
+## 深度會不會讓梯度消失
+
+先把「梯度消失」寫成一個可以量的東西。深層網路裡第一層的梯度是一串因子的乘積（鏈式法則）：
+
+$$
+\frac{\partial L}{\partial W_1}
+=\underbrace{\frac{\partial L}{\partial h_D}}_{\text{最後一層}}
+\cdot\prod_{\ell=2}^{D}\underbrace{\big(W_\ell^\top \odot \sigma'(z_{\ell-1})\big)}_{\text{每一層一個因子}}
+\cdot\ \cdots
+$$
+
+每個因子的「典型大小」記為 $c$。那麼第一層相對於最後一層的梯度大小大約是 $c^{D-1}$：
+
+- $c<1$：指數衰減 → **梯度消失**，深層的前段學不動。
+- $c>1$：指數放大 → **梯度爆炸**。
+- $c\approx1$：不隨深度變化。
+
+**關鍵是 $c$ 由什麼決定。** 它是「權重的尺度」乘上「激發函數導數的典型值」——**兩個都由初始化的 gain 控制**。$1/\sqrt{\text{fan-in}}$ 這個選擇的整個目的就是把 $c$ 調到 $1$ 附近。
+
+> **「梯度消失」不是深度的性質，是初始化尺度沒調好的性質。**
+
+這句話可以直接檢驗：固定 gain 掃深度，看那個比值有沒有隨深度衰減。本篇最後會量，答案是 gain$=1$ 時**平的**。
+
+<Remark label="注意" summary="殘差連接把問題換成了另一個">
+殘差連接 $h_{\ell+1}=h_\ell+\sigma(W_\ell h_\ell)$ 常被說成「解決了梯度消失」。它確實把每個因子從「一個乘法」變成「$1+$ 一個乘法」，於是梯度有一條不衰減的通路。
+
+但那條通路也不會**縮小**：每一層都把訊號加上一份自己的輸出，所以前向與反向的量級都隨深度**成長**。本篇最後量到的比值是 $0.23\to0.52\to1.36\to13.0\to328$（深度 $2$ 到 $32$）——從「平的」變成「指數爆炸」。
+
+修法是把那一份縮小：$h_{\ell+1}=h_\ell+\alpha\,\sigma(W_\ell h_\ell)$ 取 $\alpha=1/\sqrt{D}$ 或 $\alpha$ 可學（初始化為 $0$），或者在每個 block 裡放一個正規化層把量級拉回來。**這就是為什麼殘差幾乎總是和正規化層一起出現**——它們修的是相反方向的兩個病。<Ref to="ml-unet" mode="title"/> 會回到這件事。
+</Remark>
+
+## 回到情境：兩個旋鈕各怎麼調
+
+**尺度先調，而且不用訓練就能調。** 做法：初始化之後跑一個 batch 的前向，看每一層輸出的標準差。理想是各層大致相同（不隨深度衰減或放大）；同時反向一次，看第一層與最後一層的梯度大小比。這兩個數字五分鐘就量得到，而它們決定訓練能不能開始。
+
+**散佈用來決定報告方式，不是用來挑 seed。** 跑 5–10 個 seed，報**中位數與範圍**。挑最好的那個 seed 來報告，就是 <Ref to="ml-data-splits" mode="title"/> 講的選擇偏差再來一次——只是這次選的是隨機性而不是超參數。
+
+**這一切依賴什麼。** 一，本篇的網路很小（兩層 32 單元）。散佈的大小隨規模改變，而且方向不是單調的：更大的網路在很多任務上散佈**更小**（過參數化讓不同盆地的品質趨近），但更深的網路對初始化更敏感。二，本篇量的是**訓練**損失的散佈；泛化的散佈是另一個量，通常更大。三，用 Adam 訓練會壓掉一部分初始化的影響（它的逐座標尺度會自我調整），所以同一組實驗用 SGD 跑，尺度那條曲線會更陡。
+
+## 回到情境：把散佈與尺度量出來
+
+模型是一個 $1\to32\to32\to1$ 的 $\tanh$ 網路，Adam $\eta=0.01$ 跑 4000 步，資料是共用 toy 的 30 個點。
+
+**第一段：200 個隨機起點。**
+
+```python
+import numpy as np, mlp                      # mlp.py：三十行的 numpy MLP，見本節末
+from ml_toy import toy_1d
+x, y = toy_1d(n=30, seed=0); X = x[:,None]
+
+fin = []
+for s in range(200):
+    P = mlp.init([1,32,32,1], gain=1.0, rng=np.random.default_rng(s))
+    P, L = mlp.adam_train(P, X, y, T=4000, eta=0.01)
+    fin.append(L)
+fin = np.array(fin)
+print(f"最小 {fin.min():.4f}  中位數 {np.median(fin):.4f}  第90百分位 {np.percentile(fin,90):.4f}  最大 {fin.max():.4f}")
+print(f"比中位數差兩倍以上的比例：{(fin > 2*np.median(fin)).mean()*100:.1f}%")
+```
+
+```
+最小 0.0023  中位數 0.0034  第90百分位 0.0046  最大 0.0085
+比中位數差兩倍以上的比例：3.0%
+```
+
+**散佈存在，但它不是「每次都在賭運氣」。** 中位數 $0.0034$、第 90 百分位 $0.0046$——九成的 seed 落在中位數的 $1.35$ 倍以內。最大值 $0.0085$ 是中位數的 $2.5$ 倍，而落在那個尾巴裡的只有 $3\%$。
+
+這給了兩個具體的實務結論。**一**，「跑一次就下結論」在這個規模上大約有 $3\%$ 的機率踩到一個爛 seed，而那會讓你以為某個改動有害。**二**，兩個設定的差距如果小於中位數的 $35\%$，用單一 seed 是分辨不出來的——這正是 <Ref to="ml-seeds-and-reporting" mode="title"/> 要處理的事。
+
+也請注意最小值 $0.0023$ 與最大值 $0.0085$ 之間有一個連續的分布，**不是幾個離散的谷底**。實務上這比「有 $k$ 個局部極小」的圖像更接近真相：高維裡的極小點多到形成一個連通的低損失區域，而它們的品質分布是連續的。
+
+**第二段：初始化尺度的掃描。** 同一個架構，只改 gain（每個 gain 跑 12 個 seed 取中位數）：
+
+```
+  gain=0.01   最終訓練 MSE 中位數 0.0064   最差 0.0135
+  gain=0.1    最終訓練 MSE 中位數 0.0057   最差 0.0059
+  gain=1      最終訓練 MSE 中位數 0.0031   最差 0.0061
+  gain=3      最終訓練 MSE 中位數 0.0066   最差 0.0089
+  gain=10     最終訓練 MSE 中位數 0.0108   最差 0.0133
+  gain=30     最終訓練 MSE 中位數 0.0156   最差 0.0523
+```
+
+**又是一個 U 形，谷底正好在 gain$=1$**（也就是 $1/\sqrt{\text{fan-in}}$ 那個基準）。兩端壞得方式不同：gain$=0.01$ 時權重太小，前向訊號幾乎是零、反向梯度也幾乎是零，4000 步還沒走到（$0.0064$，而且最差的那個 seed 是 $0.0135$）；gain$=30$ 時大部分單元一開始就落在 $\tanh$ 的飽和區（導數趨近零），$0.0156$，而且最差的那個 seed 是 $0.0523$——**尺度太大時 seed 之間的散佈也跟著變大**。
+
+注意這個掃描的範圍：從谷底往兩邊各差 $30$ 倍，損失只變差 $2$ 到 $5$ 倍。**它比學習率溫和**（<Ref to="ml-gradient-descent" mode="title"/> 的 $\eta$ 跨過門檻是 $10^{122}$），但它是一個實實在在的旋鈕，而且因為它在訓練開始前就決定，**調錯了不會給你任何錯誤訊息**。
+
+**第三段：深度與梯度的比值。** 量初始化時 $\lVert\partial L/\partial W_1\rVert$ 與 $\lVert\partial L/\partial W_{\text{last}}\rVert$ 的比（8 個 seed 的中位數）：
+
+```
+（tanh，每層 32 單元，無殘差）
+ depth     gain=0.5       gain=1       gain=2
+     2     1.61e-01     1.64e-01     1.90e-01
+     8     1.75e-01     2.26e-01     4.41e-01
+    16     1.87e-01     2.28e-01     7.99e-01
+    32     1.86e-01     2.19e-01     7.63e+00
+```
+
+**gain$=0.5$ 與 $1$ 那兩欄從深度 2 到 32 幾乎是平的**（$0.16\to0.22$）。也就是說：在 $1/\sqrt{\text{fan-in}}$ 這個初始化下，**32 層的網路沒有梯度消失**。這直接否證了「深就會梯度消失」這個說法的一般形式。
+
+而 gain$=2$ 那一欄從 $0.19$ 爬到 $7.63$——**同一個深度、只把初始化放大兩倍，就從「平的」變成「放大 40 倍」**。第三個結論因此是：
+
+> **會不會消失或爆炸，是 gain 的函數，不是深度的函數。**
+
+**刻意違反：加上未縮放的殘差連接。**
+
+```
+（同上，加 h_{ℓ+1} = h_ℓ + tanh(W_ℓ h_ℓ)）
+ depth      無殘差       有殘差
+     2    1.64e-01    2.26e-01
+     4    1.93e-01    5.20e-01
+     8    2.26e-01    1.36e+00
+    16    2.28e-01    1.30e+01
+    32    2.19e-01    3.28e+02
+```
+
+**殘差把「平的」變成「指數爆炸」**：深度 32 時比值是 $328$，而無殘差是 $0.22$。原因寫在上面的 `<Remark>` 裡——每一層都把訊號加上一份自己的輸出，所以量級隨深度累積。
+
+這不是說殘差沒用。它是說**殘差不是一個可以單獨加上去的零件**：它把訊號的量級從「守恆」推到「成長」，所以必須配一個把量級拉回來的東西（$1/\sqrt D$ 的縮放、可學的、初始化為零的門，或一個正規化層）。**兩個修法方向相反，這就是為什麼它們總是成對出現。**
+
+<Remark label="補充" summary="本篇用的三十行 numpy MLP">
+為了讓上面的實驗可以逐行檢查（而不是呼叫一個框架），`mlp.py` 只做三件事：`init(sizes, gain, rng)` 用 $\text{gain}/\sqrt{\text{fan-in}}$ 初始化每一層；`grads(P, X, y, skip)` 手寫前向與反向（$\tanh$ 的導數是 $1-\tanh^2$，殘差那一支在反向時多加一個恆等項）；`adam_train(P, X, y, T, eta)` 是 <Ref to="ml-optimizers" mode="title"/> 那個更新式，含偏差修正。
+
+刻意沒有做的事：沒有 minibatch（全批次，30 筆資料不需要）、沒有正規化層、沒有 weight decay。這樣一來每一個實驗只有**一個**變數在動——這是能把 gain 的效果和其他東西分開的原因，也是為什麼這裡的數字比在一個完整框架上跑出來的乾淨。
+</Remark>
+
+## 換 seed、換 gain、換深度
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/machine-learning-foundations/l2-optimization-in-practice/l2-4-2.html" class="demo-frame" title="換 seed、換 gain、換深度：互動 demo" style="height: 937px; width: 100%; border: none;"></iframe>
+
+**互動 demo：散佈與尺度是兩件事：seed 的散佈量的是前者，梯度比量的是後者。**
+
+## 先消化一下
+
+<QuizBlock id="ml-l2-4-a">
+一個團隊比較兩個架構，各跑一次：A 得到訓練 MSE $0.0032$、B 得到 $0.0041$，結論是「A 比較好」。根據本篇的散佈實測，最合理的評論是：
+<Option>結論成立，$0.0032$ 明顯低於 $0.0041$。</Option>
+<Option correct>分辨不出來。同一個架構只換 seed，九成落在中位數的 $1.35$ 倍以內（中位數 $0.0034$、第 90 百分位 $0.0046$），而 $0.0041/0.0032=1.28$ 正好在那個範圍裡。要下這個結論需要多個 seed 的中位數與範圍。</Option>
+<Option>應該改用更多訓練步數，這樣散佈就會消失。</Option>
+<Explanation>
+這是 seed 散佈最直接的實務後果：**它設定了「多小的差距讀不出來」的門檻**。本篇的數字給了一個具體的門檻（約 $35\%$），而那個門檻隨架構與任務改變——所以每個專案都該量一次自己的。第三個選項的問題是散佈的來源是**落在哪個盆地**，那件事在前幾百步就決定了，加步數不會改變它。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l2-4-b">
+一個 32 層的網路訓練不動，前幾層的權重幾乎不變。同事說「深層網路本來就會梯度消失，要加殘差」。根據本篇的實測，更準確的診斷順序是：
+<Option>直接加殘差，這是標準做法。</Option>
+<Option correct>先量第一層與最後一層的梯度大小比。在 $1/\sqrt{\text{fan-in}}$ 初始化下那個比值到 32 層仍然平在 $0.22$，所以「深就會消失」不是普遍現象；比值真的很小，先檢查 gain（gain$=0.5$ 到 $1$ 是平的，偏離才會出事）。加殘差要同時處理它帶來的爆炸（未縮放時 32 層是 $328$）。</Option>
+<Option>把學習率調大，讓前幾層動得快一點。</Option>
+<Explanation>
+這題在練習「先量再改」。那個比值是五分鐘就量得到的數字，而它直接分辨「真的消失」與「其他原因」（學習率、資料、激發函數選擇）。第三個選項會踩到 <Ref to="ml-gradient-descent" mode="title"/> 的門檻：調大 $\eta$ 對梯度已經很小的前幾層幫助有限，卻可能讓後幾層越過穩定門檻。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l2-4-c">
+在 gain 的掃描裡，gain$=30$ 的中位數是 $0.0156$ 而最差的 seed 是 $0.0523$；gain$=0.1$ 的中位數是 $0.0057$ 而最差是 $0.0059$。這個對比說明：
+<Option>gain 越小越安全，應該一律往小的設。</Option>
+<Option correct>初始化的尺度同時影響中位數與散佈：太大時不只平均變差，seed 之間的差距也被放大（最差／中位數從 $1.04$ 變成 $3.4$）。太小則是中位數變差但很一致——它穩定地學不動。</Option>
+<Option>兩者一樣糟，因為中位數都比 gain$=1$ 差。</Option>
+<Explanation>
+把「中位數」與「散佈」分開看，兩端的病就分得開：太小是**一致地慢**（所有 seed 都被同一個瓶頸卡住），太大是**不穩定**（有些 seed 剛好避開飽和區、有些沒有）。實務上後者更危險，因為它偶爾會給你一個看起來還行的結果，讓你以為設定沒問題。第一個選項的錯在忽略了 gain$=0.01$ 的中位數（$0.0064$）也比 gain$=1$ 差一倍。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l2-4-d">
+下列哪一句**不對**？
+<Option>非凸讓「$\nabla L=0$ 就是全域最小」失效，但 Taylor 給的「每一小步下降」仍然成立。</Option>
+<Option>殘差連接讓梯度有一條不衰減的通路，代價是前向與反向的量級隨深度成長。</Option>
+<Option correct>本篇的 200 次實驗顯示最終損失落在幾個離散的值上，對應幾個不同的局部極小。</Option>
+<Explanation>
+第三句和實測相反：$0.0023$ 到 $0.0085$ 之間是一個**連續**的分布，沒有離散的叢集。這對「高維非凸」的圖像很重要——不是「$k$ 個孤立的谷底」，而是一個廣大的低損失區域，裡面的點品質連續分布。前兩句都對，而第二句正是「殘差幾乎總是和正規化層一起出現」的理由。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="ml-mlp">
+L2 到此完成。五篇合起來是一套「怎麼真的把 $\arg\min$ 跑出來」的工具：minibatch 給無偏但帶噪聲的方向（地板 $\propto\eta/B$），動量與 Adam 各鬆綁一種尺度問題（$\beta$ 要跟著 $\kappa$ 長；Adam 對梯度尺度免疫、對參數量級不免疫），正則化與提早停止是同一條路徑的兩種刻度（$\lambda\approx1/(2\eta t)$），而非凸帶來的散佈可以量（$3\%$ 的 seed 落在中位數兩倍之外）、初始化的尺度是一個要調的旋鈕（gain$=1$ 是谷底）。
+
+一路上我們一直在用「一個模型」而沒有問它長什麼樣子——多項式基底、或一個兩層的 $\tanh$ 網路，都只是被當成「有參數可以調的東西」。下一個 class 換這個問題：**架構本身在宣告什麼**。從最沒有結構的 MLP 開始——它為什麼「什麼都能擬合」，以及為什麼那句話幾乎不含任何實用資訊。
+</Bridge>
+
+## 參考文獻
+
+1. Glorot, X., Bengio, Y. [*Understanding the difficulty of training deep feedforward neural networks.*](https://proceedings.mlr.press/v9/glorot10a.html) AISTATS 2010.（把「讓每層訊號變異數守恆」寫成初始化條件，$1/\sqrt{\text{fan-in}}$ 的來源。）
+2. He, K. et al. [*Delving Deep into Rectifiers.*](https://arxiv.org/abs/1502.01852) ICCV 2015.（ReLU 下的對應版本，以及深度與初始化尺度如何一起決定訓練成不成立。）
+3. Li, H. et al. [*Visualizing the Loss Landscape of Neural Nets.*](https://arxiv.org/abs/1712.09913) NeurIPS 2018.（損失曲面的視覺化方法，以及殘差與寬度如何改變曲面的樣子。）

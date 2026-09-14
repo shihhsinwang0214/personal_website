@@ -1,0 +1,297 @@
+---
+slug: "dma-w7-2-concrete-score"
+label: "dma-concrete-score"
+prereqs:
+  - math-ctmc
+  - math-time-reversal
+  - math-bayes-posterior
+  - math-conditional-expectation
+lang: "zh"
+title: "反向 Rate 與 Concrete Score"
+category: "courses"
+group: "Week 7 · Discrete Diffusion II"
+status: "available"
+updated: 2026-09-07
+summary: "把 CTMC 的時間反過來，反向 rate 是「forward rate 反向 × 邊際比值 p_t(y)/p_t(x)」。這個比值就是離散世界的 score——不是梯度，是有限差分。它是條件比值的後驗平均，也就是 conditional trick 的比值版本；SEDD 用 score entropy 直接回歸它。"
+demos: []
+references:
+  - label: "Lou, Meng & Ermon, Discrete Diffusion Modeling by Estimating the Ratios of the Data Distribution (ICML 2024)"
+    href: "https://arxiv.org/abs/2310.16834"
+  - label: "Meng, Choi, Song & Ermon, Concrete Score Matching: Generalized Score Matching for Discrete Data (NeurIPS 2022)"
+    href: "https://arxiv.org/abs/2211.00802"
+  - label: "Campbell et al., A Continuous Time Framework for Discrete Denoising Models (NeurIPS 2022)"
+    href: "https://arxiv.org/abs/2205.14987"
+  - label: "Sun et al., Score-based Continuous-time Discrete Diffusion Models (ICLR 2023)"
+    href: "https://arxiv.org/abs/2211.16750"
+  - label: "Anderson, Reverse-time Diffusion Equation Models (Stochastic Processes and their Applications 1982)"
+    href: "https://doi.org/10.1016/0304-4149(82)90051-5"
+  - label: "Ou et al., Your Absorbing Discrete Diffusion Secretly Models the Conditional Distributions of Clean Data (ICLR 2025)"
+    href: "https://arxiv.org/abs/2406.03736"
+  - label: "Sahoo et al., Simple and Effective Masked Diffusion Language Models (NeurIPS 2024)"
+    href: "https://arxiv.org/abs/2406.07524"
+---
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 反向 Rate 與 Concrete Score
+
+<Objectives>
+- 推出 CTMC 時間反轉的 rate $\bar R_t(x\to y)=R_t(y\to x)\,p_t(y)/p_t(x)$，並用「把每根水管的流量倒過來」讀懂它。
+- 回答「離散空間的 score 是什麼」：不是梯度，是鄰居之間的比值 $p_t(y)/p_t(x)$；並驗證它等於條件比值的後驗平均——<Ref to="dma-denoising-regression"/> 那個 conditional trick 的比值版本。
+- 寫出 SEDD 的 score entropy loss，說出它為什麼可以只用 $(x_0,x_t)$ 配對訓練，以及在 absorbing 鏈上它和 <Ref to="dma-masked-diffusion"/> 的 cross-entropy 是同一個物件。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+<Ask>
+forward 的每一根管子上都標好了數字。<br />
+把時間倒過來，管子上該改標什麼？
+</Ask>
+
+## 把水管倒過來
+
+上一篇的三個水桶裡，每根管子上的 rate 說的是 forward 方向：資料變噪聲時，機率怎麼流。生成要反著走——從噪聲回到資料。問題是：**反向的鏈，每根管子上該標什麼數字？**
+
+先給畫面。在時刻 $t$，從 $y$ 流到 $x$ 的**流量**（不是 rate，是 rate 乘上來源的水位）是 $p_t(y)\,R_t(y\to x)$。時間倒放，這股水應該原路流回去：從 $x$ 回到 $y$。反向鏈裡 $x\to y$ 的流量 $p_t(x)\,\bar R_t(x\to y)$ 得等於它：
+
+$$
+p_t(x)\,\bar R_t(x\to y)=p_t(y)\,R_t(y\to x)
+\quad\Longrightarrow\quad
+\boxed{\;\bar R_t(x\to y)=R_t(y\to x)\,\frac{p_t(y)}{p_t(x)}\;}\qquad(y\ne x).
+$$
+
+這是「把每根水管的流量倒過來」。左邊的式子叫 flux balance——每一對狀態之間，反向的流量等於 forward 的流量反向；它和 Markov chain 裡的 detailed balance 長得一樣，只是這裡不需要鏈是 reversible，因為兩邊的 rate 是**不同的**鏈（一條是 forward、一條是 reverse）。
+
+用 Bayes 定理也能一行推出來，而且會看到「反向」與「posterior」的關係——<Ref to="dma-d3pm"/> 的 $q(x_{t-1}\mid x_t,x_0)$ 是多知道 $x_0$ 的反向一步，這裡是不知道 $x_0$ 的反向一小步：
+
+$$
+q(x_t=y\mid x_{t+\Delta t}=x)=\frac{q(x_{t+\Delta t}=x\mid x_t=y)\,p_t(y)}{p_{t+\Delta t}(x)}
+\approx\frac{R_t(y\to x)\,\Delta t\;p_t(y)}{p_t(x)},
+$$
+
+除以 $\Delta t$ 就是 $\bar R_t$。
+
+<Details summary="兩狀態手算，以及一般情形的驗證">
+**兩狀態。** 狀態 $a,b$，forward 只有 $a\to b$ 的 rate $r$（$b$ 是吸收態）。從 $p_0=(1,0)$ 出發：$p_t(a)=e^{-rt}$，$p_t(b)=1-e^{-rt}$。
+
+反向 rate：
+- $\bar R_t(b\to a)=R_t(a\to b)\,\dfrac{p_t(a)}{p_t(b)}=\dfrac{r\,e^{-rt}}{1-e^{-rt}}$。
+- $\bar R_t(a\to b)=R_t(b\to a)\,\dfrac{p_t(b)}{p_t(a)}=0$（forward 沒有 $b\to a$，反向也就沒有 $a\to b$）。
+
+檢查邊際：反向鏈在倒著走的時間裡，$a$ 的水位增加率是 $p_t(b)\,\bar R_t(b\to a)=r\,e^{-rt}=-\dot p_t(a)$。倒著走剛好把 forward 的下降還回來。✓
+
+注意 $\bar R_t(b\to a)$ 在 $t\to0$ 時發散（$1-e^{-rt}\to0$）：接近資料端時，還留在 `[MASK]` 的極少數質量要以極快的速度翻開。這與上一篇 $\beta_t$ 在 $t\to1$ 發散是鏡像。
+
+**一般情形。** 令反向鏈的 generator 為 $\bar R_t$（非對角如上，對角取負列和）。計算 $(p_t\bar R_t)(y)$：
+
+$$
+\sum_{x\ne y}p_t(x)\bar R_t(x\to y)-p_t(y)\sum_{x\ne y}\bar R_t(y\to x)
+=\sum_{x\ne y}p_t(y)R_t(y\to x)-\sum_{x\ne y}p_t(x)R_t(x\to y)=-(p_tR_t)(y)=-\dot p_t(y).
+$$
+
+所以在倒轉的時間 $s=1-t$ 裡 $\frac{d}{ds}p=p\bar R$——反向鏈的邊際恰好沿著 forward 的邊際往回走。這是 <Ref to="dma-sampler-family"/> 那個 Fokker–Planck 代入驗證的離散版；Anderson [5] 的 reverse-time SDE 是連續狀態的同一件事。
+</Details>
+
+讀這條式子。$\bar R_t(x\to y)$ 是兩個因子的乘積：
+
+1. $R_t(y\to x)$：forward 的 rate 反向讀。**完全已知**，是我們自己定的鏈。
+2. $\dfrac{p_t(y)}{p_t(x)}$：兩個鄰居的**邊際機率比**。這是唯一不知道的東西，它依賴資料分佈。
+
+## 離散空間的 score 是什麼？
+
+反向 rate 已經寫出來了，但裡面那個要學的東西還沒有名字。先問清楚它是什麼，再去想怎麼把它訓出來。
+
+<Question id="Q1">
+<Ref to="dma-reverse-process"/> 的 reverse SDE 裡，唯一要學的東西是 score $\nabla_x\log p_t(x)$。<Ref to="dma-discrete-data"/> 說離散空間沒有梯度，所以 score 壞了。現在有了反向 rate 的式子——**離散空間裡扮演 score 角色的量是什麼？** 它和連續的 score 是什麼關係？
+
+<Answer>
+常見的答案大致三類：「對 logits 取梯度」、「$\log p_t(y)-\log p_t(x)$ 這種差」、「就是 $p_\theta(x_0\mid x_t)$，上週已經學過了」。第一類把網路輸出的連續量誤當成狀態空間上的梯度——狀態本身沒有連續座標，對 logits 微分不對應任何「往密度高的方向走」。第二、三類都對，而且是同一件事的兩面。
+
+**它就是比值 $p_t(y)/p_t(x)$，對 $x$ 的每個鄰居 $y$ 各一個數。** 反向 rate 的式子已經說了：反向過程需要的、且唯一不知道的量，就是它。
+
+和連續 score 的關係是**有限差分**。一維裡
+
+$$
+\partial_x\log p(x)=\lim_{h\to0}\frac{\log p(x+h)-\log p(x)}{h}\approx\frac1h\Big(\frac{p(x+h)}{p(x)}-1\Big),
+$$
+
+score 是「往旁邊挪一小步，密度比變成多少」的極限。離散空間沒有「一小步」可以無限縮小，鄰居就是最小的一步，所以極限拿掉、$h$ 拿掉，剩下比值本身。Meng et al. [2] 把這個量叫 **concrete score**，Lou–Meng–Ermon [1] 用它建出 SEDD。
+
+它在反向過程裡的位置也和 score 完全對應。連續：reverse SDE 的 drift 是「已知的 forward drift 反向」加上「$g^2\nabla\log p_t$」；離散：反向 rate 是「已知的 forward rate 反向」**乘上**「$p_t(y)/p_t(x)$」。一個是加、一個是乘，因為連續的 score 是 $\log$ 的導數、離散的比值沒有取 $\log$；把比值寫成 $\exp(\log p_t(y)-\log p_t(x))$，第二類答案的「差」就出現了。
+
+第三類答案「就是 $p_\theta(x_0\mid x_t)$」也對——〈這是 conditional trick 的比值版本〉會證明比值可以完全由 $x_0$ 的 posterior 算出來。這是離散世界的 Tweedie 公式。
+</Answer>
+</Question>
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w7-2-ratios.html" class="demo-frame" title="一個 x_t 的所有鄰居比值：互動 demo" style="height: 890px; width: 100%; border: none;"></iframe>
+
+**互動 demo：一個 $x_t$ 的所有鄰居。** 資料是「相鄰格以 0.9 相同」的長度 16 鏈，$p_t$ 用前向演算法**精確**算出來，不是網路。absorbing 下每個 `[MASK]` 有兩根柱子（填 0 或填 1），而把共同因子 $\alpha_t/(1-\alpha_t)$ 除掉之後，**同一格兩根的和永遠是 1.0000**——那正是下面要證的 $p_t(y)/p_t(x)=\frac{\alpha_t}{1-\alpha_t}p(x_0^\ell=v\mid x_t)$：比值和 <Ref to="dma-masked-diffusion"/> 那個網路只差一個已知的係數。比值本身隨 $t$ 一路縮小（$t=0.15$ 時最大 5.60、$t=0.5$ 是 0.99、$t=0.9$ 只剩 0.11），縮掉的就是那個係數（5.67 / 1.00 / 0.11）。沒被遮的位置畫成**空槽**：forward 沒有「字換成字」這條管子，反向也就沒有，那些比值根本不用學。切到 uniform，每一格都有一根柱子、比值全部擠在 1 附近（實測 0.88～1.18），要學的數量從「被遮格數 × 2」變成 $L$，而且沒有那個乾淨的化簡。
+
+<Remark label="注意" summary="比值不是機率，不必加起來等於 1">
+$p_t(y)/p_t(x)$ 是兩個機率的比，它自己不是機率：它可以大於 1（往那邊改更像資料）、可以趨近 0，一個 $x$ 的所有鄰居加起來也不等於任何固定的數。demo 裡「兩根的和 = 1」是**先除掉 $\alpha_t/(1-\alpha_t)$ 之後**才成立，而且只在 absorbing 鏈上成立——它是下面那條化簡的結果，不是比值的普遍性質。切到 uniform 就沒有這回事。
+
+這也是為什麼比值不能用 softmax 輸出：softmax 強制加起來等於 1，會把要學的量限制在錯的集合裡。實作上的做法是讓網路輸出實數再取 exp 保證正值，或者走 absorbing 的化簡——輸出 $x_0$ 的 posterior、再乘上那個已知係數。
+</Remark>
+
+## 這是 conditional trick 的比值版本
+
+<Ref to="dma-denoising-regression"/> 的 **conditional trick** 是：邊際量難算、條件量好算，而邊際量等於條件量對 posterior 的平均，所以回歸條件量、網路自動收斂到邊際量。<Ref to="dma-tweedie-and-score"/>（score）、<Ref to="dma-conditional-flow-matching"/>（速度）、<Ref to="dma-unified-equation"/>（$b_t$ 與 $\eta_t$）走的都是這條路。現在看比值。
+
+邊際 $p_t(x)=\sum_{x_0}q_t(x\mid x_0)\,p(x_0)$，其中 $q_t(\cdot\mid x_0)$ 是上一篇 $\bar Q_t$ 給的 closed form。於是
+
+$$
+\frac{p_t(y)}{p_t(x)}
+=\sum_{x_0}\frac{q_t(y\mid x_0)\,p(x_0)}{p_t(x)}
+=\sum_{x_0}\underbrace{\frac{q_t(y\mid x_0)}{q_t(x\mid x_0)}}_{\text{條件比值}}\;\underbrace{\frac{q_t(x\mid x_0)\,p(x_0)}{p_t(x)}}_{p(x_0\mid x_t=x)}
+=\mathbb E\!\left[\frac{q_t(y\mid x_0)}{q_t(x\mid x_0)}\ \Big|\ x_t=x\right].
+$$
+
+中間那一步只是在分子分母同乘 $q_t(x\mid x_0)$（對 posterior 權重為零的 $x_0$ 不用管）。三個角色到齊：
+
+- **條件比值** $q_t(y\mid x_0)/q_t(x\mid x_0)$：給定 $x_0$，兩個鄰居的 forward 機率之比。好算——兩個 closed form 相除。
+- **邊際比值** $p_t(y)/p_t(x)$：對整個資料分佈求和，難算。
+- **posterior** $p(x_0\mid x_t=x)$：把前者平均成後者的權重。
+
+所以只要拿 $(x_0,x_t)$ 配對、把條件比值當回歸目標，網路收斂到的就是邊際比值。到這裡整張表可以一次列出來：
+
+| 版本 | 邊際量（要的） | 條件量（訓練用） | 出處 |
+|---|---|---|---|
+| KL | 反向一步 $q(x_{t-1}\mid x_t)$ | $q(x_{t-1}\mid x_t,x_0)$ | <Ref to="dma-denoising-regression"/> |
+| MSE | score $\nabla\log p_t(x)$ | $-\epsilon/\sigma_t$ | <Ref to="dma-tweedie-and-score"/> |
+| 速度 | 邊際速度 $u_t(x)$ | 條件速度 $\dot\alpha_tx_1+\dot\sigma_tx_0$ | <Ref to="dma-conditional-flow-matching"/> |
+| 通式 | $b_t$、$\eta_t$ | $\dot\alpha_tx_0+\dot\beta_tx_1+\dot\gamma_tz$、$z$ | <Ref to="dma-unified-equation"/> |
+| 比值 | $p_t(y)/p_t(x)$ | 條件比值 $q_t(y\mid x_0)/q_t(x\mid x_0)$ | 本篇 |
+
+前面幾列的「回歸」不是 KL 就是 MSE；比值這一列的目標是**正數**，用 MSE 也行但不自然（比值可以是 0 也可以很大）。SEDD 換了一個 loss。
+
+## SEDD：直接回歸比值
+
+網路 $s_\theta(x,t)\in\mathbb R_{>0}^{\,L(K-1)}$ 對 $x$ 的每個鄰居 $y$ 輸出一個正數，目標是 $p_t(y)/p_t(x)$。Lou–Meng–Ermon [1] 的 **score entropy**：
+
+$$
+\mathcal L_{\text{SE}}=\mathbb E_{x\sim p_t}\sum_{y\ne x}w_{xy}\Big[\,s_\theta(x)_y-\frac{p_t(y)}{p_t(x)}\log s_\theta(x)_y+h\!\Big(\frac{p_t(y)}{p_t(x)}\Big)\Big],\qquad h(a)=a(\log a-1).
+$$
+
+$w_{xy}\ge0$ 是權重（下面說）。中括號裡的東西對 $s$ 是 convex 的、在 $s=p_t(y)/p_t(x)$ 時取最小值 0——它是 $s$ 與真比值之間的一個 Bregman divergence（見 Details）。這個形狀有兩個好處：$s\to0$ 時 $-a\log s\to\infty$，網路不會把任何比值壓到零；比值大時懲罰是線性的而不是平方的，不會被少數大比值主導。
+
+真比值算不出來，但上面那張表說它是條件比值的後驗平均。中括號裡真比值只出現在 $-a\log s$ 這一項，而且是**線性**地出現；$h(a)$ 不含 $\theta$。所以把 $a$ 換成條件比值、對 $x_0$ 取期望，梯度不變：
+
+$$
+\mathcal L_{\text{DSE}}=\mathbb E_{x_0\sim p_{\text{data}},\ x\sim q_t(\cdot\mid x_0)}\sum_{y\ne x}w_{xy}\Big[\,s_\theta(x)_y-\frac{q_t(y\mid x_0)}{q_t(x\mid x_0)}\log s_\theta(x)_y+h\!\Big(\frac{q_t(y\mid x_0)}{q_t(x\mid x_0)}\Big)\Big].
+$$
+
+這叫 **denoising score entropy**。它和 <Ref to="dma-conditional-flow-matching"/> 定理 2 的證明結構相同：展開、找出目標線性出現的那一項、用 tower property 把 posterior 平均收進去。
+
+<Details summary="score entropy 是哪個 Bregman divergence；權重 wxy 該選什麼">
+**Bregman divergence。** 取 convex 函數 $\varphi(u)=u\log u-u$，$\varphi'(u)=\log u$。它生成的 Bregman divergence 是
+
+$$
+D_\varphi(a\,\|\,s)=\varphi(a)-\varphi(s)-\varphi'(s)(a-s)=a\log a-a-s\log s+s-(a-s)\log s=s-a\log s+a(\log a-1),
+$$
+
+正是 score entropy 中括號裡的東西（$a$ 是真比值、$s$ 是網路輸出）。$\varphi$ 這個選擇讓 $D_\varphi$ 成為「廣義 KL」：把兩個未正規化的正數當成質量來比。<Ref to="dma-tweedie-and-score"/> 的 MSE 是 $\varphi(u)=u^2$ 生成的 Bregman divergence；所有 Bregman divergence 都有「最小值是條件期望」的性質，這是為什麼換了 loss、後驗平均的論證還是成立。
+
+**權重。** SEDD 取 $w_{xy}=R_t(y\to x)$——把鄰居 $y$ 連到 $x$ 的 forward rate。這樣加權後的 denoising score entropy 對 $t$ 積分，是 $-\log p_\theta(x_0)$ 的一個上界（SEDD 論文的 likelihood bound，連續時間 ELBO 的形式；常數項與 $t\to0$ 端點怎麼處理要照論文讀，這裡只用到「forward 上不存在的管子不必學」這一點）。直覺：forward 上根本不存在的管子（$R_t(y\to x)=0$）反向也不需要，不必浪費容量去學它的比值；absorbing 鏈下這意味著只需要對「被遮位置翻成某個字」這 $\#\text{masked}\times K$ 個鄰居輸出比值。
+</Details>
+
+## Absorbing 鏈上：比值就是上週的網路
+
+對 absorbing 鏈把條件比值實際算出來。設 $x$ 在位置 $\ell$ 是 `[MASK]`、$y$ 在 $\ell$ 是字 $v$、其他位置相同。closed form $q_t(x\mid x_0)$ 逐位置因子化，其他位置的因子上下相消，只剩位置 $\ell$：
+
+$$
+\frac{q_t(y\mid x_0)}{q_t(x\mid x_0)}=\frac{\alpha_t\,\mathbb 1[x_0^\ell=v]}{1-\alpha_t}
+\quad\Longrightarrow\quad
+\frac{p_t(y)}{p_t(x)}=\frac{\alpha_t}{1-\alpha_t}\;p\big(x_0^\ell=v\ \big|\ x_t=x\big).
+$$
+
+比值等於「$x_0$-posterior 在位置 $\ell$ 的 marginal」乘一個只跟 $t$ 有關的常數。也就是說，**<Ref to="dma-masked-diffusion"/> 用 cross-entropy 訓出來的 $p_\theta(x_0^\ell\mid x_t)$，乘上 $\alpha_t/(1-\alpha_t)$，就是 concrete score。** 兩條路——SEDD 的 score entropy 與 MDLM 的加權 cross-entropy——在 absorbing 鏈上學的是同一組數字，差別只在 parametrization 與 loss 的形狀 [6, 7]。這是 <Ref to="dma-lab-ctmc"/> 要實際驗證的事。
+
+代回反向 rate（forward rate 是 $\beta_t=-\dot\alpha_t/\alpha_t$）：
+
+$$
+\bar R_t\big(\texttt{[MASK]}\to v\ \text{at }\ell\big)=\beta_t\cdot\frac{\alpha_t}{1-\alpha_t}\,p_\theta(x_0^\ell=v\mid x_t)=\frac{-\dot\alpha_t}{1-\alpha_t}\;p_\theta(x_0^\ell=v\mid x_t).
+$$
+
+一個被遮的位置以總 rate $\frac{-\dot\alpha_t}{1-\alpha_t}$ 翻開，翻成哪個字按 $p_\theta$ 抽——這正是 <Ref to="dma-masked-diffusion"/> 那枚硬幣的連續時間版，翻開的機率 $\frac{\bar\alpha_{t-1}-\bar\alpha_t}{1-\bar\alpha_t}$ 變成 rate 乘 $dt$。上週的取樣器一直是這條 CTMC，只是我們當時沒有語言把它寫出來。
+
+對 uniform 鏈，同樣的計算會給出一個由 $p(x_0^\ell\mid x_t)$ 決定、但形狀更複雜的比值（見 <Ref to="dma-lab-ctmc"/> 作業）；forward 因子化時，「比值」和「$x_0$ 的逐位置 posterior」永遠是同一份資訊的兩種座標。
+
+<VizPlan id="w7-2-gradient-vs-ratio" title="梯度與比值：同一個東西，一個取了極限、一個沒有" type="static">
+- 檔名 `imgs/w7-2-1.png`，放在「Absorbing 鏈上：比值就是上週的網路」之後、「先消化一下」之前。
+- 版面：左右兩塊，中央一個雙向箭頭把兩塊接起來。
+  - **左「連續：取了極限」**：一條 $p(x)$ 的單峰曲線。在某個 $x$ 上標一個實心點，往右三個越來越近的灰點標 $x+h$（$h$ 由大到小，用漸淡的顏色暗示 $h\to0$）；把 $x$ 與最遠那個灰點的高度用虛線引到縱軸，中間標 $\frac{p(x+h)}{p(x)}$。該點畫一條切線，標 $\partial_x\log p(x)$，切線旁寫 $\lim_{h\to0}\frac1h\big(\frac{p(x+h)}{p(x)}-1\big)$。
+  - **右「離散：極限拿不掉」**：中央一個長度 5 的序列方框當 $x_t$（第 3 格是 `[MASK]`、灰色）。四周三個鄰居方框 $y_1,y_2,y_3$，各自只有一格和 $x_t$ 不同，不同的那一格用色塊標出。每支箭頭上標 $p_t(y_i)/p_t(x_t)$ 和一個具體數字（0.99、0.01、0.31）；比值大的箭頭畫粗、比值小的畫細。旁邊一行小字：「鄰居就是最小的一步，$h$ 沒有東西可以再縮」。
+- 中央雙向箭頭上方寫一句大標「**score 是取了極限的比值；比值是沒取極限的 score**」；下方兩行對照，並把「＋」和「×」用強調色圈起來：
+  - 連續：drift ＝ 已知的部分 ＋ $g^2\nabla\log p_t$
+  - 離散：rate ＝ 已知的部分 × $p_t(y)/p_t(x)$
+- 底部一句：「離散空間沒有梯度，不是因為少了什麼，而是因為極限拿不掉——剩下的比值本身就是要學的東西。」
+- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註；資料橘 `#f0803c`／噪聲藍 `#4a90e2`／強調靛 `#2a4ea3`）。
+- 長寬比：約 16:8。
+</VizPlan>
+
+## 先消化一下
+
+<QuizBlock id="w7-2-a">
+反向 rate $\bar R_t(x\to y)=R_t(y\to x)\,p_t(y)/p_t(x)$ 裡，需要**學**的部分是：
+<Option>$R_t(y\to x)$。</Option>
+<Option>兩個因子都要學。</Option>
+<Option correct>只有比值 $p_t(y)/p_t(x)$——forward rate 是我們自己定的鏈，完全已知。</Option>
+<Explanation>
+這和 <Ref to="dma-reverse-process"/> 的 reverse SDE 一樣：drift 的 forward 部分已知，只有 score 要學。這裡「score」換成比值，「加」換成「乘」。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w7-2-b">
+「比值 $p_t(y)/p_t(x)$ 是條件比值 $q_t(y\mid x_0)/q_t(x\mid x_0)$ 的後驗平均」這件事，讓我們可以：
+<Option correct>只用 $(x_0,x_t)$ 配對訓練，目標是好算的條件比值，網路自動收斂到難算的邊際比值。</Option>
+<Option>不用網路，直接把邊際比值算出來。</Option>
+<Option>證明 absorbing 比 uniform 好。</Option>
+<Explanation>
+邊際比值本身仍然要對整個資料分佈求和，算不出來；這個等式的用處是把訓練目標換成條件量。它對兩條鏈都成立，不區分好壞。這就是 <Ref to="dma-denoising-regression"/> 的 conditional trick。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w7-2-c">
+Score entropy 中括號裡 $s-a\log s+a(\log a-1)$，其中 $a$ 是真比值。把 $a$ 換成條件比值後梯度不變，關鍵是：
+<Option>$h(a)$ 是 convex 的。</Option>
+<Option correct>$a$ 只在 $-a\log s$ 這一項與 $\theta$ 一起出現，而且是線性的，所以對 $x_0$ 取期望可以直接收進去；$h(a)$ 不含 $\theta$。</Option>
+<Option>$s$ 一定是正的。</Option>
+<Explanation>
+線性是重點：$\mathbb E[a\mid x_t]\log s=\mathbb E[a\log s\mid x_t]$。若真比值以非線性的方式出現（例如 $a^2$），條件替換就會有偏。$h(a)$ 的凸性與 $s>0$ 都是 loss 良好定義的條件，不是這一步的理由。與 <Ref to="dma-conditional-flow-matching"/> 定理 2 的「交叉項線性」是同一件事。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w7-2-d">
+在 absorbing 鏈上，位置 $\ell$ 被遮，鄰居 $y$ 把它翻成字 $v$。比值 $p_t(y)/p_t(x)$ 等於：
+<Option>$p(x_0^\ell=v\mid x_t)$。</Option>
+<Option>$\alpha_t\,p(x_0^\ell=v\mid x_t)$。</Option>
+<Option correct>$\dfrac{\alpha_t}{1-\alpha_t}\,p(x_0^\ell=v\mid x_t)$。</Option>
+<Explanation>
+條件比值是 $\alpha_t\mathbb 1[x_0^\ell=v]/(1-\alpha_t)$（分子是「沒被遮且原字是 $v$」、分母是「被遮」），對 posterior 平均後指示函數變成 $p(x_0^\ell=v\mid x_t)$，常數 $\alpha_t/(1-\alpha_t)$ 留著。$t$ 小時常數很大——極少數還被遮的位置要以極快的 rate 翻開。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-remasking">
+本篇把時間反轉，得到反向 rate；其中唯一要學的量是鄰居比值——離散世界的 score，也是條件比值的後驗平均。有了反向 rate 的語言，<Ref to="dma-why-continuous-time"/> 留下的三個小問題可以正面回答了：下一篇在 absorbing 的反向鏈上多加一條「回到 `[MASK]`」的管子，問它對應連續世界的哪個旋鈕。
+</Bridge>
+
+## 參考文獻
+
+1. Lou, A., Meng, C., Ermon, S. [*Discrete Diffusion Modeling by Estimating the Ratios of the Data Distribution.*](https://arxiv.org/abs/2310.16834) ICML 2024.（SEDD：score entropy、denoising score entropy、likelihood bound、反向 rate 取樣。）
+2. Meng, C., Choi, K., Song, J., Ermon, S. [*Concrete Score Matching: Generalized Score Matching for Discrete Data.*](https://arxiv.org/abs/2211.00802) NeurIPS 2022.（「concrete score」一詞與有限差分的觀點。）
+3. Campbell, A., Benton, J., De Bortoli, V., Rainforth, T., Deligiannidis, G., Doucet, A. [*A Continuous Time Framework for Discrete Denoising Models.*](https://arxiv.org/abs/2205.14987) NeurIPS 2022.（CTMC 時間反轉的 rate 用在離散擴散上。）
+4. Sun, H., Yu, L., Dai, B., Schuurmans, D., Dai, H. [*Score-based Continuous-time Discrete Diffusion Models.*](https://arxiv.org/abs/2211.16750) ICLR 2023.（以比值為目標的另一條獨立路線。）
+5. Anderson, B. D. O. [*Reverse-time Diffusion Equation Models.*](https://doi.org/10.1016/0304-4149(82)90051-5) Stochastic Processes and their Applications 12(3), 1982.（連續狀態的時間反轉。）
+6. Ou, J., Nie, S., Xue, K., Zhu, F., Sun, J., Li, Z., Li, C. [*Your Absorbing Discrete Diffusion Secretly Models the Conditional Distributions of Clean Data.*](https://arxiv.org/abs/2406.03736) ICLR 2025.（absorbing 鏈上比值與 $x_0$-posterior 的關係。）
+7. Sahoo, S. S. et al. [*Simple and Effective Masked Diffusion Language Models.*](https://arxiv.org/abs/2406.07524) NeurIPS 2024.（SEDD 與 masked cross-entropy 的對照。）

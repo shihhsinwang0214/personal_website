@@ -1,0 +1,37 @@
+---
+/**
+ * Answer.astro — collapsed answer to a <Question>. Reader thinks first, then opens.
+ */
+import { inlineMath } from '../../lib/inlineMath';
+
+interface Props { summary?: string }
+const { summary = '先想一想，再展開看整理後的答案' } = Astro.props;
+---
+
+<details class="answer">
+  <summary><span class="answer-title" set:html={inlineMath(summary)} /></summary>
+  <div class="answer-body"><slot /></div>
+</details>
+
+<style>
+  .answer {
+    margin: 12px 0 4px;
+    border-top: 1px dashed var(--border);
+    padding-top: 10px;
+  }
+  .answer summary {
+    cursor: pointer; font-weight: 600; color: var(--text-muted); list-style: none;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .answer-title { min-width: 0; }
+  .answer summary::-webkit-details-marker { display: none; }
+  .answer summary::before {
+    content: ''; width: 8px; height: 8px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+    transform: rotate(-45deg); transition: transform .15s ease; flex: 0 0 auto;
+  }
+  .answer[open] summary::before { transform: rotate(45deg); }
+  .answer[open] summary { color: var(--accent); }
+  .answer-body { margin-top: 10px; }
+  .answer-body :global(p) { line-height: 1.7; }
+  .answer-body :global(p:last-child) { margin-bottom: 0; }
+</style>

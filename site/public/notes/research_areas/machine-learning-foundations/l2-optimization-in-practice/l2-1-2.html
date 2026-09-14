@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>動量買有效條件數，Adam 買逐座標的尺度</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：在細長的碗上，<b>動量的旋鈕是 β，而且要跟著條件數 κ 調</b>（最佳值 β* = ((√κ−1)/(√κ+1))²）。而 Adam 免疫的是<b>梯度的整體尺度</b>——把損失乘上 10³，GD 與動量用同一個 η 立刻爆掉，Adam 的軌跡<b>一模一樣</b>；但把特徵換成「民國年」（x 加上 1911）時，<b>Adam 也救不了</b>。</p>
+  <canvas id="bowl" style="aspect-ratio:1/1" aria-label="等高線＝損失；三條軌跡＝GD／動量／Adam（各 300 步）；✕＝最小點"></canvas>
+  <p class="cap">等高線＝損失；三條軌跡＝GD／動量／Adam（各 300 步）；✕＝最小點</p>
+  <canvas id="loss" style="aspect-ratio:5/2" aria-label="縱軸 log：損失減最小值對步數（一律換算回未縮放的尺度，所以三種情境可以直接比）"></canvas>
+  <p class="cap">縱軸 log：損失減最小值對步數（一律換算回未縮放的尺度，所以三種情境可以直接比）</p>
+  <div class="controls">
+    <div class="row">
+      <label for="kp">條件數 κ（10^）</label><input id="kp" type="range" min="0.5" max="4.5" step="0.1" value="2.5" />
+      <label for="be">動量 β</label><input id="be" type="range" min="0" max="0.9995" step="0.0005" value="0.9" />
+      <button id="bst" class="ghost">β ← β*</button>
+    </div>
+    <div class="row">
+      <span class="seg"><button id="m0" aria-pressed="true">正常</button><button id="m1" aria-pressed="false">損失 ×10³</button><button id="m2" aria-pressed="false">「民國年」特徵</button></span>
+      <label class="chk"><input id="st" type="checkbox" /> 每欄標準化</label>
+    </div>
+    <div class="stats"><span>κ = <b id="vk">—</b></span> <span>β* = <b id="vb">—</b></span> <span>1/(1−β) = <b id="vh">—</b></span> <span>GD = <b id="v1">—</b></span> <span>動量 = <b id="v2">—</b></span> <span>Adam = <b id="v3">—</b></span></div>
+  </div>
+  <p class="observe">觀察：把 β 推到 β*（按鈕），<b>動量那條明顯下沉</b>；再往上推就開始過衝。切到「損失 ×10³」：GD 與動量用同一個 η 立刻爆掉，而 <b>Adam 從 1.78e-15 只變成 1.72e-15</b>——它的更新是 m/√v，整體尺度被約掉了。切到「民國年」特徵（把 x 換成 x+1911，資訊完全一樣）：κ 跳到 1.9e+14，<b>三個方法一起壞掉</b>，Adam 也只剩 1.73e-1。打開標準化，同一個 Adam 立刻收到 1.00e-16。最佳化器改的是走路的方式，標準化改的是碗的形狀。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var STEPS = 300, OFF = 1911;
+  var el = function (i) { return document.getElementById(i); };
+  var dB = MLF.hiDPICanvas(el('bowl')), dL = MLF.hiDPICanvas(el('loss'));
+  var pal = MLF.palette(), mode = 0, Q = null, Q0 = null, runs = null, S = 1;
+
+  function build() {
+    var kap = Math.pow(10, +el('kp').value);
+    Q0 = MLF.quad({ n: 60, seed: 3, kappa: kap });
+    if (mode === 2) {
+      Q = MLF.quad({ n: 60, seed: 3, offset: OFF, standardize: el('st').checked });
+    } else {
+      Q = el('st').checked ? MLF.quad({ n: 60, seed: 3, kappa: kap, standardize: true }) : Q0;
+    }
+    S = (mode === 1) ? 1e3 : 1;
+  }
+  function go(kind) {
+    var eta = Q.eta * 0.9, beta = +el('be').value;
+    var R0 = Math.max(1, Math.abs(Q.w[0]), Math.abs(Q.w[1]));
+    var w = [Q.w[0] + 1.3, Q.w[1] + 1.1];
+    var v = [0, 0], m = [0, 0], s2 = [0, 0];
+    var path = [w.slice()], curve = [[1, Math.max(Q.L(w) - Q.Lmin, 1e-16)]], k, j;
+    for (k = 1; k <= STEPS; k++) {
+      var g0 = Q.grad(w), g = [S * g0[0], S * g0[1]];
+      if (kind === 'gd') { w = [w[0] - eta * g[0], w[1] - eta * g[1]]; }
+      else if (kind === 'mom') {
+        for (j = 0; j < 2; j++) { v[j] = beta * v[j] + g[j]; w[j] -= eta * (1 - beta) * v[j]; }
+      } else {
+        for (j = 0; j < 2; j++) {
+          m[j] = 0.9 * m[j] + 0.1 * g[j];
+          s2[j] = 0.999 * s2[j] + 0.001 * g[j] * g[j];
+          var mh = m[j] / (1 - Math.pow(0.9, k)), vh = s2[j] / (1 - Math.pow(0.999, k));
+          w[j] -= 0.05 * mh / (Math.sqrt(vh) + 1e-12);
+        }
+      }
+      if (!isFinite(w[0]) || Math.abs(w[0]) > 1e9 || Math.abs(w[1]) > 1e9) break;
+      path.push(w.slice());
+      curve.push([k + 1, Math.max(Q.L(w) - Q.Lmin, 1e-16)]);
+    }
+    return { path: path, curve: curve, last: curve[curve.length - 1][1], n: path.length };
+  }
+
+  function drawBowl() {
+    var s = dB.resize(), ctx = dB.ctx; MLF.clear(ctx, s, pal);
+    var R = 0.4, cols = [pal.b, pal.d, pal.c];
+    runs.forEach(function (r) {
+      r.path.forEach(function (p) {
+        R = Math.max(R, Math.min(6, Math.abs(p[0] - Q.w[0])), Math.min(6, Math.abs(p[1] - Q.w[1])));
+      });
+    });
+    R *= 1.2;
+    var ax = MLF.axes(ctx, s, { x: [Q.w[0] - R, Q.w[0] + R], y: [Q.w[1] - R, Q.w[1] + R], pal: pal,
+      xticks: [], yticks: [], pad: { l: 0.05, r: 0.05, t: 0.05, b: 0.09 }, xlab: '橫軸 w₁、縱軸 w₂' });
+    MLF.contours(ctx, ax, Q, R, pal);
+    ctx.save(); ctx.beginPath(); ctx.rect(ax.box.l, ax.box.t, ax.box.w, ax.box.h); ctx.clip();
+    runs.forEach(function (r, i) {
+      ctx.strokeStyle = MLF.rgb(cols[i], 0.9); ctx.lineWidth = 1.7; ctx.beginPath();
+      r.path.forEach(function (p, k) { var px = ax.X(p[0]), py = ax.Y(p[1]); if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
+      ctx.stroke();
+    });
+    ctx.restore();
+    MLF.cross(ctx, ax, Q.w[0], Q.w[1], pal.ink);
+    MLF.legend(ctx, ax, [{ t: 'GD', c: MLF.rgb(pal.b) }, { t: '動量', c: MLF.rgb(pal.d) },
+      { t: 'Adam', c: MLF.rgb(pal.c) }], 'tl', pal);
+  }
+
+  function drawLoss() {
+    var s = dL.resize(), ctx = dL.ctx; MLF.clear(ctx, s, pal);
+    var hi = 1e-16;
+    runs.forEach(function (r) { r.curve.forEach(function (p) { hi = Math.max(hi, p[1]); }); });
+    hi *= 2; var lo = Math.max(hi * 1e-10, 1e-16);
+    var ax = MLF.axes(ctx, s, { x: [1, STEPS], y: [lo, hi], logy: true, pal: pal,
+      xticks: [1, 100, 200, 300], yticks: [lo, Math.sqrt(lo * hi), hi],
+      fmty: function (v) { return v.toExponential(0); }, xlab: '步數' });
+    var cols = [pal.b, pal.d, pal.c], cl = function (v) { return Math.min(hi, Math.max(lo, v)); };
+    runs.forEach(function (r, i) {
+      MLF.line(ctx, ax, r.curve.map(function (p) { return [p[0], cl(p[1])]; }), MLF.rgb(cols[i]), 2);
+    });
+  }
+
+  function draw() {
+    build();
+    runs = [go('gd'), go('mom'), go('adam')];
+    var sk = Math.sqrt(Q.kappa), bs = Math.pow((sk - 1) / (sk + 1), 2), be = +el('be').value;
+    el('vk').textContent = Q.kappa.toExponential(2);
+    el('vb').textContent = bs.toFixed(4);
+    el('vh').textContent = (1 / (1 - be)).toFixed(1);
+    ['v1', 'v2', 'v3'].forEach(function (id, i) {
+      el(id).textContent = runs[i].n <= STEPS ? '發散' : runs[i].last.toExponential(2);
+    });
+    drawBowl(); drawLoss();
+  }
+  ['kp', 'be'].forEach(function (i) { el(i).onchange = draw; });
+  el('st').onchange = draw;
+  [0, 1, 2].forEach(function (k) {
+    el('m' + k).onclick = function () {
+      mode = k;
+      [0, 1, 2].forEach(function (j) { el('m' + j).setAttribute('aria-pressed', j === k ? 'true' : 'false'); });
+      draw();
+    };
+  });
+  el('bst').onclick = function () {
+    build();
+    var sk = Math.sqrt(Q.kappa);
+    el('be').value = Math.min(0.9995, Math.pow((sk - 1) / (sk + 1), 2));
+    draw();
+  };
+  window.addEventListener('resize', function () { drawBowl(); drawLoss(); });
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; drawBowl(); drawLoss(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  draw();
+
+})();
+</script>
+</body>
+</html>

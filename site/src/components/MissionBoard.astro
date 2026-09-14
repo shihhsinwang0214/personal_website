@@ -18,6 +18,7 @@ import type { Lang } from '../lib/handbook';
 import { labInfo } from '../lib/handbook';
 import { missionText, visibleQuests } from '../lib/mission';
 import { noteRoute, notesIndexRoute } from '../lib/notes';
+import { noteTitles } from '../lib/noteRefs';
 
 interface Props {
   lang: Lang;
@@ -25,12 +26,13 @@ interface Props {
 const { lang } = Astro.props;
 
 const allNotes = await getCollection('notes');
+const titles = await noteTitles();
 /** Notes for this language, indexed by the `group` a quest points at. */
 const notesByGroup = new Map<string, { slug: string; title: string }[]>();
 for (const n of allNotes) {
   if (n.data.lang !== lang) continue;
   const list = notesByGroup.get(n.data.group) ?? [];
-  list.push({ slug: n.data.slug, title: n.data.title });
+  list.push({ slug: n.data.slug, title: titles.of(n) });
   notesByGroup.set(n.data.group, list);
 }
 

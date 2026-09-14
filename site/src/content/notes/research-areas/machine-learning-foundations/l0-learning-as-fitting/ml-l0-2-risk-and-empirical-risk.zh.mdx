@@ -1,0 +1,252 @@
+---
+slug: "ml-l0-2-risk-and-empirical-risk"
+label: "ml-empirical-risk"
+prereqs:
+  - math-conditional-expectation
+  - math-weak-strong-convergence
+lang: "zh"
+title: "台北的房仲去台中：風險與經驗風險"
+category: "courses"
+group: "L0 · 學習就是擬合"
+status: "available"
+updated: 2026-09-10
+summary: "訓練誤差是你能算的，母體風險是你想小的。大數法則保證兩者對「事先固定的規則」會靠攏——但 ERM 挑出來的規則是從資料裡挑的，它看過那些點，所以訓練誤差系統性地偏低，而且假設空間越大偏得越多。實測：固定規則的落差是 0.0005，同一個空間裡挑出來的規則是 0.0094，空間放大到九次就變成 0.75。再加上分佈偏移，落差可以是 8000 倍。"
+demos: []
+references:
+  - label: "Shalev-Shwartz & Ben-David, Understanding Machine Learning (Cambridge University Press 2014), Ch. 2–4"
+    href: "https://www.cs.huji.ac.il/~shais/UnderstandingMachineLearning/"
+  - label: "Quiñonero-Candela et al. (eds.), Dataset Shift in Machine Learning (MIT Press 2009)"
+    href: "https://mitpress.mit.edu/9780262170055/dataset-shift-in-machine-learning/"
+  - label: "Recht et al., Do ImageNet Classifiers Generalize to ImageNet? (ICML 2019)"
+    href: "https://proceedings.mlr.press/v97/recht19a.html"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Ask from '../../../components/Ask.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Remark from '../../../components/Remark.astro';
+import Bridge from '../../../components/Bridge.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 台北的房仲去台中：風險與經驗風險
+
+<Objectives>
+- 寫出母體風險與經驗風險，說出大數法則在這裡保證了什麼、以及它**不**保證什麼。
+- 說出為什麼「用來挑規則的資料」不能再用來評估那個規則，並量出這個偏差如何隨假設空間變大。
+- 分辨兩種不同的失敗——同分佈下的估計誤差、以及分佈偏移——並說出它們各自的徵狀與處方。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 起點：換一個城市就不準了
+
+那位在台北看過幾百間房子的房仲，被派到台中。同樣站三分鐘，同樣的自信，這次誤差大得離譜——不是差 2%，是差 30%。
+
+他的本領壞掉了嗎？沒有。**他學到的東西是對的，只是對的對象換了。** 台北的「捷運站走路五分鐘」值多少，跟台中的不是同一個數字；台北幾乎沒有的透天厝，在台中是主流。
+
+這裡有兩件不同的事，值得分開：
+
+1. 就算他留在台北，他的**實際**誤差也會比「他回顧自己過去估過的那些房子」的誤差大。因為那些房子是他調整自己感覺時用過的。
+2. 換到台中，是連「同一個分佈」這個前提都沒了。
+
+第一件事是**估計誤差**，是有限資料的必然，可以量、可以控制。第二件事是**分佈偏移**，多少資料都救不了，只能偵測與重新蒐集。實務上兩者常被混成一句「模型泛化不好」，然後開錯處方。
+
+<Ask>
+訓練時螢幕上那個數字，<br />
+和上線之後真正的表現，差多少？<br />
+這個落差是有限資料的必然，還是我做錯了什麼？
+</Ask>
+
+<Question id="Q1">
+把「他實際上會多準」與「他回顧自己的紀錄會覺得多準」翻成兩個數學物件。大數法則說它們會靠攏——這個保證的**前提**是什麼？ERM 挑出來的那個規則滿足這個前提嗎？
+
+<Answer>
+**兩個數字。** 母體風險 $R(f)=\mathbb E_{(X,Y)\sim p}[\ell(f(X),Y)]$ 是「面對從 $p$ 抽出的新房子，平均扣多少分」。經驗風險 $\widehat R_n(f)=\frac1n\sum_i \ell(f(x_i),y_i)$ 是同一件事在手上這 $n$ 筆上的平均。
+
+**大數法則的前提。** 固定一個規則 $f$，那 $n$ 個扣分 $\ell(f(x_i),y_i)$ 是 iid 的隨機變數，期望正是 $R(f)$。所以 $\widehat R_n(f)\to R(f)$，而且是**無偏**的：$\mathbb E[\widehat R_n(f)]=R(f)$。關鍵字是**固定**——$f$ 必須在看到資料之前就決定。
+
+**$\hat f$ 不滿足這個前提。** ERM 的 $\hat f$ 是從這 $n$ 筆資料裡挑出來的：它被挑中，正是因為它在這些點上看起來好。挑「在這份資料上最低」的那個，本身就是往下偏的取樣——$\widehat R_n(\hat f)$ 是一個**樂觀**的估計，而且假設空間越大（可挑的候選越多），偏得越多。
+
+挑選這個動作把統計獨立性用掉了。
+
+> **大數法則保證的是「這個數字對這個規則是準的」，不是「這個數字對我挑規則的過程是準的」。**
+
+（順帶一提，這裡關心的是「一堆隨機扣分的平均會不會逼近期望」——是分佈層次的收斂，不是逐條路徑的收斂，正是 <Ref to="math-weak-strong-convergence" mode="title"/> 區分的那兩件事裡的前者。）
+</Answer>
+</Question>
+
+## 兩層落差，兩種病
+
+把你在螢幕上看到的數字，和你真正在意的數字之間的距離拆成兩段：
+
+$$
+\underbrace{\widehat R_n(\hat f)}_{\text{訓練誤差}}
+\ \xrightarrow{\ \text{挑選帶來的樂觀}\ }\
+\underbrace{R_p(\hat f)}_{\text{同分佈的真實表現}}
+\ \xrightarrow{\ \text{分佈偏移}\ }\
+\underbrace{R_q(\hat f)}_{\text{上線後的真實表現}}.
+$$
+
+第一段是**估計誤差**：資料有限、而且被用來挑規則。它隨 $n$ 變大而縮小、隨假設空間變大而擴大——這是可以控制的旋鈕，也是下一個 class 整章的內容。
+
+第二段是**分佈偏移**：訓練分佈 $p$ 與上線分佈 $q$ 不同。它和 $n$ 沒有關係——在台北蒐集一億筆資料，對台中的預測不會變好一點。
+
+兩種病的徵狀不同：估計誤差大時，模型在**同分佈的留出資料**上就會露餡；分佈偏移時，同分佈的留出資料一切正常，上線才出事。
+
+> **留出集看起來很好、上線才出事，幾乎一定是偏移，不是過擬合。**
+
+<VizPlan id="ml-l0-2-two-gaps" title="訓練誤差、同分佈風險、上線風險：兩段落差" type="static">
+- **檔名**：`l0-learning-as-fitting/imgs/l0-2-1.svg`（16:9，左右兩格）。
+- **左格**：一條水平的「數字軸」（log 刻度），三個標記由左到右：訓練誤差 $0.0122$、同分佈母體風險 $0.0286$、偏移後風險 $8113$，兩段之間用不同顏色的箭頭與標籤「挑選帶來的樂觀」「分佈偏移」。下方一行小字：「只有最左邊那個數字，是你在訓練時看得到的。」
+- **右格**：共用 toy 的 $\sin$ 真值曲線（灰）、只在 $x\in[0,0.7]$ 上的 30 個訓練點、以及擬合曲線。曲線在 $x\le 0.7$ 貼合，在 $x>0.7$ 用另一個顏色畫出並讓它衝出畫面上緣，加箭頭與「訓練時從未看過這個區域」的標註；$x=0.7$ 畫一條垂直分界線。
+- **圖說**：「同一條曲線，在看過的區域是好模型，在沒看過的區域是亂數產生器。訓練誤差對後者一無所知。」
+</VizPlan>
+
+## 為什麼挑選會讓訓練誤差偏低
+
+對**事先固定**的 $f$：$\mathbb E_D[\widehat R_n(f)]=R(f)$，無偏。
+
+對 ERM 選出的 $\hat f=\arg\min_{f\in\mathcal F}\widehat R_n(f)$：對任意固定的 $f\in\mathcal F$ 都有 $\widehat R_n(\hat f)\le \widehat R_n(f)$，取期望得
+
+$$
+\mathbb E_D\big[\widehat R_n(\hat f)\big]\ \le\ \min_{f\in\mathcal F}\mathbb E_D\big[\widehat R_n(f)\big]\ =\ \min_{f\in\mathcal F}R(f)\ \le\ \mathbb E_D\big[R(\hat f)\big].
+$$
+
+左端是你看到的數字的期望，右端是你真正拿到的表現的期望——**不等式的方向是固定的：訓練誤差在期望上永遠不高於真實風險。** 樂觀不是運氣不好，是結構性的。
+
+落差有多大？直覺的量級是「$\mathcal F$ 裡有多少個實質不同的候選」。若 $\mathcal F$ 是有限集合、損失有界，一致收斂給
+
+$$
+R(\hat f)\ \le\ \widehat R_n(\hat f)+O\!\left(\sqrt{\tfrac{\log|\mathcal F|+\log(1/\delta)}{n}}\right)
+$$
+
+以至少 $1-\delta$ 的機率成立。要記的不是常數，是**兩個依賴方向**：分子隨假設空間變大而變大（$\log|\mathcal F|$，連續空間換成 VC 維或 Rademacher 複雜度），分母隨資料變多而變大（$\sqrt n$）。這正是上一篇「approximation vs estimation 對衝」的定量版本。
+
+分佈偏移則完全在這個框架之外。$R_q(f)=\mathbb E_{q}[\ell(f(X),Y)]$ 與 $R_p$ 之間沒有任何不等式——除非你另外假設偏移的形式（只有 $p(x)$ 變、$p(y\mid x)$ 不變的 covariate shift；只有標籤比例變的 label shift；等等）。**沒有假設就沒有保證**，這句話在這裡是字面意思。
+
+<Remark label="補充" summary="為什麼「一致收斂」這個詞裡有『一致』">
+對單一個 $f$，$\widehat R_n(f)$ 靠近 $R(f)$ 是大數法則。但我們需要的是：**同時**對 $\mathcal F$ 裡所有的 $f$ 都靠近——因為 $\hat f$ 是哪一個，要看資料才知道，我們必須先對所有候選都有保證，才敢對「事後才知道是誰」的那一個下結論。
+
+這就是「一致（uniform）」的意思：$\sup_{f\in\mathcal F}|\widehat R_n(f)-R(f)|$ 小。這個 $\sup$ 隨 $\mathcal F$ 變大而變大，於是「假設空間的大小」自然出現在界裡。把 $\mathcal F$ 設成所有函數，$\sup$ 不會收斂到 $0$，於是沒有任何保證——上一篇 $d=n-1$ 的內插災難就是這句話的具體樣子。
+</Remark>
+
+## 回到情境：房仲的兩種失準
+
+**留在台北。** 他回顧自己過去的紀錄，覺得平均誤差 3%。實際帶客戶看新案子，誤差是 5%。差的那 2% 不是他退步了——是他當初調整自己的「感覺」時用過那些房子。想知道真實的 5%，唯一的辦法是拿一批**他調整時沒用過**的成交案例來考他。這是下一個 class 「為什麼要切資料」的全部動機。
+
+**去台中。** 留出集也救不了他，因為留出集也是台北的。他需要的是台中的資料，或至少一個偵測機制：**輸入的分佈變了嗎？** 房型組成、單價區間、屋齡分佈——這些不需要標籤就能比較，這是實務上最便宜的預警。
+
+**這一切依賴什麼。** 一，訓練資料真的是從 $p$ 獨立抽的。時間序列、同一棟樓的多筆成交、同一個攝影師拍的多張照片，都會讓「獨立」失效，於是 $n$ 筆資料的有效樣本數遠小於 $n$。二，$p$ 在訓練與評估期間不變。三，損失有界或至少尾巴不太重，否則平均值本身就不穩（<Ref to="ml-loss-declaration" mode="title"/> 已經看過厚尾把 mean 拉走的樣子）。
+
+## 回到情境：把兩段落差量出來
+
+**第一段：挑選帶來的樂觀。** 對每個 degree，重抽 200 份訓練資料，比較兩件事——一個**事先固定**的規則（在另一份大資料上先擬好，與後面的抽樣無關），以及每次都從這份資料重新 ERM 選出的規則：
+
+```python
+import numpy as np, warnings; warnings.filterwarnings("ignore")
+from numpy.polynomial import Polynomial
+from ml_toy import toy_1d, truth, NOISE
+
+xs, ys = truth()
+risk = lambda f: ((f(xs) - ys)**2).mean() + NOISE**2      # 母體風險（近似）
+
+for d in (3, 5, 9):
+    fixed = Polynomial.fit(*toy_1d(n=2000, seed=999), d)  # 與下面的資料無關
+    gap_fixed, gap_erm = [], []
+    for s in range(200):
+        x, y = toy_1d(seed=s)                             # 每次 30 筆新資料
+        gap_fixed.append(risk(fixed) - ((fixed(x) - y)**2).mean())
+        f = Polynomial.fit(x, y, d)                       # ERM：從這份資料挑
+        gap_erm.append(risk(f) - ((f(x) - y)**2).mean())
+    print(f"degree {d}:  固定規則的落差 {np.mean(gap_fixed):+.4f}"
+          f" | ERM 選出的規則 平均 {np.mean(gap_erm):+.4f} 中位數 {np.median(gap_erm):+.4f}")
+```
+
+```
+degree 3:  固定規則的落差 +0.0005 | ERM 選出的規則 平均 +0.0094 中位數 +0.0092
+degree 5:  固定規則的落差 +0.0005 | ERM 選出的規則 平均 +0.0130 中位數 +0.0111
+degree 9:  固定規則的落差 +0.0005 | ERM 選出的規則 平均 +0.7495 中位數 +0.0252
+```
+
+三件事按理論預測發生了。**固定規則的落差是 $0.0005$**——實質為零，大數法則如期兌現，而且不隨 degree 改變（它從頭到尾沒被挑過）。**ERM 選出的規則落差恆為正**，這就是那個方向固定的不等式。**落差隨假設空間變大而變大**：$0.0094\to0.0130\to0.0252$（中位數）。degree 9 的**平均**是 $0.75$ 而中位數只有 $0.0252$，說明少數幾次抽樣災難性地過擬合把平均拉走了——**估計誤差不只變大，還變得不穩**，這件事在 <Ref to="ml-bias-variance" mode="title"/> 會被拆成 bias 與 variance 兩塊。
+
+**第二段：刻意違反同分佈假設。** 只在 $x\in[0,0.7]$ 上蒐集資料，模型上線後卻會遇到整個 $[0,1]$：
+
+```python
+rng = np.random.default_rng(0)
+x = np.sort(rng.uniform(0, .7, 30))                        # 訓練只看得到左邊七成
+y = np.sin(2*np.pi*x) + NOISE*rng.standard_normal(30)
+f = Polynomial.fit(x, y, 9)
+m = xs <= .7
+print(f"訓練誤差                        {((f(x) - y)**2).mean():.4f}")
+print(f"母體風險（同分佈 x∈[0,0.7]）  ≈ {((f(xs[m]) - ys[m])**2).mean() + NOISE**2:.4f}")
+print(f"母體風險（上線遇到 x∈[0,1]） ≈ {((f(xs) - ys)**2).mean() + NOISE**2:.4f}")
+```
+
+```
+訓練誤差                        0.0122
+母體風險（同分佈 x∈[0,0.7]）  ≈ 0.0286
+母體風險（上線遇到 x∈[0,1]） ≈ 8113.2300
+```
+
+第一段落差是 $2.3$ 倍，第二段是 **28 萬倍**。而且注意：如果你從那 30 筆裡切一份留出集來評估，你會看到 $0.0286$ 那個數字——**一個誠實而且正確的估計，對即將發生的災難完全沒有預警力**，因為留出集也只有左邊七成。這是分佈偏移最危險的地方：所有你習慣的檢查都會通過。
+
+真實版本的這個實驗到處都是：只在白天照片上訓練的視覺模型、只在成年男性資料上驗證的醫療模型、用 2019 年之前的資料訓練的需求預測模型。**外推的部分不是「準確度稍低」，是沒有定義。**
+
+## 拖動資料量與空間大小，看落差怎麼長
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/machine-learning-foundations/l0-learning-as-fitting/l0-2-2.html" class="demo-frame" title="拖動資料量與空間大小，看落差怎麼長：互動 demo" style="height: 859px; width: 100%; border: none;"></iframe>
+
+**互動 demo：加資料只關得掉「估計」那一段；要關掉「近似」那一段，得換假設空間。**
+
+## 先消化一下
+
+<QuizBlock id="ml-l0-2-a">
+一個團隊在留出集上得到 $92\%$ 準確率，上線後實際只有 $71\%$。他們的第一個假設是「過擬合了」，打算加正則化。最合理的評論是：
+<Option>正確，留出集與上線的差距就是過擬合的定義。</Option>
+<Option correct>方向可疑。留出集若真的與訓練同分佈且沒被重複使用，它已經是 $R_p(\hat f)$ 的無偏估計——過擬合會在留出集上就露餡。上線才掉，指向分佈偏移（或留出集被反覆用來選模型而失效）。該先比對輸入分佈，而不是加正則化。</Option>
+<Option>應該直接把留出集併回訓練集重訓。</Option>
+<Explanation>
+兩種病的鑑別診斷就是這一篇的實用價值：估計誤差在**同分佈的乾淨留出集**上看得到，分佈偏移看不到。所以「留出集好、上線差」只剩兩個嫌疑犯——分佈偏移，或者留出集因為被拿去挑過太多次模型而不再乾淨（那是 <Ref to="ml-nested-validation" mode="title"/> 的主題）。加正則化在這兩種情況下都不是對症下藥。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l0-2-b">
+實驗裡「固定規則的落差是 $+0.0005$，且不隨 degree 改變」說明了什麼？
+<Option>degree 對泛化沒有影響。</Option>
+<Option correct>大數法則的保證只跟「規則是否事先固定」有關，與規則多複雜無關。複雜度會傷人，是透過**挑選**這個動作——同一個複雜空間，若規則不是從資料挑的，訓練誤差仍然是無偏估計。</Option>
+<Option>2000 筆資料足以讓任何模型泛化。</Option>
+<Explanation>
+這是全篇最容易被跳過、也最有用的一點。常見的講法「複雜模型容易過擬合」把責任放在模型上；精確的講法是「**在有限資料上挑選**複雜模型容易過擬合」。責任在挑選。這也是為什麼一份沒被挑選過程碰過的資料，可以誠實評估任何複雜度的模型——留出集之所以有效，靠的就是這件事。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l0-2-c">
+關於偏移實驗裡「母體風險 $8113$」這個數字，下列哪一句最準確？
+<Option>模型在 $x>0.7$ 的區域準確度較低。</Option>
+<Option correct>模型在 $x>0.7$ 的區域沒有被任何資料約束，多項式在資料邊界外會發散——那裡的輸出不是「比較不準的預測」，是沒有意義的外推。真實系統應該偵測到輸入落在訓練範圍外並拒答。</Option>
+<Option>應該用更高次的多項式來覆蓋 $x>0.7$。</Option>
+<Explanation>
+「準確度較低」是一種安慰性的說法，它暗示還有部分價值。$8113$ 這個量級（相對於不可約誤差 $0.0225$）說的是另一回事：輸出與真值沒有關係。實務上的處方不是換模型，是**加一個範圍檢查**——輸入落在訓練分佈的支撐之外時拒答或退回保守值。這比「讓模型在沒看過的地方也很準」實際得多，後者在一般情況下不可能。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="ml-gradient-descent">
+這一篇把「螢幕上的數字」與「真正的表現」之間的距離拆成兩段：挑選帶來的樂觀（隨 $n$ 縮小、隨假設空間放大），以及分佈偏移（與 $n$ 無關）。實測給了三個可以記住的數量級——固定規則 $0.0005$、ERM 選出的規則 $0.0094$ 到 $0.75$、換一個輸入範圍 $8113$。
+
+到這裡，L0 的三個零件都到齊了，但「$\arg\min$」一直被當成一個可以直接寫下來的動作。實際上你只有一個可以微分的函數與一個迴圈。下一篇處理這件事：梯度下降的一頁——為什麼往負梯度走、每一步該走多大、以及步伐太大時發散得多快。
+</Bridge>
+
+## 參考文獻
+
+1. Shalev-Shwartz, S., Ben-David, S. [*Understanding Machine Learning.*](https://www.cs.huji.ac.il/~shais/UnderstandingMachineLearning/) Cambridge University Press 2014, Ch. 2–4.（ERM 的樂觀偏差、一致收斂、假設空間大小如何進入界裡。）
+2. Quiñonero-Candela, J. et al. (eds.) [*Dataset Shift in Machine Learning.*](https://mitpress.mit.edu/9780262170055/dataset-shift-in-machine-learning/) MIT Press 2009.（covariate shift、label shift 等偏移型態的分類與各自需要的假設。）
+3. Recht, B. et al. [*Do ImageNet Classifiers Generalize to ImageNet?*](https://proceedings.mlr.press/v97/recht19a.html) ICML 2019.（用同樣流程重新蒐集測試集，量出「留出集乾淨與否」在真實 benchmark 上值多少個百分點。）

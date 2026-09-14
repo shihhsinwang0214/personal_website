@@ -1,0 +1,184 @@
+---
+slug: "dma-w9-4-distribution-matching"
+label: "dma-distribution-matching"
+prereqs:
+  - math-kl
+  - math-generator-gradient
+  - math-tweedie
+lang: "zh"
+title: "另一條路：分佈匹配"
+category: "courses"
+group: "Week 9 · Flow Maps 與分佈匹配"
+status: "available"
+updated: 2026-09-06
+summary: "前面所有方法都是回歸：學生的輸出要等於某個目標點。DMD 改要求學生生成的分佈等於 teacher 的分佈——最小化各 noise level 上的 KL，梯度是兩個 score 的差 s_real − s_fake，s_fake 用另一個 denoiser 即時估計。回歸式蒸餾的失敗模式是「平均到中間」（配對交叉在蒸餾裡的樣子），分佈匹配繞開了它，換來 score 估計、mode collapse 與不穩定。"
+demos: []
+references:
+  - label: "Yin et al., One-step Diffusion with Distribution Matching Distillation (CVPR 2024)"
+    href: "https://arxiv.org/abs/2311.18828"
+  - label: "Yin et al., Improved Distribution Matching Distillation for Fast Image Synthesis (NeurIPS 2024)"
+    href: "https://arxiv.org/abs/2405.14867"
+  - label: "Wang et al., ProlificDreamer: High-Fidelity and Diverse Text-to-3D Generation with Variational Score Distillation (NeurIPS 2023)"
+    href: "https://arxiv.org/abs/2305.16213"
+  - label: "Sauer et al., Adversarial Diffusion Distillation (2023)"
+    href: "https://arxiv.org/abs/2311.17042"
+  - label: "Zhou et al., Inductive Moment Matching (2025)"
+    href: "https://arxiv.org/abs/2503.07565"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Details from '../../../components/Details.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 另一條路：分佈匹配
+
+<Objectives>
+- 說出到目前為止所有蒸餾方法共同的「回歸」形狀，以及回歸在目標多值時的必然結果。
+- 寫出 DMD 的目標與它的梯度 $s_{\text{real}}-s_{\text{fake}}$，說出每個 score 從哪裡來、為什麼要在所有 noise level 上做。
+- 對比回歸式與分佈匹配式蒸餾各自的失敗模式，並把前者連回配對交叉。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 到目前為止，全部都是回歸
+
+回頭看這兩週的每一個損失：progressive distillation 讓學生一步等於 teacher 兩步；consistency 讓 $f_\theta(x_t)$ 等於 $f_{\theta^-}(x_{t'})$；MeanFlow 讓 $u_\theta$ 等於 identity 的右邊；Shortcut 讓大步等於兩小步的平均。形狀全都一樣：**學生在某個輸入上的輸出，要等於某個目標點，用 squared loss 拉近。**
+
+這個形狀有一個 <Ref to="dma-tweedie-and-score"/> 就講過的性質：squared loss 的最小值是**條件期望**。目標若給定輸入是唯一的，回歸學到它；目標若給定輸入有好幾個可能，回歸學到它們的**平均**。前幾週這件事一直是幫手——正是靠它，條件目標才能在期望上等於邊際目標。但在蒸餾裡，它有另一面。
+
+想像 teacher 從噪聲 $x_0$ 出發，會走到哪一個資料點。若 teacher 是 ODE，這是一個確定的函數，目標唯一。但只要下面任何一件事發生，目標就變成多值：teacher 用的是 SDE 取樣器（同一個 $x_0$ 走出不同終點）；學生用的是條件配對 $(x_0,x_1)$ 而網路還沒學好；或者 consistency training 的時間網格太粗，目標退化成「$x_t$ 對應的 $x_1$」而不是「軌跡的終點」。這時回歸給出的是幾個可能終點的平均——**落在兩個 mode 中間、不像任何一個樣本的點**。<Ref to="dma-linear-path"/> Q1 說邊際速度是交叉直線方向的平均，於是軌跡彎；同一件事在蒸餾裡，是輸出變成終點的平均，於是**模糊**。交叉問題在蒸餾裡換了一身裝。
+
+有沒有辦法完全不要求逐點對應？
+
+## 只要求分佈一樣
+
+Distribution Matching Distillation（DMD，Yin et al. [1]）的出發點是：我們其實不在乎學生把哪個 $z$ 送到哪個 $x$，只在乎**學生輸出的分佈** $p_\theta$ 要等於 teacher 的分佈 $p_{\text{real}}$（teacher 多步取樣得到的分佈，實務上當作資料分佈）。學生是一個一步生成器 $x=G_\theta(z)$，$z\sim\mathcal N(0,I)$。目標寫成 KL：
+
+$$
+\min_\theta\ \mathrm{KL}\big(p_\theta\,\|\,p_{\text{real}}\big)=\mathbb E_{x\sim p_\theta}\big[\log p_\theta(x)-\log p_{\text{real}}(x)\big].
+$$
+
+直接算不出來——兩個密度都沒有。但它的**梯度**可以：
+
+$$
+\boxed{\;\nabla_\theta\,\mathrm{KL}(p_\theta\|p_{\text{real}})=\mathbb E_{z}\Big[\big(s_\theta(x)-s_{\text{real}}(x)\big)\Big|_{x=G_\theta(z)}\cdot\frac{\partial G_\theta(z)}{\partial\theta}\Big],\qquad s=\nabla_x\log p\;}
+$$
+
+密度消失了，只剩兩個 **score**。這和 <Ref to="dma-what-are-we-learning"/> Q1 的觀察是同一件事：取樣（這裡是「把樣本往正確的分佈推」）需要的是 score，不是密度。讀法：在學生的每個樣本 $x$ 上，梯度下降把 $x$ 往 $s_{\text{real}}-s_\theta$ 的方向推——**往 teacher 密度高的方向、離開學生自己密度高的方向**。前者把樣本拉向真實 mode，後者防止所有樣本擠到同一個地方。
+
+<Details summary="一維四行推導：為什麼 KL 的梯度是 score 差">
+寫 $x=G_\theta(z)$，KL $=\mathbb E_z\big[\log p_\theta(G_\theta(z))-\log p_{\text{real}}(G_\theta(z))\big]$。對 $\theta$ 微分，$\theta$ 出現在兩個地方：$\log p_\theta$ 的下標，以及 $G_\theta$ 的輸出。
+
+1. $G_\theta$ 那條路（chain rule）：$\mathbb E_z\big[(\partial_x\log p_\theta(x)-\partial_x\log p_{\text{real}}(x))\big|_{x=G_\theta(z)}\,\partial_\theta G_\theta(z)\big]$，這就是 score 差乘上生成器的 Jacobian。
+2. 下標那條路：$\mathbb E_z\big[\partial_\theta\log p_\theta(x)\big|_{x=G_\theta(z)}\big]=\mathbb E_{x\sim p_\theta}\big[\partial_\theta\log p_\theta(x)\big]$。
+3. 而 $\mathbb E_{x\sim p_\theta}[\partial_\theta\log p_\theta(x)]=\int\partial_\theta p_\theta(x)\,dx=\partial_\theta\int p_\theta\,dx=\partial_\theta 1=0$（score function 的期望為零）。
+4. 所以只剩第 1 條路：$\nabla_\theta\mathrm{KL}=\mathbb E_z[(s_\theta-s_{\text{real}})\,\partial_\theta G_\theta]$。
+
+**符號提醒**：$\nabla_\theta\mathrm{KL}$ 的方向是 $s_\theta-s_{\text{real}}$，**梯度下降**是往 $s_{\text{real}}-s_\theta$ 走。檢查一維例子：$p_\theta=\mathcal N(\theta,1)$、$p_{\text{real}}=\mathcal N(0,1)$，KL $=\theta^2/2$，梯度 $\theta$；而 $s_\theta(x)-s_{\text{real}}(x)=-(x-\theta)+x=\theta$，$\partial_\theta G=1$，吻合。
+
+$s_{\text{real}}$ 是 teacher，用 <Ref to="dma-tweedie-and-score"/> 從 denoiser 換算；$s_\theta$ 是學生分佈的 score，**另外訓一個 <Ref to="dma-denoising-regression"/> 式的 denoiser**，訓練資料是學生當下的輸出。
+</Details>
+
+## 為什麼要在所有 noise level 上做
+
+上面的式子寫在乾淨樣本 $x$ 上，實際做不到：$p_\theta$ 與 $p_{\text{real}}$ 在高維空間都很薄，兩者幾乎不重疊的地方 score 沒有意義，訓練初期學生的樣本全在 teacher 密度為零的區域，$s_{\text{real}}$ 給不出有用的方向。解法和 <Ref to="dma-forward-process"/> 選擇加噪的理由一模一樣：**把兩個分佈都加噪**。對每個 noise level $t$，令 $x_t=(1-t)\,x_0'+t\,x$（FM 慣例；$x_0'$ 是新抽的噪聲端樣本，和本週其他地方的 $x_0$ 一樣來自 $p_0$，加一撇是因為它與生成那一支用的 $z$ 無關），學生的擴散分佈 $p_{\theta,t}$ 與 teacher 的 $p_{\text{real},t}$ 都變得光滑、處處有密度。DMD 的目標是這些 KL 的加權和：
+
+$$
+\mathcal L_{\text{DMD}}=\mathbb E_t\Big[w(t)\,\mathrm{KL}\big(p_{\theta,t}\,\|\,p_{\text{real},t}\big)\Big],\qquad
+\nabla_\theta\mathcal L_{\text{DMD}}=\mathbb E_{t,z,\epsilon}\Big[w(t)\big(s_{\text{fake}}(x_t,t)-s_{\text{real}}(x_t,t)\big)\frac{\partial x_t}{\partial\theta}\Big].
+$$
+
+兩個 score 都是**denoiser**：$s_{\text{real}}(x_t,t)$ 由 teacher 的 denoiser 經 Tweedie 換算——這是 teacher 本來就會的事，任何 $t$ 都給得出來；$s_{\text{fake}}(x_t,t)$ 由一個「fake denoiser」給，它用 <Ref to="dma-denoising-regression"/> 那五行程式碼訓練，只是資料換成學生的輸出 $G_\theta(z)$。因為學生一直在變，fake denoiser 要**同步更新**——交替訓練：一步更新生成器、一步（或幾步）更新 fake denoiser。這個「一個生成器、一個追著它的 score 網路」的結構最早出現在 ProlificDreamer 的 variational score distillation（VSD，Wang et al. [3]），那裡用來做 text-to-3D；DMD 把它搬到蒸餾上。
+
+$w(t)$ 是 <Ref to="dma-fm-vs-diffusion"/> 那第四個旋鈕、訓練端的加權（<Ref to="dma-shared-techniques"/> 有它和 SNR 的換算）——DMD 用一個依樣本正規化的權重讓各 noise level 的梯度量級相當。DMD 原版還加了一個小的回歸項（用少量 teacher 的 $(z,x)$ 配對），DMD2 [2] 把它拿掉、讓 fake denoiser 更新得比生成器頻繁（two time-scale update）、加一個 GAN 判別器補品質，並把一步推廣到少步。主線只需要記住：**DMD 的訓練訊號是兩個 score 的差，其中一個 score 要即時估計。**
+
+<Question id="Q1">
+回歸式蒸餾（consistency、MeanFlow、Shortcut……）與分佈匹配式蒸餾（DMD），**各自的失敗模式是什麼？** 請分別說出它壞掉時樣本長什麼樣、以及病根在哪一個數學性質上。
+
+<Answer>
+課堂上通常先說得出回歸的那一半（「會模糊」），分佈匹配的那一半需要提示「這個結構像不像 GAN」才會浮現。
+
+**回歸式：目標多值時平均到中間。** 病根是 squared loss 的最小值是條件期望。teacher 映射若在某個輸入上多值——SDE teacher、條件配對、粗時間網格——學生輸出幾個終點的平均，樣本落在 mode 之間、細節被抹掉。這正是 <Ref to="dma-linear-path"/> Q1 的交叉問題：那裡平均掉的是速度方向，這裡平均掉的是終點。就算網路容量無限、訓練無限久，只要目標本身多值，這個平均就不會消失；它是**目標的性質**，不是優化的失敗。反過來說，回歸式的優點也在這裡：訓練是普通的 supervised learning，穩定、可預期，不需要第二個網路。
+
+**分佈匹配式：估不準 score，或塌到少數 mode。** DMD 完全不要求逐點對應——同一個 $z$ 送到哪裡都可以，只要整體分佈對——所以交叉問題不存在，樣本不會落在 mode 之間。代價有三層。第一，$s_{\text{fake}}$ 是一個**正在移動的目標的估計**：fake denoiser 永遠在追學生，追不上時梯度方向就是錯的，訓練會震盪甚至發散——這是 GAN 裡判別器與生成器互相追逐的老問題換了一個形式。第二，$\mathrm{KL}(p_\theta\|p_{\text{real}})$ 這個**方向**是 mode-seeking 的：它重罰「學生把質量放在 teacher 沒有的地方」，卻只輕罰「學生漏掉 teacher 的某個 mode」——學生把所有樣本放進 teacher 的一個 mode 裡，KL 可以很小。實務上表現為 **mode collapse**、多樣性下降，DMD2 加 GAN 項與 two time-scale update 主要就是在對付這兩件事。第三，DMD 需要 teacher（$s_{\text{real}}$），沒有從頭訓練的版本；學生也不是 flow map，多步取樣要另外設計。
+
+一句話總結：**回歸式的錯是「平均」，分佈匹配式的錯是「塌縮」或「追不上」。** 前者來自 conditional expectation，後者來自要估一個移動中的 score。下一篇的表把這兩種誤差來源與曲率 bias、累積並列。
+</Answer>
+</Question>
+
+<VizPlan id="w9-4-crossing-onestep" title="兩 Gaussian 交叉例子：回歸式一步 vs 分佈匹配式一步" type="interactive">
+- **位置**：Q1 之後。**檔名**：`week-9/w9-4-1.html`。
+- **資料**：<Ref to="dma-linear-path"/> 那個交叉例子——$p_0$ 是左下、右下兩個小 Gaussian，$p_1$ 是右上、左上兩個小 Gaussian，獨立配對下條件直線在中間交叉。teacher 用解析邊際速度的 ODE。
+- **左右兩格並排，同一批 400 個 $z\sim p_0$。** 左格「回歸式」：一個小網路用 consistency training 訓一步生成器，**時間網格 $N$ 用滑桿控制**（$N\in\{2,4,8,32\}$）。右格「DMD」：一個小生成器加一個 fake denoiser，用 DMD 梯度訓。兩格都畫出一步樣本（實心點）疊在 $p_1$ 的等高線上。
+- **左格的重點畫面**：$N=2$ 時大量樣本落在兩個上方 mode **之間**（平均到中間），用醒目色標出「落在等高線之外」的樣本並顯示比例；拉大 $N$ 比例下降但不歸零。hover 任一顆樣本顯示它的 $z$ 與 teacher ODE 真正的終點，讀者看到它落在幾個終點的平均位置。
+- **右格的重點畫面**：樣本落在兩個 mode 上，中間幾乎沒有點。**開關「關掉 $s_{\text{fake}}$」**：只用 $s_{\text{real}}$ 推，看樣本全部擠到 mode 的峰頂（沒有排斥項就塌縮）。**滑桿「fake denoiser 更新頻率」**（每步生成器更新配 1、2、5 步 fake 更新）：頻率低時樣本分佈震盪、兩個 mode 的比例來回擺——「追不上」。
+- **右下角小格**：兩格樣本對 $p_1$ 的 $W_2$，以及「落在單一 mode 的比例」（mode collapse 指標）。
+- **底部觀察句**：「觀察：回歸式一步的錯是平均——樣本落在兩個 mode 中間；分佈匹配一步不會，因為它不要求 $z$ 對到哪裡。但它的錯換成了塌縮與追不上：關掉排斥項就擠到峰頂，fake score 更新太慢就震盪。」
+- **匯出 PNG**：兩格併成 16:9，含當前 $N$、開關與頻率設定。
+- **註記**：<Ref to="dma-lab-flow-maps"/> 的作業會親手做出這張圖。
+</VizPlan>
+
+## 延伸閱讀：同一族的其他成員
+
+分佈匹配不只 KL 一種寫法。**Adversarial Diffusion Distillation**（ADD，Sauer et al. [4]）直接用 GAN 的判別器衡量學生與 teacher 的分佈差，再加一個 score distillation 項——把「分佈層面的訊號」交給判別器而不是 score 差。**Inductive Moment Matching**（IMM，Zhou et al. [5]）用 moment matching（MMD）比較「從 $t$ 一步跳到 $s$」與「先走到中間再跳到 $s$」兩批樣本的**分佈**——它同時是分佈匹配式的（比較的是樣本分佈而非逐點），又用了 flow map 的半群結構，而且不需要 teacher。這兩篇不在主線裡展開，但它們說明了一件事：**「回歸 vs 分佈匹配」是訓練訊號的分類，「學什麼物件」是另一個獨立的軸**——IMM 學的是 flow map，訊號卻是分佈層面的。下一篇的表把這兩個軸分開列。
+
+## 先消化一下
+
+<QuizBlock id="w9-4-a">
+DMD 的梯度是 $\mathbb E[(s_{\text{fake}}-s_{\text{real}})\,\partial_\theta x_t]$。梯度**下降**把學生樣本往哪個方向推？
+<Option>往 $s_{\text{fake}}$ 的方向，讓學生分佈更集中。</Option>
+<Option correct>往 $s_{\text{real}}-s_{\text{fake}}$ 的方向：朝 teacher 密度高的地方、離開學生自己密度高的地方。</Option>
+<Option>往 $s_{\text{real}}$ 的方向，兩個 score 相加。</Option>
+<Explanation>
+下降是負梯度，所以是 $s_{\text{real}}-s_{\text{fake}}$。$s_{\text{real}}$ 是吸引項（拉向真實 mode），$-s_{\text{fake}}$ 是排斥項（別擠在學生已經很密的地方）。少了排斥項，所有樣本都會滑向 teacher 密度的峰頂。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w9-4-b">
+為什麼 DMD 要在所有 noise level $t$ 上匹配，而不是只在乾淨樣本上？
+<Option>因為 teacher 只在 $t$ 很小時準確。</Option>
+<Option>為了讓學生也能多步取樣。</Option>
+<Option correct>乾淨樣本的兩個分佈很薄、幾乎不重疊，在不重疊處 score 給不出有用的方向；加噪讓兩個分佈光滑、處處有密度，score 差才有意義。</Option>
+<Explanation>
+這與最初選擇「加噪聲」當 forward process 的理由相同。teacher 在所有 $t$ 都會去噪；多步取樣是 DMD2 另外設計的，不是匹配所有 $t$ 的目的。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w9-4-c">
+回歸式蒸餾「平均到中間」的失敗，即使網路容量無限、訓練無限久也不會消失。原因是：
+<Option>squared loss 的梯度太小。</Option>
+<Option correct>它是目標的性質：squared loss 的最小值是條件期望，目標多值時最佳解就是平均。</Option>
+<Option>teacher 的軌跡太彎。</Option>
+<Explanation>
+這不是優化沒收斂，是收斂到了正確的最小值——而那個最小值就是平均。要消除它只能讓目標變成單值（ODE teacher、細網格、去交叉的配對），或者換成不要求逐點對應的訓練訊號。曲率是另一個獨立的誤差來源。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w9-4-d">
+DMD 最小化的是 $\mathrm{KL}(p_\theta\|p_{\text{real}})$ 而不是 $\mathrm{KL}(p_{\text{real}}\|p_\theta)$。這個方向的後果是：
+<Option>學生會把質量攤到 teacher 沒有的地方（過度平滑）。</Option>
+<Option correct>它重罰「學生放質量在 teacher 為零的地方」、輕罰「學生漏掉 teacher 的某個 mode」，因此傾向 mode collapse。</Option>
+<Option>兩個方向的 KL 對生成器的梯度相同，沒有差別。</Option>
+<Explanation>
+$\mathbb E_{x\sim p_\theta}\big[\log\frac{p_\theta}{p_{\text{real}}}\big]$ 只在學生**有**樣本的地方計分，學生沒去的 mode 不會被罰——mode-seeking。反方向的 KL 才會過度平滑，但它需要對 $p_{\text{real}}$ 取期望、算 $\log p_\theta$，這裡做不到。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-unified-table">
+本篇換了訓練訊號：從「輸出等於目標點」到「分佈等於分佈」，梯度是兩個 score 的差。回歸式的失敗是平均（交叉問題的最終形態），分佈匹配的失敗是塌縮與追不上。下一篇把兩週的方法沿著幾個軸排成一張表——學什麼、要不要 teacher、能否多步、誤差從哪裡來——並給一份選擇指南。
+</Bridge>
+
+## 參考文獻
+
+1. Yin, T., Gharbi, M., Zhang, R., Shechtman, E., Durand, F., Freeman, W. T., Park, T. [*One-step Diffusion with Distribution Matching Distillation.*](https://arxiv.org/abs/2311.18828) CVPR 2024.（KL 目標、score 差梯度、fake denoiser、回歸正則項。）
+2. Yin, T., Gharbi, M., Park, T., Zhang, R., Shechtman, E., Durand, F., Freeman, W. T. [*Improved Distribution Matching Distillation for Fast Image Synthesis.*](https://arxiv.org/abs/2405.14867) NeurIPS 2024.（DMD2：拿掉回歸項、two time-scale update、GAN 項、少步。）
+3. Wang, Z., Lu, C., Wang, Y., Bao, F., Li, C., Su, H., Zhu, J. [*ProlificDreamer: High-Fidelity and Diverse Text-to-3D Generation with Variational Score Distillation.*](https://arxiv.org/abs/2305.16213) NeurIPS 2023.（VSD：生成器加追蹤 score 網路的結構。）
+4. Sauer, A., Lorenz, D., Blattmann, A., Rombach, R. [*Adversarial Diffusion Distillation.*](https://arxiv.org/abs/2311.17042) 2023.（延伸閱讀。）
+5. Zhou, L., Ermon, S., Song, J. [*Inductive Moment Matching.*](https://arxiv.org/abs/2503.07565) 2025.（延伸閱讀。）

@@ -1,0 +1,64 @@
+---
+/**
+ * Try.astro — 「先自己算一次」的折疊塊。可見的那一行是**要讀者做的事**，
+ * 折起來的是**演算過程**。
+ *
+ * 和 <Details> 的分工（兩件不同的事，所以視覺要分家）：
+ *   <Details>  灰框 ＋ 「展開細節」pill —— 主線提出、但刻意不在主線展開的旁支。
+ *              不點開也不影響主線，可跳過。
+ *   <Try>      左側一條實心色邊、不畫整個框 ——「主線自己的一段推導」，
+ *              交給讀者先動手。
+ *
+ * 硬規定：<Try> 折起來的只能是**過程**，結果一定要出現在下一段的主線上。
+ * 不點開的讀者不能因此斷線；折掉結論就是把主線挖一個洞。
+ *
+ *   <Try summary="自己代一次：$\tilde\beta_t$ 怎麼收成 schedule 的一個數字？">
+ *   …兩行化簡…
+ *   </Try>
+ *
+ * summary 是 MDX 的 JSX 屬性，`<Ref>` 與粗體不生效；但 `$…$` 會由
+ * inlineMath() 補上 KaTeX（見 src/lib/inlineMath.ts）。內文（slot）走
+ * 正常的 markdown 管線，`<Ref>`、粗體、$$…$$ 都可以用。
+ */
+import { inlineMath } from '../../lib/inlineMath';
+
+interface Props { summary: string; label?: string; open?: boolean }
+const { summary, label = '動手', open = false } = Astro.props;
+---
+
+<details class="try" open={open}>
+  <summary><span class="try-label">{label}</span><span class="try-title" set:html={inlineMath(summary)} /></summary>
+  <div class="try-body"><slot /></div>
+</details>
+
+<style>
+  .try {
+    margin: 18px 0;
+    border-left: 3px solid var(--accent);
+    border-radius: 0 var(--radius, 12px) var(--radius, 12px) 0;
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+  }
+  .try summary {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    padding: 12px 16px; cursor: pointer; list-style: none; font-weight: 600; line-height: 1.5;
+  }
+  .try summary::-webkit-details-marker { display: none; }
+  .try summary::before {
+    content: ''; align-self: center; flex: 0 0 auto; width: 8px; height: 8px;
+    border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent);
+    transform: rotate(-45deg); transition: transform .15s ease;
+  }
+  .try[open] summary::before { transform: rotate(45deg); }
+  .try-label {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+    color: var(--surface); padding: 1px 8px; border-radius: 999px;
+    background: var(--accent);
+  }
+  .try-title { color: var(--text); min-width: 0; }
+  .try-body {
+    padding: 0 18px 14px;
+    border-top: 1px dashed color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  .try-body :global(p:first-child) { margin-top: 12px; }
+  .try-body :global(p) { line-height: 1.7; }
+</style>

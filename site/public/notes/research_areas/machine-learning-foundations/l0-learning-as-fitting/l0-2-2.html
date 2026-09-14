@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>兩段落差：加資料關得掉哪一段</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：訓練誤差和你真正想小的那個數字之間有<b>兩段</b>落差。第一段（訓練誤差 → 同分佈風險）來自資料有限，加資料會關掉；第二段（同分佈風險 → 上線風險）來自你只在 x ≤ 上限那一段蒐集資料，加多少同樣的資料都關不掉。</p>
+  <canvas id="fit" style="aspect-ratio:5/3" aria-label="散點＝訓練資料；斜線區＝從來沒有蒐集過資料的範圍；灰虛線＝真值；實線＝擬合"></canvas>
+  <p class="cap">散點＝訓練資料；斜線區＝從來沒有蒐集過資料的範圍；灰虛線＝真值；實線＝擬合</p>
+  <canvas id="bars" style="aspect-ratio:5/2" aria-label="三根柱子（log 縱軸）：訓練誤差、同分佈風險（只在蒐集範圍內算）、上線風險（整個 [0,1]）"></canvas>
+  <p class="cap">三根柱子（log 縱軸）：訓練誤差、同分佈風險（只在蒐集範圍內算）、上線風險（整個 [0,1]）</p>
+  <div class="controls">
+    <div class="row">
+      <label for="n">n</label><input id="n" type="range" min="10" max="500" step="10" value="40" />
+      <label for="d">次數 d</label><input id="d" type="range" min="1" max="20" step="1" value="6" />
+    </div>
+    <div class="row">
+      <label for="xm">蒐集範圍上限</label><input id="xm" type="range" min="0.4" max="1" step="0.02" value="0.7" />
+      <label for="sg">噪聲 σ</label><input id="sg" type="range" min="0" max="0.4" step="0.01" value="0.15" />
+    </div>
+    <div class="stats"><span>訓練誤差 = <b id="v1">—</b></span> <span>同分佈風險 = <b id="v2">—</b></span> <span>上線風險 = <b id="v3">—</b></span> <span>第一段落差 = <b id="g1">—</b></span> <span>第二段落差 = <b id="g2">—</b></span></div>
+  </div>
+  <p class="observe">觀察：把 n 拉大，<b>前兩根柱子靠攏而第三根紋風不動</b>；把 d 拉大，前兩根分家；把蒐集範圍上限拉回 1.0，第三根瞬間掉回第二根的高度。加資料能關掉第一段落差，關不掉第二段——<b>判斷自己卡在哪一段，決定你該去蒐集更多同樣的資料，還是不一樣的資料</b>。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var el = function (i) { return document.getElementById(i); };
+  var dF = MLF.hiDPICanvas(el('fit')), dB = MLF.hiDPICanvas(el('bars'));
+  var pal = MLF.palette(), seed = 0, fit = null, R = { tr: 0, in_: 0, all: 0 };
+
+  function compute() {
+    var n = +el('n').value, sg = +el('sg').value, xm = +el('xm').value, d = +el('d').value;
+    var r = MLF.rng(seed + 11), xs = [], ys = [], i;
+    for (i = 0; i < n; i++) xs.push(r() * xm);
+    xs.sort(function (a, b) { return a - b; });
+    for (i = 0; i < n; i++) ys.push(MLF.truth(xs[i]) + sg * r.normal());
+    fit = MLF.polyfit(xs, ys, d);
+    R.data = { x: xs, y: ys };
+    R.tr = MLF.mse(fit, xs, ys);
+    var gin = MLF.grid(300, 0, xm), gall = MLF.grid(300, 0, 1), s1 = 0, s2 = 0;
+    for (i = 0; i < 300; i++) {
+      var e1 = MLF.polyval(fit, gin[i]) - MLF.truth(gin[i]); s1 += e1 * e1;
+      var e2 = MLF.polyval(fit, gall[i]) - MLF.truth(gall[i]); s2 += e2 * e2;
+    }
+    R.in_ = s1 / 300 + sg * sg;
+    R.all = s2 / 300 + sg * sg;
+  }
+
+  function drawFit() {
+    var s = dF.resize(), ctx = dF.ctx; MLF.clear(ctx, s, pal);
+    var xm = +el('xm').value;
+    var ax = MLF.axes(ctx, s, { x: [-0.02, 1.02], y: [-2.2, 2.2], pal: pal,
+      xticks: [0, 0.5, 1], yticks: [-2, -1, 0, 1, 2], xlab: 'x', ylab: 'y' });
+    if (xm < 0.999) {
+      ctx.save(); ctx.beginPath();
+      ctx.rect(ax.X(xm), ax.box.t, ax.box.r - ax.X(xm), ax.box.h); ctx.clip();
+      ctx.strokeStyle = MLF.rgb(pal.d, 0.25); ctx.lineWidth = 1;
+      for (var k = -200; k < 400; k += 7) {
+        ctx.beginPath(); ctx.moveTo(ax.box.l + k, ax.box.b); ctx.lineTo(ax.box.l + k + 90, ax.box.t); ctx.stroke();
+      }
+      ctx.restore();
+      MLF.label(ctx, ax.X(xm) + 5, ax.box.t + 9, '沒有資料', MLF.rgb(pal.d, 0.85));
+    }
+    var g = MLF.grid(240), i, t = [], p = [];
+    for (i = 0; i < g.length; i++) {
+      t.push([g[i], MLF.truth(g[i])]);
+      p.push([g[i], Math.max(-3, Math.min(3, MLF.polyval(fit, g[i])))]);
+    }
+    MLF.line(ctx, ax, t, MLF.rgb(pal.a, 0.45), 1.6, [5, 4]);
+    MLF.line(ctx, ax, p, MLF.rgb(pal.d), 2.2);
+    for (i = 0; i < R.data.x.length; i++) MLF.dot(ctx, ax, R.data.x[i], R.data.y[i], MLF.rgb(pal.b, 0.8), 2.3);
+  }
+
+  function drawBars() {
+    var s = dB.resize(), ctx = dB.ctx; MLF.clear(ctx, s, pal);
+    var vals = [Math.max(R.tr, 1e-5), Math.max(R.in_, 1e-5), Math.max(R.all, 1e-5)];
+    var names = ['訓練誤差', '同分佈風險', '上線風險'];
+    var cols = [pal.b, pal.c, pal.d];
+    var hi = 4, lo = 1e-4;
+    var ax = MLF.axes(ctx, s, { x: [0, 3], y: [lo, hi], logy: true, pal: pal,
+      yticks: [1e-4, 1e-2, 1, 4], fmty: function (v) { return v >= 1 ? String(v) : v.toExponential(0); },
+      pad: { l: 0.15, b: 0.18 } });
+    var bw = ax.box.w / 3;
+    vals.forEach(function (v, i) {
+      var vv = Math.min(hi, Math.max(lo, v));
+      var y = ax.Y(vv);
+      ctx.fillStyle = MLF.rgb(cols[i], 0.85);
+      ctx.fillRect(ax.box.l + i * bw + bw * 0.22, y, bw * 0.56, ax.box.b - y);
+      var ly = y - 8 < ax.box.t + 9 ? y + 12 : y - 8;
+      MLF.label(ctx, ax.box.l + i * bw + bw / 2, ly, v.toFixed(4), pal.ink, 'center', 10);
+      MLF.label(ctx, ax.box.l + i * bw + bw / 2, ax.box.b + 12, names[i], pal.muted, 'center');
+    });
+  }
+
+  function draw() {
+    compute();
+    el('v1').textContent = R.tr.toFixed(4);
+    el('v2').textContent = R.in_.toFixed(4);
+    el('v3').textContent = R.all.toFixed(4);
+    el('g1').textContent = (R.in_ - R.tr).toFixed(4);
+    el('g2').textContent = (R.all - R.in_).toFixed(4);
+    drawFit(); drawBars();
+  }
+  ['n', 'd', 'xm', 'sg'].forEach(function (i) { el(i).oninput = draw; });
+  window.addEventListener('resize', draw);
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  draw();
+
+})();
+</script>
+</body>
+</html>

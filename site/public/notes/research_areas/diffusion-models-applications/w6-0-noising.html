@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>逐 token 加噪聲：uniform 與 mask</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 560px; aspect-ratio: 16/12; height: auto; display: block; margin: 0 auto; border-radius: 10px; cursor: pointer; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  input[type=range] { width: 210px; max-width: 56vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：離散版的「加噪聲」就是<b>一條我們自己寫好的 Markov chain</b>。兩條標準選擇的差別只在終點：uniform 走向<b>一片隨機的字</b>，absorbing 走向<b>整串 [MASK]</b>，而被遮的位置不會回來。</p>
+
+  <canvas id="cv" width="640" height="440" aria-label="uniform 與 absorbing 的加噪過程"></canvas>
+  <p class="cap">兩排是同一句話走同一個 t。橘＝原字　藍＝被換成隨機字　灰＝[MASK]　下方長條圖＝該排在<b>被點選的位置</b>上 q(x<sub>t</sub>|x₀) 的分布（點格子換位置）</p>
+
+  <div class="controls">
+    <div class="row">
+      <span class="lab">t</span><input id="t" type="range" min="0" max="20" step="1" value="8" /><b id="vt">8</b>
+      <button id="dice">🎲 重抽噪聲</button>
+    </div>
+    <div class="stats">
+      <span>ᾱ<sub>t</sub>（還是原字的機率）= <b id="va">—</b></span>
+      <span>uniform 這次被換掉 <b id="vu">—</b> 格</span>
+      <span>absorbing 被遮 <b id="vm">—</b> 格</span>
+    </div>
+  </div>
+
+  <p class="observe">拖 t：兩排的原字都以機率 ᾱ<sub>t</sub> 存活，所以<b>被動過的格數大致相同</b>。差別在動過之後長什麼樣——uniform 換成一個隨機的字（<b>也可能換回自己</b>），absorbing 一律變 [MASK]，而且<b>往右拖不會有格子復原</b>。看下方長條圖（滿高＝機率 1）：uniform 的那根柱子一路矮下去、其餘 29 根一起長高，最後攤成一片均勻；absorbing 永遠只有兩根，質量從原字整批搬到 [MASK]。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var SENT = ['我','今','天','想','吃','一','碗','熱','的','牛','肉','麵'];
+  var DICT = ['我','今','天','想','吃','一','碗','熱','的','牛','肉','麵','你','他','很','好','大','小','來','去','看','說','是','不','有','在','了','和','就','也'];
+  var K = DICT.length, T = 20, L = SENT.length, SEL = 4;
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var tEl = document.getElementById('t');
+  var vt = document.getElementById('vt'), va = document.getElementById('va'),
+      vu = document.getElementById('vu'), vm = document.getElementById('vm');
+  var pal = NDFlow.palette();
+  var abar = [], U = [], R = [];
+
+  function build() {
+    var a = 1; abar = [1];
+    for (var t = 1; t <= T; t++) { var b = 0.02 + 0.20 * (t - 1) / (T - 1); a *= (1 - b); abar.push(a); }
+  }
+  function reroll() {
+    U = []; R = [];
+    for (var i = 0; i < L; i++) { U.push(Math.random()); R.push(Math.floor(Math.random() * K)); }
+  }
+  function lay(s) {
+    var pad = 22, h = s.h;
+    return { pad: pad, cw: (s.w - 2 * pad) / L,
+             lab: [0.055 * h, 0.545 * h],
+             cy:  [0.075 * h, 0.565 * h], ch: 0.105 * h,
+             by:  [0.235 * h, 0.715 * h], bh: 0.19 * h };
+  }
+  function rrect(ctx, x, y, w, h, rr) {
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y); ctx.lineTo(x + w - rr, y); ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+    ctx.lineTo(x + w, y + h - rr); ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    ctx.lineTo(x + rr, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+    ctx.lineTo(x, y + rr); ctx.quadraticCurveTo(x, y, x + rr, y); ctx.closePath();
+  }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx, i, Y = lay(s);
+    var t = parseInt(tEl.value, 10), ab = abar[t];
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    var ORANGE = 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',0.88)';
+    var BLUE = 'rgba(' + pal.noise[0] + ',' + pal.noise[1] + ',' + pal.noise[2] + ',0.88)';
+    var GREY = 'rgba(255,255,255,0.22)';
+    var nu = 0, nm = 0;
+
+    [0, 1].forEach(function (row) {
+      ctx.font = '700 12px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.textAlign = 'left';
+      ctx.fillText(row === 0 ? 'uniform：換成隨機的字' : 'absorbing：換成 [MASK]', Y.pad, Y.lab[row]);
+      for (i = 0; i < L; i++) {
+        var touched = U[i] > ab, label, col;
+        if (!touched) { label = SENT[i]; col = ORANGE; }
+        else if (row === 0) { label = DICT[R[i]]; col = BLUE; nu++; }
+        else { label = '▨'; col = GREY; nm++; }
+        var x = Y.pad + i * Y.cw, y = Y.cy[row], w = Y.cw - 3, hh = Y.ch;
+        ctx.fillStyle = col; rrect(ctx, x, y, w, hh, 5); ctx.fill();
+        if (i === SEL) { ctx.strokeStyle = pal.accent; ctx.lineWidth = 2.4; ctx.stroke(); }
+        ctx.fillStyle = (touched && row === 1) ? 'rgba(255,255,255,0.7)' : '#15161a';
+        ctx.font = '700 14px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, x + w / 2, y + hh / 2 + 5);
+      }
+      // 長條圖：q(x_t | x_0) 在 SEL 這個位置上（高度直接就是機率，滿高 = 1）
+      var by = Y.by[row], bh = Y.bh;
+      ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(Y.pad, by + bh); ctx.lineTo(s.w - Y.pad, by + bh); ctx.stroke();
+      ctx.font = '500 9px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.textAlign = 'right';
+      ctx.fillText('1.0', Y.pad - 4, by + 4);
+      var n, bw, x0;
+      if (row === 0) { n = K; bw = (s.w - 2 * Y.pad) / n; x0 = Y.pad; }
+      else { n = 2; bw = (s.w - 2 * Y.pad) / 9; x0 = s.w / 2 - bw * 1.35; }
+      for (i = 0; i < n; i++) {
+        var p;
+        if (row === 0) p = (DICT[i] === SENT[SEL] ? ab : 0) + (1 - ab) / K;
+        else p = (i === 0 ? ab : 1 - ab);
+        var hgt = Math.max(1.2, p * bh);
+        ctx.fillStyle = (row === 0)
+          ? (DICT[i] === SENT[SEL] ? ORANGE : BLUE)
+          : (i === 0 ? ORANGE : GREY);
+        var bx = (row === 0) ? (x0 + i * bw) : (x0 + i * bw * 1.7);
+        ctx.fillRect(bx + 1, by + bh - hgt, bw - 2, hgt);
+      }
+      ctx.font = '600 10px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.textAlign = 'center';
+      if (row === 0) {
+        ctx.fillText('原字「' + SENT[SEL] + '」', x0 + bw * DICT.indexOf(SENT[SEL]) + bw / 2, by + bh + 13);
+        ctx.textAlign = 'right';
+        ctx.fillText('其餘 ' + (K - 1) + ' 個字各 (1−ᾱ)/K = ' + ((1 - ab) / K).toFixed(3), s.w - Y.pad, by + bh + 13);
+      } else {
+        ctx.fillText('原字「' + SENT[SEL] + '」', x0 + bw / 2, by + bh + 13);
+        ctx.fillText(ab.toFixed(2), x0 + bw / 2, by + bh + 25);
+        ctx.fillText('[MASK]', x0 + bw * 1.7 + bw / 2, by + bh + 13);
+        ctx.fillText((1 - ab).toFixed(2), x0 + bw * 1.7 + bw / 2, by + bh + 25);
+      }
+    });
+
+    vt.textContent = t;
+    va.textContent = ab.toFixed(3);
+    vu.textContent = nu;
+    vm.textContent = nm;
+  }
+  cv.addEventListener('click', function (ev) {
+    var s = d.resize(), r = cv.getBoundingClientRect();
+    var px = (ev.clientX - r.left) * (s.w / r.width);
+    var i = Math.floor((px - 22) / ((s.w - 44) / L));
+    if (i >= 0 && i < L) { SEL = i; draw(); }
+  });
+  tEl.oninput = draw;
+  document.getElementById('dice').onclick = function () { reroll(); draw(); };
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  build(); reroll(); applyTheme();
+})();
+</script>
+</body>
+</html>

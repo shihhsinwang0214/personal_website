@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>同一組邊際，一整族走法</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 450px; aspect-ratio: 1/1; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  input[type=range] { width: 190px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
+  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：同一組 (b<sub>t</sub>, ∇log p<sub>t</sub>) 可以組出一整族取樣器，<b>ε<sub>t</sub> 是唯一的旋鈕</b>（這裡取 ε<sub>t</sub> = c·σ<sub>t</sub>²）。它們的邊際完全一樣，但<b>只有 c&gt;0 的那些會把偏掉的分布拉回來</b>。</p>
+
+  <canvas id="cv" width="560" height="560" aria-label="一族取樣器的軌跡"></canvas>
+  <p class="cap">淡橘＝資料　綠線＝十四條軌跡　白點＝終點　（b<sub>t</sub> 與 score 都由資料精確算出，相當於訓到最佳的網路）</p>
+
+  <div class="controls">
+    <div class="row">
+      <span class="lab">噪聲強度 c</span><input id="e" type="range" min="0" max="6" step="0.25" value="0" /><b id="ve">0.00</b>
+      <span class="lab">步數</span>
+      <button data-k="20">20</button>
+      <button data-k="50" class="on">50</button>
+      <button data-k="200">200</button>
+    </div>
+    <div class="row"><span class="lab">模式</span>
+      <button data-m="plain" class="on">正常取樣</button>
+      <button data-m="kick">在 t=0.15 把所有樣本推歪</button>
+    </div>
+    <div class="row"><span class="lab">資料</span>
+      <button data-s="two_moons" class="on">雙月</button>
+      <button data-s="two_gaussians">雙峰</button>
+      <button data-s="ring">環形</button>
+      <button id="dice">🎲 重抽</button>
+    </div>
+    <div class="stats">
+      <span>終點分布與資料的 energy distance = <b id="vd">—</b></span>
+      <span>被推歪的量 = <b id="vk">—</b></span>
+    </div>
+  </div>
+
+  <p class="observe">先在「正常取樣」把 c 從 0 拉到 6：軌跡從光滑變抖動，但 energy distance <b>一直停在 0.01 上下</b>——這就是「邊際相同」。再按「把所有樣本推歪」：c=0 時那個偏移<b>一路帶到終點</b>（energy distance 約 0.7）；把 c 推上去會一路變好——c=1 大概掉到 0.3～0.5、c=2 約 0.2～0.3，c=4 以後就幾乎回到沒推的水準。<b>修正不是免費也不是瞬間的：它需要足夠的 ε 和足夠的剩餘時間</b>（把推歪的時刻往後移，同樣的 c 就救不回來）。而會不會修正，取決於取樣時的 ε<sub>t</sub>，不是訓練時加了多少噪聲。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var N = 200, M = 140, NDRAW = 14, SPAN = 5.6, TEND = 0.98, MINS = 0.02, KICK = 0.9;
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var eEl = document.getElementById('e');
+  var ve = document.getElementById('ve'), vd = document.getElementById('vd'), vk = document.getElementById('vk');
+  var pal = NDFlow.palette();
+  var K = 50, mode = 'plain', shape = 'two_moons';
+  var x1s = [], starts = [], traj = [], ends = [];
+
+  function rebuildData() { x1s = NDFlow.sampleTarget(shape, N); }
+  function rebuildStarts() {
+    starts = [];
+    for (var i = 0; i < M; i++) starts.push([NDFlow.randn(), NDFlow.randn()]);
+  }
+
+  // 線性路徑、獨立配對、p0 = N(0,I) → p_t 是混合高斯，b_t 與 score 都算得出來
+  // p_t(x) = (1/N) Σ N(x; t·x1_i, (1−t)² I)
+  function fields(px, py, t) {
+    var s = Math.max(MINS, 1 - t), s2 = 2 * s * s, ls = [], mx = -Infinity, i;
+    for (i = 0; i < N; i++) {
+      var dx = px - t * x1s[i][0], dy = py - t * x1s[i][1];
+      var l = -(dx * dx + dy * dy) / s2;
+      ls.push(l); if (l > mx) mx = l;
+    }
+    var sum = 0, ex = 0, ey = 0;
+    for (i = 0; i < N; i++) { ls[i] = Math.exp(ls[i] - mx); sum += ls[i]; }
+    for (i = 0; i < N; i++) { var w = ls[i] / sum; ex += w * x1s[i][0]; ey += w * x1s[i][1]; }
+    // E[x0|x] = (x − t·m)/(1−t)；b = m − E[x0|x]；score = −(x − t·m)/(1−t)²
+    var rx = px - t * ex, ry = py - t * ey;
+    var e0x = rx / s, e0y = ry / s;
+    return { b: [ex - e0x, ey - e0y], s: [-rx / (s * s), -ry / (s * s)] };
+  }
+
+  function edist(A, B) {
+    // energy distance：2·E|X−Y| − E|X−X'| − E|Y−Y'|
+    var i, j, sxy = 0, sxx = 0, syy = 0, na = A.length, nb = B.length;
+    for (i = 0; i < na; i++) for (j = 0; j < nb; j++) sxy += Math.hypot(A[i][0] - B[j][0], A[i][1] - B[j][1]);
+    for (i = 0; i < na; i++) for (j = 0; j < na; j++) sxx += Math.hypot(A[i][0] - A[j][0], A[i][1] - A[j][1]);
+    for (i = 0; i < nb; i++) for (j = 0; j < nb; j++) syy += Math.hypot(B[i][0] - B[j][0], B[i][1] - B[j][1]);
+    return 2 * sxy / (na * nb) - sxx / (na * na) - syy / (nb * nb);
+  }
+
+  function run() {
+    var c = parseFloat(eEl.value), h = TEND / K;
+    traj = []; ends = [];
+    var kickAt = Math.round(0.15 / TEND * K);
+    for (var m = 0; m < M; m++) {
+      var x = [starts[m][0], starts[m][1]], keep = (m < NDRAW), path = keep ? [[x[0], x[1]]] : null;
+      for (var k = 0; k < K; k++) {
+        if (mode === 'kick' && k === kickAt) { x = [x[0] + KICK, x[1] + KICK * 0.4]; if (keep) path.push([x[0], x[1]]); }
+        var t = k * h, f = fields(x[0], x[1], t);
+        var sg = Math.max(MINS, 1 - t), eps = c * sg * sg;     // ε_t = c·σ_t²，讓 ε·score 有界
+        var g = Math.sqrt(2 * eps * h);
+        x = [x[0] + h * (f.b[0] + eps * f.s[0]) + g * NDFlow.randn(),
+             x[1] + h * (f.b[1] + eps * f.s[1]) + g * NDFlow.randn()];
+        if (keep) path.push([x[0], x[1]]);
+      }
+      if (keep) traj.push(path);
+      ends.push(x);
+    }
+    ve.textContent = c.toFixed(2);
+    vd.textContent = edist(ends, x1s).toFixed(4);
+    vk.textContent = mode === 'kick' ? Math.hypot(KICK, KICK * 0.4).toFixed(2) : '0（沒推）';
+  }
+
+  function T2(s) {
+    var k = Math.min(s.w, s.h) / SPAN;
+    return { x: function (v) { return s.w / 2 + v * k; }, y: function (v) { return s.h / 2 - v * k; } };
+  }
+  function draw() {
+    var s = d.resize(), ctx = d.ctx, tr = T2(s), i;
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    ctx.fillStyle = 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',0.34)';
+    for (i = 0; i < N; i++) { ctx.beginPath(); ctx.arc(tr.x(x1s[i][0]), tr.y(x1s[i][1]), 1.6, 0, 6.284); ctx.fill(); }
+
+    ctx.strokeStyle = 'rgba(96,186,130,0.45)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    traj.forEach(function (p) {
+      ctx.beginPath();
+      for (var k = 0; k < p.length; k++) k ? ctx.lineTo(tr.x(p[k][0]), tr.y(p[k][1])) : ctx.moveTo(tr.x(p[k][0]), tr.y(p[k][1]));
+      ctx.stroke();
+    });
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    for (i = 0; i < ends.length; i += 1) { ctx.beginPath(); ctx.arc(tr.x(ends[i][0]), tr.y(ends[i][1]), 1.7, 0, 6.284); ctx.fill(); }
+  }
+
+  function go() { run(); draw(); }
+  function seg(sel, attr, set) {
+    Array.prototype.forEach.call(document.querySelectorAll(sel), function (b) {
+      b.onclick = function () {
+        Array.prototype.forEach.call(document.querySelectorAll(sel), function (o) { o.classList.remove('on'); });
+        b.classList.add('on'); set(b.dataset[attr]); go();
+      };
+    });
+  }
+  seg('[data-k]', 'k', function (v) { K = parseInt(v, 10); });
+  seg('[data-m]', 'm', function (v) { mode = v; });
+  seg('[data-s]', 's', function (v) { shape = v; rebuildData(); });
+  eEl.oninput = go;
+  document.getElementById('dice').onclick = function () { rebuildStarts(); go(); };
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  rebuildData(); rebuildStarts(); run(); applyTheme();
+})();
+</script>
+</body>
+</html>

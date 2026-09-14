@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>用訓練誤差選旋鈕，答案在看到資料之前就寫好了</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：把一個旋鈕往一端推會讓訓練誤差<b>單調變好</b>，所以它不能用訓練誤差來選——那樣選出來的永遠是候選清單的上限，和資料沒有關係。這件事不是容量旋鈕的專利，<b>訓練步數也一樣</b>。</p>
+  <canvas id="cap" style="aspect-ratio:5/3" aria-label="橫軸＝候選的多項式次數。三條線：訓練誤差、驗證誤差、真實風險（灰，實務上看不到）。兩個游標＝兩種選法挑到的位置"></canvas>
+  <p class="cap">橫軸＝候選的多項式次數。三條線：訓練誤差、驗證誤差、真實風險（灰，實務上看不到）。兩個游標＝兩種選法挑到的位置</p>
+  <canvas id="step" style="aspect-ratio:5/2" aria-label="同一件事換成「訓練步數」這個旋鈕（橫軸 log）"></canvas>
+  <p class="cap">同一件事換成「訓練步數」這個旋鈕（橫軸 log）</p>
+  <div class="controls">
+    <div class="row">
+      <label for="dmax">候選上限</label><input id="dmax" type="range" min="5" max="30" step="1" value="20" />
+      <label for="n">n</label><input id="n" type="range" min="15" max="200" step="5" value="30" />
+    </div>
+    <div class="row">
+      <label for="nv">驗證集大小</label><input id="nv" type="range" min="10" max="300" step="10" value="60" />
+      <label for="sg">噪聲 σ</label><input id="sg" type="range" min="0.05" max="0.4" step="0.01" value="0.15" />
+    </div>
+    <div class="stats"><span>訓練誤差選的 d = <b id="d1">—</b></span> <span>它的真實風險 = <b id="r1">—</b></span> <span>驗證誤差選的 d = <b id="d2">—</b></span> <span>它的真實風險 = <b id="r2">—</b></span> <span>差 = <b id="rd">—</b></span></div>
+  </div>
+  <p class="observe">觀察：拖動候選上限，<b>「訓練誤差選的」那個游標永遠貼在最右邊</b>——上限調到哪它就跟到哪，答案與資料無關。把驗證集調小，另一個游標開始亂跳，但它<b>不會貼邊</b>。下圖顯示同樣的事發生在訓練步數上：訓練誤差對步數也是單調下降，所以「訓多久」同樣不能用訓練誤差決定。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var G = 300;
+  var el = function (i) { return document.getElementById(i); };
+  var dC = MLF.hiDPICanvas(el('cap')), dS = MLF.hiDPICanvas(el('step'));
+  var pal = MLF.palette(), C = null, T = null;
+
+  function capacity() {
+    var n = +el('n').value, nv = +el('nv').value, sg = +el('sg').value, dmax = +el('dmax').value;
+    var tr = MLF.toy1d(n, sg, 6), va = MLF.toy1d(nv, sg, 555), d;
+    var R = { d: [], tr: [], va: [], te: [] };
+    for (d = 1; d <= dmax; d++) {
+      var f = MLF.polyfit(tr.x, tr.y, d);
+      R.d.push(d);
+      R.tr.push(MLF.mse(f, tr.x, tr.y));
+      R.va.push(MLF.mse(f, va.x, va.y));
+      R.te.push(MLF.risk(f, sg));
+    }
+    var i1 = 0, i2 = 0;
+    for (d = 1; d < R.d.length; d++) {
+      if (R.tr[d] < R.tr[i1]) i1 = d;
+      if (R.va[d] < R.va[i2]) i2 = d;
+    }
+    R.byTrain = i1; R.byVal = i2;
+    return R;
+  }
+
+  /* 訓練步數當旋鈕：在標準化的 degree-14 基底上跑 GD */
+  function steps() {
+    var n = +el('n').value, nv = +el('nv').value, sg = +el('sg').value, d = 14;
+    var t = MLF.toy1d(n, sg, 6), v = MLF.toy1d(nv, sg, 555), i, j, k;
+    function basis(xs) {
+      var A = [];
+      for (i = 0; i < xs.length; i++) { A.push([]); for (j = 0; j <= d; j++) A[i].push(Math.pow(xs[i], j)); }
+      return A;
+    }
+    var A = basis(t.x), mu = [], sd = [];
+    for (j = 0; j <= d; j++) {
+      var m = 0; for (i = 0; i < n; i++) m += A[i][j]; m /= n;
+      var s2 = 0; for (i = 0; i < n; i++) s2 += (A[i][j] - m) * (A[i][j] - m); s2 = Math.sqrt(s2 / n) || 1;
+      if (j === 0) { m = 0; s2 = 1; }
+      mu.push(m); sd.push(s2);
+      for (i = 0; i < n; i++) A[i][j] = (A[i][j] - m) / s2;
+    }
+    function proj(xs) {
+      var B = basis(xs);
+      for (i = 0; i < xs.length; i++) for (j = 0; j <= d; j++) B[i][j] = (B[i][j] - mu[j]) / sd[j];
+      return B;
+    }
+    var V = proj(v.x), GG = proj(MLF.grid(G));
+    var gx = MLF.grid(G);
+    var p0 = new Array(d + 1).fill(1), lmax = 1, it;
+    for (it = 0; it < 60; it++) {
+      var u = new Array(d + 1).fill(0);
+      for (i = 0; i < n; i++) { var pr = 0; for (j = 0; j <= d; j++) pr += A[i][j] * p0[j];
+        for (j = 0; j <= d; j++) u[j] += 2 * A[i][j] * pr / n; }
+      lmax = Math.sqrt(u.reduce(function (a, b) { return a + b * b; }, 0)) || 1;
+      for (j = 0; j <= d; j++) p0[j] = u[j] / lmax;
+    }
+    var eta = 1.8 / lmax, w = new Array(d + 1).fill(0);
+    var R = { k: [], tr: [], va: [], te: [] }, STEPS = 20000, EVERY = 50;
+    for (k = 0; k < STEPS; k++) {
+      var g = new Array(d + 1).fill(0), st = 0;
+      for (i = 0; i < n; i++) {
+        var p = 0; for (j = 0; j <= d; j++) p += w[j] * A[i][j];
+        var e = p - t.y[i]; st += e * e;
+        for (j = 0; j <= d; j++) g[j] += 2 * e * A[i][j] / n;
+      }
+      if (k % EVERY === 0) {
+        var sv = 0, se = 0;
+        for (i = 0; i < V.length; i++) { var q = 0; for (j = 0; j <= d; j++) q += w[j] * V[i][j]; var ev = q - v.y[i]; sv += ev * ev; }
+        for (i = 0; i < G; i++) { var q2 = 0; for (j = 0; j <= d; j++) q2 += w[j] * GG[i][j]; var ee = q2 - MLF.truth(gx[i]); se += ee * ee; }
+        R.k.push(k + 1); R.tr.push(st / n); R.va.push(sv / V.length); R.te.push(se / G + sg * sg);
+      }
+      for (j = 0; j <= d; j++) w[j] -= eta * g[j];
+    }
+    var i1 = 0, i2 = 0;
+    for (k = 1; k < R.k.length; k++) { if (R.tr[k] < R.tr[i1]) i1 = k; if (R.va[k] < R.va[i2]) i2 = k; }
+    R.byTrain = i1; R.byVal = i2;
+    return R;
+  }
+
+  function panel(dd, R, xs, logx, xlab, xticks) {
+    var s = dd.resize(), ctx = dd.ctx; MLF.clear(ctx, s, pal);
+    var hi = 0, i;
+    for (i = 0; i < xs.length; i++) hi = Math.max(hi, R.va[i], R.te[i]);
+    hi = Math.min(hi * 1.1, 3);
+    var ax = MLF.axes(ctx, s, { x: [xs[0], xs[xs.length - 1]], y: [0, hi], logx: logx, pal: pal,
+      xticks: xticks, yticks: [0, hi / 2, hi], fmty: function (v) { return v.toFixed(3); },
+      fmtx: logx ? function (v) { return v >= 1000 ? (v / 1000) + 'k' : String(v); } : null, xlab: xlab });
+    var cl = function (v) { return Math.min(hi, v); };
+    MLF.line(ctx, ax, xs.map(function (x, i) { return [x, cl(R.te[i])]; }), MLF.rgb(pal.a, 0.55), 3);
+    MLF.line(ctx, ax, xs.map(function (x, i) { return [x, cl(R.tr[i])]; }), MLF.rgb(pal.b), 2);
+    MLF.line(ctx, ax, xs.map(function (x, i) { return [x, cl(R.va[i])]; }), MLF.rgb(pal.c), 2);
+    MLF.ref(ctx, ax, { x: xs[R.byTrain], color: MLF.rgb(pal.b), dash: [] });
+    MLF.ref(ctx, ax, { x: xs[R.byVal], color: MLF.rgb(pal.c), dash: [3, 3] });
+    MLF.legend(ctx, ax, [{ t: '訓練誤差', c: MLF.rgb(pal.b) }, { t: '驗證誤差', c: MLF.rgb(pal.c) },
+      { t: '真實風險（看不到）', c: MLF.rgb(pal.a, 0.55) }], 'tr', pal);
+  }
+
+  function draw() {
+    C = capacity(); T = steps();
+    el('d1').textContent = C.d[C.byTrain];
+    el('r1').textContent = C.te[C.byTrain].toFixed(4);
+    el('d2').textContent = C.d[C.byVal];
+    el('r2').textContent = C.te[C.byVal].toFixed(4);
+    el('rd').textContent = (C.te[C.byTrain] - C.te[C.byVal]).toFixed(4);
+    panel(dC, C, C.d, false, '候選的多項式次數 d', [1, 5, 10, 15, 20, 25, 30].filter(function (v) { return v <= C.d[C.d.length - 1]; }));
+    panel(dS, T, T.k, true, '訓練步數（log）', [1, 100, 1000, 5000, 20000]);
+  }
+  ['dmax', 'n', 'nv', 'sg'].forEach(function (i) { el(i).onchange = draw; });
+  window.addEventListener('resize', draw);
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  draw();
+
+})();
+</script>
+</body>
+</html>

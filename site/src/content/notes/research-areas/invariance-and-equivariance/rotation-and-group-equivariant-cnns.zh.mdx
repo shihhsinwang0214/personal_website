@@ -16,18 +16,21 @@ references:
     href: "https://arxiv.org/abs/1612.08498"
 ---
 import Quiz from '../../components/Quiz.astro';
+import SeriesNote from '../../components/SeriesNote.astro';
 
 # 手機轉了，模型該不該跟著轉？
 
-> 「Invariance and Equivariance」系列第 5 篇。前兩篇把地圖改成 set 與 graph；現在回到影像分支，處理一般 CNN 尚未保證的旋轉。
+<SeriesNote>
+「Invariance and Equivariance」系列第 5 篇。前兩篇把地圖改成 set 與 graph；現在回到影像分支，處理一般 CNN 尚未保證的旋轉。
+</SeriesNote>
 
 回到手機地圖。你把手機轉了 30 度，羅斯福路不再水平，新生南路不再垂直，台大總圖在畫面中的座標也轉到另一個方向。對人來說，這仍然是同一段城市結構；對一般 CNN 來說，這卻不一定是同一個 pattern。
 
 上一篇的 convolution 保證的是：畫面平移時，feature map 跟著平移。但旋轉不是平移。把一條水平道路旋成斜線後，普通 filter 不會自動知道「這是同一種道路，只是方向變了」。
 
-這篇只追一個問題：
+這篇只追一件事：
 
-> 平移等變只告訴模型如何處理位置改變；旋轉等變還需要模型知道 feature 的方向、型別，以及輸出空間如何隨旋轉改變。
+> **平移等變只告訴模型如何處理位置改變；旋轉等變還需要模型知道 feature 的方向、型別，以及輸出空間如何隨旋轉改變。**
 
 如果你只說「我要 rotation invariant」，可能會把方向資訊抹掉；如果你說「我要 rotation equivariant」，你又必須說清楚：哪個輸出要旋轉？哪個 feature 是 scalar？哪個 feature 是 vector？哪個 feature 是 orientation channel？
 
@@ -57,7 +60,7 @@ $$
 
 把平移、旋轉、反射以及它們的組合放在一起，就得到一個 group $G$。Group-equivariant CNN 想問的是：
 
-> 對一整組 transformations $g \in G$，模型能不能穩定滿足 $F(g \cdot x)=\rho(g)F(x)$？
+> **對一整組 transformations $g \in G$，模型能不能穩定滿足 $F(g \cdot x)=\rho(g)F(x)$？**
 
 下面的 demo 只允許 $0^\circ,90^\circ,180^\circ,270^\circ$ 四個方向。普通單一 filter 的 response 會隨道路方向忽高忽低；group feature 則把 response 在四個 orientation channels 間循環搬動。被保留的不是某一格數值，而是整個有結構的 feature。
 
@@ -71,7 +74,7 @@ $$
 
 普通 CNN 的 feature map 主要標記「哪裡有某種 feature」。Group convolution 的 feature map 更像標記：
 
-> 這個 pattern 在哪個位置、以哪個 group element 或 orientation 出現？
+> **這個 pattern 在哪個位置、以哪個 group element 或 orientation 出現？**
 
 所以 feature 不再只住在平面位置 $(u,v)$ 上，也可能住在 $(u,v,r)$ 上，其中 $r$ 表示某個離散方向或 group element。旋轉輸入時，feature 會同時改變位置與 orientation index。
 

@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>去噪一個點</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 460px; aspect-ratio: 1/1; height: auto; display: block; margin: 0 auto; border-radius: 10px; cursor: crosshair; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 220px; max-width: 60vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 15px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：去噪的最佳解不是「猜對那一張」，而是 <b>E[x₀ | x<sub>t</sub>]</b>——所有可能原圖的加權平均。t 越大，參與平均的點越多，答案就越模糊。</p>
+
+  <canvas id="cv" width="560" height="560" aria-label="後驗權重與後驗均值"></canvas>
+  <p class="cap">在圖上<b>點一下</b>放置 x<sub>t</sub>（白圈）　亮點＝後驗權重大的資料點　箭頭＝指向 E[x₀ | x<sub>t</sub>]</p>
+
+  <div class="controls">
+    <div class="row">
+      <label for="shape">資料 p<sub>data</sub></label>
+      <select id="shape">
+        <option value="two_moons">雙月 Two moons</option>
+        <option value="two_gaussians">雙峰 Two gaussians</option>
+        <option value="ring">環形 Ring</option>
+      </select>
+      <label for="t">時間 t</label>
+      <input id="t" type="range" min="1" max="1000" step="1" value="300" />
+    </div>
+    <div class="row">
+      <button id="rand">隨機放一個 x_t</button>
+      <button id="resample" class="ghost">重抽資料</button>
+    </div>
+    <div class="stats">
+      <span>t = <b id="vt">300</b></span>
+      <span>√ᾱ<sub>t</sub> = <b id="vs">—</b></span>
+      <span>σ<sub>t</sub> = <b id="vn">—</b></span>
+      <span>參與平均的點數 ≈ <b id="vk">—</b></span>
+    </div>
+  </div>
+
+  <p class="observe">t 小的時候只有<b>一兩個點</b>亮著，箭頭幾乎就指在原圖上——這時候 denoiser 等於「認出那一張」。把 t 拉大，亮的點越來越多，箭頭開始指向它們的<b>平均位置</b>，甚至指到資料根本不存在的空白處。這正是 <b>L₂ 的最佳解</b>：不是猜對，而是取條件期望。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var N = 260, T = 1000, SPAN = 5.6;
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var shapeSel = document.getElementById('shape'), tEl = document.getElementById('t');
+  var vt = document.getElementById('vt'), vs = document.getElementById('vs'),
+      vn = document.getElementById('vn'), vk = document.getElementById('vk');
+  var pal = NDFlow.palette();
+  var x0 = [], abar = [], xt = [0.6, 0.6];
+
+  function buildSchedule() {
+    var a = 1; abar = [1];
+    for (var t = 1; t <= T; t++) {
+      var beta = 1e-4 + (0.02 - 1e-4) * (t - 1) / (T - 1);
+      a *= (1 - beta); abar.push(a);
+    }
+  }
+  function rebuild() { x0 = NDFlow.sampleTarget(shapeSel.value, N); }
+
+  function T2(s) {
+    var k = Math.min(s.w, s.h) / SPAN;
+    return {
+      k: k,
+      x: function (v) { return s.w / 2 + v * k; },
+      y: function (v) { return s.h / 2 - v * k; },
+      ix: function (px) { return (px - s.w / 2) / k; },
+      iy: function (py) { return -(py - s.h / 2) / k; }
+    };
+  }
+
+  function posterior(ab) {
+    // w_i ∝ exp(-|x_t - √ᾱ x0_i|² / 2σ²)
+    var sig = Math.sqrt(ab), s2 = 2 * (1 - ab), w = [], mx = -Infinity, i;
+    for (i = 0; i < N; i++) {
+      var dx = xt[0] - sig * x0[i][0], dy = xt[1] - sig * x0[i][1];
+      var l = -(dx * dx + dy * dy) / s2;
+      w.push(l); if (l > mx) mx = l;
+    }
+    var sum = 0;
+    for (i = 0; i < N; i++) { w[i] = Math.exp(w[i] - mx); sum += w[i]; }
+    var ex = 0, ey = 0, sq = 0;
+    for (i = 0; i < N; i++) { w[i] /= sum; ex += w[i] * x0[i][0]; ey += w[i] * x0[i][1]; sq += w[i] * w[i]; }
+    return { w: w, mean: [ex, ey], neff: 1 / sq };
+  }
+
+  function arrow(ctx, ax, ay, bx, by, color, wid) {
+    var dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy);
+    if (L < 2) return;
+    ctx.strokeStyle = color; ctx.lineWidth = wid; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    var ah = Math.min(9, L * 0.3), an = Math.atan2(dy, dx);
+    ctx.beginPath(); ctx.moveTo(bx, by);
+    ctx.lineTo(bx - ah * Math.cos(an - 0.4), by - ah * Math.sin(an - 0.4));
+    ctx.lineTo(bx - ah * Math.cos(an + 0.4), by - ah * Math.sin(an + 0.4));
+    ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+  }
+
+  function draw() {
+    var s = d.resize(), ctx = d.ctx, tr = T2(s);
+    var tIdx = parseInt(tEl.value, 10), ab = abar[tIdx];
+    var P = posterior(ab), i;
+
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+
+    // 底層：所有資料點（淡）
+    ctx.fillStyle = 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',0.20)';
+    for (i = 0; i < N; i++) { ctx.beginPath(); ctx.arc(tr.x(x0[i][0]), tr.y(x0[i][1]), 1.6, 0, 6.284); ctx.fill(); }
+
+    // 後驗權重（亮）
+    var wmax = 0;
+    for (i = 0; i < N; i++) if (P.w[i] > wmax) wmax = P.w[i];
+    for (i = 0; i < N; i++) {
+      var rel = P.w[i] / wmax; if (rel < 0.02) continue;
+      ctx.fillStyle = 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',' + (0.25 + 0.75 * rel) + ')';
+      ctx.beginPath(); ctx.arc(tr.x(x0[i][0]), tr.y(x0[i][1]), 1.8 + 5.2 * Math.sqrt(rel), 0, 6.284); ctx.fill();
+    }
+
+    // x_t（白圈）與 E[x0|x_t]（箭頭）
+    arrow(ctx, tr.x(xt[0]), tr.y(xt[1]), tr.x(P.mean[0]), tr.y(P.mean[1]), pal.accent, 2);
+    ctx.strokeStyle = pal.dark ? '#f2efe9' : '#ffffff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(tr.x(xt[0]), tr.y(xt[1]), 6, 0, 6.284); ctx.stroke();
+    ctx.fillStyle = pal.accent;
+    ctx.beginPath(); ctx.arc(tr.x(P.mean[0]), tr.y(P.mean[1]), 3.4, 0, 6.284); ctx.fill();
+
+    ctx.font = '600 12px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = pal.dark ? 'rgba(242,239,233,.9)' : 'rgba(255,255,255,.9)';
+    ctx.textAlign = 'left';
+    ctx.fillText('x_t', tr.x(xt[0]) + 9, tr.y(xt[1]) - 8);
+    ctx.fillStyle = pal.accent;
+    ctx.fillText('E[x_0 | x_t]', tr.x(P.mean[0]) + 8, tr.y(P.mean[1]) + 14);
+
+    vt.textContent = tIdx;
+    vs.textContent = Math.sqrt(ab).toFixed(3);
+    vn.textContent = Math.sqrt(1 - ab).toFixed(3);
+    vk.textContent = P.neff < 10 ? P.neff.toFixed(1) : P.neff.toFixed(0);
+  }
+
+  function pick(ev) {
+    var s = d.resize(), tr = T2(s), r = cv.getBoundingClientRect();
+    var px = (ev.clientX - r.left) * (s.w / r.width), py = (ev.clientY - r.top) * (s.h / r.height);
+    xt = [tr.ix(px), tr.iy(py)];
+    draw();
+  }
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+
+  cv.addEventListener('click', pick);
+  shapeSel.onchange = function () { rebuild(); draw(); };
+  tEl.oninput = draw;
+  document.getElementById('rand').onclick = function () {
+    var ab = abar[parseInt(tEl.value, 10)], j = Math.floor(Math.random() * N);
+    xt = [Math.sqrt(ab) * x0[j][0] + Math.sqrt(1 - ab) * NDFlow.randn(),
+          Math.sqrt(ab) * x0[j][1] + Math.sqrt(1 - ab) * NDFlow.randn()];
+    draw();
+  };
+  document.getElementById('resample').onclick = function () { rebuild(); draw(); };
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  buildSchedule(); rebuild(); applyTheme();
+})();
+</script>
+</body>
+</html>

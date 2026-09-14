@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>內容決定看誰，位置要另外餵進去</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：注意力對「誰靠近誰」<b>一無所知</b>——把 token 的順序打亂，注意力矩陣只是行列同時重排，數值一個都沒變。這是它的彈性，也是它必須另外餵位置編碼的原因。另外兩件事：<b>1/√d 不是美觀用的</b>（拿掉它，維度一大 softmax 就塌成 one-hot），以及 L²d 那一項<b>什麼時候才真的主導</b>。</p>
+  <canvas id="att" style="aspect-ratio:5/2" aria-label="左＝L 個 token 的內容（灰＝原順序，可按「打亂順序」）；右＝L×L 的注意力矩陣（列＝query，行＝key）"></canvas>
+  <p class="cap">左＝L 個 token 的內容（灰＝原順序，可按「打亂順序」）；右＝L×L 的注意力矩陣（列＝query，行＝key）</p>
+  <canvas id="right" style="aspect-ratio:5/2" aria-label="可切換：(a) 縮放對熵　(b) 位置編碼的強度　(c) 兩項成本誰主導"></canvas>
+  <p class="cap">可切換：(a) 縮放對熵　(b) 位置編碼的強度　(c) 兩項成本誰主導</p>
+  <div class="controls">
+    <div class="row">
+      <label for="L">序列長度 L</label><input id="L" type="range" min="4" max="24" step="1" value="16" />
+      <label for="d">維度 d</label><input id="d" type="range" min="2" max="10" step="1" value="6" />
+      <label class="chk"><input id="sc" type="checkbox" checked /> 除以 √d</label>
+      <button id="pm" class="ghost">🔀 打亂順序</button>
+    </div>
+    <div class="row">
+      <span class="seg"><button id="ba" aria-pressed="true">縮放</button><button id="bb" aria-pressed="false">位置編碼</button><button id="bc" aria-pressed="false">成本</button></span>
+      <label for="pe">位置編碼強度</label><input id="pe" type="range" min="0" max="5" step="0.25" value="1" />
+      <button id="re" class="ghost">🎲 重抽內容</button>
+    </div>
+    <div class="stats"><span>d = <b id="vd">—</b></span> <span>平均熵（本設定） = <b id="v1">—</b></span> <span>均勻分布的熵 log L = <b id="v2">—</b></span> <span>平均最大權重 = <b id="v3">—</b></span> <span>max|Attn(Px) − P·Attn(x)| = <b id="v4">—</b></span> <span>L²d ÷ L·d²（本設定） = <b id="v5">—</b></span></div>
+  </div>
+  <p class="observe">觀察：按「打亂順序」，右邊那張圖的<b>行列一起重排，但每一個數值都還在</b>——置換等變誤差是 <b>10⁻¹⁶ 的量級</b>，也就是浮點數的零。注意力完全不知道誰靠近誰。切到 (a)：關掉「除以 √d」再把 d 拉到 1024，<b>熵從 1.58 掉到 0.10、最大權重從 0.45 升到 0.96</b>（每一列塌成一個亮點）；打開縮放那條幾乎是水平的（2.17 → 2.13），最大權重只從 0.29 爬到 0.43。那個 √d 是<b>讓 softmax 在維度變大時保持同樣溫度</b>的東西，不是美觀。切到 (b)：那條曲線是「注意力的 logit 裡，有多少變異是位置決定的」。<b>強度 1 的時候位置只解釋掉 4.4%</b>，要拉到 <b>3.5</b> 左右才過一半——這就是為什麼原尺度的正弦編碼常常「幾乎沒有用」：<b>它不是沒寫進去，是被內容的變異蓋掉了</b>。切到 (c)：二次項只有在 L 超過 d 的時候才主導。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var el = function (i) { return document.getElementById(i); };
+  var dA = MLF.hiDPICanvas(el('att')), dR = MLF.hiDPICanvas(el('right'));
+  var pal = MLF.palette(), mode = 'a', seed = 3, perm = null, S = null;
+
+  function Lv() { return +el('L').value; }
+  function dv() { return Math.pow(2, +el('d').value); }
+
+  /* ---------- 注意力 ---------- */
+  function penc(i, j, d) {
+    return j % 2 ? Math.cos(i / Math.pow(10000, (j - 1) / d)) : Math.sin(i / Math.pow(10000, j / d));
+  }
+  /* Q 與 K 是同一個 token 經過兩個獨立投影的結果，所以要分開抽 */
+  function content(L, d, sd, pe) {
+    var r = MLF.rng(sd), Q = [], K = [], i, j;
+    for (i = 0; i < L; i++) {
+      var q = [], k = [];
+      for (j = 0; j < d; j++) { q.push(r.normal()); k.push(r.normal()); }
+      Q.push(q); K.push(k);
+    }
+    if (pe) for (i = 0; i < L; i++) for (j = 0; j < d; j++) {
+      var e = pe * penc(i, j, d);
+      Q[i][j] += e; K[i][j] += e;
+    }
+    return { Q: Q, K: K };
+  }
+  function attn(X, d, scale) {
+    var L = X.Q.length, A = [], i, j, k;
+    var s = scale ? 1 / Math.sqrt(d) : 1;
+    for (i = 0; i < L; i++) {
+      var row = [], mx = -1e18;
+      for (j = 0; j < L; j++) {
+        var q = 0;
+        for (k = 0; k < d; k++) q += X.Q[i][k] * X.K[j][k];
+        q *= s; row.push(q); if (q > mx) mx = q;
+      }
+      var z = 0;
+      for (j = 0; j < L; j++) { row[j] = Math.exp(row[j] - mx); z += row[j]; }
+      for (j = 0; j < L; j++) row[j] /= z;
+      A.push(row);
+    }
+    return A;
+  }
+  function stats(A) {
+    var L = A.length, H = 0, M = 0, i, j;
+    for (i = 0; i < L; i++) {
+      var h = 0, m = 0;
+      for (j = 0; j < L; j++) { if (A[i][j] > 1e-12) h -= A[i][j] * Math.log(A[i][j]); m = Math.max(m, A[i][j]); }
+      H += h; M += m;
+    }
+    return { H: H / L, M: M / L };
+  }
+  function shuffle(L, sd) {
+    var r = MLF.rng(sd), a = [], i, j, t;
+    for (i = 0; i < L; i++) a.push(i);
+    for (i = L - 1; i > 0; i--) { j = Math.floor(r() * (i + 1)); t = a[i]; a[i] = a[j]; a[j] = t; }
+    return a;
+  }
+
+  function compute() {
+    var L = Lv(), d = dv(), pe = +el('pe').value, sc = el('sc').checked;
+    var X = content(L, d, seed, pe), A = attn(X, d, sc);
+    var P = perm || (function () { var a = []; for (var i = 0; i < L; i++) a.push(i); return a; })();
+    if (P.length !== L) { P = []; for (var i2 = 0; i2 < L; i2++) P.push(i2); perm = null; }
+    var XP = { Q: P.map(function (p) { return X.Q[p]; }), K: P.map(function (p) { return X.K[p]; }) };
+    var AP = attn(XP, d, sc);
+    var e = 0, i, j;
+    for (i = 0; i < L; i++) for (j = 0; j < L; j++) e = Math.max(e, Math.abs(AP[i][j] - A[P[i]][P[j]]));
+    S = { X: X, A: A, AP: AP, P: P, perm: !!perm, st: stats(A), eq: e, L: L, d: d };
+  }
+
+  /* ---------- (a) 縮放對熵 ---------- */
+  function scaleCurve() {
+    var L = Lv(), out = [], e;
+    for (e = 2; e <= 10; e++) {
+      var d = Math.pow(2, e), acc1 = { H: 0, M: 0 }, acc0 = { H: 0, M: 0 }, r;
+      for (r = 0; r < 5; r++) {
+        var X = content(L, d, 900 + r, 0);
+        var s1 = stats(attn(X, d, true)), s0 = stats(attn(X, d, false));
+        acc1.H += s1.H / 5; acc1.M += s1.M / 5; acc0.H += s0.H / 5; acc0.M += s0.M / 5;
+      }
+      out.push([d, acc1.H, acc0.H, acc1.M, acc0.M]);
+    }
+    return out;
+  }
+
+  /* ---------- (b) 位置編碼強度 ---------- */
+  /* 量的是：注意力的 logit 有多少比例是「位置」決定的。
+     logit_full = (X + s·P)(X + s·P)ᵀ/√d，logit_pos = P·Pᵀ/√d。
+     兩者的相關係數平方 = 位置解釋掉的變異比例。s 太小就會被內容的變異蓋掉。 */
+  function peCurve() {
+    var L = Lv(), d = 16, out = [], k, REPS = 12;
+    var Pm = [], i, j;
+    for (i = 0; i < L; i++) { var v = []; for (j = 0; j < d; j++) v.push(penc(i, j, d)); Pm.push(v); }
+    function logits(A1, A2) {
+      var A = [], i2, j2, k2;
+      for (i2 = 0; i2 < L; i2++) for (j2 = 0; j2 < L; j2++) {
+        var q = 0;
+        for (k2 = 0; k2 < d; k2++) q += A1[i2][k2] * A2[j2][k2];
+        A.push(q / Math.sqrt(d));
+      }
+      return A;
+    }
+    var Lp = logits(Pm, Pm);
+    for (k = 0; k <= 20; k++) {
+      var sv = k * 0.25, acc = 0, t;
+      for (t = 0; t < REPS; t++) {
+        var Xc = content(L, d, 4000 + t, 0), Qf = [], Kf = [];
+        for (i = 0; i < L; i++) {
+          var wq = [], wk = [];
+          for (j = 0; j < d; j++) { wq.push(Xc.Q[i][j] + sv * Pm[i][j]); wk.push(Xc.K[i][j] + sv * Pm[i][j]); }
+          Qf.push(wq); Kf.push(wk);
+        }
+        var Lf = logits(Qf, Kf);
+        var ma = 0, mb = 0, n = Lf.length, q2;
+        for (q2 = 0; q2 < n; q2++) { ma += Lf[q2]; mb += Lp[q2]; }
+        ma /= n; mb /= n;
+        var sa = 0, sb = 0, sab = 0;
+        for (q2 = 0; q2 < n; q2++) {
+          var da = Lf[q2] - ma, db = Lp[q2] - mb;
+          sa += da * da; sb += db * db; sab += da * db;
+        }
+        acc += (sab * sab) / Math.max(sa * sb, 1e-18) / REPS;
+      }
+      out.push([sv, acc]);
+    }
+    return out;
+  }
+
+  /* ---------- (c) 成本 ---------- */
+  function costCurve(d) {
+    var out = [], e;
+    for (e = 2; e <= 14; e += 0.5) {
+      var L = Math.round(Math.pow(2, e));
+      out.push([L, L * d * d, L * L * d]);
+    }
+    return out;
+  }
+
+  /* ---------- 畫圖 ---------- */
+  function drawAtt() {
+    var s = dA.resize(), ctx = dA.ctx; MLF.clear(ctx, s, pal);
+    var W = s.w, H = s.h, L = S.L, side = Math.min(H - 62, W * 0.34);
+    var A = S.perm ? S.AP : S.A, order = S.perm ? S.P : null;
+    var i, j, cw = Math.min(26, (W * 0.32) / L), y0 = 30;
+    for (i = 0; i < L; i++) {
+      var idx = order ? order[i] : i, t = (idx + 0.5) / L;
+      ctx.fillStyle = MLF.lerpColor([246, 214, 110], pal.d, t);
+      ctx.fillRect(W * 0.05, y0 + i * (side / L), cw, side / L - 1.5);
+    }
+    MLF.label(ctx, W * 0.05, 20, order ? 'token（已打亂）' : 'token（原順序）', pal.muted);
+    var ax0 = W * 0.05 + cw + 12, ax1 = W * 0.5 - 12, my = y0 + side * 0.5;
+    ctx.strokeStyle = MLF.rgb(pal.muted, 0.7); ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(ax0, my); ctx.lineTo(ax1, my); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ax1, my); ctx.lineTo(ax1 - 6, my - 4); ctx.lineTo(ax1 - 6, my + 4); ctx.closePath();
+    ctx.fillStyle = MLF.rgb(pal.muted, 0.7); ctx.fill();
+    MLF.label(ctx, (ax0 + ax1) / 2, my - 8, 'softmax(QKᵀ' + (el('sc').checked ? '/√d' : '') + ')', pal.muted, 'center');
+    var mx = W * 0.55, cs = side / L, hi = 0;
+    for (i = 0; i < L; i++) for (j = 0; j < L; j++) hi = Math.max(hi, A[i][j]);
+    for (i = 0; i < L; i++) for (j = 0; j < L; j++) {
+      ctx.fillStyle = MLF.lerpColor(pal.dark ? [24, 26, 32] : [255, 253, 250], pal.d, 0.04 + 0.9 * A[i][j] / hi);
+      ctx.fillRect(mx + j * cs, y0 + i * cs, cs + 0.6, cs + 0.6);
+    }
+    ctx.strokeStyle = pal.axis; ctx.lineWidth = 1; ctx.strokeRect(mx, y0, side, side);
+    MLF.label(ctx, mx, 20, 'L×L 注意力矩陣（最大值 ' + hi.toFixed(3) + '）', pal.muted);
+    MLF.label(ctx, mx, y0 + side + 15, '平均熵 ' + S.st.H.toFixed(4) + '（均勻 ' + Math.log(L).toFixed(4) + '）', pal.muted);
+  }
+
+  function drawRight() {
+    var s = dR.resize(), ctx = dR.ctx; MLF.clear(ctx, s, pal);
+    var i;
+    if (mode === 'a') {
+      var C = scaleCurve(), L = Lv(), hi = Math.log(L) * 1.12;
+      var ax = MLF.axes(ctx, s, { x: [4, 1024], y: [0, hi], logx: true, pal: pal,
+        xticks: [4, 16, 64, 256, 1024], yticks: [0, hi / 2, hi],
+        fmtx: function (v) { return String(Math.round(v)); }, fmty: function (v) { return v.toFixed(2); },
+        xlab: '維度 d（log）', ylab: '每一列的平均熵' });
+      MLF.ref(ctx, ax, { y: Math.log(L), color: MLF.rgb(pal.a, 0.8) });
+      MLF.label(ctx, ax.box.l + ax.box.w - 5, ax.Y(Math.log(L)) - 7,
+        '均勻分布的熵 log L = ' + Math.log(L).toFixed(4), MLF.rgb(pal.a, 0.9), 'right');
+      MLF.line(ctx, ax, C.map(function (p) { return [p[0], p[1]]; }), MLF.rgb(pal.c), 2.2);
+      MLF.line(ctx, ax, C.map(function (p) { return [p[0], p[2]]; }), MLF.rgb(pal.d), 2.2);
+      MLF.ref(ctx, ax, { x: dv(), color: pal.accent, dash: [] });
+      MLF.legend(ctx, ax, [{ t: '有除以 √d', c: MLF.rgb(pal.c) }, { t: '沒有除以 √d', c: MLF.rgb(pal.d) }], 'bl', pal);
+    } else if (mode === 'b') {
+      var PC = peCurve(), L2 = Lv();
+      var ax2 = MLF.axes(ctx, s, { x: [0, 5], y: [0, 1.02], pal: pal,
+        xticks: [0, 1, 2, 3, 4, 5], yticks: [0, 0.5, 1],
+        fmty: function (v) { return v.toFixed(2); }, fmtx: function (v) { return v.toFixed(0); },
+        xlab: '位置編碼的強度', ylab: '位置解釋掉的變異比例' });
+      MLF.ref(ctx, ax2, { y: 0.5, color: MLF.rgb(pal.a, 0.7) });
+      MLF.label(ctx, ax2.box.l + ax2.box.w - 5, ax2.Y(0.5) - 7, '一半一半', MLF.rgb(pal.a, 0.9), 'right');
+      MLF.line(ctx, ax2, PC, MLF.rgb(pal.d), 2.4);
+      var cross = null, q;
+      for (q = 0; q < PC.length; q++) if (PC[q][1] >= 0.5) { cross = PC[q][0]; break; }
+      if (cross !== null) {
+        MLF.ref(ctx, ax2, { x: cross, color: MLF.rgb(pal.c, 0.85), dash: [5, 4] });
+        MLF.label(ctx, ax2.X(cross) + 5, ax2.box.t + 12, '位置開始主導：強度 ≈ ' + cross.toFixed(2), MLF.rgb(pal.c, 0.95));
+      }
+      MLF.ref(ctx, ax2, { x: +el('pe').value, color: pal.accent, dash: [] });
+      MLF.legend(ctx, ax2, [{ t: '注意力 logit 裡位置的比重（R²）', c: MLF.rgb(pal.d) }], 'bl', pal);
+    } else {
+      var d = dv(), CC = costCurve(d);
+      var lo = 1e9, hi2 = 0;
+      CC.forEach(function (p) { lo = Math.min(lo, p[1], p[2]); hi2 = Math.max(hi2, p[1], p[2]); });
+      var ax3 = MLF.axes(ctx, s, { x: [4, 16384], y: [lo, hi2], logx: true, logy: true, pal: pal,
+        xticks: [4, 64, 1024, 16384], yticks: [lo, Math.sqrt(lo * hi2), hi2],
+        fmtx: function (v) { return String(Math.round(v)); }, fmty: function (v) { return v.toExponential(0); },
+        xlab: '序列長度 L（log）', ylab: '乘加次數' });
+      MLF.line(ctx, ax3, CC.map(function (p) { return [p[0], p[1]]; }), MLF.rgb(pal.c), 2.2);
+      MLF.line(ctx, ax3, CC.map(function (p) { return [p[0], p[2]]; }), MLF.rgb(pal.d), 2.2);
+      MLF.ref(ctx, ax3, { x: d, color: MLF.rgb(pal.a, 0.8), dash: [5, 4] });
+      MLF.label(ctx, ax3.X(d) + 5, ax3.box.t + 12, '交叉點 L = d = ' + d, MLF.rgb(pal.a, 0.95));
+      MLF.legend(ctx, ax3, [{ t: '投影 L·d²', c: MLF.rgb(pal.c) }, { t: '注意力 L²·d', c: MLF.rgb(pal.d) }], 'tl', pal);
+    }
+  }
+
+  function draw() {
+    compute();
+    el('vd').textContent = S.d;
+    el('v1').textContent = S.st.H.toFixed(4);
+    el('v2').textContent = Math.log(S.L).toFixed(4);
+    el('v3').textContent = S.st.M.toFixed(4);
+    el('v4').textContent = S.eq.toExponential(2);
+    el('v5').textContent = (S.L / S.d).toFixed(3) + '×';
+    drawAtt(); drawRight();
+  }
+  ['L', 'd', 'pe'].forEach(function (i) { el(i).onchange = draw; });
+  el('sc').onchange = draw;
+  el('pm').onclick = function () { perm = perm ? null : shuffle(Lv(), seed * 7 + 11); draw(); };
+  el('re').onclick = function () { seed = (seed + 1) % 997; if (perm) perm = shuffle(Lv(), seed * 7 + 11); draw(); };
+  function setMode(m, id) {
+    mode = m;
+    ['ba', 'bb', 'bc'].forEach(function (b) { el(b).setAttribute('aria-pressed', b === id ? 'true' : 'false'); });
+    drawRight();
+  }
+  el('ba').onclick = function () { setMode('a', 'ba'); };
+  el('bb').onclick = function () { setMode('b', 'bb'); };
+  el('bc').onclick = function () { setMode('c', 'bc'); };
+  window.addEventListener('resize', function () { drawAtt(); drawRight(); });
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  draw();
+
+})();
+</script>
+</body>
+</html>

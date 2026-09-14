@@ -1,0 +1,274 @@
+---
+slug: "ml-l2-2-moving-targets-ema"
+label: "ml-moving-targets-ema"
+prereqs:
+  - math-ema
+  - math-conditional-expectation
+lang: "zh"
+title: "追一隻自己也在跑的狗：目標由自己產生的時候"
+category: "courses"
+group: "L2 · 實務中的最佳化"
+status: "available"
+updated: 2026-09-10
+summary: "當訓練的標籤是模型自己產生的，「損失變小」就不再等於「學到東西」——一個常數函數可以讓自我一致性的損失變成零。實測四種組合之後結論很不直覺：stop-gradient 不是防止平凡解的機制（加了它反而發散到 10¹⁴），EMA 只是把發散放慢（34 而不是 10⁷），真正讓非平凡解存在的是一個不由模型自己產生的錨。EMA 另外有一個乾淨的第二用途：把 SGD 的噪聲抹掉，實測拿掉了 84% 的地板。"
+demos: []
+references:
+  - label: "Polyak & Juditsky, Acceleration of Stochastic Approximation by Averaging (SIAM J. Control Optim. 1992)"
+    href: "https://doi.org/10.1137/0330046"
+  - label: "Tarvainen & Valpola, Mean teachers are better role models (NeurIPS 2017)"
+    href: "https://arxiv.org/abs/1703.01780"
+  - label: "Grill et al., Bootstrap Your Own Latent (NeurIPS 2020)"
+    href: "https://arxiv.org/abs/2006.07733"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Ask from '../../../components/Ask.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Remark from '../../../components/Remark.astro';
+import Bridge from '../../../components/Bridge.astro';
+import UsedBy from '../../../components/UsedBy.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 追一隻自己也在跑的狗：目標由自己產生的時候
+
+<Objectives>
+- **目標由自己產生時，「損失變小」不再等於「學到東西」。** 寫出自我一致性損失的平凡解，並在 toy 上量出模型塌成常數的樣子（振幅 $0.077$，真值是 $2.00$）。
+- **分清 stop-gradient、EMA、錨三者各負責什麼。** 用四種組合的實測說出：錨負責讓非平凡解存在，EMA 負責穩定，而 stop-gradient 兩件都不負責——它改的是動力系統。
+- **說出 EMA 的第二個、完全不同的用途。** 量出把 SGD 最後一步的權重換成 EMA 權重能拿掉多少噪聲地板（實測 $84\%$）。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 起點：目標自己也在動
+
+到目前為止，每一個訓練都有一個**固定的**標籤：$y_i$ 寫在資料裡，不會因為模型變好而改變。
+
+但有一大類做法不是這樣：
+
+- **自我蒸餾／mean teacher**：用模型自己（或它的一個平均版本）對未標註資料的預測當標籤。
+- **自我一致性**：要求模型在兩個「應該給同樣答案」的輸入上一致（同一張圖的兩種裁切、同一段話的兩種寫法、相鄰的兩個時刻）。
+- **任何 bootstrapping**：目標的一部分是模型自己現在的輸出。
+
+這些做法有一個共同的形狀：**損失裡出現了兩次同一個模型**。而這立刻帶來一個危險——
+
+$$
+\mathcal L(\theta)=\mathbb E\big[\lVert f_\theta(x)-f_\theta(x')\rVert^2\big]
+$$
+
+這個損失有一個完美的解：**讓 $f$ 變成常數**。任何常數函數都讓它等於零，而且是全域最小。追一隻自己也在跑的狗，最省力的結局是兩個都停下來。
+
+<Ask>
+目標由模型自己產生的時候，<br />
+要靠什麼防止它塌成一個常數？<br />
+stop-gradient 與 EMA 各在防哪一件事？
+</Ask>
+
+<Question id="Q1">
+把「自己產生目標」翻成數學：平凡解為什麼是全域最小？stop-gradient 把哪一項從梯度裡拿掉了？拿掉之後那個更新式還是某個函數的梯度嗎？
+
+<Answer>
+**平凡解。** 若 $f_\theta\equiv c$，那麼對任何 $x,x'$ 都有 $f_\theta(x)-f_\theta(x')=0$，所以 $\mathcal L=0$。損失非負，所以那是全域最小。而且不是唯一的——**每一個**常數都是全域最小，這一整個平坦的谷底就是問題所在。
+
+**stop-gradient 拿掉哪一項。** 完整的梯度有兩項（記 $r=f_\theta(x)-f_\theta(x')$）：
+
+$$
+\nabla_\theta\mathcal L=2\,\mathbb E\big[r\,\nabla_\theta f_\theta(x)\big]-2\,\mathbb E\big[r\,\nabla_\theta f_\theta(x')\big].
+$$
+
+第一項是「把預測往目標拉」，第二項是「把目標往預測拉」。stop-gradient 把 $f_\theta(x')$ 當成常數，也就是**只保留第一項**：
+
+$$
+g_{\text{sg}}=2\,\mathbb E\big[r\,\nabla_\theta f_\theta(x)\big].
+$$
+
+**它還是某個函數的梯度嗎？一般來說不是。** 這件事很重要，因為它決定了「損失下降」這個保證還在不在。$\nabla_\theta\mathcal L$ 是一個真正的梯度場，所以照它走一定會讓 $\mathcal L$ 下降（<Ref to="ml-gradient-descent" mode="title"/> 的 Taylor 一階項）。$g_{\text{sg}}$ 是一個**半梯度**：它是一個向量場，但沒有一個純量函數以它為梯度，所以「每一步都讓某個東西變小」這個保證消失了。
+
+代價是實實在在的：一個沒有位能的向量場可以有**旋轉**的成分，於是動力系統可以繞圈、可以發散。本篇的實測會看到，把 stop-gradient 加到沒有錨的自我一致性上，模型不是塌掉——是**炸掉**（振幅 $1.3\times10^7$）。
+
+所以三個東西必須分開問：**誰讓非平凡解存在（錨）、誰讓動力系統穩定（EMA）、stop-gradient 到底改了什麼（動力系統的形狀）。**
+</Answer>
+</Question>
+
+## 三個部件，三件不同的工作
+
+**錨（anchor）**：一個**不由模型自己產生**的目標。可以是少量真標籤、一個固定的預訓練模型、一個資料本身給的約束。它的工作是**把平坦的谷底切掉**——有了錨，常數函數不再是最小值，因為它在錨點上錯了。
+
+**EMA**：把目標網路的權重換成當前權重的移動平均 $\theta^-_{k+1}=\tau\theta^-_k+(1-\tau)\theta_k$（<Ref to="math-ema" mode="title"/>）。它的工作是**讓目標動得比預測慢**。狗跑得慢，追的人才追得上；$\tau$ 越接近 1，狗越慢。這買到的是穩定，不是正確。
+
+**stop-gradient**：把目標那一支從計算圖上切開。它的工作**不是**防止塌陷，而是改變了更新的向量場——通常也讓實作變便宜（不必反向傳播兩支）。它常常和 EMA 一起出現，於是被誤認為是同一件事的一部分。
+
+<VizPlan id="ml-l2-2-dog" title="狗、繩子、與一根釘在地上的樁" type="static">
+- **檔名**：`l2-optimization-in-practice/imgs/l2-2-1.svg`（16:9，上下兩排）。
+- **上排**：三格漫畫式示意。左：人追狗，兩者都在跑，最後**都停在原地**（標「沒有錨 → 平凡解」）。中：狗被一條長繩繫在人身上、人跑得比狗快，兩者一起偏離（標「stop-gradient：只有人在追，繩子單向」）。右：狗與人之間仍有繩子，但地上多一根樁把人繫住（標「錨：一個不由自己產生的目標」）。
+- **下排**：共用 toy 上的四條曲線疊在真值 $\sin(2\pi x)$（灰虛線）上：塌成常數的那條（幾乎水平）、發散的那條（畫到出界並加箭頭）、EMA 減慢發散的那條（大幅震盪）、有錨的那條（貼近真值但被過度平滑）。每條標它的振幅（$0.077$／$1.3\times10^7$／$34.2$／$0.672$）。
+- **圖說**：「錨決定非平凡解存不存在，EMA 決定動力系統穩不穩，stop-gradient 兩件都不決定——它換掉的是那個向量場。」
+</VizPlan>
+
+## 為什麼 stop-gradient 不是防塌陷的機制
+
+把上一節的三件事寫成一個可以檢查的判準。
+
+**非平凡解存不存在，是損失的性質，不是最佳化器的性質。** 若 $\mathcal L$ 的全域最小集合包含常數函數，那麼任何**忠實地**最小化 $\mathcal L$ 的演算法都可能走到那裡去。stop-gradient 不改 $\mathcal L$——它改的是你用什麼向量場去走。所以：
+
+> **要讓平凡解不是最小值，唯一的辦法是改損失（加錨、加對比項、加去相關的約束），不是改梯度怎麼算。**
+
+**stop-gradient 改的是動力系統。** 只保留一項之後，更新式在線性情形下長成 $\theta_{k+1}=\theta_k-\eta A\theta_k+\eta b$，而那個 $A$ **不對稱**。不對稱矩陣的特徵值可以是複數、可以有正實部——前者給旋轉，後者給發散。對稱的情形（完整梯度）不可能發生這兩件事，因為那時 $A$ 是一個 Hessian，特徵值全實。
+
+**EMA 讓那個動力系統慢下來。** 目標用 $\theta^-$ 而不是 $\theta$，等於在系統裡插入一個低通濾波器：高頻的來回被抹掉，$\tau\to1$ 時目標幾乎不動，於是每一輪都近似成一個**固定目標**的普通回歸。這解釋了它為什麼有效，也解釋了它的極限——它把不穩壓下來，但如果那個系統的平衡點本身就是平凡解，慢慢走還是走到那裡。
+
+<Remark label="注意" summary="「BYOL 沒有負樣本也不會塌」是怎麼回事">
+自監督學習裡有一組著名的方法（BYOL、SimSiam 一類）宣稱不需要負樣本、只靠 stop-gradient 加上一個 EMA 的目標網路就不會塌陷。這和本篇的結論看起來衝突。
+
+差別在於那些方法的損失**不只有一致性項**：預測支上多了一個 predictor 網路（一個不對稱的多餘層），而目標支沒有。這個不對稱讓「兩支都輸出常數」不再是那個動力系統的穩定點——後續的分析（例如 Tian et al. 2021 對 SimSiam 的特徵值分析）指出，predictor 加上 stop-gradient 的組合在特徵空間裡產生了一個把方差撐開的效應。
+
+換句話說：**它們不是靠 stop-gradient 本身，而是靠一個被 stop-gradient 切開的不對稱結構。** 這符合本篇的判準——防塌陷的機制在**目標的構造**裡，不在「梯度怎麼算」裡。這個機制到現在仍然沒有一個完全乾淨的理論說明，所以實務上那類方法對超參數（$\tau$、predictor 的大小）比一般監督式訓練敏感得多。
+</Remark>
+
+## 回到情境：什麼時候該用，怎麼設
+
+**先問有沒有錨。** 打算用自我一致性或自我蒸餾之前，第一件事是找出「哪一部分的訊號不是模型自己給的」。半監督學習裡是那些真標籤；自監督裡是資料增強所定義的不變性加上某個防塌陷的結構；模型壓縮裡是那個固定的大模型。**找不到錨的時候，先不要開始調 $\tau$。**
+
+**$\tau$ 怎麼設。** 記憶長度大約 $1/(1-\tau)$ 步，所以 $\tau$ 要對照「目標要多久才跟上一次真正的變化」。實務上 $\tau=0.99$ 到 $0.9999$；訓練初期模型變化快，常見做法是讓 $\tau$ 從小值開始慢慢升到接近 1。
+
+**監控什麼。** 損失下降完全不能當作進度——平凡解的損失是零。要監控的是**輸出的散佈**：預測的變異數、特徵的秩、或本篇用的「振幅」。塌陷的第一個徵狀是散佈開始單調縮小，而那時損失曲線看起來一切正常。
+
+**這一切依賴什麼。** 一，錨真的獨立於模型；用模型自己挑出來的「高信心樣本」當錨，那不是錨。二，$\tau$ 夠大，讓每一輪近似成固定目標的回歸。三，下面實驗裡的線性模型讓我們能把振幅算得很乾淨；真實網路的塌陷有更多形式（特徵維度塌成低秩，而不是整個輸出變常數）。
+
+## 回到情境：四種組合，四個結局
+
+**第一段：平凡解、發散、與錨。** 共用 toy 的網格上取相鄰的一對 $(x,x+0.02)$，損失是「兩點的預測要一致」。模型是五次多項式（振幅上限足夠）。錨是三個真標籤點 $x\in\{0.05,0.5,0.95\}$，權重 $3.0$。真值 $\sin(2\pi x)$ 在 $[0,1]$ 上的振幅是 $2.00$：
+
+```python
+import numpy as np
+from ml_toy import truth
+xs, ys = truth(); D = 5
+mx = np.abs(np.vander(np.linspace(0,1,60), D+1, increasing=True)).max(0)
+B  = lambda X: np.vander(X, D+1, increasing=True)/mx
+xa = np.array([0.05, 0.5, 0.95]); ya = np.sin(2*np.pi*xa)          # 三個錨
+xp = np.linspace(0, 1, 200); xq = np.clip(xp + 0.02, 0, 1)         # 相鄰的一對
+Ap, Aq, Aa, As = B(xp), B(xq), B(xa), B(xs)
+
+def train(stopgrad, anchor, tau, eta, T=20000, seed=0):
+    rng = np.random.default_rng(seed)
+    w = rng.standard_normal(D+1)*0.5; wt = w.copy()
+    for k in range(T):
+        ref = wt if tau is not None else w
+        r = Ap@w - Aq@ref
+        g = (Ap.T@r)/len(xp) if stopgrad else (Ap.T@r - Aq.T@r)/len(xp)   # 半梯度 vs 完整梯度
+        if anchor: g = g + 3.0*(Aa.T@(Aa@w - ya))/len(xa)
+        w -= eta*g
+        if tau is not None: wt = tau*wt + (1-tau)*w
+        if not np.isfinite(w).all(): return None
+    f = As@w
+    return f.max() - f.min(), ((f - ys)**2).mean()
+```
+
+```
+真值的振幅 2.00；「誤差」是與真值的均方差（η=0.02，兩萬步）
+  不 stop-grad、沒有 anchor        振幅       0.077   誤差       0.5374
+  stop-grad、沒有 anchor           振幅 13017377.180   誤差 1.13e+14
+  stop-grad + EMA(0.99)、沒有 anchor 振幅     34.187   誤差     569.6434
+  不 stop-grad + anchor            振幅       0.676   誤差       0.3160
+  stop-grad + anchor               振幅       0.671   誤差       0.3136
+  stop-grad + EMA + anchor         振幅       0.672   誤差       0.3141
+```
+
+**四件事，一件一件讀。**
+
+**第一列是平凡解。** 完整梯度忠實地最小化那個損失，於是它找到了全域最小——振幅 $0.077$，模型幾乎是一條水平線。真值的振幅是 $2.00$。**損失確實掉到接近零，而學到的東西是零。**
+
+**第二列是發散，不是塌陷。** 加上 stop-gradient 之後，振幅衝到 $1.3\times10^7$。這是上一節那個「半梯度不是任何函數的梯度」的直接後果：那個不對稱的動力系統有正實部的特徵值。**如果有人告訴你 stop-gradient 是用來防止塌陷的，這一列就是反例——它把一個會塌的問題變成一個會炸的問題。**
+
+**第三列是 EMA 的真正作用。** 振幅從 $1.3\times10^7$ 降到 $34.2$——**六個數量級的改善，但仍然是錯的**（真值 $2.00$）。EMA 把發散放慢了，沒有把它變對。
+
+**後三列是錨的作用。** 三個真標籤點一加進來，三種變體全部收在同一個地方（誤差 $0.3136$–$0.3160$，振幅 $0.671$–$0.676$）。**有了錨之後，stop-gradient 與 EMA 幾乎不影響最終結果**——它們影響的是路，不是終點。
+
+> **錨決定非平凡解存不存在；EMA 決定路上穩不穩；stop-gradient 兩件都不決定。**
+
+（順帶一提，有錨的那三列振幅只有 $0.672$，遠低於真值 $2.00$：兩百對一致性項對三個錨點，一致性的權重太大，把函數壓平了。**一致性項的權重本身就是一個要調的旋鈕**，太大就變成一個溫和版的塌陷。）
+
+**第二段：EMA 完全不同的第二個用途。** 上面 EMA 用在**目標**上；它還有一個和塌陷無關的用途——用在**最終模型**上。<Ref to="ml-minibatch-noise" mode="title"/> 說固定 $\eta$ 的 SGD 會在最小點附近繞著一個地板打轉，那麼「最後一步停在哪裡」有一半是運氣。把權重的移動平均拿出來用，就把那個抖動抹掉了：
+
+```python
+wema = 0.99*wema + 0.01*w        # 每一步更新一次；最後拿 wema 去評估
+```
+
+```
+（正交化特徵、真實風險；直接解 0.02744，不可約誤差 0.0225）
+   η     B    最後一步的權重    EMA(0.99) 的權重
+  0.05   1       0.02908           0.02854
+  0.05   8       0.02831           0.02739
+  0.15   1       0.03940           0.02934
+  0.15   8       0.02893           0.02752
+```
+
+**噪聲越大，EMA 賺越多。** $\eta=0.15$、$B=1$ 那一列：最後一步的權重是 $0.03940$，超出直接解 $0.01196$；EMA 權重是 $0.02934$，只超出 $0.00190$——**拿掉了 $84\%$ 的噪聲地板**，而且完全不需要改訓練。$\eta=0.05$、$B=8$ 那一列（噪聲本來就小）只從 $0.02831$ 改善到 $0.02739$，因為那裡幾乎沒有地板可以拿掉。
+
+這個用法有一個嚴格的理論依據（Polyak–Juditsky averaging，參考文獻 1）：在適當條件下，平均後的估計量達到最佳的漸近變異數。**兩個用途共用同一個 EMA 公式，但它們在解決完全不同的問題**——一個在對付「目標在動」，一個在對付「軌跡在抖」。
+
+## 錨、EMA、stop-gradient：三個開關，四個結局
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/machine-learning-foundations/l2-optimization-in-practice/l2-2-2.html" class="demo-frame" title="錨、EMA、stop-gradient：三個開關，四個結局：互動 demo" style="height: 898px; width: 100%; border: none;"></iframe>
+
+**互動 demo：損失一路掉，表示的東西卻塌成常數——要監看的是表示的振幅，不是損失。**
+
+## 先消化一下
+
+<QuizBlock id="ml-l2-2-a">
+一個自監督訓練的損失從 $0.8$ 平滑地降到 $0.002$，看起來非常順利。要判斷它是不是在學東西，最該看的是：
+<Option>驗證集上的損失。</Option>
+<Option correct>模型輸出（或特徵）的散佈——變異數、秩、振幅。平凡解讓損失趨零而散佈也趨零，所以在這種訓練裡損失下降不含任何進度資訊；驗證集上的同一個損失也會一起下降。</Option>
+<Option>訓練速度是否穩定。</Option>
+<Explanation>
+這是本篇最實用的一條。第一個選項之所以不夠，是因為平凡解在**任何**資料上都讓一致性損失趨零——留出集救不了你，因為那個損失本身就不指向你要的東西。實務上的做法是在訓練迴圈裡記錄特徵的奇異值或每個維度的變異數，看它們有沒有單調萎縮。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l2-2-b">
+根據本篇的實測，關於 stop-gradient 正確的說法是：
+<Option>它讓平凡解不再是全域最小，所以能防止塌陷。</Option>
+<Option correct>它不改損失、也不改最小值集合，它改的是更新的向量場——那個場一般不是任何函數的梯度，所以「每一步讓某個東西變小」的保證消失。實測在沒有錨時它把塌陷（振幅 $0.077$）換成發散（$1.3\times10^7$）。</Option>
+<Option>它等價於用一個 $\tau=0$ 的 EMA 目標。</Option>
+<Explanation>
+第一個選項是最常見的誤解。第三個選項也錯：$\tau=0$ 的 EMA 表示目標網路每一步都完全複製當前權重，那正是「stop-gradient 但沒有 EMA」的情形——所以它們不是等價，而是同一件事的兩個名字（本篇實驗的第二列）。真正和 stop-gradient 不同的是**完整梯度**，也就是把目標那一支也反向傳播。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l2-2-c">
+在有錨的三列裡，振幅都只有 $0.672$（真值 $2.00$）。最合理的處方是：
+<Option>把 $\tau$ 調大。</Option>
+<Option correct>把一致性項的權重調小（或把錨點加多）。兩百對一致性項對三個錨點，一致性主導了損失，於是「平滑」的壓力遠大於「對」的壓力——那是一個溫和版的塌陷，和 $\tau$ 無關。</Option>
+<Option>換一個容量更大的模型。</Option>
+<Explanation>
+$\tau$ 只影響目標動得多慢，而三列的結果幾乎相同（$0.671$–$0.676$）就說明它在這裡不是瓶頸。容量也不是：五次多項式足以表示 $\sin(2\pi x)$ 的振幅（<Ref to="ml-overfitting-underfitting" mode="title"/> 的表裡 $d=5$ 的母體風險是 $0.0280$）。這題的一般教訓是：**自我一致性項的權重是一個連續的塌陷旋鈕**，不是一個「加了就好」的正則化。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="ml-l2-2-d">
+下列哪一句**不對**？
+<Option>權重的 EMA 可以在完全不改訓練的情況下降低最終模型的風險，實測拿掉了 $84\%$ 的噪聲地板。</Option>
+<Option>目標網路的 EMA 與最終模型的 EMA 用同一條公式，但在解決兩個不同的問題。</Option>
+<Option correct>只要目標網路用了足夠大的 $\tau$，自我一致性訓練就不會塌陷。</Option>
+<Explanation>
+第三句被實測直接否證：$\tau=0.99$ 的 EMA 把發散從 $1.3\times10^7$ 壓到 $34.2$，但那仍然離真值 $2.00$ 很遠；而在完整梯度、沒有錨的情形下 EMA 也阻止不了收斂到常數——那是損失的全域最小。$\tau$ 買的是穩定，不是非平凡。前兩句都對，而且它們是本篇兩個獨立的收穫。
+</Explanation>
+</QuizBlock>
+
+<UsedBy slug={frontmatter.slug} />
+
+<Bridge to="ml-regularization">
+這一篇把「目標由自己產生」拆成三個部件，並用四種組合的實測把它們的分工釘住：錨讓非平凡解存在（沒有它，完整梯度收到常數、半梯度發散），EMA 讓動力系統穩定（六個數量級，但方向仍然錯），stop-gradient 換掉的是那個向量場而不是損失。附帶一個完全不同的收穫：把最終模型換成權重的 EMA，實測拿掉了 $84\%$ 的噪聲地板。
+
+到這裡 L2 都在處理「怎麼走到一個解」。下一篇換一個方向：**主動限制模型能走到哪裡**。weight decay、提早停止、dropout 三個看起來很不一樣的做法，在共用 toy 上會看到兩件事——它們對 bias–variance 的影響是同一個方向，而其中兩個在數學上幾乎是同一件事（實測 ridge 與提早停止的最佳風險是 $0.0288$ 對 $0.0289$）。
+</Bridge>
+
+## 參考文獻
+
+1. Polyak, B. T., Juditsky, A. [*Acceleration of Stochastic Approximation by Averaging.*](https://doi.org/10.1137/0330046) SIAM Journal on Control and Optimization 1992.（權重平均為什麼能達到最佳漸近變異數——本篇第二段實驗的理論依據。）
+2. Tarvainen, A., Valpola, H. [*Mean teachers are better role models.*](https://arxiv.org/abs/1703.01780) NeurIPS 2017.（EMA 目標網路在半監督學習裡的標準做法，以及 $\tau$ 的實務範圍。）
+3. Grill, J.-B. et al. [*Bootstrap Your Own Latent.*](https://arxiv.org/abs/2006.07733) NeurIPS 2020.（沒有負樣本的自監督學習；本篇 Remark 討論的那個「不對稱結構才是防塌陷機制」的案例。）

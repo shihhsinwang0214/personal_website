@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>鏈式法則對任何順序都成立，但你的模型不是任何模型</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：p(x) ＝ Π p(xᵢ | x&lt;ᵢ) 是<b>恆等式</b>，對任何一個變數排列都精確成立——所以「自迴歸模型有順序偏見」這句話，錯的不是鏈式法則，是<b>條件機率的模型class</b>。這裡把兩件事分開量：<b>容量夠的時候換順序完全沒差</b>；<b>容量不夠的時候，同一批資料換個順序就差一個 nat 以上</b>。右邊是另一件事：生成要走幾步。</p>
+  <canvas id="bars" style="aspect-ratio:5/2" aria-label="所有順序的測試 NLL（條件表在訓練集上估、在另一份 5000 筆的測試集上算；每根一個排列，由小到大排好）；橫線＝真模型在同一份測試集上的 NLL，也就是理論下限"></canvas>
+  <p class="cap">所有順序的測試 NLL（條件表在訓練集上估、在另一份 5000 筆的測試集上算；每根一個排列，由小到大排好）；橫線＝真模型在同一份測試集上的 NLL，也就是理論下限</p>
+  <canvas id="cost" style="aspect-ratio:5/2" aria-label="可切換：(a) 順序的分布（兩種容量疊在一起）　(b) 取樣要走幾步：自迴歸 vs 一次到位"></canvas>
+  <p class="cap">可切換：(a) 順序的分布（兩種容量疊在一起）　(b) 取樣要走幾步：自迴歸 vs 一次到位</p>
+  <div class="controls">
+    <div class="row">
+      <label for="d">變數個數 d</label><input id="d" type="range" min="3" max="6" step="1" value="5" />
+      <label for="cap">條件模型的容量</label><select id="cap"><option value="1" selected>只看前 1 個（一階）</option><option value="2">只看前 2 個（二階）</option><option value="9">看全部（容量夠）</option></select>
+      <label for="st">耦合強度</label><input id="st" type="range" min="0" max="3" step="0.1" value="1.8" />
+    </div>
+    <div class="row">
+      <span class="seg"><button id="ba" aria-pressed="true">順序的分布</button><button id="bb" aria-pressed="false">取樣成本</button></span>
+      <label for="n">訓練樣本 n</label><input id="n" type="range" min="200" max="2400" step="200" value="1200" />
+      <button id="re" class="ghost">🎲 重抽</button>
+    </div>
+    <div class="stats"><span>理論下限（真模型在測試集上的 NLL） = <b id="v0">—</b></span> <span>最好的順序 = <b id="v1">—</b></span> <span>最差的順序 = <b id="v2">—</b></span> <span>最差 − 最好 = <b id="v3">—</b></span> <span>容量夠的時候：最差 − 最好 = <b id="v4">—</b></span> <span>自迴歸取樣要走幾步 = <b id="v5">—</b></span></div>
+  </div>
+  <p class="observe">觀察：把「條件模型的容量」切到<b>「看全部」</b>，120 根長條<b>塌成同一個高度</b>——最差減最好只剩 <b>4.2e-3 nats</b>，那是有限樣本的抖動，不是順序造成的。這就是「鏈式法則是恆等式」的全部意思。切回<b>「只看前 1 個」</b>：同一個分布、同一批資料，最差減最好變成 <b>1.08 nats</b>（理論下限本身才 1.79）。而這個玩具裡的相依關係是「x1 綁 x5、x2 綁 x4」，<b>贏的那個順序一定是把每一對排在一起的那種</b>，輸的那個把它們全部拆開——按「重抽」換一組資料，贏家的排列會變，但那個性質不變。順序決定的不是能不能寫成連乘，而是<b>哪幾條相依關係會被丟掉</b>。把耦合強度調到 0（變數互相獨立），差距掉回 <b>3.9e-3</b>——沒有相依關係可以丟，順序就不重要了。切到 (b)：自迴歸取樣的步數<b>等於 d，和模型大小無關</b>，那是這個分解方式本身的代價。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var el = function (i) { return document.getElementById(i); };
+  var dB = MLF.hiDPICanvas(el('bars')), dC = MLF.hiDPICanvas(el('cost'));
+  var pal = MLF.palette(), mode = 'a', seed = 2, S = null;
+
+  function dv() { return +el('d').value; }
+
+  /* ---------- 真分布：相依關係是「巢狀配對」——x1 綁 xd、x2 綁 x(d−1)…
+     再加一點鄰居之間的弱耦合。順序決定了哪幾對會被拆開。 ---------- */
+  function trueDist(d, strength, sd) {
+    var N = 1 << d, r = MLF.rng(sd), J = [], i, j, k;
+    for (i = 0; i < d; i++) { J.push([]); for (j = 0; j < d; j++) J[i].push(0); }
+    for (i = 0; i < Math.floor(d / 2); i++) {
+      var v = strength * (0.85 + 0.3 * r());
+      J[i][d - 1 - i] = v; J[d - 1 - i][i] = v;
+    }
+    for (i = 0; i + 1 < d; i++) {
+      var v3 = 0.18 * strength * (0.6 + 0.8 * r());
+      J[i][i + 1] += v3; J[i + 1][i] += v3;
+    }
+    var h = [];
+    for (i = 0; i < d; i++) h.push(0.3 * r.normal());
+    var p = new Float64Array(N), Z = 0;
+    for (k = 0; k < N; k++) {
+      var s = [], e = 0;
+      for (i = 0; i < d; i++) s.push((k >> i) & 1 ? 1 : -1);
+      for (i = 0; i < d; i++) { e += h[i] * s[i]; for (j = i + 1; j < d; j++) e += J[i][j] * s[i] * s[j]; }
+      p[k] = Math.exp(e); Z += p[k];
+    }
+    for (k = 0; k < N; k++) p[k] /= Z;
+    return p;
+  }
+  function entropy(p) {
+    var s = 0, k;
+    for (k = 0; k < p.length; k++) if (p[k] > 1e-15) s -= p[k] * Math.log(p[k]);
+    return s;
+  }
+  function draws(p, n, sd) {
+    var r = MLF.rng(sd), cum = [], s = 0, k, out = new Int32Array(n), i;
+    for (k = 0; k < p.length; k++) { s += p[k]; cum.push(s); }
+    for (i = 0; i < n; i++) {
+      var u = r(), lo = 0;
+      while (lo < cum.length - 1 && cum[lo] < u) lo++;
+      out[i] = lo;
+    }
+    return out;
+  }
+
+  function perms(d) {
+    var out = [];
+    (function go(cur, left) {
+      if (!left.length) { out.push(cur.slice()); return; }
+      for (var i = 0; i < left.length; i++)
+        go(cur.concat([left[i]]), left.slice(0, i).concat(left.slice(i + 1)));
+    })([], (function () { var a = []; for (var i = 0; i < d; i++) a.push(i); return a; })());
+    return out;
+  }
+
+  /* 依照排列 ord，用「只看前 C 個已生成變數」的條件表估計 NLL（Laplace 平滑）。
+     C >= d-1 時就是完整的鏈式法則，任何順序都給出同一個聯合分布。 */
+  function toBits(data, d) {
+    var out = [], i, t;
+    for (i = 0; i < data.length; i++) { var b = []; for (t = 0; t < d; t++) b.push((data[i] >> t) & 1); out.push(b); }
+    return out;
+  }
+  /* 在訓練集上估條件表（Laplace 平滑），在另一份測試集上算 NLL */
+  function fitNLL(trB, teB, ord, C, d) {
+    var total = 0, pos, c, i, k;
+    for (pos = 0; pos < d; pos++) {
+      var ctx = [];
+      for (c = Math.max(0, pos - C); c < pos; c++) ctx.push(ord[c]);
+      var nc = 1 << ctx.length, cnt = new Float64Array(nc * 2), tgt = ord[pos];
+      for (k = 0; k < nc * 2; k++) cnt[k] = 0.5;               // Laplace
+      for (i = 0; i < trB.length; i++) {
+        var key = 0, row = trB[i];
+        for (c = 0; c < ctx.length; c++) key |= row[ctx[c]] << c;
+        cnt[key * 2 + row[tgt]] += 1;
+      }
+      for (i = 0; i < teB.length; i++) {
+        var key2 = 0, row2 = teB[i];
+        for (c = 0; c < ctx.length; c++) key2 |= row2[ctx[c]] << c;
+        var a = cnt[key2 * 2], b2 = cnt[key2 * 2 + 1];
+        total -= Math.log(cnt[key2 * 2 + row2[tgt]] / (a + b2));
+      }
+    }
+    return total / teB.length;
+  }
+
+  function compute() {
+    var d = dv(), C = +el('cap').value, n = +el('n').value, stg = +el('st').value;
+    var p = trueDist(d, stg, seed * 31 + 7), H = entropy(p);
+    var trB = toBits(draws(p, n, seed * 17 + 3), d);
+    var teRaw = draws(p, 5000, seed * 17 + 9001), teB = toBits(teRaw, d), PM = perms(d);
+    /* 這份測試集上的理論下限：用真模型算出來的 NLL（不是母體的 H(p)，差別是有限樣本） */
+    var floor = 0, q;
+    for (q = 0; q < teRaw.length; q++) floor -= Math.log(Math.max(p[teRaw[q]], 1e-300));
+    floor /= teRaw.length;
+    function runAll(cap) {
+      return PM.map(function (o) { return { o: o, v: fitNLL(trB, teB, o, cap, d) }; })
+        .sort(function (a, b) { return a.v - b.v; });
+    }
+    var here = runAll(C), full = runAll(d);
+    S = { d: d, H: H, floor: floor, here: here, full: full, n: n, C: C };
+  }
+
+  function ordName(o) { return o.map(function (i) { return 'x' + (i + 1); }).join('→'); }
+
+  function drawBars() {
+    var s = dB.resize(), ctx = dB.ctx; MLF.clear(ctx, s, pal);
+    var A = S.here, lo = Math.min(S.floor, A[0].v, S.full[0].v), hi = Math.max(A[A.length - 1].v, S.floor), i;
+    lo -= 0.05; hi = hi + (hi - lo) * 0.2 + 0.02;
+    var ax = MLF.axes(ctx, s, { x: [0, A.length], y: [lo, hi], pal: pal, xticks: [],
+      yticks: [lo, (lo + hi) / 2, hi], fmty: function (v) { return v.toFixed(3); },
+      pad: { l: 0.11, r: 0.03, b: 0.17 }, ylab: 'NLL（nats／筆）' });
+    MLF.ref(ctx, ax, { y: S.floor, color: MLF.rgb(pal.a, 0.8) });
+    MLF.label(ctx, ax.box.l + ax.box.w - 5, ax.Y(S.floor) - 7, '真模型在這份測試集上的 NLL = ' + S.floor.toFixed(4), MLF.rgb(pal.a, 0.9), 'right');
+    var bw = ax.box.w / A.length;
+    A.forEach(function (r, i2) {
+      ctx.fillStyle = MLF.rgb(pal.d, 0.85);
+      ctx.fillRect(ax.box.l + i2 * bw + 1, ax.Y(r.v), Math.max(bw - 2, 1), ax.box.b - ax.Y(r.v));
+    });
+    /* 容量夠的那一組疊上去，當成參考高度 */
+    S.full.forEach(function (r, i2) {
+      var y = ax.Y(r.v);
+      ctx.strokeStyle = MLF.rgb(pal.c, 0.9); ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(ax.box.l + i2 * bw + 1, y); ctx.lineTo(ax.box.l + (i2 + 1) * bw - 1, y); ctx.stroke();
+    });
+    MLF.label(ctx, ax.box.l, ax.box.b + 15, ordName(A[0].o), pal.muted, 'left');
+    MLF.label(ctx, ax.box.l + ax.box.w, ax.box.b + 15, ordName(A[A.length - 1].o), pal.muted, 'right');
+    MLF.legend(ctx, ax, [{ t: '目前的容量', c: MLF.rgb(pal.d) }, { t: '容量夠（看全部）', c: MLF.rgb(pal.c) }], 'tl', pal);
+  }
+
+  function drawCost() {
+    var s = dC.resize(), ctx = dC.ctx; MLF.clear(ctx, s, pal);
+    if (mode === 'a') {
+      var A = S.here.map(function (r) { return r.v; }), B = S.full.map(function (r) { return r.v; });
+      var lo = Math.min(S.floor, B[0], A[0]) - 0.03, hi = Math.max(A[A.length - 1], B[B.length - 1]) + 0.05;
+      var ax = MLF.axes(ctx, s, { x: [lo, hi], y: [0, 1], pal: pal,
+        xticks: [lo, (lo + hi) / 2, hi], yticks: [],
+        fmtx: function (v) { return v.toFixed(3); }, pad: { l: 0.05, b: 0.2 },
+        xlab: '測試 NLL（nats／筆）' });
+      MLF.ref(ctx, ax, { x: S.floor, color: MLF.rgb(pal.a, 0.8), dash: [4, 4] });
+      MLF.label(ctx, ax.X(S.floor), ax.box.t + 11, '理論下限', MLF.rgb(pal.a, 0.95), 'center');
+      var r = MLF.rng(9), i;
+      for (i = 0; i < A.length; i++) MLF.dot(ctx, ax, A[i], 0.60 + 0.28 * r(), MLF.rgb(pal.d, 0.75), 3.2);
+      for (i = 0; i < B.length; i++) MLF.dot(ctx, ax, B[i], 0.12 + 0.28 * r(), MLF.rgb(pal.c, 0.75), 3.2);
+      MLF.label(ctx, ax.box.l + 4, ax.Y(0.94), '目前的容量：' + A.length + ' 個順序', MLF.rgb(pal.d));
+      MLF.label(ctx, ax.box.l + 4, ax.Y(0.46), '容量夠：' + B.length + ' 個順序全部重疊', MLF.rgb(pal.c));
+    } else {
+      var d = S.d, pts1 = [], pts2 = [], k;
+      for (k = 2; k <= 12; k++) { pts1.push([k, k]); pts2.push([k, 1]); }
+      var ax2 = MLF.axes(ctx, s, { x: [2, 12], y: [0.5, 14], logy: true, pal: pal,
+        xticks: [2, 4, 6, 8, 10, 12], yticks: [1, 4, 12],
+        fmty: function (v) { return String(Math.round(v)); }, fmtx: function (v) { return String(Math.round(v)); },
+        xlab: '變數個數 d', ylab: '取樣要走幾步（log）' });
+      MLF.line(ctx, ax2, pts1, MLF.rgb(pal.d), 2.4);
+      MLF.line(ctx, ax2, pts2, MLF.rgb(pal.c), 2.4);
+      MLF.ref(ctx, ax2, { x: d, color: pal.accent, dash: [] });
+      MLF.dot(ctx, ax2, d, d, MLF.rgb(pal.d), 4);
+      MLF.label(ctx, ax2.X(d) + 6, ax2.Y(d) - 8, 'd = ' + d + ' → ' + d + ' 步', MLF.rgb(pal.d));
+      MLF.legend(ctx, ax2, [{ t: '自迴歸：一次一個變數', c: MLF.rgb(pal.d) },
+        { t: '一次到位（例如 VAE／GAN）', c: MLF.rgb(pal.c) }], 'br', pal);
+    }
+  }
+
+  function draw() {
+    compute();
+    var A = S.here, B = S.full;
+    el('v0').textContent = S.floor.toFixed(4) + '（母體的 H(p) = ' + S.H.toFixed(4) + '）';
+    el('v1').textContent = ordName(A[0].o) + '（' + A[0].v.toFixed(4) + '）';
+    el('v2').textContent = ordName(A[A.length - 1].o) + '（' + A[A.length - 1].v.toFixed(4) + '）';
+    el('v3').textContent = (A[A.length - 1].v - A[0].v).toExponential(2) + ' nats';
+    el('v4').textContent = (B[B.length - 1].v - B[0].v).toExponential(2) + ' nats';
+    el('v5').textContent = S.d + ' 步';
+    drawBars(); drawCost();
+  }
+  ['d', 'st', 'n'].forEach(function (i) { el(i).onchange = draw; });
+  el('cap').onchange = draw;
+  el('re').onclick = function () { seed = (seed + 1) % 733; draw(); };
+  el('ba').onclick = function () { mode = 'a'; el('ba').setAttribute('aria-pressed', 'true'); el('bb').setAttribute('aria-pressed', 'false'); drawCost(); };
+  el('bb').onclick = function () { mode = 'b'; el('bb').setAttribute('aria-pressed', 'true'); el('ba').setAttribute('aria-pressed', 'false'); drawCost(); };
+  window.addEventListener('resize', function () { drawBars(); drawCost(); });
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  draw();
+
+})();
+</script>
+</body>
+</html>

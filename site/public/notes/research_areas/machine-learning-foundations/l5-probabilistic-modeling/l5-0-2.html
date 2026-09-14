@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>最大概似＝最小交叉熵＝最小 KL：三條曲線只差一個常數</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：<b>最大化對數概似</b>、<b>最小化交叉熵</b>、<b>最小化 KL 到真分布</b>是同一件事——三條曲線在同一個地方取到最小值，彼此只差一個和參數無關的常數（真分布的熵）。而你手上只有其中一條：<b>樣本上的經驗 NLL</b>，它是母體交叉熵的一個有雜訊的估計，n 越小抖得越兇。</p>
+  <canvas id="den" style="aspect-ratio:5/2" aria-label="真分布（藍虛線）、樣本（下緣的短線）、目前 μ 的模型（紅實線）、經驗 MLE（綠虛線）"></canvas>
+  <p class="cap">真分布（藍虛線）、樣本（下緣的短線）、目前 μ 的模型（紅實線）、經驗 MLE（綠虛線）</p>
+  <canvas id="curv" style="aspect-ratio:5/2" aria-label="三條曲線對 μ：經驗 NLL、母體交叉熵、KL。水平線＝真分布的熵 H(p)"></canvas>
+  <p class="cap">三條曲線對 μ：經驗 NLL、母體交叉熵、KL。水平線＝真分布的熵 H(p)</p>
+  <div class="controls">
+    <div class="row">
+      <label for="n">樣本數 n</label><input id="n" type="range" min="5" max="400" step="5" value="40" />
+      <label for="mu">模型的 μ</label><input id="mu" type="range" min="-2" max="3" step="0.05" value="0" />
+      <label for="sg">模型的 σ</label><input id="sg" type="range" min="0.4" max="2.5" step="0.05" value="1" />
+    </div>
+    <div class="row">
+      <label class="chk"><input id="mix" type="checkbox" checked /> 真分布是兩個峰（模型只有一個）</label>
+      <button id="re" class="ghost">🎲 重抽樣本</button>
+    </div>
+    <div class="stats"><span>經驗 NLL 的最小值位置 μ̂ = <b id="v1">—</b></span> <span>母體交叉熵的最小值位置 = <b id="v2">—</b></span> <span>最小交叉熵 H(p,q) = <b id="v3">—</b></span> <span>真分布的熵 H(p) = <b id="v4">—</b></span> <span>最小 KL ＝ H(p,q) − H(p) = <b id="v5">—</b></span> <span>|μ̂ − 母體最佳| 的大小 = <b id="v6">—</b></span></div>
+  </div>
+  <p class="observe">觀察：中間那兩條線<b>永遠是平行的</b>——母體交叉熵減掉一個常數 H(p) 就是 KL，所以它們的最小值在<b>同一個 μ</b>。這就是「最大概似＝最小 KL」的全部內容。而你手上只有第三條：經驗 NLL。把 n 從 400 拉到 5，<b>那條線整個歪掉、最小值跑到別的地方</b>，兩者的差距就是你的估計誤差；n 越大它越貼回去。打開「真分布是兩個峰」：模型是單峰，所以<b>最小 KL 不是零</b>——那個沒辦法消掉的量就是模型設定本身的誤差，再多資料也補不回來。</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var G = 240, MLO = -2, MHI = 3;
+  var el = function (i) { return document.getElementById(i); };
+  var dD = MLF.hiDPICanvas(el('den')), dC = MLF.hiDPICanvas(el('curv'));
+  var pal = MLF.palette(), seed = 5, S = null;
+  var XLO = -4.5, XHI = 6.5, NG = 400, dx = (XHI - XLO) / (NG - 1);
+
+  function gx(i) { return XLO + i * dx; }
+  function npdf(x, m, s) { var z = (x - m) / s; return Math.exp(-0.5 * z * z) / (s * Math.sqrt(2 * Math.PI)); }
+  /* 真分布：單峰 N(1, 0.9²)，或兩個峰 0.6·N(0,0.6²) + 0.4·N(2.6,0.7²) */
+  function ptrue(x) {
+    return el('mix').checked ? 0.6 * npdf(x, 0, 0.6) + 0.4 * npdf(x, 2.6, 0.7) : npdf(x, 1, 0.9);
+  }
+  function sample(n, sd) {
+    var r = MLF.rng(sd), out = [], i;
+    for (i = 0; i < n; i++) {
+      if (el('mix').checked) out.push(r() < 0.6 ? 0 + 0.6 * r.normal() : 2.6 + 0.7 * r.normal());
+      else out.push(1 + 0.9 * r.normal());
+    }
+    return out;
+  }
+  function entropy() {
+    var s = 0, i;
+    for (i = 0; i < NG; i++) { var p = ptrue(gx(i)); if (p > 1e-12) s -= p * Math.log(p) * dx; }
+    return s;
+  }
+  function crossEnt(m, sg) {
+    var s = 0, i;
+    for (i = 0; i < NG; i++) { var p = ptrue(gx(i)); if (p > 1e-14) s -= p * Math.log(Math.max(npdf(gx(i), m, sg), 1e-300)) * dx; }
+    return s;
+  }
+  function nll(xs, m, sg) {
+    var s = 0, i;
+    for (i = 0; i < xs.length; i++) s -= Math.log(Math.max(npdf(xs[i], m, sg), 1e-300));
+    return s / xs.length;
+  }
+  function argmin(f) {
+    var best = null, bv = 1e30, i;
+    for (i = 0; i <= 200; i++) {
+      var m = MLO + (MHI - MLO) * i / 200, v = f(m);
+      if (v < bv) { bv = v; best = m; }
+    }
+    return { m: best, v: bv };
+  }
+
+  function compute() {
+    var n = +el('n').value, sg = +el('sg').value;
+    var xs = sample(n, seed), H = entropy();
+    var cur = [], i;
+    for (i = 0; i <= 200; i++) {
+      var m = MLO + (MHI - MLO) * i / 200;
+      cur.push([m, nll(xs, m, sg), crossEnt(m, sg)]);
+    }
+    var a1 = argmin(function (m) { return nll(xs, m, sg); });
+    var a2 = argmin(function (m) { return crossEnt(m, sg); });
+    S = { xs: xs, H: H, cur: cur, a1: a1, a2: a2, sg: sg };
+  }
+
+  function drawDen() {
+    var s = dD.resize(), ctx = dD.ctx; MLF.clear(ctx, s, pal);
+    var i, hi = 0;
+    for (i = 0; i < NG; i++) hi = Math.max(hi, ptrue(gx(i)));
+    hi = Math.max(hi, npdf(0, 0, S.sg)) * 1.2;
+    var ax = MLF.axes(ctx, s, { x: [XLO, XHI], y: [0, hi], pal: pal,
+      xticks: [-4, -2, 0, 2, 4, 6], yticks: [0, hi / 2, hi],
+      fmty: function (v) { return v.toFixed(2); }, xlab: 'x', ylab: '密度' });
+    var P = [], Q = [], R = [];
+    for (i = 0; i < NG; i++) {
+      P.push([gx(i), ptrue(gx(i))]);
+      Q.push([gx(i), npdf(gx(i), +el('mu').value, S.sg)]);
+      R.push([gx(i), npdf(gx(i), S.a1.m, S.sg)]);
+    }
+    MLF.line(ctx, ax, P, MLF.rgb(pal.a, 0.85), 2, [5, 4]);
+    MLF.line(ctx, ax, Q, MLF.rgb(pal.d), 2.2);
+    MLF.line(ctx, ax, R, MLF.rgb(pal.c), 1.8, [3, 3]);
+    ctx.strokeStyle = MLF.rgb(pal.b, 0.55); ctx.lineWidth = 1.2;
+    for (i = 0; i < S.xs.length; i++) {
+      ctx.beginPath();
+      ctx.moveTo(ax.X(S.xs[i]), ax.box.b); ctx.lineTo(ax.X(S.xs[i]), ax.box.b - 9); ctx.stroke();
+    }
+    MLF.legend(ctx, ax, [{ t: '真分布 p', c: MLF.rgb(pal.a, 0.85) },
+      { t: '模型 q（目前的 μ）', c: MLF.rgb(pal.d) },
+      { t: '經驗 MLE μ̂ = ' + S.a1.m.toFixed(3), c: MLF.rgb(pal.c) }], 'tr', pal);
+  }
+
+  function drawCur() {
+    var s = dC.resize(), ctx = dC.ctx; MLF.clear(ctx, s, pal);
+    var lo = 1e30, hi = -1e30, i;
+    S.cur.forEach(function (p) {
+      lo = Math.min(lo, p[1], p[2] - S.H); hi = Math.max(hi, Math.min(p[1], 8), Math.min(p[2], 8));
+    });
+    lo = Math.min(lo, 0) - 0.15; hi = hi + 0.3;
+    var ax = MLF.axes(ctx, s, { x: [MLO, MHI], y: [lo, hi], pal: pal,
+      xticks: [-2, -1, 0, 1, 2, 3], yticks: [lo, (lo + hi) / 2, hi],
+      fmty: function (v) { return v.toFixed(2); }, fmtx: function (v) { return v.toFixed(0); },
+      xlab: '模型的 μ', ylab: 'nats' });
+    MLF.ref(ctx, ax, { y: S.H, color: MLF.rgb(pal.a, 0.7) });
+    MLF.label(ctx, ax.box.l + ax.box.w - 5, ax.Y(S.H) - 7, 'H(p) = ' + S.H.toFixed(4), MLF.rgb(pal.a, 0.9), 'right');
+    var cl = function (v) { return Math.max(lo, Math.min(hi, v)); };
+    MLF.line(ctx, ax, S.cur.map(function (p) { return [p[0], cl(p[1])]; }), MLF.rgb(pal.b), 2);
+    MLF.line(ctx, ax, S.cur.map(function (p) { return [p[0], cl(p[2])]; }), MLF.rgb(pal.d), 2.2);
+    MLF.line(ctx, ax, S.cur.map(function (p) { return [p[0], cl(p[2] - S.H)]; }), MLF.rgb(pal.c), 2.2);
+    MLF.ref(ctx, ax, { x: S.a1.m, color: MLF.rgb(pal.b, 0.8), dash: [4, 4] });
+    MLF.ref(ctx, ax, { x: S.a2.m, color: MLF.rgb(pal.d, 0.8), dash: [4, 4] });
+    MLF.ref(ctx, ax, { x: +el('mu').value, color: pal.accent, dash: [] });
+    MLF.legend(ctx, ax, [{ t: '經驗 NLL（n 個樣本）', c: MLF.rgb(pal.b) },
+      { t: '母體交叉熵 H(p,q)', c: MLF.rgb(pal.d) },
+      { t: 'KL(p‖q) = H(p,q) − H(p)', c: MLF.rgb(pal.c) }], 'tl', pal);
+  }
+
+  function draw() {
+    compute();
+    el('v1').textContent = S.a1.m.toFixed(3);
+    el('v2').textContent = S.a2.m.toFixed(3);
+    el('v3').textContent = S.a2.v.toFixed(4);
+    el('v4').textContent = S.H.toFixed(4);
+    el('v5').textContent = (S.a2.v - S.H).toFixed(4);
+    el('v6').textContent = Math.abs(S.a1.m - S.a2.m).toFixed(3);
+    drawDen(); drawCur();
+  }
+  ['n', 'mu', 'sg'].forEach(function (i) { el(i).oninput = draw; });
+  el('mix').onchange = draw;
+  el('re').onclick = function () { seed = (seed + 1) % 887; draw(); };
+  window.addEventListener('resize', function () { drawDen(); drawCur(); });
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  draw();
+
+})();
+</script>
+</body>
+</html>

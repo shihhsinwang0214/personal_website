@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>曲率積分真的壓住誤差嗎</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; aspect-ratio: 4/3; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
+  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
+  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">學習目標：把六種設定的<b>曲率積分</b> ∫‖ẍ<sub>t</sub>‖dt 當橫軸、<b>Euler 的終點誤差</b>當縱軸畫出來。上界說誤差被積分壓住——如果這條不等式抓對了東西，六個點應該落在一條斜線附近。</p>
+
+  <canvas id="cv" width="640" height="480" aria-label="曲率積分對 Euler 誤差"></canvas>
+  <p class="cap">每個點是一種設定（路徑 × 配對 × γ）。兩軸都是對數；灰虛線＝斜率 1 的參考線（誤差正比於積分）</p>
+
+  <div class="controls">
+    <div class="row"><span class="lab">Euler 步數</span>
+      <button data-k="4">4</button>
+      <button data-k="8" class="on">8</button>
+      <button data-k="20">20</button>
+      <button data-k="50">50</button>
+    </div>
+    <div class="row"><span class="lab">資料</span>
+      <button data-s="two_moons" class="on">雙月</button>
+      <button data-s="two_gaussians">雙峰</button>
+      <button data-s="ring">環形</button>
+      <button id="dice">🎲 重抽</button>
+    </div>
+    <div class="stats">
+      <span>log-log 擬合斜率 = <b id="vs">—</b></span>
+      <span>相關係數 r = <b id="vr">—</b></span>
+    </div>
+  </div>
+
+  <p class="observe">六個點確實排成一條線：<b>擬合斜率大約 0.8～1.1、相關係數 0.95 以上</b>——曲率積分大三倍，同樣步數的誤差大約也大三倍。換步數時整條線<b>上下平移但排列不變</b>，因為步數只改 h，不改積分。<b>換配對是最有效的一招</b>（線性路徑從獨立換成依位置，積分約 9 → 1.4）。而 γ 的效果要看情況：加在已經很好的配對上會讓積分變大（1.4 → 3.5，因為條件路徑不再是直線），加在很糟的配對上反而變小（9 → 6，因為它把速度場抹平了）。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  var NP = 160, M = 24, REF = 192, WMIN = 0.10, SPAN = 5.6;
+  var cv = document.getElementById('cv');
+  var d = NDFlow.hiDPICanvas(cv);
+  var vs = document.getElementById('vs'), vr = document.getElementById('vr');
+  var pal = NDFlow.palette();
+  var K = 8, shape = 'two_moons';
+  var x0s = [], x1s = [], starts = [], pts = [];
+  var LS = new Float64Array(NP), MX = new Float64Array(NP), MY = new Float64Array(NP);
+
+  var SETTINGS = [
+    { name: '線性·獨立', path: 'lin', coup: 'indep', g: 0 },
+    { name: '線性·依位置', path: 'lin', coup: 'sort', g: 0 },
+    { name: 'VP·獨立', path: 'vp', coup: 'indep', g: 0 },
+    { name: 'VP·依位置', path: 'vp', coup: 'sort', g: 0 },
+    { name: '線性·獨立·γ', path: 'lin', coup: 'indep', g: 0.35 },
+    { name: '線性·依位置·γ', path: 'lin', coup: 'sort', g: 0.35 }
+  ];
+
+  function resample() {
+    x0s = []; x1s = [];
+    var tg = NDFlow.sampleTarget(shape, NP);
+    for (var i = 0; i < NP; i++) { x0s.push([NDFlow.randn(), NDFlow.randn()]); x1s.push(tg[i]); }
+    starts = [];
+    for (var m = 0; m < M; m++) starts.push([NDFlow.randn(), NDFlow.randn()]);
+  }
+  function pairs(coup) {
+    var idx = [], i;
+    for (i = 0; i < NP; i++) idx.push(i);
+    if (coup === 'sort') {
+      var a0 = idx.slice().sort(function (p, q) { return Math.atan2(x0s[p][1], x0s[p][0]) - Math.atan2(x0s[q][1], x0s[q][0]); });
+      var a1 = idx.slice().sort(function (p, q) { return Math.atan2(x1s[p][1], x1s[p][0]) - Math.atan2(x1s[q][1], x1s[q][0]); });
+      var out = [];
+      for (i = 0; i < NP; i++) out.push([a0[i], a1[i]]);
+      return out;
+    }
+    return idx.map(function (i2) { return [i2, i2]; });
+  }
+  function sch(path, g, t) {
+    var a, b, da, db;
+    if (path === 'lin') { a = 1 - t; b = t; da = -1; db = 1; }
+    else { var h = Math.PI / 2; a = Math.cos(h * t); b = Math.sin(h * t); da = -h * Math.sin(h * t); db = h * Math.cos(h * t); }
+    var q = g * g * 2 * t * (1 - t) + WMIN * WMIN;
+    var gm = Math.sqrt(q), dg = (q > 0) ? (g * g * (1 - 2 * t)) / gm : 0;
+    return { a: a, b: b, da: da, db: db, gm: gm, dg: dg };
+  }
+  // b_t(x) = Σ w_i [ α̇ x0_i + β̇ x1_i + (γ̇/γ)(x − m_i) ]
+  function vel(P, path, g, px, py, t) {
+    var c = sch(path, g, t), s2 = 2 * c.gm * c.gm, mx = -Infinity, i, n = P.length;
+    for (i = 0; i < n; i++) {
+      var mi = c.a * x0s[P[i][0]][0] + c.b * x1s[P[i][1]][0];
+      var mj = c.a * x0s[P[i][0]][1] + c.b * x1s[P[i][1]][1];
+      MX[i] = mi; MY[i] = mj;
+      var dx = px - mi, dy = py - mj, l = -(dx * dx + dy * dy) / s2;
+      LS[i] = l; if (l > mx) mx = l;
+    }
+    var sum = 0, ux = 0, uy = 0;
+    for (i = 0; i < n; i++) { LS[i] = Math.exp(LS[i] - mx); sum += LS[i]; }
+    var r = c.dg / c.gm;
+    for (i = 0; i < n; i++) {
+      var w = LS[i] / sum;
+      ux += w * (c.da * x0s[P[i][0]][0] + c.db * x1s[P[i][1]][0] + r * (px - MX[i]));
+      uy += w * (c.da * x0s[P[i][0]][1] + c.db * x1s[P[i][1]][1] + r * (py - MY[i]));
+    }
+    return [ux, uy];
+  }
+
+  function evaluate(S) {
+    var P = pairs(S.coup), TE = 0.98, i, m, k;
+    var hR = TE / REF, curv = 0, refEnd = [];
+    for (m = 0; m < M; m++) {
+      var x = [starts[m][0], starts[m][1]];
+      var vPrev = vel(P, S.path, S.g, x[0], x[1], 0), acc = 0;
+      for (k = 0; k < REF; k++) {
+        var t = k * hR, v = vel(P, S.path, S.g, x[0], x[1], t);
+        var mid = [x[0] + hR * v[0], x[1] + hR * v[1]];
+        var v2 = vel(P, S.path, S.g, mid[0], mid[1], t + hR);
+        x = [x[0] + hR * 0.5 * (v[0] + v2[0]), x[1] + hR * 0.5 * (v[1] + v2[1])];
+        // ‖ẍ‖ ≈ ‖Δb‖/Δt，梯形累加
+        acc += Math.hypot(v2[0] - v[0], v2[1] - v[1]);
+        vPrev = v2;
+      }
+      curv += acc;                        // Σ‖Δb‖ = ∫‖ẍ‖dt 的離散版
+      refEnd.push(x);
+    }
+    var hK = TE / K, err = 0;
+    for (m = 0; m < M; m++) {
+      var y = [starts[m][0], starts[m][1]];
+      for (k = 0; k < K; k++) {
+        var vv = vel(P, S.path, S.g, y[0], y[1], k * hK);
+        y = [y[0] + hK * vv[0], y[1] + hK * vv[1]];
+      }
+      err += Math.hypot(y[0] - refEnd[m][0], y[1] - refEnd[m][1]);
+    }
+    return { name: S.name, c: curv / M, e: Math.max(1e-6, err / M) };
+  }
+  function recompute() {
+    pts = SETTINGS.map(evaluate);
+    var n = pts.length, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+    pts.forEach(function (p) {
+      var X = Math.log(p.c), Y = Math.log(p.e);
+      sx += X; sy += Y; sxx += X * X; syy += Y * Y; sxy += X * Y;
+    });
+    var sl = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+    var rr = (n * sxy - sx * sy) / Math.sqrt(Math.max(1e-12, (n * sxx - sx * sx) * (n * syy - sy * sy)));
+    vs.textContent = sl.toFixed(2);
+    vr.textContent = rr.toFixed(3);
+    return sl;
+  }
+
+  function draw() {
+    var s = d.resize(), ctx = d.ctx;
+    ctx.clearRect(0, 0, s.w, s.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
+    var L = 56, R = 16, T = 16, B = 36;
+    var xs = pts.map(function (p) { return Math.log(p.c); }), ys = pts.map(function (p) { return Math.log(p.e); });
+    var x0 = Math.min.apply(null, xs) - 0.35, x1 = Math.max.apply(null, xs) + 0.35;
+    var y0 = Math.min.apply(null, ys) - 0.45, y1 = Math.max.apply(null, ys) + 0.45;
+    var X = function (v) { return L + (v - x0) / (x1 - x0) * (s.w - L - R); };
+    var Y = function (v) { return T + (y1 - v) / (y1 - y0) * (s.h - T - B); };
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.09)'; ctx.lineWidth = 1;
+    ctx.font = '500 10px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.textAlign = 'center';
+    for (var e = Math.floor(x0 / Math.LN10); e <= Math.ceil(x1 / Math.LN10); e++) {
+      var xv = e * Math.LN10; if (xv < x0 || xv > x1) continue;
+      ctx.beginPath(); ctx.moveTo(X(xv), T); ctx.lineTo(X(xv), s.h - B); ctx.stroke();
+      ctx.fillText('1e' + e, X(xv), s.h - B + 15);
+    }
+    ctx.textAlign = 'right';
+    for (var f = Math.floor(y0 / Math.LN10); f <= Math.ceil(y1 / Math.LN10); f++) {
+      var yv = f * Math.LN10; if (yv < y0 || yv > y1) continue;
+      ctx.beginPath(); ctx.moveTo(L, Y(yv)); ctx.lineTo(s.w - R, Y(yv)); ctx.stroke();
+      ctx.fillText('1e' + f, L - 6, Y(yv) + 3.5);
+    }
+    ctx.textAlign = 'center';
+    ctx.fillText('曲率積分 ∫‖ẍ‖dt', (L + s.w - R) / 2, s.h - 4);
+    ctx.save(); ctx.translate(12, (T + s.h - B) / 2); ctx.rotate(-Math.PI / 2);
+    ctx.fillText('Euler 終點誤差', 0, 0); ctx.restore();
+
+    // 斜率 1 的參考線，穿過重心
+    var mx = xs.reduce(function (a, b) { return a + b; }, 0) / xs.length;
+    var my = ys.reduce(function (a, b) { return a + b; }, 0) / ys.length;
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.beginPath();
+    ctx.moveTo(X(x0), Y(my + (x0 - mx)));
+    ctx.lineTo(X(x1), Y(my + (x1 - mx)));
+    ctx.stroke(); ctx.setLineDash([]);
+
+    pts.forEach(function (p) {
+      var gx = X(Math.log(p.c)), gy = Y(Math.log(p.e));
+      var warm = p.name.indexOf('依位置') >= 0;
+      ctx.fillStyle = warm ? 'rgb(96,186,130)' : pal.accent;
+      ctx.beginPath(); ctx.arc(gx, gy, 5, 0, 6.284); ctx.fill();
+      ctx.font = '700 10px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.82)';
+      ctx.textAlign = 'left';
+      ctx.fillText(p.name, gx + 8, gy + 3.5);
+      ctx.font = '500 10px "Plus Jakarta Sans", system-ui, sans-serif';
+    });
+  }
+
+  function go() { recompute(); draw(); }
+  function seg(sel, attr, set) {
+    Array.prototype.forEach.call(document.querySelectorAll(sel), function (b) {
+      b.onclick = function () {
+        Array.prototype.forEach.call(document.querySelectorAll(sel), function (o) { o.classList.remove('on'); });
+        b.classList.add('on'); set(b.dataset[attr]); go();
+      };
+    });
+  }
+  seg('[data-k]', 'k', function (v) { K = parseInt(v, 10); });
+  seg('[data-s]', 's', function (v) { shape = v; resample(); });
+  document.getElementById('dice').onclick = function () { resample(); go(); };
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  resample(); recompute(); applyTheme();
+})();
+</script>
+</body>
+</html>
