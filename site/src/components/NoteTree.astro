@@ -1,0 +1,116 @@
+---
+/**
+ * Left rail of a note page: the course → lecture → note tree, with the current lecture
+ * open. Read marks are painted client-side (see lib/reading.ts); the markup only carries
+ * `data-read-slug` / `data-read-count` hooks.
+ */
+import type { Lang, NoteEntry } from '../lib/notes';
+import {
+  courseByKey,
+  courseKeyForGroup,
+  courseRoute,
+  lectureAnchor,
+  notesForLang,
+  notesIndexRoute,
+  noteRoute,
+} from '../lib/notes';
+import { groupCode, noteTitles, stripNoteCode } from '../lib/noteRefs';
+import { withBase } from '../lib/url';
+
+interface Props {
+  entry: NoteEntry;
+  allNotes: NoteEntry[];
+  lang: Lang;
+}
+const { entry, allNotes, lang } = Astro.props;
+const titles = await noteTitles();
+const published = notesForLang(allNotes, lang);
+const courseKey = courseKeyForGroup(entry.data.group);
+const course = courseKey ? courseByKey(courseKey) : undefined;
+
+/** "Week 3 · Diffusion Models" → "Diffusion Models". */
+const lectureName = (group: string) => group.replace(/^[^·]*·\s*/, '');
+
+const lectures = course
+  ? course.lectures
+      .map((lecture) => ({
+        group: lecture.group,
+        code: groupCode(lecture.group),
+        name: lectureName(lecture.group),
+        notes: published.filter((n) => n.data.group === lecture.group),
+        current: lecture.group === entry.data.group,
+      }))
+      .filter((l) => l.notes.length > 0)
+  : [];
+const groupSiblings = course ? [] : published.filter((n) => n.data.group === entry.data.group);
+---
+
+<aside class="note-tree" aria-label={lang === 'zh' ? '章節' : 'Chapters'}>
+  {
+    course ? (
+      <>
+        <div class="note-tree-head">
+          <span class="note-tree-kicker">{lang === 'zh' ? '課程' : 'Course'}</span>
+          <a class="note-tree-course" href={withBase(courseRoute(course.key, lang))}>{course.title[lang]}</a>
+        </div>
+        <ol class="note-tree-lectures">
+          {lectures.map((lecture) => (
+            <li class:list={['note-tree-lecture', { 'is-current': lecture.current }]} data-read-count>
+              <a
+                class="note-tree-lecture-link"
+                href={withBase(`${courseRoute(course.key, lang)}#${lectureAnchor(lecture.group)}`)}
+              >
+                <span class="note-tree-code">{lecture.code}</span>
+                <span class="note-tree-name">{lecture.name}</span>
+                <span class="note-tree-count" data-read-count-out>0 / {lecture.notes.length}</span>
+              </a>
+              {lecture.current ? (
+                <ol class="note-tree-notes">
+                  {lecture.notes.map((note) => (
+                    <li
+                      class:list={['note-tree-note', { 'is-active': note.data.slug === entry.data.slug }]}
+                      data-read-slug={note.data.slug}
+                    >
+                      <a href={withBase(noteRoute(note.data.slug, lang))} aria-current={note.data.slug === entry.data.slug ? 'page' : undefined}>
+                        <span class="note-tree-code">{titles.codeOf(note)}</span>
+                        <span class="note-tree-name">{stripNoteCode(note.data.title)}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <span hidden>
+                  {lecture.notes.map((note) => (
+                    <span data-read-slug={note.data.slug} />
+                  ))}
+                </span>
+              )}
+            </li>
+          ))}
+        </ol>
+      </>
+    ) : (
+      <>
+        <div class="note-tree-head">
+          <span class="note-tree-kicker">{lang === 'zh' ? '系列' : 'Series'}</span>
+          <a class="note-tree-course" href={withBase(notesIndexRoute(lang))}>{entry.data.group}</a>
+        </div>
+        <ol class="note-tree-notes note-tree-notes--flat">
+          {groupSiblings.map((note) => (
+            <li
+              class:list={['note-tree-note', { 'is-active': note.data.slug === entry.data.slug }]}
+              data-read-slug={note.data.slug}
+            >
+              <a href={withBase(noteRoute(note.data.slug, lang))} aria-current={note.data.slug === entry.data.slug ? 'page' : undefined}>
+                <span class="note-tree-name">{titles.of(note)}</span>
+              </a>
+            </li>
+          ))}
+        </ol>
+      </>
+    )
+  }
+  <p class="note-tree-foot">
+    {lang === 'zh' ? '亮起的是這台瀏覽器讀過的篇。' : 'Lit items are what this browser has read.'}
+  </p>
+</aside>

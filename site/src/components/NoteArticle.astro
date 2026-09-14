@@ -4,18 +4,24 @@ import Base from '../layouts/Base.astro';
 import type { Lang, NoteEntry } from '../lib/notes';
 import {
   categoryLabels,
+  courseByKey,
+  courseKeyForGroup,
+  courseRoute,
   findNote,
   formatNoteDate,
+  lectureAnchor,
   noteRoute,
+  noteTone,
   notesIndexRoute,
   researchAreaLabelForNote,
   siblingNotes,
   statusLabels,
 } from '../lib/notes';
 import { inlineMath } from '../lib/inlineMath';
-import { noteTitles } from '../lib/noteRefs';
+import { groupCode, noteTitles } from '../lib/noteRefs';
 import { withBase } from '../lib/url';
 import Comments from './Comments.astro';
+import NoteTree from './NoteTree.astro';
 
 interface Props {
   entry: NoteEntry;
@@ -42,6 +48,29 @@ const alternates = alternate
     ]
   : undefined;
 const researchAreaLabel = researchAreaLabelForNote(entry, lang);
+const courseKey = courseKeyForGroup(entry.data.group);
+const course = courseKey ? courseByKey(courseKey) : undefined;
+const tone = noteTone(entry);
+const noteCode = titles.codeOf(entry);
+const lectureCode = groupCode(entry.data.group);
+// Breadcrumb: 筆記 / 課程 / W5 / W5.2 — every level is a link back up the tree.
+const crumbs: { label: string; href?: string }[] = [
+  { label: lang === 'zh' ? '筆記' : 'Notes', href: withBase(notesIndexRoute(lang)) },
+  ...(course
+    ? [
+        { label: course.title[lang], href: withBase(courseRoute(course.key, lang)) },
+        {
+          label: lectureCode || entry.data.group,
+          href: withBase(`${courseRoute(course.key, lang)}#${lectureAnchor(entry.data.group)}`),
+        },
+      ]
+    : [
+        { label: categoryLabels[entry.data.category][lang] },
+        ...(researchAreaLabel ? [{ label: researchAreaLabel }] : []),
+        { label: entry.data.group },
+      ]),
+  { label: noteCode || (lang === 'zh' ? '本篇' : 'This note') },
+];
 // 目錄的文字不能用 Astro 給的 `heading.text`：它取的是**渲染完 KaTeX 之後**節點的
 // textContent，所以 `## 真的要跑 $t$ 次嗎？` 會變成「真的要跑 ttt 次嗎？」——MathML、
 // annotation、HTML 三層的文字被串在一起。改成從原始 mdx 讀那一行、用 inlineMath()
@@ -114,25 +143,44 @@ const articleJsonLd = {
       <path d="M12 19V5M5 12l7-7 7 7" />
     </svg>
   </button>
-  <main class="note-layout" id="note-main">
+  <main
+    class="note-layout note-layout--reader"
+    id="note-main"
+    data-tone={tone}
+    data-note-slug={entry.data.slug}
+    data-note-lang={lang}
+    data-note-title={displayTitle}
+    data-note-course={course?.key ?? ''}
+    data-note-group={entry.data.group}
+  >
+    <NoteTree entry={entry} allNotes={allNotes} lang={lang} />
     <article class="note-article">
       <header class="note-header">
-        <a class="back-link" href={withBase(notesIndexRoute(lang))}>
-          {lang === 'zh' ? '← 返回筆記' : '← Back to notes'}
-        </a>
+        <nav class="note-crumbs" aria-label="Breadcrumb">
+          {
+            crumbs.map((c, i) => (
+              <>
+                {i > 0 && <span class="note-crumb-sep" aria-hidden="true">/</span>}
+                {c.href ? <a href={c.href}>{c.label}</a> : <span>{c.label}</span>}
+              </>
+            ))
+          }
+        </nav>
         <p class="note-meta">
-          {categoryLabels[entry.data.category][lang]}
-          {researchAreaLabel ? ` / ${researchAreaLabel}` : ''}
-          {' / '}
-          {entry.data.group} / {formatNoteDate(entry.data.updated, lang)}
+          {noteCode && <span class="note-code-chip">{noteCode}</span>}
+          {showReadingTime && <span>{readingTimeLabel}</span>}
+          <span>{formatNoteDate(entry.data.updated, lang)}</span>
         </p>
         <h1>{displayTitle}</h1>
-        <div class="note-header-actions">
-          <span class={`status-badge status-${entry.data.status}`}>
-            {statusLabels[entry.data.status][lang]}
-          </span>
-          {showReadingTime && <span class="reading-time">{readingTimeLabel}</span>}
-        </div>
+        {
+          entry.data.status !== 'available' && (
+            <div class="note-header-actions">
+              <span class={`status-badge status-${entry.data.status}`}>
+                {statusLabels[entry.data.status][lang]}
+              </span>
+            </div>
+          )
+        }
         {
           entry.data.status === 'missing' && (
             <div class="content-status-note">
@@ -170,8 +218,8 @@ const articleJsonLd = {
       <nav class="note-prev-next" aria-label="Previous and next notes">
         {
           previous ? (
-            <a href={withBase(noteRoute(previous.data.slug, lang))}>
-              <span>{lang === 'zh' ? '上一篇' : 'Previous'}</span>
+            <a href={withBase(noteRoute(previous.data.slug, lang))} data-read-slug={previous.data.slug}>
+              <span>{lang === 'zh' ? '← 上一篇' : '← Previous'}</span>
               {titles.of(previous)}
             </a>
           ) : (
@@ -180,8 +228,8 @@ const articleJsonLd = {
         }
         {
           next ? (
-            <a href={withBase(noteRoute(next.data.slug, lang))}>
-              <span>{lang === 'zh' ? '下一篇' : 'Next'}</span>
+            <a class="is-next" href={withBase(noteRoute(next.data.slug, lang))} data-read-slug={next.data.slug}>
+              <span>{lang === 'zh' ? '下一篇 →' : 'Next →'}</span>
               {titles.of(next)}
             </a>
           ) : (
@@ -195,7 +243,26 @@ const articleJsonLd = {
   </main>
 
   <script>
+    import { markRead, paintReadState, setLast } from '../lib/reading';
+
+    function recordReading() {
+      const main = document.getElementById('note-main');
+      if (!main) return;
+      const { noteSlug, noteLang, noteTitle, noteCourse, noteGroup } = main.dataset;
+      if (!noteSlug) return;
+      markRead(noteSlug);
+      setLast({
+        slug: noteSlug,
+        lang: noteLang === 'zh' ? 'zh' : 'en',
+        title: noteTitle ?? '',
+        courseKey: noteCourse || undefined,
+        group: noteGroup || undefined,
+      });
+      paintReadState(main);
+    }
+
     function initNote() {
+      recordReading();
       const progress = document.querySelector('.reading-progress > span') as HTMLElement | null;
       const backTop = document.querySelector('.back-to-top') as HTMLElement | null;
       const body = document.querySelector('.note-body') as HTMLElement | null;

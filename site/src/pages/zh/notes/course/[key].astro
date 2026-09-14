@@ -1,0 +1,18 @@
+---
+import { getCollection } from 'astro:content';
+import CourseMap from '../../../../components/CourseMap.astro';
+import { courses, hiddenCourseKeys, isPublishedNote } from '../../../../lib/notes';
+
+export async function getStaticPaths() {
+  const allNotes = await getCollection('notes');
+  const published = allNotes.filter(isPublishedNote);
+  return courses
+    .filter((course) => !hiddenCourseKeys.has(course.key))
+    .filter((course) => published.some((n) => course.lectures.some((l) => l.group === n.data.group)))
+    .map((course) => ({ params: { key: course.key }, props: { course, allNotes } }));
+}
+
+const { course, allNotes } = Astro.props;
+---
+
+<CourseMap course={course} allNotes={allNotes} lang="zh" />

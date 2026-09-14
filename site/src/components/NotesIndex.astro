@@ -4,20 +4,23 @@ import {
   areaAnchor,
   categoryLabels,
   courseAnchor,
+  courseByKey,
+  courseRoute,
   courseSections,
   groupAnchor,
   formatNoteDate,
   groupMeta,
   groupNotes,
   latestNoteDate,
-  notesIndexRoute,
+  lectureAnchor,
   noteRoute,
   researchAreaLabels,
   statusLabels,
 } from '../lib/notes';
-import { noteTitles } from '../lib/noteRefs';
+import { groupCode, noteTitles } from '../lib/noteRefs';
 import { withBase } from '../lib/url';
 import SearchPanel from './SearchPanel.astro';
+import SkyMap from './SkyMap.astro';
 
 interface Props {
   lang: Lang;
@@ -27,24 +30,65 @@ interface Props {
 const { lang, notes } = Astro.props;
 const otherLang = lang === 'zh' ? 'en' : 'zh';
 const grouped = groupNotes(notes);
-const courseBlocks = courseSections(notes, lang);
+const courseBlocks = courseSections(notes, lang).filter((course) => course.noteCount > 0);
 const titles = await noteTitles();
+const lectureName = (group: string) => group.replace(/^[^·]*·\s*/, '');
+const nonCourse = grouped.filter((g) => g.category !== 'courses');
 ---
 
-<section class="notes-index">
+<section class="notes-index" id="notes-index" data-view="sky">
   <div class="notes-index-header">
     <div>
       <h1>{lang === 'zh' ? 'Notes & Guides' : 'Notes & Guides'}</h1>
       <p>
         {
           lang === 'zh'
-            ? '研究筆記、技術說明與學術技能指南。'
-            : 'Research notes, technical guides, and academic skill resources.'
+            ? '天上是課程，海是數學基礎，岸是機器學習基礎。點一顆星開一篇，點星座名進到那門課。'
+            : 'Courses in the sky, mathematics on the sea, machine learning on the shore. Click a star to open a note, a constellation name to enter the course.'
         }
       </p>
     </div>
+    <div class="view-toggle" role="group" aria-label={lang === 'zh' ? '顯示方式' : 'View'}>
+      <button type="button" class="view-toggle-btn" data-view-btn="sky" aria-pressed="true">
+        <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14l4-6 3 4 3-7 4 9" /><circle cx="3" cy="14" r="1.2" fill="currentColor" stroke="none" /><circle cx="7" cy="8" r="1.2" fill="currentColor" stroke="none" /><circle cx="10" cy="12" r="1.2" fill="currentColor" stroke="none" /><circle cx="13" cy="5" r="1.2" fill="currentColor" stroke="none" /><circle cx="17" cy="14" r="1.2" fill="currentColor" stroke="none" /></svg>
+        {lang === 'zh' ? '星圖' : 'Sky'}
+      </button>
+      <button type="button" class="view-toggle-btn" data-view-btn="list" aria-pressed="false">
+        <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 5h12M4 10h12M4 15h12" /></svg>
+        {lang === 'zh' ? '列表' : 'List'}
+      </button>
+    </div>
   </div>
 
+  <div class="notes-pane notes-pane--sky" data-view-pane="sky">
+    <SkyMap notes={notes} lang={lang} />
+    {
+      nonCourse.length > 0 && (
+        <div class="sky-others">
+          {nonCourse.map((categoryGroup) => (
+            <div class="sky-others-block">
+              <span class="sky-others-kicker">{categoryLabels[categoryGroup.category][lang]}</span>
+              <div class="sky-others-rows">
+                {categoryGroup.areas.flatMap((areaGroup) =>
+                  areaGroup.groups.map(({ group, notes: groupEntries }) => (
+                    <a class="sky-others-row" href={`#${groupAnchor(group)}`} data-open-list>
+                      <span class="sky-others-title">
+                        {areaGroup.area ? `${researchAreaLabels[areaGroup.area][lang]} · ` : ''}
+                        {group}
+                      </span>
+                      <span class="sky-others-meta">{groupEntries.length} {lang === 'zh' ? '篇' : 'notes'}</span>
+                    </a>
+                  )),
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )
+    }
+  </div>
+
+  <div class="notes-pane notes-pane--list" data-view-pane="list">
   <SearchPanel />
 
   {
@@ -53,114 +97,48 @@ const titles = await noteTitles();
         <h3>{categoryLabels[categoryGroup.category][lang]}</h3>
         {categoryGroup.category === 'courses'
           ? courseBlocks.map((course) => {
-              const courseLatest = latestNoteDate(course.lectures.flatMap((l) => l.notes));
+              const def = courseByKey(course.key);
+              const ready = course.lectures.filter((l) => !l.comingSoon);
+              const allNotes = ready.flatMap((l) => l.notes);
+              const courseLatest = latestNoteDate(allNotes);
               return (
-              <details class="note-area note-course" id={courseAnchor(course.key)}>
-                <summary class="disclosure-summary note-course-summary">
-                  <span class="disclosure-copy">
-                    <span class="note-course-title">{course.title}</span>
-                    <span class="disclosure-meta">
-                      {course.readyLectureCount} {lang === 'zh' ? '個單元' : 'units'} · {course.noteCount}{' '}
-                      {lang === 'zh' ? '篇' : 'notes'}
-                      {courseLatest ? ` · Updated ${formatNoteDate(courseLatest, lang)}` : ''}
+                <div class="course-row" id={courseAnchor(course.key)} data-tone={def?.tone ?? 'neutral'} data-read-count>
+                  <a class="course-row-main" href={withBase(courseRoute(course.key, lang))}>
+                    <span class="tone-dot" aria-hidden="true"></span>
+                    <span class="course-row-copy">
+                      <span class="course-row-title">{course.title}</span>
+                      <span class="course-row-meta">
+                        {ready.length} {lang === 'zh' ? '個單元' : 'units'} · {course.noteCount} {lang === 'zh' ? '篇' : 'notes'}
+                        {courseLatest ? ` · ${formatNoteDate(courseLatest, lang)}` : ''}
+                      </span>
                     </span>
-                  </span>
-                  <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-                    <path d="M7 4.5 12.5 10 7 15.5" />
-                  </svg>
-                </summary>
-                <div class="disclosure-content note-course-content">
-                {course.lectures.map((lecture) => {
-                  if (lecture.comingSoon) {
-                    return (
-                      <div class="note-group note-group-soon" aria-disabled="true">
-                        <div class="disclosure-summary note-group-summary">
-                          <span class="disclosure-copy">
-                            <span class="disclosure-label">{lecture.group}</span>
-                            <span class="note-lecture-desc">{lecture.description}</span>
-                          </span>
-                          <span class="status-badge status-coming-soon">
-                            {lang === 'zh' ? '即將推出' : 'Coming soon'}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  }
-                  const latest = latestNoteDate(lecture.notes);
-                  const total = lecture.notes.length;
-                  return (
-                    <details class="note-group">
-                      <summary class="disclosure-summary note-group-summary">
-                        <span class="disclosure-copy">
-                          <span class="disclosure-label">{lecture.group}</span>
-                          <span class="note-lecture-desc">{lecture.description}</span>
-                          <span class="disclosure-meta">
-                            {total} {lang === 'zh' ? '篇' : 'notes'}
-                            {latest ? ` · Updated ${formatNoteDate(latest, lang)}` : ''}
-                          </span>
+                    <span class="course-row-progress" aria-hidden="true">
+                      <span class="course-progress"><span data-read-bar></span></span>
+                      <span class="course-row-count" data-read-count-out>0 / {course.noteCount}</span>
+                    </span>
+                    <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+                      <path d="M7 4.5 12.5 10 7 15.5" />
+                    </svg>
+                  </a>
+                  <div class="course-row-lectures">
+                    {ready.map((lecture) => (
+                      <a
+                        class="course-row-lecture"
+                        href={withBase(`${courseRoute(course.key, lang)}#${lectureAnchor(lecture.group)}`)}
+                        data-read-count
+                      >
+                        <span class="course-row-lecture-code">{groupCode(lecture.group)}</span>
+                        <span class="course-row-lecture-name">{lectureName(lecture.group)}</span>
+                        <span class="course-row-lecture-count" data-read-count-out>0 / {lecture.notes.length}</span>
+                        <span hidden>
+                          {lecture.notes.map((n) => (
+                            <span data-read-slug={n.data.slug} />
+                          ))}
                         </span>
-                        <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-                          <path d="M7 4.5 12.5 10 7 15.5" />
-                        </svg>
-                      </summary>
-                      <div class="disclosure-content note-group-content">
-                        <div class="note-list-cards">
-                          {lecture.notes.map((note, index) => {
-                            const isMissing = note.data.status === 'missing';
-                            const isFallbackLang = note.data.lang !== lang;
-                            const targetLang = isMissing ? otherLang : note.data.lang;
-                            const targetName = targetLang === 'zh' ? '中文' : 'English';
-                            const href = isMissing
-                              ? noteRoute(note.data.slug, otherLang)
-                              : noteRoute(note.data.slug, note.data.lang);
-                            const isStart = lecture.startHere && index === 0;
-                            return (
-                              <a class="note-list-card" href={withBase(href)}>
-                                <div class="note-card-topline">
-                                  <span class="note-card-meta-left">
-                                    <span class="note-card-order">
-                                      {lang === 'zh'
-                                        ? `第 ${index + 1} / ${total} 篇`
-                                        : `Part ${index + 1} / ${total}`}
-                                    </span>
-                                    {isStart && (
-                                      <span class="start-here-pill">
-                                        {lang === 'zh' ? '從這裡開始' : 'Start here'}
-                                      </span>
-                                    )}
-                                  </span>
-                                  {isMissing || isFallbackLang ? (
-                                    <span class="status-badge status-alt">
-                                      {lang === 'zh' ? `可讀 ${targetName}` : `Available in ${targetName}`}
-                                    </span>
-                                  ) : (
-                                    <span class={`status-badge status-${note.data.status}`}>
-                                      {statusLabels[note.data.status][lang]}
-                                    </span>
-                                  )}
-                                </div>
-                                <strong>{titles.of(note)}</strong>
-                                <p>
-                                  {isMissing || isFallbackLang ? (
-                                    <span class="alt-hint">
-                                      {lang === 'zh'
-                                        ? `此語言版本尚未完成 — 前往 ${targetName} 版 →`
-                                        : `Not in this language yet — read it in ${targetName} →`}
-                                    </span>
-                                  ) : (
-                                    note.data.summary
-                                  )}
-                                </p>
-                              </a>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </details>
-                  );
-                })}
+                      </a>
+                    ))}
+                  </div>
                 </div>
-              </details>
               );
             })
           : categoryGroup.areas.map((areaGroup) => (
@@ -255,7 +233,45 @@ const titles = await noteTitles();
       </section>
     ))
   }
+  </div>
 </section>
+
+<script>
+  import { readView, setView } from '../lib/reading';
+
+  // Sky by default; the choice is remembered on this device. A hash that points into the
+  // list (#group-…, #course-…) opens the list so the anchor can be reached.
+  function initView() {
+    const root = document.getElementById('notes-index');
+    if (!root) return;
+    const apply = (view: 'sky' | 'list', remember: boolean) => {
+      root.dataset.view = view;
+      root.querySelectorAll<HTMLButtonElement>('[data-view-btn]').forEach((b) => {
+        b.setAttribute('aria-pressed', String(b.dataset.viewBtn === view));
+      });
+      if (remember) setView(view);
+    };
+    const wantsList = /^#(group-|course-|area-)/.test(location.hash);
+    // Phones default to the list (the sky needs width); a remembered choice still wins.
+    const narrow = window.matchMedia('(max-width: 640px)').matches;
+    apply(wantsList ? 'list' : readView() ?? (narrow ? 'list' : 'sky'), false);
+    root.querySelectorAll<HTMLButtonElement>('[data-view-btn]').forEach((b) => {
+      b.addEventListener('click', () => apply(b.dataset.viewBtn === 'list' ? 'list' : 'sky', true));
+    });
+    root.querySelectorAll<HTMLAnchorElement>('[data-open-list]').forEach((a) => {
+      a.addEventListener('click', () => apply('list', false));
+    });
+    window.addEventListener('hashchange', () => {
+      if (/^#(group-|course-|area-)/.test(location.hash)) apply('list', false);
+    });
+  }
+  initView();
+</script>
+
+<script>
+  import { paintReadState } from '../lib/reading';
+  paintReadState(document.getElementById('notes-index') ?? document);
+</script>
 
 <script>
   // Links from the home page point at #course-… / #area-… / #group-…. Every

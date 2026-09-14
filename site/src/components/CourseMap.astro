@@ -1,0 +1,266 @@
+---
+/**
+ * Course page — the "map" of one course: a vertical trail of lectures, the current one
+ * open, each carrying the foundation notes its notes declare as `prereqs`. Read state
+ * and the "continue" card are painted client-side from lib/reading.ts.
+ */
+import Base from '../layouts/Base.astro';
+import type { CourseDef, Lang, NoteEntry } from '../lib/notes';
+import {
+  courseRoute,
+  formatNoteDate,
+  latestNoteDate,
+  lectureAnchor,
+  notesForLang,
+  notesIndexRoute,
+  noteRoute,
+  courseByKey,
+} from '../lib/notes';
+import { groupCode, noteTitles, resolveNoteRef, stripNoteCode } from '../lib/noteRefs';
+import type { ResolvedNoteRef } from '../lib/noteRefs';
+import { withBase } from '../lib/url';
+
+interface Props {
+  course: CourseDef;
+  allNotes: NoteEntry[];
+  lang: Lang;
+}
+const { course, allNotes, lang } = Astro.props;
+const zh = lang === 'zh';
+const titles = await noteTitles();
+const published = notesForLang(allNotes, lang);
+const lectureName = (group: string) => group.replace(/^[^·]*·\s*/, '');
+/** "導航的三十秒：Taylor 展開與「假設直線」" → "Taylor 展開與「假設直線」" — chips show the tool, not the hook. */
+const toolName = (title: string) => {
+  const parts = title.split(/[：:]\s*/);
+  return parts.length > 1 ? parts[parts.length - 1] : title;
+};
+const isLab = (note: NoteEntry) => /-lab$/.test(note.data.slug) || /^實作|^Lab\b/i.test(stripNoteCode(note.data.title));
+
+interface ToolChip extends ResolvedNoteRef {
+  tone: string;
+}
+const lectures = [];
+for (const lecture of course.lectures) {
+  const notes = published.filter((n) => n.data.group === lecture.group);
+  if (notes.length === 0) continue;
+  // Tools: every prereq the week's notes declare, outside this course, deduped, in code order.
+  const seen = new Set<string>();
+  const tools: ToolChip[] = [];
+  for (const note of notes) {
+    for (const label of note.data.prereqs) {
+      const ref = await resolveNoteRef(label, lang);
+      if (!ref || ref.planned || seen.has(ref.slug)) continue;
+      if (ref.courseKey === course.key) continue;
+      seen.add(ref.slug);
+      tools.push({ ...ref, tone: (ref.courseKey && courseByKey(ref.courseKey)?.tone) || 'neutral' });
+    }
+  }
+  tools.sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+  lectures.push({
+    group: lecture.group,
+    code: groupCode(lecture.group),
+    name: lectureName(lecture.group),
+    description: lecture.description[lang],
+    notes,
+    tools,
+    latest: latestNoteDate(notes),
+  });
+}
+const totalNotes = lectures.reduce((n, l) => n + l.notes.length, 0);
+const firstNote = lectures[0]?.notes[0];
+const latest = latestNoteDate(lectures.flatMap((l) => l.notes));
+const alternates = [
+  { lang: 'en' as const, path: courseRoute(course.key, 'en') },
+  { lang: 'zh' as const, path: courseRoute(course.key, 'zh') },
+];
+const unitWord = zh ? '週' : 'weeks';
+const isWeekly = lectures.every((l) => /^W/.test(l.code));
+---
+
+<Base
+  title={`${course.title[lang]} — Notes`}
+  description={course.description[lang]}
+  active="notes"
+  lang={lang}
+  alternates={alternates}
+  langToggleHref={withBase(courseRoute(course.key, zh ? 'en' : 'zh'))}
+>
+  <main class="course-map" id="course-map" data-tone={course.tone} data-course-key={course.key}>
+    <nav class="note-crumbs" aria-label="Breadcrumb">
+      <a href={withBase(notesIndexRoute(lang))}>{zh ? '筆記' : 'Notes'}</a>
+      <span class="note-crumb-sep" aria-hidden="true">/</span>
+      <span>{course.title[lang]}</span>
+    </nav>
+
+    <header class="course-head">
+      <div class="course-head-copy">
+        <h1>{course.title[lang]}</h1>
+        <p class="course-desc">{course.description[lang]}</p>
+        <div class="course-stats" data-read-count>
+          <span>{lectures.length} {isWeekly ? unitWord : zh ? '個單元' : 'units'}</span>
+          <span aria-hidden="true">·</span>
+          <span>{totalNotes} {zh ? '篇' : 'notes'}</span>
+          <span aria-hidden="true">·</span>
+          <span>{zh ? '已讀' : 'Read'} <span data-read-count-out>0 / {totalNotes}</span></span>
+          {latest && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>{formatNoteDate(latest, lang)}</span>
+            </>
+          )}
+          <span class="course-progress" aria-hidden="true"><span data-read-bar></span></span>
+          <span hidden>
+            {lectures.flatMap((l) => l.notes).map((n) => <span data-read-slug={n.data.slug} />)}
+          </span>
+        </div>
+      </div>
+
+      <aside class="course-continue" id="course-continue" hidden>
+        <span class="course-continue-kicker" data-continue-kicker>{zh ? '繼續閱讀' : 'Continue'}</span>
+        <a class="course-continue-title" data-continue-link href={firstNote ? withBase(noteRoute(firstNote.data.slug, lang)) : '#'}>
+          <span class="course-continue-code" data-continue-code>{firstNote ? titles.codeOf(firstNote) : ''}</span>
+          <span data-continue-title>{firstNote ? stripNoteCode(firstNote.data.title) : ''}</span>
+        </a>
+        <a class="course-continue-btn" data-continue-link href={firstNote ? withBase(noteRoute(firstNote.data.slug, lang)) : '#'}>
+          <span data-continue-btn>{zh ? '從這裡開始 →' : 'Start here →'}</span>
+        </a>
+      </aside>
+    </header>
+
+    <ol class="course-trail">
+      {
+        lectures.map((lecture, i) => (
+          <li class="course-week" id={lectureAnchor(lecture.group)} data-read-count data-lecture-code={lecture.code}>
+            <details class="course-week-details" open={i === 0}>
+              <summary class="course-week-summary">
+                <span class="course-week-node" aria-hidden="true"></span>
+                <span class="course-week-head">
+                  <span class="course-week-title">
+                    <span class="course-week-code">{lecture.code}</span>
+                    <span class="course-week-name">{lecture.name}</span>
+                    <span class="course-week-count"><span data-read-count-out>0 / {lecture.notes.length}</span></span>
+                  </span>
+                  <span class="course-week-desc">{lecture.description}</span>
+                </span>
+                <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+                  <path d="M7 4.5 12.5 10 7 15.5" />
+                </svg>
+              </summary>
+              <div class="course-week-body">
+                <ol class="course-notes">
+                  {lecture.notes.map((note) => (
+                    <li class="course-note" data-read-slug={note.data.slug}>
+                      <a href={withBase(noteRoute(note.data.slug, lang))}>
+                        <span class="course-note-code">{titles.codeOf(note)}</span>
+                        <span class="course-note-title">{stripNoteCode(note.data.title)}</span>
+                        {isLab(note) && <span class="course-note-lab">LAB</span>}
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+                {lecture.tools.length > 0 && (
+                  <div class="course-tools">
+                    <span class="course-tools-kicker">{zh ? '這週用到的工具' : 'Tools this week uses'}</span>
+                    <div class="course-tools-chips">
+                      {lecture.tools.map((tool) => (
+                        <a class="tool-chip" data-tone={tool.tone} href={tool.href} title={tool.title}>
+                          <span class="tool-chip-code">{tool.code}</span>
+                          <span class="tool-chip-title">{toolName(tool.shortTitle)}</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </details>
+          </li>
+        ))
+      }
+    </ol>
+
+    <p class="course-foot">
+      {zh ? '亮起來的是這台瀏覽器讀過的篇；這筆紀錄只留在你的裝置上。' : 'Lit notes are what this browser has read; the record stays on this device.'}
+      <button type="button" class="course-clear" data-clear-reading>{zh ? '清除紀錄' : 'Clear'}</button>
+    </p>
+  </main>
+
+  <script>
+    import { clearReading, paintReadState, readLast } from '../lib/reading';
+
+    function initCourseMap() {
+      const root = document.getElementById('course-map');
+      if (!root) return;
+      const seen = paintReadState(root);
+      const courseKey = root.dataset.courseKey ?? '';
+      const zh = document.documentElement.lang?.startsWith('zh');
+
+      // Open the week that contains the last-read note (fallback: first week with an unread note).
+      const weeks = Array.from(root.querySelectorAll<HTMLElement>('.course-week'));
+      const last = readLast();
+      let target: HTMLElement | undefined;
+      if (last && last.courseKey === courseKey) {
+        target = weeks.find((w) => w.querySelector(`[data-read-slug="${last.slug}"]`));
+      }
+      if (!target) target = weeks.find((w) => !w.classList.contains('is-complete')) ?? weeks[0];
+      if (!location.hash) {
+        weeks.forEach((w) => {
+          const d = w.querySelector<HTMLDetailsElement>('details');
+          if (d) d.open = w === target;
+        });
+      } else {
+        const hashed = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+        const d = hashed?.querySelector<HTMLDetailsElement>('details');
+        if (d) d.open = true;
+      }
+      if (target) target.classList.add('is-current');
+
+      // Continue card: the next unread note after the last one read in this course.
+      const card = document.getElementById('course-continue');
+      if (card) {
+        const all = Array.from(root.querySelectorAll<HTMLElement>('.course-note'));
+        let nextEl: HTMLElement | undefined;
+        let kicker = zh ? '從這裡開始' : 'Start here';
+        let btn = zh ? '開始讀 →' : 'Start reading →';
+        if (last && last.courseKey === courseKey) {
+          const idx = all.findIndex((el) => el.dataset.readSlug === last.slug);
+          const after = all.slice(idx + 1).find((el) => !seen.has(el.dataset.readSlug ?? ''));
+          if (after) {
+            nextEl = after;
+            kicker = zh ? '接著讀' : 'Up next';
+            btn = zh ? '接著讀 →' : 'Continue →';
+          } else if (idx >= 0) {
+            nextEl = all[idx];
+            kicker = zh ? '上次讀到' : 'Last read';
+            btn = zh ? '再讀一次 →' : 'Read again →';
+          }
+        } else {
+          nextEl = all.find((el) => !seen.has(el.dataset.readSlug ?? '')) ?? all[0];
+        }
+        if (nextEl) {
+          const a = nextEl.querySelector<HTMLAnchorElement>('a');
+          const code = nextEl.querySelector('.course-note-code')?.textContent ?? '';
+          const title = nextEl.querySelector('.course-note-title')?.textContent ?? '';
+          card.querySelectorAll<HTMLAnchorElement>('[data-continue-link]').forEach((l) => {
+            if (a) l.href = a.href;
+          });
+          const set = (sel: string, text: string) => {
+            const el = card.querySelector<HTMLElement>(sel);
+            if (el) el.textContent = text;
+          };
+          set('[data-continue-code]', code);
+          set('[data-continue-title]', title);
+          set('[data-continue-kicker]', kicker);
+          set('[data-continue-btn]', btn);
+          card.hidden = false;
+        }
+      }
+
+      root.querySelector<HTMLButtonElement>('[data-clear-reading]')?.addEventListener('click', () => {
+        clearReading();
+        location.reload();
+      });
+    }
+    initCourseMap();
+  </script>
+</Base>

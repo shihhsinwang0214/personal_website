@@ -5,8 +5,11 @@ import { profile, research, news, publications, uiText, heroContent } from '../d
 import type { Lang } from '../lib/notes';
 import {
   categoryLabels,
+  courseByKey,
+  courseRoute,
   formatNoteDate,
   homeSections,
+  isPublishedNote,
   notesIndexRoute,
 } from '../lib/notes';
 
@@ -19,6 +22,15 @@ const allNotes = await getCollection('notes');
 // The home page lists only the top-level headings (course / research area);
 // the notes index is where the lecture and note levels live.
 const homeBlocks = homeSections(allNotes, lang);
+const published = allNotes.filter((n) => isPublishedNote(n) && n.data.lang === lang);
+/** Slugs per course, so the cards can show this browser's progress. */
+const courseSlugs = (key: string) => {
+  const course = courseByKey(key);
+  if (!course) return [];
+  const groups = new Set(course.lectures.map((l) => l.group));
+  return published.filter((n) => groups.has(n.data.group)).map((n) => n.data.slug);
+};
+const courseKeyOf = (id: string) => (id.startsWith('course-') ? id.slice('course-'.length) : undefined);
 const selectedPubs = publications[0].items.slice(0, 3);
 const recentNews = news.slice(0, 4);
 ---
@@ -81,7 +93,14 @@ const recentNews = news.slice(0, 4);
         {uiText.notesMore[lang]}
       </a>
     </div>
-    <div class="writing-list">
+    <div class="writing-list" id="home-notes">
+      <a class="home-continue" id="home-continue" href="#" hidden>
+        <span class="home-continue-copy">
+          <span class="home-continue-kicker">{lang === 'zh' ? '上次讀到' : 'Last read'}</span>
+          <span class="home-continue-title" data-continue-title></span>
+        </span>
+        <span class="home-continue-btn">{lang === 'zh' ? '接著讀 →' : 'Continue →'}</span>
+      </a>
       {
         homeBlocks.map((section) => (
           <section class="writing-category" aria-labelledby={`writing-${section.category}`}>
@@ -89,19 +108,36 @@ const recentNews = news.slice(0, 4);
               {categoryLabels[section.category][lang]}
             </h3>
             <div class="topic-cards">
-              {section.items.map((item) => (
-                <a class="topic-card" href={withBase(`${notesIndexRoute(lang)}#${item.id}`)}>
-                  <span class="topic-card-title">{item.title}</span>
-                  {item.description && <span class="topic-card-desc">{item.description}</span>}
-                  <span class="topic-card-meta">
-                    {item.noteCount} {lang === 'zh' ? '篇' : item.noteCount === 1 ? 'note' : 'notes'}
-                    {item.unitCount > 1
-                      ? ` · ${item.unitCount} ${lang === 'zh' ? '個單元' : 'units'}`
-                      : ''}
-                    {item.latest ? ` · ${formatNoteDate(item.latest, lang)}` : ''}
-                  </span>
-                </a>
-              ))}
+              {section.items.map((item) => {
+                const key = courseKeyOf(item.id);
+                const course = key ? courseByKey(key) : undefined;
+                const slugs = key ? courseSlugs(key) : [];
+                const href = course ? courseRoute(course.key, lang) : `${notesIndexRoute(lang)}#${item.id}`;
+                return (
+                  <a class="topic-card" href={withBase(href)} data-tone={course?.tone ?? 'neutral'} data-read-count={course ? '' : undefined}>
+                    <span class="topic-card-title">{item.title}</span>
+                    {item.description && <span class="topic-card-desc">{item.description}</span>}
+                    <span class="topic-card-meta">
+                      {item.noteCount} {lang === 'zh' ? '篇' : item.noteCount === 1 ? 'note' : 'notes'}
+                      {item.unitCount > 1
+                        ? ` · ${item.unitCount} ${lang === 'zh' ? '個單元' : 'units'}`
+                        : ''}
+                      {item.latest ? ` · ${formatNoteDate(item.latest, lang)}` : ''}
+                    </span>
+                    {course && (
+                      <span class="topic-card-progress" aria-hidden="true">
+                        <span class="course-progress"><span data-read-bar></span></span>
+                        <span class="topic-card-count" data-read-count-out>0 / {slugs.length}</span>
+                        <span hidden>
+                          {slugs.map((slug) => (
+                            <span data-read-slug={slug} />
+                          ))}
+                        </span>
+                      </span>
+                    )}
+                  </a>
+                );
+              })}
             </div>
           </section>
         ))
@@ -147,3 +183,26 @@ const recentNews = news.slice(0, 4);
     }
   </section>
 </main>
+
+<script>
+  import { paintReadState, readLast } from '../lib/reading';
+  import { withBase } from '../lib/url';
+
+  function initHomeNotes() {
+    const root = document.getElementById('home-notes');
+    if (!root) return;
+    paintReadState(root);
+    const last = readLast();
+    const card = document.getElementById('home-continue') as HTMLAnchorElement | null;
+    if (!card || !last) return;
+    const zh = document.documentElement.lang?.startsWith('zh');
+    const title = card.querySelector<HTMLElement>('[data-continue-title]');
+    if (title) title.textContent = last.title;
+    card.href = withBase(last.lang === 'zh' ? `zh/notes/${last.slug}` : `notes/${last.slug}`);
+    if ((zh && last.lang !== 'zh') || (!zh && last.lang !== 'en')) {
+      // Recorded in the other language: still offer it, the note page handles the language toggle.
+    }
+    card.hidden = false;
+  }
+  initHomeNotes();
+</script>

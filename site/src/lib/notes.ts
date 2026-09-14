@@ -288,7 +288,7 @@ export const legacyNoteRedirects: Record<string, string> = {
   'flow-matching-training': 'n2d-velocity-regression',
 };
 
-export const categoryOrder = ['research-areas', 'courses', 'academic-skills'] as const;
+export const categoryOrder = ['courses', 'research-areas', 'academic-skills'] as const;
 
 export const researchAreaOrder = ['flow-based-generative-modeling', 'geometric-deep-learning'] as const;
 
@@ -359,24 +359,45 @@ export const statusLabels: Record<NoteEntry['data']['status'], Record<Lang, stri
 // The "Courses" category renders as: course title → a full lecture roadmap.
 // Lectures with no notes yet show as "Coming soon"; the first ready lecture
 // opens by default. `group` here must match each note's frontmatter `group`.
+/**
+ * How a lecture is drawn on the notes sky map (`SkyMap.astro`). Relative to `anchor`
+ * (SVG px in a 1120×440 sky); one star per note, in `noteSlugList` order — extra notes
+ * beyond the listed stars are placed next to the last one, so adding a note never breaks
+ * the picture. `edges` index into `stars`. Only `realm: 'sky'` courses need this.
+ */
+export interface Constellation {
+  anchor: [number, number];
+  /** [dx, dy, radius] — radius doubles as brightness. */
+  stars: [number, number, number][];
+  edges: [number, number][];
+}
 export interface CourseLectureDef {
   group: string;
   description: Record<Lang, string>;
   /** Stable key so notes can point at a whole week/class with <Ref week="…"/>. */
   label?: string;
+  constellation?: Constellation;
 }
+/** Colour family for a course — see `--tone-*` in global.css. */
+export type CourseTone = 'dma' | 'math' | 'ml' | 'neutral';
+/** Where the course lives on the notes sky map: constellations, buoys on the sea, lights on the shore. */
+export type CourseRealm = 'sky' | 'sea' | 'land';
 export interface CourseDef {
   key: string;
   title: Record<Lang, string>;
   /** One line, for the home page's condensed notes list. */
   description: Record<Lang, string>;
   category: (typeof categoryOrder)[number];
+  tone: CourseTone;
+  realm: CourseRealm;
   lectures: CourseLectureDef[];
 }
 
 export const courses: CourseDef[] = [
   {
     key: 'math-for-dl',
+    tone: 'neutral',
+    realm: 'sea',
     title: {
       en: 'All the Math You Need for Deep Learning',
       zh: 'All the Math You Need for Deep Learning',
@@ -461,6 +482,8 @@ export const courses: CourseDef[] = [
   },
   {
     key: 'diffusion-models-applications',
+    tone: 'dma',
+    realm: 'sky',
     title: {
       en: 'Diffusion Models and Their Applications',
       zh: 'Diffusion Models and Their Applications',
@@ -474,6 +497,7 @@ export const courses: CourseDef[] = [
       {
         group: 'Week 3 · Diffusion Models',
         label: 'dma-week-diffusion',
+        constellation: { anchor: [90, 110], stars: [[0, 70, 3.2], [34, 38, 4.4], [82, 52, 2.8], [118, 18, 3.6], [150, 60, 4.8], [96, 104, 3.0]], edges: [[0, 1], [1, 2], [2, 3], [2, 4], [4, 5]] },
         description: {
           zh: '從「生成在學什麼」出發：forward process、denoising 回歸、Tweedie 與 score、DDPM / DDIM / SDE-ODE 反向取樣。',
           en: 'From "what does generation learn" to the forward process, denoising regression, Tweedie & score, and DDPM / DDIM / SDE-ODE sampling.',
@@ -482,6 +506,7 @@ export const courses: CourseDef[] = [
       {
         group: 'Week 4 · Flow Matching',
         label: 'dma-week-flow-matching',
+        constellation: { anchor: [300, 280], stars: [[0, 0, 4.6], [52, -22, 3.0], [96, -8, 3.4], [126, -56, 4.2], [178, -40, 2.8], [210, 8, 3.8]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [2, 5]] },
         description: {
           zh: 'forward process 是必要的嗎？flow 與 continuity equation、conditional flow matching、直線路徑，以及 FM 與 diffusion 的同與異。',
           en: 'Is a forward process necessary? Flows and the continuity equation, conditional flow matching, linear paths, and FM vs. diffusion.',
@@ -490,6 +515,7 @@ export const courses: CourseDef[] = [
       {
         group: 'Week 5 · Stochastic Interpolants 與共用技巧',
         label: 'dma-week-interpolants',
+        constellation: { anchor: [470, 100], stars: [[0, 40, 3.4], [44, 66, 2.9], [78, 24, 4.9], [120, 44, 3.2], [150, -8, 3.0], [206, -26, 4.0], [238, 22, 2.7]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [3, 6]] },
         description: {
           zh: '一個式子裝下兩個框架：一族 SDE 取樣器、曲率與誤差理論、rectified flow、minibatch OT，以及 guidance / 高階 solver / 時間加權。',
           en: 'One equation for both frameworks: a family of SDE samplers, curvature and error theory, rectified flow, minibatch OT, and shared techniques.',
@@ -498,6 +524,7 @@ export const courses: CourseDef[] = [
       {
         group: 'Week 6 · Discrete Diffusion I',
         label: 'dma-week-discrete-i',
+        constellation: { anchor: [560, 300], stars: [[0, 0, 3.0], [28, 46, 4.4], [74, 32, 3.2], [112, 70, 3.6], [136, 18, 2.8], [180, 50, 4.0]], edges: [[0, 1], [1, 2], [2, 3], [3, 5], [2, 4]] },
         description: {
           zh: '資料是 token 時怎麼「加噪聲」？離散是狀態不是時間；D3PM 的轉移矩陣、masked diffusion 塌成加權 cross-entropy、因子化誤差是離散版的曲率。',
           en: 'How to "add noise" to tokens: discrete states, not discrete time; D3PM transition matrices, masked diffusion as weighted cross-entropy, and factorization error as the discrete analogue of curvature.',
@@ -506,6 +533,7 @@ export const courses: CourseDef[] = [
       {
         group: 'Week 7 · Discrete Diffusion II',
         label: 'dma-week-discrete-ii',
+        constellation: { anchor: [770, 326], stars: [[0, 30, 3.6], [38, -12, 2.8], [64, 42, 4.6], [118, 26, 3.2], [150, -30, 3.0], [186, 4, 4.2], [226, -24, 2.9]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [3, 5], [5, 6]] },
         description: {
           zh: '連續時間 Markov chain 的語言：rate、forward equation 與 Fokker–Planck 並排；反向 rate 需要的是比值（concrete score）；remasking 是取樣器旋鈕；discrete flow matching 與應用。',
           en: 'The language of continuous-time Markov chains: rates and the forward equation beside Fokker–Planck; reverse rates need ratios (concrete score); remasking as a sampler knob; discrete flow matching and applications.',
@@ -514,6 +542,7 @@ export const courses: CourseDef[] = [
       {
         group: 'Week 8 · Consistency Models',
         label: 'dma-week-consistency',
+        constellation: { anchor: [830, 100], stars: [[0, 0, 4.8], [46, 36, 3.0], [90, 22, 3.4], [124, 66, 4.4], [160, 30, 2.8], [190, 90, 3.4], [230, 58, 4.0]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [3, 5], [5, 6]] },
         description: {
           zh: '能不能直接學「一步」？progressive distillation、consistency function 與自我一致性、CD 與 CT、iCT / sCM 各對付哪個誤差，以及多步 CM 為什麼很快飽和。',
           en: 'Can we learn the one-step map directly? Progressive distillation, the consistency function and self-consistency, CD vs. CT, which error each iCT / sCM trick fights, and why multistep CM saturates.',
@@ -522,6 +551,7 @@ export const courses: CourseDef[] = [
       {
         group: 'Week 9 · Flow Maps 與分佈匹配',
         label: 'dma-week-flow-maps',
+        constellation: { anchor: [935, 285], stars: [[0, 20, 3.2], [30, -30, 4.6], [84, -46, 3.0], [130, -20, 3.6], [150, 40, 4.4], [112, 72, 2.8], [60, 50, 3.4]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 0]] },
         description: {
           zh: '從 t 直接跳到 s：flow map 的四個條件、flow map matching 的三種損失、MeanFlow identity 與條件速度代換、Shortcut / AYF，以及回歸式與分佈匹配式（DMD）蒸餾的失敗模式。',
           en: 'Jumping from t straight to s: the four conditions of a flow map, the three flow-map-matching losses, the MeanFlow identity, Shortcut / AYF, and the failure modes of regression vs. distribution-matching (DMD) distillation.',
@@ -531,6 +561,8 @@ export const courses: CourseDef[] = [
   },
   {
     key: 'mathematical-foundations',
+    tone: 'math',
+    realm: 'sea',
     title: {
       en: 'Mathematical Foundations',
       zh: 'Mathematical Foundations',
@@ -601,6 +633,8 @@ export const courses: CourseDef[] = [
   },
   {
     key: 'machine-learning-foundations',
+    tone: 'ml',
+    realm: 'land',
     title: {
       en: 'Machine Learning Foundations',
       zh: 'Machine Learning Foundations',
@@ -793,7 +827,8 @@ export const groupAnchor = (group: string) => {
 };
 
 export function homeSections(notes: NoteEntry[], lang: Lang): HomeSection[] {
-  const listed = notes.filter(isPublishedNote);
+  // One entry per slug (a note exists in both languages) so counts are notes, not files.
+  const listed = notesForListingLang(notes, lang);
   const sections: HomeSection[] = [];
 
   // Research areas: the area label is the top-level heading.
@@ -846,7 +881,10 @@ export function homeSections(notes: NoteEntry[], lang: Lang): HomeSection[] {
   });
   if (skillItems.length > 0) sections.push({ category: 'academic-skills', items: skillItems });
 
-  return sections;
+  // Same order as the notes index (`categoryOrder`), so the home page and the index agree.
+  return sections.sort(
+    (a, b) => categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category),
+  );
 }
 
 export function noteRoute(slug: string, lang: Lang): string {
@@ -855,6 +893,20 @@ export function noteRoute(slug: string, lang: Lang): string {
 
 export function notesIndexRoute(lang: Lang): string {
   return lang === 'zh' ? 'zh/notes' : 'notes';
+}
+
+/** The course map page (`CourseMap.astro`): every course with notes gets one. */
+export function courseRoute(key: string, lang: Lang): string {
+  return lang === 'zh' ? `zh/notes/course/${key}` : `notes/course/${key}`;
+}
+
+/** Anchor of one lecture on its course page / the notes index list. */
+export const lectureAnchor = (group: string) => groupAnchor(group);
+
+/** Tone of the course a note belongs to ('neutral' outside courses). */
+export function noteTone(note: NoteEntry): CourseTone {
+  const key = courseKeyForGroup(note.data.group);
+  return (key && courseByKey(key)?.tone) || 'neutral';
 }
 
 export function sortNotes(notes: NoteEntry[]): NoteEntry[] {
