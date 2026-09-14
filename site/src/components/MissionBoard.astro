@@ -17,7 +17,7 @@ import { withBase } from '../lib/url';
 import type { Lang } from '../lib/handbook';
 import { labInfo } from '../lib/handbook';
 import { missionText, visibleQuests } from '../lib/mission';
-import { noteRoute, notesIndexRoute } from '../lib/notes';
+import { isPublishedNote, noteRoute, notesIndexRoute } from '../lib/notes';
 import { noteTitles } from '../lib/noteRefs';
 
 interface Props {
@@ -30,7 +30,7 @@ const titles = await noteTitles();
 /** Notes for this language, indexed by the `group` a quest points at. */
 const notesByGroup = new Map<string, { slug: string; title: string }[]>();
 for (const n of allNotes) {
-  if (n.data.lang !== lang) continue;
+  if (n.data.lang !== lang || !isPublishedNote(n)) continue;
   const list = notesByGroup.get(n.data.group) ?? [];
   list.push({ slug: n.data.slug, title: titles.of(n) });
   notesByGroup.set(n.data.group, list);

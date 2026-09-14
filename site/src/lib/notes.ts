@@ -671,7 +671,13 @@ export const courses: CourseDef[] = [
 //
 //   hiddenGroups      — research-area group labels (frontmatter `group`)
 //   hiddenCourseKeys  — course keys from the `courses` array above
-export const hiddenGroups = new Set<string>([]);
+export const hiddenGroups = new Set<string>([
+  // Retired 2026-09-14: superseded by the "Diffusion Models and Their Applications"
+  // course. Hiding both groups empties the "Flow-Based Generative Models" research
+  // area, so the area card / index section disappear with them.
+  'From Noise to Data',
+  'Diffusion & Flow Models',
+]);
 export const hiddenCourseKeys = new Set<string>([
   'math-for-dl',
 ]);
