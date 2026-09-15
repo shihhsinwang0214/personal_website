@@ -16,6 +16,7 @@ import {
   lectureAnchor,
   noteRoute,
   notesForLang,
+  noteHref,
 } from '../lib/notes';
 import type { Constellation } from '../lib/notes';
 import { groupCode, noteTitles, resolveNoteRef, stripNoteCode } from '../lib/noteRefs';
@@ -395,7 +396,7 @@ const LX = 1040;
             ))}
           </g>
           {lecture.stars.map((s) => (
-            <a class="sky-star" href={withBase(noteRoute(s.note.data.slug, lang))} data-read-slug={s.note.data.slug}>
+            <a class="sky-star" href={withBase(noteHref(s.note))} data-read-slug={s.note.data.slug}>
               <title>{titles.of(s.note)}</title>
               <circle class="sky-star-hit" cx={s.x} cy={s.y} r="14" />
               <circle class="sky-star-glow" cx={s.x} cy={s.y} r={f(s.r * 2.4)} />
@@ -451,11 +452,9 @@ const LX = 1040;
       ))
     }
 
-    <!-- "you are here", positioned client-side -->
+    <!-- "you are here": a quiet ring around the last-read star, positioned client-side -->
     <g class="sky-here is-hidden" data-here>
       <circle class="sky-here-ring" r="13" />
-      <text class="sky-here-label" data-here-label></text>
-      <text class="sky-here-hint" data-here-hint>{zh ? '游標移到星上會看到它的先備' : 'hover a star to see its prerequisites'}</text>
     </g>
   </svg>
   </div>
@@ -463,7 +462,7 @@ const LX = 1040;
   <div class="sky-legend">
     <span><span class="sky-legend-dot is-on"></span>{zh ? '已讀' : 'read'}</span>
     <span><span class="sky-legend-dot"></span>{zh ? '未讀' : 'unread'}</span>
-    <span><span class="sky-legend-thread"></span>{zh ? '先備（把游標移到一顆星上）' : 'prerequisites (hover a star)'}</span>
+    <span><span class="sky-legend-thread"></span>{zh ? '先備知識（將游標移到星星上查看）' : 'prerequisites (hover a star to see them)'}</span>
     <span class="sky-legend-note">{zh ? '紀錄只留在這台裝置' : 'kept on this device only'}</span>
   </div>
 </div>
@@ -475,7 +474,6 @@ const LX = 1040;
     const root = document.getElementById('sky-map');
     if (!root) return;
     const seen = paintReadState(root);
-    const zh = root.dataset.lang === 'zh';
 
     // Buoys / lanterns: lit when any note of that lecture has been read, full when all have.
     root.querySelectorAll<SVGElement>('.sky-light').forEach((el) => {
@@ -518,21 +516,6 @@ const LX = 1040;
         here.classList.remove('is-hidden');
         here.querySelector('.sky-here-ring')?.setAttribute('cx', String(x));
         here.querySelector('.sky-here-ring')?.setAttribute('cy', String(y));
-        const label = here.querySelector<SVGTextElement>('[data-here-label]');
-        const hint = here.querySelector<SVGTextElement>('[data-here-hint]');
-        const below = y < 60;
-        const anchor = x < 120 ? 'start' : x > 1000 ? 'end' : 'middle';
-        if (label) {
-          label.textContent = `${zh ? '你在這裡' : 'You are here'} · ${last!.title.split(' ')[0]}`;
-          label.setAttribute('x', String(x));
-          label.setAttribute('y', String(below ? y + 30 : y - 32));
-          label.setAttribute('text-anchor', anchor);
-        }
-        if (hint) {
-          hint.setAttribute('x', String(x));
-          hint.setAttribute('y', String(below ? y + 43 : y - 19));
-          hint.setAttribute('text-anchor', anchor);
-        }
         const refl = root.querySelector<SVGRectElement>('[data-reflection]');
         if (refl) refl.setAttribute('x', String(x - 14));
       }

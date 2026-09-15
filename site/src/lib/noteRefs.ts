@@ -174,9 +174,8 @@ export async function noteCode(note: NoteEntry): Promise<string> {
 }
 
 /**
- * Resolve a label or slug. Prefers the requested language; falls back to the other
- * language's entry (the link still goes to the requested language route, where the
- * site renders its "translation missing" page).
+ * Resolve a label or slug. Prefers the requested language for title/code; the link goes
+ * to whichever language actually has a written page (missing stubs are not built).
  */
 export async function resolveNoteRef(key: string, lang: Lang): Promise<ResolvedNoteRef | undefined> {
   const index = await noteIndex();
@@ -205,6 +204,11 @@ export async function resolveNoteRef(key: string, lang: Lang): Promise<ResolvedN
   }
   const note = entries.find((n) => n.data.lang === lang) ?? entries[0];
   const info = tables.byNote.get(codeKey(note.data.lang, note.data.slug));
+  // A `missing` translation has no page: send the link to a language that is actually
+  // written (an English page must never point at an unwritten English note → 404).
+  const written = entries.find((n) => n.data.lang === lang && n.data.status !== 'missing')
+    ?? entries.find((n) => n.data.status !== 'missing')
+    ?? note;
   return {
     slug: note.data.slug,
     label: note.data.label ?? note.data.slug,
@@ -214,7 +218,7 @@ export async function resolveNoteRef(key: string, lang: Lang): Promise<ResolvedN
     code: info?.code ?? '',
     group: note.data.group,
     courseKey: courseKeyForGroup(note.data.group),
-    href: withBase(noteRoute(note.data.slug, lang)),
+    href: withBase(noteRoute(written.data.slug, written.data.lang)),
     summary: note.data.summary,
   };
 }

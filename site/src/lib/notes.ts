@@ -283,6 +283,8 @@ export interface PlannedNote {
 export const plannedNotes: Record<string, PlannedNote> = {
 };
 
+// Old URLs; the redirect pages in pages/(zh/)notes/flow-matching-*.astro now land on the
+// notes index because the n2d-* targets are hidden (2026-09-14).
 export const legacyNoteRedirects: Record<string, string> = {
   'flow-matching-flow-ode': 'n2d-probability-flow-ode',
   'flow-matching-training': 'n2d-velocity-regression',
@@ -893,6 +895,16 @@ export function noteRoute(slug: string, lang: Lang): string {
 
 export function notesIndexRoute(lang: Lang): string {
   return lang === 'zh' ? 'zh/notes' : 'notes';
+}
+
+/**
+ * Where a note link should go. A translation marked `missing` never gets a page, so it
+ * links to the other language's page instead (the notes index has always done this;
+ * every new listing must too, or the English site 404s on Chinese-only notes).
+ */
+export function noteHref(note: NoteEntry): string {
+  if (note.data.status !== 'missing') return noteRoute(note.data.slug, note.data.lang);
+  return noteRoute(note.data.slug, note.data.lang === 'zh' ? 'en' : 'zh');
 }
 
 /** The course map page (`CourseMap.astro`): every course with notes gets one. */
