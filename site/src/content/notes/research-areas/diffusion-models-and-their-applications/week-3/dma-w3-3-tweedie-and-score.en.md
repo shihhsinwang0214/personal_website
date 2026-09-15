@@ -11,7 +11,7 @@ prereqs:
 lang: "en"
 title: "Tweedie 公式：去噪器就是 Score"
 category: "courses"
-group: "Week 3 · Diffusion Models"
+group: "Unit 1 · Diffusion Models"
 status: "missing"
 updated: 2026-09-04
 summary: "English translation in progress; content-agent task."

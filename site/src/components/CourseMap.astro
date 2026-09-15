@@ -44,7 +44,7 @@ const lectures = [];
 for (const lecture of course.lectures) {
   const notes = published.filter((n) => n.data.group === lecture.group);
   if (notes.length === 0) continue;
-  // Tools: every prereq the week's notes declare, outside this course, deduped, in code order.
+  // Tools: every prereq the unit's notes declare, outside this course, deduped, in code order.
   const seen = new Set<string>();
   const tools: ToolChip[] = [];
   for (const note of notes) {
@@ -74,8 +74,7 @@ const alternates = [
   { lang: 'en' as const, path: courseRoute(course.key, 'en') },
   { lang: 'zh' as const, path: courseRoute(course.key, 'zh') },
 ];
-const unitWord = zh ? '週' : 'weeks';
-const isWeekly = lectures.every((l) => /^W/.test(l.code));
+
 ---
 
 <Base
@@ -98,7 +97,7 @@ const isWeekly = lectures.every((l) => /^W/.test(l.code));
         <h1>{course.title[lang]}</h1>
         <p class="course-desc">{course.description[lang]}</p>
         <div class="course-stats" data-read-count>
-          <span>{lectures.length} {isWeekly ? unitWord : zh ? '個單元' : 'units'}</span>
+          <span>{lectures.length} {zh ? '個單元' : 'units'}</span>
           <span aria-hidden="true">·</span>
           <span>{totalNotes} {zh ? '篇' : 'notes'}</span>
           <span aria-hidden="true">·</span>
@@ -161,7 +160,7 @@ const isWeekly = lectures.every((l) => /^W/.test(l.code));
                 </ol>
                 {lecture.tools.length > 0 && (
                   <div class="course-tools">
-                    <span class="course-tools-kicker">{zh ? '這週用到的工具' : 'Tools this week uses'}</span>
+                    <span class="course-tools-kicker">{zh ? '這個單元用到的工具' : 'Tools this unit uses'}</span>
                     <div class="course-tools-chips">
                       {lecture.tools.map((tool) => (
                         <a class="tool-chip" data-tone={tool.tone} href={tool.href} title={tool.title}>
@@ -195,7 +194,7 @@ const isWeekly = lectures.every((l) => /^W/.test(l.code));
       const courseKey = root.dataset.courseKey ?? '';
       const zh = document.documentElement.lang?.startsWith('zh');
 
-      // Open the week that contains the last-read note (fallback: first week with an unread note).
+      // Open the unit that contains the last-read note (fallback: first unit with an unread note).
       const weeks = Array.from(root.querySelectorAll<HTMLElement>('.course-week'));
       const last = readLast();
       let target: HTMLElement | undefined;

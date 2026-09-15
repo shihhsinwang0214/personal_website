@@ -8,7 +8,7 @@ prereqs:
 lang: "en"
 title: "不走了，直接學那一步"
 category: "courses"
-group: "Week 8 · Consistency Models"
+group: "Unit 6 · Consistency Models"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

@@ -7,7 +7,7 @@ prereqs:
 lang: "zh"
 title: "Progressive Distillation：學生一步，等於老師兩步"
 category: "courses"
-group: "Week 8 · Consistency Models"
+group: "Unit 6 · Consistency Models"
 status: "available"
 updated: 2026-09-06
 summary: "不事先生成資料：每一輪讓學生的一步對齊 teacher 的兩步，步數逐輪減半，學生再變成下一輪的 teacher。目標是確定的、逐輪算出來的；代價是每一輪的逼近誤差都留在下一輪的老師身上。"
@@ -46,7 +46,7 @@ import Answer from '../../../components/Answer.astro';
 
 上一篇 Q1 的第一個「不好」是：每一筆訓練配對都要 teacher 跑完整條 ODE。Salimans & Ho [1] 的觀察是，這件事沒有必要一次做完。
 
-想像 teacher 是一個要走 $N$ 步的取樣器（本週座標下，從 $t=T$ 走到 $t=0$，每步是 <Ref to="dma-lab-diffusion"/> 的 DDIM，也就是 PF-ODE 的一步 Euler）。我們不要求學生一口氣學會整條路，只要求：**學生走一步，要到 teacher 走兩步的地方。** 學好之後，學生是一個 $N/2$ 步的取樣器。然後把學生當成新的 teacher，再訓一個 $N/4$ 步的學生。重複 $\log_2 N$ 輪。
+想像 teacher 是一個要走 $N$ 步的取樣器（本單元座標下，從 $t=T$ 走到 $t=0$，每步是 <Ref to="dma-lab-diffusion"/> 的 DDIM，也就是 PF-ODE 的一步 Euler）。我們不要求學生一口氣學會整條路，只要求：**學生走一步，要到 teacher 走兩步的地方。** 學好之後，學生是一個 $N/2$ 步的取樣器。然後把學生當成新的 teacher，再訓一個 $N/4$ 步的學生。重複 $\log_2 N$ 輪。
 
 每一輪的訓練資料是即時算出來的：抽一個 $x_0$、抽一個 $t$（在學生的時間網格上）、加噪聲得到 $x_t$，然後讓 teacher 從 $x_t$ **走兩步**得到 $\tilde x$。這只要兩次 teacher 的網路呼叫，不是幾十次。上一篇那個「要先用 teacher 生成整個資料集」的成本，被攤成每一輪每一筆兩次呼叫。
 
@@ -68,7 +68,7 @@ import Answer from '../../../components/Answer.astro';
 
 ## 寫成式子
 
-用本週的 VE 座標 $x_t=x_0+t\epsilon$。teacher 的一步 DDIM 從 $t$ 到 $t'<t$，寫成 denoiser $\hat x_0$ 的形式是
+用本單元的 VE 座標 $x_t=x_0+t\epsilon$。teacher 的一步 DDIM 從 $t$ 到 $t'<t$，寫成 denoiser $\hat x_0$ 的形式是
 
 $$
 x_{t'}=x_t+(t'-t)\,\frac{x_t-\hat x_0(x_t,t)}{t}
@@ -106,7 +106,7 @@ $$
 
 <VizPlan id="w8-1-halving" title="逐輪減半：學生的一步對齊老師的兩步" type="interactive">
 - **位置**：本節之後。**檔名**：`week-8/w8-1-1.html`。
-- **版面**：左大格 2D toy（<Ref to="dma-lab-diffusion"/> 的月牙，本週 VE 座標，$T$ 依 toy 尺度設為 $T=10$），右側一欄控制項與數字。
+- **版面**：左大格 2D toy（<Ref to="dma-lab-diffusion"/> 的月牙，本單元 VE 座標，$T$ 依 toy 尺度設為 $T=10$），右側一欄控制項與數字。
 - **左格**：固定 6 個起點 $x_T$（顏色編碼）。底層淡灰畫**真實 PF-ODE 軌跡**（用精確 score 細步積分）。上層畫當前「輪次」的取樣器折線：輪次 $k=0$ 是 teacher 的 $N=32$ 步 Euler 折線；$k=1$ 是 16 步、$k=2$ 是 8 步……到 $k=5$ 是 1 步。折線用該起點的顏色、粗一點。每個折線的終點畫一個實心點，並用一條細線連到真實軌跡終點，標「終點誤差」。
 - **控制項**：滑桿「輪次 $k\in\{0,\dots,5\}$」；開關「用理想學生（精確算 teacher 兩步的合成）／用實際訓出的學生」。理想學生的折線就是 teacher 折線每隔一個頂點連線——讀者看到「一步＝兩步的合成」是幾何上的取捷徑；切到實際學生時終點會多出一點抖動，那是逼近誤差。
 - **hover 折線的任一段**：高亮該段對應的 teacher 兩小段（上一輪的兩段），旁邊顯示 $x_0^{\text{target}}$ 的位置與 $\hat x_0^\theta$ 的位置（兩個小叉），以及兩者距離。

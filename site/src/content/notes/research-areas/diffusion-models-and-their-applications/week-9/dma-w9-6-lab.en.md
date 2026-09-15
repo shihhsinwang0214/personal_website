@@ -8,7 +8,7 @@ prereqs:
 lang: "en"
 title: "實作：MeanFlow、半群檢查，與交叉問題的最終回收"
 category: "courses"
-group: "Week 9 · Flow Maps 與分佈匹配"
+group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

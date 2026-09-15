@@ -7,7 +7,7 @@ prereqs:
 lang: "zh"
 title: "實作：把曲率積分畫成一條線"
 category: "courses"
-group: "Week 5 · Stochastic Interpolants 與共用技巧"
+group: "Unit 3 · Stochastic Interpolants 與共用技巧"
 status: "available"
 updated: 2026-09-13
 summary: "實作 reflow 與 minibatch OT，把曲率積分算出來、驗證它和 Euler 誤差落在一條線上，再實測 ODE 與 SDE 取樣在幾步的時候交叉。"
@@ -45,11 +45,11 @@ import Ref from '../../../components/Ref.astro';
 
 ## 設定
 
-沿用 `toy.py` 與 `fm.py`。這一週新增三個檔：`couplings.py`（reflow 的配對生成、minibatch OT）、`interpolant.py`（帶 $\gamma_t$ 的訓練與一整族 SDE 取樣器）、`curvature.py`。所有模型同架構、同 seed、同步數——**只有配對不一樣。**
+沿用 `toy.py` 與 `fm.py`。這個單元新增三個檔：`couplings.py`（reflow 的配對生成、minibatch OT）、`interpolant.py`（帶 $\gamma_t$ 的訓練與一整族 SDE 取樣器）、`curvature.py`。所有模型同架構、同 seed、同步數——**只有配對不一樣。**
 
-<VizPlan id="w5-6-notebook" title="Stochastic Interpolants 週實作 notebook" type="notebook">
+<VizPlan id="w5-6-notebook" title="Stochastic Interpolants 單元實作 notebook" type="notebook">
 - 五個 section 對應下面五個步驟。附上 <Ref week="dma-week-flow-matching"/> 訓好的獨立配對 FM 權重，當作 reflow 的起點。
-- 主圖（圖 b）是這一週、也是三週的收尾：四個模型在「曲率積分 vs Euler 誤差」平面上落成一條線。
+- 主圖（圖 b）是這個單元、也是三個單元的收尾：四個模型在「曲率積分 vs Euler 誤差」平面上落成一條線。
 </VizPlan>
 
 ## 步驟 1：四種配對
@@ -172,8 +172,8 @@ $$
 4. **$\gamma$ 的張力。** 對 $\gamma$ 幅度 $\lbrace 0,\,0.1,\,0.3,\,1.0 \rbrace$ 各訓一個 OT 配對的模型，畫「曲率積分」與「最佳 $\varepsilon$ 下 SDE 1000 步的 $W_2$」對 $\gamma$ 的兩條曲線。這就是 <Ref to="dma-error-theory"/> Q1 那個張力的實測——注意 <Ref to="dma-error-theory"/> demo 量到 $\gamma$ 的效果**取決於配對好不好**，先猜再跑。
 5. **（選）高維。** 在 MNIST 上重做步驟 1 的 (a) 與 (d)，比較 Euler 10 步的 FID。增益是不是像 <Ref to="dma-minibatch-ot"/> 預測的比 2D 小？順便量一下成本矩陣的變異係數，看它是不是接近 $\sqrt{2/d}$。
 
-<VizPlan id="w5-6-three-weeks" title="三週一張圖" type="static">
-- 檔名 `imgs/w5-6-1.png`，放在「作業」之後、「消化一下」之前。這是三週主線的收尾圖，資訊密度可以高一點。
+<VizPlan id="w5-6-three-weeks" title="三個單元一張圖" type="static">
+- 檔名 `imgs/w5-6-1.png`，放在「作業」之後、「消化一下」之前。這是三個單元主線的收尾圖，資訊密度可以高一點。
 - 版面：一條從左到右的主軸，四個大節點，節點之間用粗箭頭連起來；每個節點下方掛一行小字寫「這一步得到什麼」。
   - 節點 1「denoising 回歸」（<Ref week="dma-week-diffusion"/>）：一個模糊的 $x_t$ 指向一個清楚的 $\hat x_0$；下方「$L_2$ 的最佳解是 $\mathbb E[x_0\mid x_t]$」。
   - 節點 2「Tweedie → score」：兩支完全重合的箭頭，一長一短；下方「同一個方向，差 $\sigma_t^2$ 倍」。
@@ -184,7 +184,7 @@ $$
   - 「取樣器」→ 指向節點 4，列 $\varepsilon_t$ 的一族 SDE、高階 solver，標「換走法／換階數」。
   - 「訓練分布」→ 指向節點 1，列時間加權，標「把容量放在中段」。
 - 右上角一個小方框寫「guidance」，用紅色箭頭指向那個積分並標「往上」。
-- 底部一句：「三週只做了一件事：把『生成』變成回歸，再把回歸的代價寫成一個算得出來的數。」
+- 底部一句：「三個單元只做了一件事：把『生成』變成回歸，再把回歸的代價寫成一個算得出來的數。」
 - 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、噪聲藍 `#4a90e2`／資料橘 `#f0803c`／強調靛 `#2a4ea3`／路徑綠 `#60ba82`／放大用紅 `#d94f4f`）；數學用簡單上下標，不要試著排 LaTeX。
 - 長寬比：約 16:9。
 </VizPlan>
@@ -222,7 +222,7 @@ batch OT（32）的 $S$ 約 0.22，全域 OT 約 0.02，差一個量級——但
 </QuizBlock>
 
 <Bridge>
-三週的主線在這裡收尾。從 denoising 回歸出發，證明它其實學到了 score；把 score 換成速度，看見軌跡為什麼彎；把彎寫成一個積分、證明它壓住誤差、再用配對把它壓小；最後看清噪聲在訓練與取樣兩處各扮演什麼角色。接下來的課程進入應用，這幾樣工具會一直回來。
+三個單元的主線在這裡收尾。從 denoising 回歸出發，證明它其實學到了 score；把 score 換成速度，看見軌跡為什麼彎；把彎寫成一個積分、證明它壓住誤差、再用配對把它壓小；最後看清噪聲在訓練與取樣兩處各扮演什麼角色。接下來的課程進入應用，這幾樣工具會一直回來。
 </Bridge>
 
 ## 參考文獻

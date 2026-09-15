@@ -7,7 +7,7 @@ prereqs:
 lang: "zh"
 title: "Consistency Function：同一條軌跡，同一個終點"
 category: "courses"
-group: "Week 8 · Consistency Models"
+group: "Unit 6 · Consistency Models"
 status: "available"
 updated: 2026-09-06
 summary: "定義 consistency function f(x_t, t)＝該點所在 PF-ODE 軌跡的終點。它有兩個性質：邊界處是恆等映射、沿同一條軌跡輸出不變。用 c_skip、c_out 的參數化讓邊界自動成立，用「相鄰兩個時間點輸出要一致」當損失——剩下的問題是那個相鄰點要從哪裡來。"
@@ -75,8 +75,8 @@ $$
 這兩條合起來**唯一決定** $f$：從任何 $(x_t,t)$ 出發，沿軌跡走到 $\varepsilon$，自我一致性說值不變，邊界條件說那裡的值就是 $x_\varepsilon$。少了任何一條都不行，而且缺邊界條件時壞得很明顯——**常數函數 $f\equiv c$ 滿足自我一致性**（任何兩點輸出當然相同），卻什麼都沒學到。邊界條件是把這個平凡解排除掉的東西。這件事馬上會影響參數化與損失的設計。
 
 <VizPlan id="w8-2-consistency" title="點任一 (x_t, t)：沿軌跡拖動，輸出不動" type="interactive">
-- **位置**：本節之後。這是本週的**核心互動**。**檔名**：`week-8/w8-2-1.html`。
-- **資料與座標**：2D toy（<Ref to="dma-lab-diffusion"/> 的月牙，標準化），本週 VE 座標 $x_t=x_0+t\epsilon$，$t\in[\varepsilon,T]$、$\varepsilon=0.002$、toy 尺度取 $T=10$。真實 PF-ODE 用精確 score（混合 Gaussian 解析）細步積分；$f$ 的**真值**用「從該點積分到 $\varepsilon$」算，$f_\theta$ 用一個預先訓好、權重內嵌的小網路（<Ref to="dma-lab-consistency"/> 的 CD 模型），用 `c_skip`、`c_out` 參數化。
+- **位置**：本節之後。這是本單元的**核心互動**。**檔名**：`week-8/w8-2-1.html`。
+- **資料與座標**：2D toy（<Ref to="dma-lab-diffusion"/> 的月牙，標準化），本單元 VE 座標 $x_t=x_0+t\epsilon$，$t\in[\varepsilon,T]$、$\varepsilon=0.002$、toy 尺度取 $T=10$。真實 PF-ODE 用精確 score（混合 Gaussian 解析）細步積分；$f$ 的**真值**用「從該點積分到 $\varepsilon$」算，$f_\theta$ 用一個預先訓好、權重內嵌的小網路（<Ref to="dma-lab-consistency"/> 的 CD 模型），用 `c_skip`、`c_out` 參數化。
 - **版面**：左大格是平面 $[-3,3]^2$，底層淡淡畫 $p_t$ 的等高線（等高線隨當前 $t$ 更新，讀者看到 $t$ 大時分佈是一大團、$t$ 小時收成月牙）；右側上方一個 **時間軸條**（橫軸 $t$，對數刻度從 $\varepsilon$ 到 $T$）、下方一欄數字。
 - **基本互動**：在左格**點任一位置** $x$，並在時間軸條上選 $t$（或用滑桿）。畫面立刻：(1) 畫出經過 $(x,t)$ 的整條 PF-ODE 軌跡（從 $T$ 到 $\varepsilon$，顏色沿 $t$ 漸變），軌跡上用一個大圓點標當前 $(x,t)$；(2) 在乾淨端用星號標**真值終點** $x_\varepsilon$；(3) 用叉號標 $f_\theta(x,t)$。數字欄顯示 $\|f_\theta(x,t)-x_\varepsilon\|$。
 - **沿軌跡拖動**：抓住那個大圓點沿軌跡拖（或拖時間滑桿），點會沿軌跡移動、$t$ 同步變；**叉號應該幾乎不動**，星號完全不動。右側時間軸條下方畫一條曲線：橫軸 $t$、縱軸 $f_\theta(x_t,t)$ 的第一個座標（沿這條軌跡）——訓好的模型應是一條**平線**，並疊上一條真值的水平虛線。這條「平不平」的曲線就是自我一致性的可視化。

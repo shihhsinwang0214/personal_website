@@ -8,10 +8,10 @@ prereqs:
 lang: "zh"
 title: "Flow Map Matching：三條恆等式，三種損失"
 category: "courses"
-group: "Week 9 · Flow Maps 與分佈匹配"
+group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "available"
 updated: 2026-09-06
-summary: "把 flow map 的條件寫成三條可微分的恆等式——Lagrangian（沿目標時間微分，速度在輸出點）、Eulerian（沿起始時間微分，速度在輸入點）、progressive（半群，兩小步等於一大步）——每一條都能當損失。差別在「速度場在哪裡被需要」，這決定了能不能拿掉 teacher。上週與本週的所有方法排進同一張表。"
+summary: "把 flow map 的條件寫成三條可微分的恆等式——Lagrangian（沿目標時間微分，速度在輸出點）、Eulerian（沿起始時間微分，速度在輸入點）、progressive（半群，兩小步等於一大步）——每一條都能當損失。差別在「速度場在哪裡被需要」，這決定了能不能拿掉 teacher。上一個單元與本單元的所有方法排進同一張表。"
 demos: []
 references:
   - label: "Boffi, Albergo & Vanden-Eijnden, Flow Map Matching (2024)"
@@ -40,7 +40,7 @@ import Answer from '../../../components/Answer.astro';
 <Objectives>
 - 寫出 flow map 的 Lagrangian、Eulerian、progressive 三條恆等式，並說出每一條在幾何上是什麼畫面。
 - 對每一條說出「速度場在哪一個點被需要」，並由此判斷能不能用條件速度代替、能不能拿掉 teacher。
-- 把 <Ref week="dma-week-consistency"/> 與本週的方法填進「哪條恆等式 + 哪個估計量」的表，認出它們是同一個物件的不同訓練方式。
+- 把 <Ref week="dma-week-consistency"/> 與本單元的方法填進「哪條恆等式 + 哪個估計量」的表，認出它們是同一個物件的不同訓練方式。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -69,7 +69,7 @@ $$
 
 （全導數的展開是 <Ref week="dma-week-consistency"/> 用 JVP 算 $\tfrac{d}{dt}f_\theta$ 時的同一條式子：$x_t$ 隨 $t$ 動，速度是 $v_t(x_t)$。）這次是**場的觀點**——把 $\psi_{\cdot\to s}$ 看成定義在 $(x,t)$ 上的一個場，要求它沿著每條軌跡是常數，就像 <Ref to="dma-flows-and-continuity"/> 把「粒子怎麼走」翻成「密度怎麼變」那樣——所以叫 Eulerian。
 
-速度場在**輸入點** $x_t$ 被需要。而輸入點是我們自己造的：$x_t=(1-t)x_0+t\,x_1$，手上就有這組 $(x_0,x_1)$，條件速度 $x_1-x_0$ 現成可用。這就是 consistency training 能拿掉 teacher 的原因，這一週從頭訓練的方法也全部走這條路。**Eulerian 是能夠不要 teacher 的那一條。** 怎麼代替才在期望上精確，下面的展開框先說一半，下一篇 <Ref to="dma-meanflow"/> 的 Q1 說完。
+速度場在**輸入點** $x_t$ 被需要。而輸入點是我們自己造的：$x_t=(1-t)x_0+t\,x_1$，手上就有這組 $(x_0,x_1)$，條件速度 $x_1-x_0$ 現成可用。這就是 consistency training 能拿掉 teacher 的原因，這個單元從頭訓練的方法也全部走這條路。**Eulerian 是能夠不要 teacher 的那一條。** 怎麼代替才在期望上精確，下面的展開框先說一半，下一篇 <Ref to="dma-meanflow"/> 的 Q1 說完。
 
 <Details summary="用條件速度代替時的一個陷阱：squared loss 直接代會多出一項">
 把 $v_t(x_t)$ 直接換成 $x_1-x_0$ 塞進 squared loss：
@@ -116,7 +116,7 @@ $$
 \psi_{t\to r}(x)=\psi_{s\to r}\big(\psi_{t\to s}(x)\big),\qquad t<s<r .
 $$
 
-損失就是兩邊的距離。它**完全不出現速度場**——這是它最特別的地方。那動力學的資訊從哪裡進來？從**最小的那一步**：兩個時間很近時，條件四說 $\psi_{t\to t+h}(x)\approx x+h\,v_t(x)$。所以 progressive 損失一定要配一個「底層」：要嘛底層由 teacher 提供（<Ref to="dma-progressive-distillation"/>：teacher 走兩小步、學生學一大步，一輪一輪把步數減半），要嘛底層是 flow matching 自己（本週的 Shortcut：步長為零時就是 FM 損失），從小步一路 bootstrap 到大步。
+損失就是兩邊的距離。它**完全不出現速度場**——這是它最特別的地方。那動力學的資訊從哪裡進來？從**最小的那一步**：兩個時間很近時，條件四說 $\psi_{t\to t+h}(x)\approx x+h\,v_t(x)$。所以 progressive 損失一定要配一個「底層」：要嘛底層由 teacher 提供（<Ref to="dma-progressive-distillation"/>：teacher 走兩小步、學生學一大步，一輪一輪把步數減半），要嘛底層是 flow matching 自己（本單元的 Shortcut：步長為零時就是 FM 損失），從小步一路 bootstrap 到大步。
 
 代價是**誤差累積**：每一級大步都以上一級小步為目標，小步的誤差會一級一級往上帶。<Ref to="dma-progressive-distillation"/> 的逐輪退化與 <Ref to="dma-rectified-flow"/> reflow 的多輪誤差是同一件事。
 
@@ -132,7 +132,7 @@ $$
 
 ## 三條恆等式，各自要什麼
 
-現在可以把 <Ref week="dma-week-consistency"/> 和本週的方法排在一起。每一列的讀法：**這個方法學的是 flow map 的哪一片、用哪條恆等式、$v$ 用什麼估計、要不要 teacher。**
+現在可以把 <Ref week="dma-week-consistency"/> 和本單元的方法排在一起。每一列的讀法：**這個方法學的是 flow map 的哪一片、用哪條恆等式、$v$ 用什麼估計、要不要 teacher。**
 
 | 方法 | 學的物件 | 恆等式 | $v$ 的估計量 | teacher |
 |---|---|---|---|---|
@@ -192,7 +192,7 @@ Progressive 損失完全不含速度場 $v$。那一個只用 progressive 損失
 </QuizBlock>
 
 <Bridge to="dma-meanflow">
-本篇把 flow map 的條件寫成三條恆等式，並用「$v$ 在哪裡被需要」把上週與本週的方法排成一張表：不要 teacher 的路只有 Eulerian（或 progressive 配 FM 底層）。下一篇看 MeanFlow 怎麼把 Eulerian 恆等式換到「平均速度」座標，得到一條精確、可以從頭訓練的式子。
+本篇把 flow map 的條件寫成三條恆等式，並用「$v$ 在哪裡被需要」把上一個單元與本單元的方法排成一張表：不要 teacher 的路只有 Eulerian（或 progressive 配 FM 底層）。下一篇看 MeanFlow 怎麼把 Eulerian 恆等式換到「平均速度」座標，得到一條精確、可以從頭訓練的式子。
 </Bridge>
 
 ## 參考文獻

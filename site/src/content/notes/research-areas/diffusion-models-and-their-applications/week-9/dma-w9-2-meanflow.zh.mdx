@@ -8,7 +8,7 @@ prereqs:
 lang: "zh"
 title: "MeanFlow：平均速度與一條精確的恆等式"
 category: "courses"
-group: "Week 9 · Flow Maps 與分佈匹配"
+group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "available"
 updated: 2026-09-06
 summary: "把 flow map 改寫成「平均速度」u(z,r,t)：位移除以時間差。對定義式沿軌跡取全導數，得到 MeanFlow identity u = v − (t−r)·du/dt，它就是 Eulerian 恆等式換了座標，而且對任何一對時間精確成立。訓練把右邊當 stop-gradient 目標、v 換成條件速度 x₁−x₀——又一次用 conditional trick，這一次因為目標對 v 線性而在期望上精確。"
@@ -160,7 +160,7 @@ $$
 
 （讀法：位置 $z_0$、當前時刻 $t=0$、目標 $r=1$。）兩步就是 $0\to\tfrac12\to1$，中途不需要重新加噪——半群條件被 identity 隱含地訓進去了。
 
-MeanFlow 值得記住的原因，是它把這一週的目標——**flow map 可以像 flow matching 一樣從頭訓練、不要 teacher、不帶曲率 bias**——用一條式子做到。代價有兩個：每一步訓練多一次 JVP 的前向；以及 $\tfrac{du}{dt}$ 那一項的 bootstrapping。實務上 MeanFlow 還把一部分訓練樣本取 $r=t$（純 FM，穩定訓練的錨），並對 loss 做自適應加權——那些屬於 <Ref to="dma-shared-techniques"/> 說的加權那一軸，不改變主線。
+MeanFlow 值得記住的原因，是它把這個單元的目標——**flow map 可以像 flow matching 一樣從頭訓練、不要 teacher、不帶曲率 bias**——用一條式子做到。代價有兩個：每一步訓練多一次 JVP 的前向；以及 $\tfrac{du}{dt}$ 那一項的 bootstrapping。實務上 MeanFlow 還把一部分訓練樣本取 $r=t$（純 FM，穩定訓練的錨），並對 loss 做自適應加權——那些屬於 <Ref to="dma-shared-techniques"/> 說的加權那一軸，不改變主線。
 
 ## 先消化一下
 
@@ -180,7 +180,7 @@ MeanFlow identity 裡的 $\tfrac{d}{dt}u(z_t,r,t)$ 是：
 <Option correct>沿軌跡的全導數 $\partial_t u+(\partial_z u)\,v(z_t,t)$，因為 $z_t$ 隨 $t$ 沿軌跡移動。</Option>
 <Option>$u$ 對 $r$ 的偏導數。</Option>
 <Explanation>
-推導時我們讓 $t$ 動、$z_t$ 跟著沿軌跡動，所以 $u$ 的兩個輸入同時在變，是全導數；$r$ 固定不動。實作上它是 Jacobian 乘切向量 $(v,0,1)$，用 JVP 算。只取 $\partial_t u$ 會漏掉「粒子移到新位置後看到的 $u$ 的變化」——與 <Ref to="dma-error-theory"/> 裡 $(v\cdot\nabla)v$ 那一項是同一種角色（那一篇把邊際速度記成 $u$；本週 $u$ 留給平均速度，邊際速度是 $v$）。
+推導時我們讓 $t$ 動、$z_t$ 跟著沿軌跡動，所以 $u$ 的兩個輸入同時在變，是全導數；$r$ 固定不動。實作上它是 Jacobian 乘切向量 $(v,0,1)$，用 JVP 算。只取 $\partial_t u$ 會漏掉「粒子移到新位置後看到的 $u$ 的變化」——與 <Ref to="dma-error-theory"/> 裡 $(v\cdot\nabla)v$ 那一項是同一種角色（那一篇把邊際速度記成 $u$；本單元 $u$ 留給平均速度，邊際速度是 $v$）。
 </Explanation>
 </QuizBlock>
 

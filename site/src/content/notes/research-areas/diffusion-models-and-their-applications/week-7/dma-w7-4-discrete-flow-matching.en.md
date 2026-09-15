@@ -8,7 +8,7 @@ prereqs:
 lang: "en"
 title: "Discrete Flow Matching：條件路徑、Rate 與配對"
 category: "courses"
-group: "Week 7 · Discrete Diffusion II"
+group: "Unit 5 · Discrete Diffusion II"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

@@ -6,10 +6,10 @@ prereqs:
 lang: "zh"
 title: "實作：同一個 toy，只換訓練目標"
 category: "courses"
-group: "Week 4 · Flow Matching"
+group: "Unit 2 · Flow Matching"
 status: "available"
 updated: 2026-09-13
-summary: "沿用 diffusion 週的 toy，只換掉訓練目標與取樣器：實作線性 FM 與 Euler／Heun 取樣，畫出步數對誤差的 log-log 圖，並親手驗證 ε 模型不重訓就能當速度場用。"
+summary: "沿用 diffusion 單元的 toy，只換掉訓練目標與取樣器：實作線性 FM 與 Euler／Heun 取樣，畫出步數對誤差的 log-log 圖，並親手驗證 ε 模型不重訓就能當速度場用。"
 demos: []
 references:
   - label: "Lipman, Chen, Ben-Hamu, Nickel & Le, Flow Matching for Generative Modeling (ICLR 2023)"
@@ -46,11 +46,11 @@ import Ref from '../../../components/Ref.astro';
 
 沿用 <Ref to="dma-lab-diffusion"/> 的 `toy.py`——同一組月牙資料、同一個 MLP、同一組 random seed。**唯一的改動是訓練目標與取樣器**，這樣圖上的差異才歸因得回框架，而不是「這次剛好訓得比較好」。
 
-先確認符號沒有搞反：這一週 `x0` 是**噪聲**、`x1` 是**資料**、`t` 從 0 走到 1，跟 <Ref week="dma-week-diffusion"/> 的 notebook 剛好對調。
+先確認符號沒有搞反：這個單元 `x0` 是**噪聲**、`x1` 是**資料**、`t` 從 0 走到 1，跟 <Ref week="dma-week-diffusion"/> 的 notebook 剛好對調。
 
-<VizPlan id="w4-5-notebook" title="Flow Matching 週實作 notebook" type="notebook">
+<VizPlan id="w4-5-notebook" title="Flow Matching 單元實作 notebook" type="notebook">
 - 沿用 `toy.py`，新增 `fm.py`：線性 FM 訓練、Euler／Heun 取樣器、`eps_to_velocity` 轉換函數。
-- 四個 section 對應下面四個步驟。附上 <Ref week="dma-week-diffusion"/> 訓好的 $\epsilon_\theta$ 權重檔，讀者不必重跑上一週。
+- 四個 section 對應下面四個步驟。附上 <Ref week="dma-week-diffusion"/> 訓好的 $\epsilon_\theta$ 權重檔，讀者不必重跑上一個單元。
 - 所有軌跡圖沿用 <Ref to="dma-lab-diffusion"/> 的座標範圍與配色。
 </VizPlan>
 
@@ -70,7 +70,7 @@ for step in range(n_steps):
 
 > **換框架在程式裡只是換兩行；換掉的是那兩行背後的設計自由度。**
 
-**會看到的事情是**：loss 一樣不會掉到 0，而且停住的數字比上一週大。這不是壞事——<Ref to="dma-conditional-flow-matching"/> 說過 $\mathcal L_{\text{CFM}}$ 比 $\mathcal L_{\text{FM}}$ 多一個常數，就是條件速度繞著邊際速度的變異數。真正要看的是它**停在哪裡不動之後還會不會慢慢往下**。
+**會看到的事情是**：loss 一樣不會掉到 0，而且停住的數字比上一個單元大。這不是壞事——<Ref to="dma-conditional-flow-matching"/> 說過 $\mathcal L_{\text{CFM}}$ 比 $\mathcal L_{\text{FM}}$ 多一個常數，就是條件速度繞著邊際速度的變異數。真正要看的是它**停在哪裡不動之後還會不會慢慢往下**。
 
 ## 步驟 2：取樣與軌跡圖（圖 a）
 
@@ -84,7 +84,7 @@ def euler_sample(model, x0, n_steps):
     return torch.stack(traj)
 ```
 
-固定和 <Ref to="dma-lab-diffusion"/> 相同的 32 個起點（注意 FM 的起點是 $t=0$ 的噪聲，對應 DDPM 的 $x_T$），步數取 $\lbrace 10,50,1000 \rbrace$，把上一週的 DDIM 軌跡和這裡的 FM 軌跡並排。
+固定和 <Ref to="dma-lab-diffusion"/> 相同的 32 個起點（注意 FM 的起點是 $t=0$ 的噪聲，對應 DDPM 的 $x_T$），步數取 $\lbrace 10,50,1000 \rbrace$，把上一個單元的 DDIM 軌跡和這裡的 FM 軌跡並排。
 
 **會看到的事情是**：兩邊的軌跡形狀明顯不同，而且在兩個月牙中間那塊區域都特別彎——那裡正是條件直線交叉最密的地方（<Ref to="dma-linear-path"/> Q1）。
 
@@ -196,7 +196,7 @@ $\epsilon_\theta$ 學到的是 $\mathbb E[\epsilon\mid x_t]$，其中 $x_t=\sqrt
 </QuizBlock>
 
 <Bridge to="dma-unified-equation">
-這一週把 FM 建起來、證明它在 Gaussian 路徑上與 diffusion 是同一個 ODE、也把差異分到四個軸上。剩下的問題全部指向同一個地方：軌跡為什麼彎、彎多少、怎麼拉直、噪聲該不該加回去。下一週從一個把兩個框架都裝得進去的式子開始。
+這個單元把 FM 建起來、證明它在 Gaussian 路徑上與 diffusion 是同一個 ODE、也把差異分到四個軸上。剩下的問題全部指向同一個地方：軌跡為什麼彎、彎多少、怎麼拉直、噪聲該不該加回去。下一個單元從一個把兩個框架都裝得進去的式子開始。
 </Bridge>
 
 ## 參考文獻

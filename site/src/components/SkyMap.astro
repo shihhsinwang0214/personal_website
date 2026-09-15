@@ -1,8 +1,8 @@
 ---
 /**
  * The notes sky map: sky = courses drawn as constellations (one star per note), sea =
- * Mathematical Foundations as buoy lights riding the waves, shore = Machine Learning
- * Foundations as lanterns on land. Everything is inline SVG coloured through CSS
+ * Machine Learning Foundations as buoy lights riding the waves, shore = Mathematical
+ * Foundations as lanterns on land (which course lives where is `realm` in lib/notes.ts). Everything is inline SVG coloured through CSS
  * variables (see `--sky-*` in global.css), so both themes and print work.
  *
  * Geometry comes from `constellation` on each lecture in lib/notes.ts; prerequisite
@@ -20,6 +20,28 @@ import {
 import type { Constellation } from '../lib/notes';
 import { groupCode, noteTitles, resolveNoteRef, stripNoteCode } from '../lib/noteRefs';
 import { withBase } from '../lib/url';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+/**
+ * Painted backdrop (optional). Drop `sky-night.{webp,png}` and `sky-day.{webp,png}` into
+ * `public/notes/sky/` (2240×1480, composition per claude/sky-map-art-brief.md) and the
+ * scene switches from the procedural sky/sea/shore to the paintings; the stars, buoys,
+ * lanterns, labels and threads stay vector on top. Missing files → procedural fallback,
+ * so the page never breaks while the art is in progress.
+ */
+// `astro build` runs from the project root, so resolve against cwd (import.meta.url would
+// point at the compiled chunk, not the source tree).
+const artDir = resolve(process.cwd(), 'public/notes/sky');
+const findArt = (stem: string) => {
+  for (const ext of ['webp', 'png', 'jpg']) {
+    if (existsSync(resolve(artDir, `${stem}.${ext}`))) return withBase(`notes/sky/${stem}.${ext}`);
+  }
+  return undefined;
+};
+const artNight = findArt('sky-night');
+const artDay = findArt('sky-day');
+const painted = Boolean(artNight && artDay);
 
 interface Props {
   notes: NoteEntry[];
@@ -31,7 +53,7 @@ const titles = await noteTitles();
 const published = notesForLang(notes, lang);
 
 const W = 1120;
-const H = 680;
+const H = 740;
 const HORIZON = 440;
 
 // Deterministic "random" so the dust and waves are identical on every build.
@@ -146,14 +168,15 @@ const spread = (course: CourseDef, yBase: number, jitterY: number, stagger: numb
 };
 const seaCourses = byRealm('sea');
 const landCourses = byRealm('land');
-const buoys = seaCourses.flatMap((c, ci) => spread(c, 478 + ci * 40, 4, 18));
-const lanterns = landCourses.flatMap((c, ci) => spread(c, 640 - ci * 18, 3, 0));
+const buoys = seaCourses.flatMap((c, ci) => spread(c, 490 + ci * 40, 4, 22));
+const lanterns = landCourses.flatMap((c, ci) => spread(c, 700 - ci * 18, 3, 0));
 const lightByGroup = new Map<string, Light>();
 for (const l of [...buoys, ...lanterns]) lightByGroup.set(l.group, l);
 
-// ---- threads: sky lecture → foundation lecture, from the notes' prereqs ----
+// ---- threads: one per (note, prerequisite lecture), shown only while that star is hovered ----
 interface Thread {
-  from: string;
+  slug: string;
+  light: string;
   x1: number;
   y1: number;
   x2: number;
@@ -162,17 +185,25 @@ interface Thread {
 }
 const threads: Thread[] = [];
 for (const lecture of skyLectures) {
-  const targets = new Set<string>();
-  for (const note of lecture.notes) {
-    for (const label of note.data.prereqs) {
+  for (const star of lecture.stars) {
+    const targets = new Set<string>();
+    for (const label of star.note.data.prereqs) {
       const ref = await resolveNoteRef(label, lang);
       if (ref && !ref.planned) targets.add(ref.group);
     }
-  }
-  for (const group of targets) {
-    const light = lightByGroup.get(group);
-    if (!light) continue;
-    threads.push({ from: lecture.code, x1: lecture.hub.x, y1: lecture.hub.y, x2: light.x, y2: light.y - 17, tone: light.course.tone });
+    for (const group of targets) {
+      const light = lightByGroup.get(group);
+      if (!light) continue;
+      threads.push({
+        slug: star.note.data.slug,
+        light: light.code,
+        x1: star.x,
+        y1: star.y,
+        x2: light.x,
+        y2: light.y - (light.course.realm === 'sea' ? 17 : 13),
+        tone: light.course.tone,
+      });
+    }
   }
 }
 
@@ -183,40 +214,98 @@ const dust = Array.from({ length: 220 }, () => ({
   r: [0.5, 0.7, 0.9, 1.3][Math.floor(rand() * 4)],
   o: f(between(0.1, 0.45)),
 }));
-const wave = (y0: number, amp: number, lam: number, phase: number) => {
-  const pts: string[] = [];
-  for (let x = 0; x <= W; x += 8) pts.push(`${x},${f(y0 + amp * Math.sin((x / lam) * Math.PI * 2 + phase))}`);
-  return pts.join(' ');
+/**
+ * A wave band: an irregular crest line (each crest its own length, height and lean, so it
+ * never reads as a sine), closed down to the bottom so bands stack like water.
+ */
+interface Crest { x: number; y: number }
+const crestLine = (y0: number, amp: number, minLen: number, maxLen: number): Crest[] => {
+  const pts: Crest[] = [{ x: -20, y: y0 }];
+  let x = -20;
+  while (x < W + 20) {
+    const len = between(minLen, maxLen);
+    const lean = between(0.35, 0.6); // crest sits past the middle: steep front, long back
+    const h = amp * between(0.5, 1.2);
+    pts.push({ x: f(x + len * lean), y: f(y0 - h) });
+    x += len;
+    pts.push({ x: f(x), y: f(y0 + h * between(0.15, 0.4)) });
+  }
+  return pts;
 };
-const waves = [
-  [452, 2.5, 180, 0.35],
-  [470, 3, 150, 0.45],
-  [490, 3.5, 130, 0.5],
-  [512, 4, 120, 0.55],
-  [536, 4.5, 110, 0.5],
-  [560, 5, 100, 0.4],
-  [586, 5, 95, 0.3],
-].map(([y0, amp, lam, o], i) => ({ points: wave(y0, amp, lam, i * 0.9), o }));
-const glints = Array.from({ length: 40 }, () => ({
+const smoothPath = (pts: Crest[]) => {
+  // Catmull-Rom → cubic Bézier, so the crest line is smooth but keeps its asymmetry.
+  let d = `M${pts[0].x},${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(pts.length - 1, i + 2)];
+    const c1x = f(p1.x + (p2.x - p0.x) / 6);
+    const c1y = f(p1.y + (p2.y - p0.y) / 6);
+    const c2x = f(p2.x - (p3.x - p1.x) / 6);
+    const c2y = f(p2.y - (p3.y - p1.y) / 6);
+    d += ` C${c1x},${c1y} ${c2x},${c2y} ${p2.x},${p2.y}`;
+  }
+  return d;
+};
+interface Band { path: string; crests: Crest[]; shade: number }
+const bands: Band[] = [
+  [456, 2.5, 90, 160],
+  [480, 4, 80, 150],
+  [508, 5.5, 70, 130],
+  [540, 7, 60, 120],
+  [574, 8.5, 55, 110],
+  [608, 9, 50, 100],
+].map(([y0, amp, a, b], i) => {
+  const crests = crestLine(y0, amp, a, b);
+  const line = smoothPath(crests);
+  return { path: `${line} L${W + 20},${H} L-20,${H} Z`, crests: crests.filter((_, k) => k % 2 === 1), shade: i };
+});
+// Foam: short bright strokes just behind the higher crests, plus a few specks.
+const foam = bands.flatMap((b) =>
+  b.crests
+    .filter(() => rand() < 0.55)
+    .map((c) => ({
+      x1: f(c.x - between(6, 20)),
+      x2: f(c.x + between(3, 10)),
+      y: f(c.y + between(0.5, 2.5)),
+      o: f(between(0.35, 0.85)),
+    })),
+);
+const specks = Array.from({ length: 70 }, () => ({
   x: f(between(0, W)),
-  y: f(between(HORIZON + 8, 600)),
-  w: f(between(6, 18)),
-  o: f(between(0.08, 0.3)),
+  y: f(between(HORIZON + 6, 626)),
+  r: f(between(0.4, 1.2)),
+  o: f(between(0.1, 0.4)),
 }));
-const hills = (base: number, amp: number, phase: number) => {
-  const pts = [`0,${H}`];
-  for (let x = 0; x <= W; x += 40) pts.push(`${x},${f(base + amp * Math.sin(x / 170 + phase) + between(-4, 4))}`);
-  pts.push(`${W},${H}`);
-  return pts.join(' ');
+// Shore: a shelf of sand where the water runs out, a broken foam edge, two ridges of land.
+const shoreEdge = crestLine(632, 4, 70, 140);
+const shorePath = `${smoothPath(shoreEdge)} L${W + 20},${H} L-20,${H} Z`;
+const shoreFoam = shoreEdge
+  .filter((_, k) => k % 2 === 0 && rand() < 0.8)
+  .map((c) => ({ x: f(c.x + between(-20, 20)), w: f(between(14, 44)), y: f(c.y + between(-2, 3)), o: f(between(0.25, 0.55)) }));
+const ridge = (base: number, amp: number, phase: number, step: number) => {
+  const pts: Crest[] = [{ x: -20, y: base }];
+  for (let x = 0; x <= W + 40; x += step) {
+    pts.push({ x, y: f(base + amp * Math.sin(x / 190 + phase) + amp * 0.5 * Math.sin(x / 61 + phase * 2) + between(-3, 3)) });
+  }
+  return `${smoothPath(pts)} L${W + 20},${H} L-20,${H} Z`;
 };
-const hillBack = hills(612, 10, 1.3);
-const hillFront = hills(626, 8, 2.9);
-const grass = Array.from({ length: 90 }, () => ({
+const ridgeBack = ridge(648, 9, 1.3, 48);
+const ridgeFront = ridge(666, 6, 2.9, 40);
+const grass = Array.from({ length: 110 }, () => ({
   x: f(between(0, W)),
-  y: f(between(628, 672)),
+  y: f(between(664, 736)),
   dx: f(between(-2, 2)),
-  h: f(between(3, 7)),
+  h: f(between(3, 8)),
   o: f(between(0.15, 0.45)),
+}));
+// A few low shrubs on the back ridge so the land has some silhouette.
+const shrubs = Array.from({ length: 7 }, () => ({
+  x: f(between(30, W - 120)),
+  y: f(between(646, 652)),
+  rx: f(between(7, 14)),
+  ry: f(between(3, 5)),
 }));
 const LX = 1040;
 ---
@@ -224,10 +313,10 @@ const LX = 1040;
 <div class="sky-map" id="sky-map" data-lang={lang}>
   <div class="sky-scroll">
   <svg
-    class="sky-svg"
+    class:list={['sky-svg', { 'sky-svg--painted': painted }]}
     viewBox={`0 0 ${W} ${H}`}
     role="img"
-    aria-label={zh ? '筆記星圖：天空是課程，海是數學基礎，岸是機器學習基礎' : 'Notes sky map: courses in the sky, math on the sea, machine learning on the shore'}
+    aria-label={zh ? '筆記星圖：腳下是數學構築的陸地，眼前是機器學習的海洋，抬頭是課程組成的星空' : 'Notes sky map: mathematics underfoot, machine learning at sea, the courses overhead as constellations'}
   >
     <defs>
       <linearGradient id="sky-grad" x1="0" y1="0" x2="0" y2="1">
@@ -244,6 +333,15 @@ const LX = 1040;
       </linearGradient>
     </defs>
 
+    {
+      painted && (
+        <g class="sky-art" aria-hidden="true">
+          <image class="sky-art-night" href={artNight} x="0" y="0" width={W} height={H} preserveAspectRatio="xMidYMid slice" />
+          <image class="sky-art-day" href={artDay} x="0" y="0" width={W} height={H} preserveAspectRatio="xMidYMid slice" />
+        </g>
+      )
+    }
+    <g class="sky-scene" aria-hidden="true">
     <!-- sky -->
     <rect width={W} height={HORIZON} fill="url(#sky-grad)" />
     <g class="sky-dust" aria-hidden="true">
@@ -253,29 +351,38 @@ const LX = 1040;
     <!-- sea -->
     <rect y={HORIZON} width={W} height={H - HORIZON} fill="url(#sea-grad)" />
     <rect class="sky-reflection" x={-100} y={HORIZON} width="28" height={H - HORIZON} data-reflection />
-    <g class="sea-waves" aria-hidden="true">
-      {waves.map((w) => <polyline points={w.points} opacity={w.o} />)}
+    <g class="sea-bands" aria-hidden="true">
+      {bands.map((b) => <path class={`sea-band sea-band-${b.shade}`} d={b.path} />)}
     </g>
-    <g class="sea-glints" aria-hidden="true">
-      {glints.map((g) => <line x1={g.x} y1={g.y} x2={f(g.x + g.w)} y2={g.y} opacity={g.o} />)}
+    <g class="sea-foam" aria-hidden="true">
+      {foam.map((s) => <line x1={s.x1} y1={s.y} x2={s.x2} y2={s.y} opacity={s.o} />)}
+      {specks.map((s) => <circle cx={s.x} cy={s.y} r={s.r} opacity={s.o} />)}
     </g>
 
     <!-- shore -->
-    <polygon class="shore-back" points={hillBack} />
-    <polygon points={hillFront} fill="url(#land-grad)" />
+    <path class="shore-sand" d={shorePath} />
+    <g class="shore-foam" aria-hidden="true">
+      {shoreFoam.map((s) => <line x1={s.x} y1={s.y} x2={f(s.x + s.w)} y2={s.y} opacity={s.o} />)}
+    </g>
+    <path class="shore-back" d={ridgeBack} />
+    <g class="shore-shrubs" aria-hidden="true">
+      {shrubs.map((b) => <ellipse cx={b.x} cy={b.y} rx={b.rx} ry={b.ry} />)}
+    </g>
+    <path d={ridgeFront} fill="url(#land-grad)" />
     <g class="shore-grass" aria-hidden="true">
       {grass.map((g) => <line x1={g.x} y1={g.y} x2={f(g.x + g.dx)} y2={f(g.y - g.h)} opacity={g.o} />)}
     </g>
     <g class="shore-lighthouse" aria-hidden="true">
-      <polygon points={`${LX - 5},628 ${LX + 5},628 ${LX + 4},592 ${LX - 4},592`} />
-      <rect x={LX - 6} y="586" width="12" height="7" />
-      <circle class="lighthouse-lamp-glow" cx={LX} cy="583" r="9" />
-      <circle class="lighthouse-lamp" cx={LX} cy="583" r="3" />
+      <polygon points={`${LX - 5},662 ${LX + 5},662 ${LX + 4},622 ${LX - 4},622`} />
+      <rect x={LX - 6} y="616" width="12" height="7" />
+      <circle class="lighthouse-lamp-glow" cx={LX} cy="613" r="9" />
+      <circle class="lighthouse-lamp" cx={LX} cy="613" r="3" />
+    </g>
     </g>
 
-    <!-- threads (prerequisites), lit per focused lecture -->
+    <!-- threads (prerequisites), one per note; lit only while that star or that light is hovered -->
     <g class="sky-threads" aria-hidden="true">
-      {threads.map((t) => <line class="sky-thread" data-from={t.from} data-tone={t.tone} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} />)}
+      {threads.map((t) => <line class="sky-thread" data-slug={t.slug} data-light={t.light} data-tone={t.tone} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} />)}
     </g>
 
     <!-- constellations -->
@@ -338,7 +445,7 @@ const LX = 1040;
     }
     {
       landCourses.map((c, i) => (
-        <text class="realm-label realm-label--land" x="24" y={H - 12 - i * 14} data-tone={c.tone}>
+        <text class="realm-label realm-label--land" x="24" y={662 + i * 14} data-tone={c.tone}>
           {c.title[lang].toUpperCase()} · {zh ? '陸' : 'SHORE'}
         </text>
       ))
@@ -348,7 +455,7 @@ const LX = 1040;
     <g class="sky-here is-hidden" data-here>
       <circle class="sky-here-ring" r="13" />
       <text class="sky-here-label" data-here-label></text>
-      <text class="sky-here-hint" data-here-hint>{zh ? 'hover 一週才顯示它的先備引線' : 'hover a week to see its prerequisites'}</text>
+      <text class="sky-here-hint" data-here-hint>{zh ? '游標移到星上會看到它的先備' : 'hover a star to see its prerequisites'}</text>
     </g>
   </svg>
   </div>
@@ -356,7 +463,7 @@ const LX = 1040;
   <div class="sky-legend">
     <span><span class="sky-legend-dot is-on"></span>{zh ? '已讀' : 'read'}</span>
     <span><span class="sky-legend-dot"></span>{zh ? '未讀' : 'unread'}</span>
-    <span><span class="sky-legend-thread"></span>{zh ? '先備（hover 一週）' : 'prerequisite (hover a week)'}</span>
+    <span><span class="sky-legend-thread"></span>{zh ? '先備（把游標移到一顆星上）' : 'prerequisites (hover a star)'}</span>
     <span class="sky-legend-note">{zh ? '紀錄只留在這台裝置' : 'kept on this device only'}</span>
   </div>
 </div>
@@ -378,18 +485,31 @@ const LX = 1040;
       el.classList.toggle('is-complete', slugs.length > 0 && n === slugs.length);
     });
 
-    // Threads: show for the hovered lecture (and, by default, the lecture last read).
+    // Threads: none by default. Hovering (or focusing) a star lights that note's own
+    // prerequisites; hovering a buoy / lantern lights every thread that lands on it.
     const threads = Array.from(root.querySelectorAll<SVGElement>('.sky-thread'));
-    const focus = (code: string | null) => {
-      threads.forEach((t) => t.classList.toggle('is-on', !!code && t.dataset.from === code));
-    };
-    const lectures = Array.from(root.querySelectorAll<SVGElement>('.sky-lecture'));
-    let defaultCode: string | null = null;
+    const clear = () => threads.forEach((t) => t.classList.remove('is-on'));
+    root.querySelectorAll<SVGElement>('.sky-star').forEach((star) => {
+      const slug = star.dataset.readSlug;
+      const on = () => threads.forEach((t) => t.classList.toggle('is-on', t.dataset.slug === slug));
+      star.addEventListener('mouseenter', on);
+      star.addEventListener('focusin', on);
+      star.addEventListener('mouseleave', clear);
+      star.addEventListener('focusout', clear);
+    });
+    root.querySelectorAll<SVGElement>('.sky-light').forEach((el) => {
+      const code = el.dataset.lecture;
+      const on = () => threads.forEach((t) => t.classList.toggle('is-on', t.dataset.light === code));
+      el.addEventListener('mouseenter', on);
+      el.addEventListener('focusin', on);
+      el.addEventListener('mouseleave', clear);
+      el.addEventListener('focusout', clear);
+    });
+
+    // "You are here": the star of the note this browser read last.
     const last = readLast();
     const hereStar = last ? root.querySelector<SVGElement>(`.sky-star[data-read-slug="${last.slug}"]`) : null;
     if (hereStar) {
-      const lecture = hereStar.closest<SVGElement>('.sky-lecture');
-      defaultCode = lecture?.dataset.lecture ?? null;
       const core = hereStar.querySelector<SVGCircleElement>('.sky-star-core');
       const here = root.querySelector<SVGGElement>('[data-here]');
       if (core && here) {
@@ -400,7 +520,6 @@ const LX = 1040;
         here.querySelector('.sky-here-ring')?.setAttribute('cy', String(y));
         const label = here.querySelector<SVGTextElement>('[data-here-label]');
         const hint = here.querySelector<SVGTextElement>('[data-here-hint]');
-        // Label sits above the star (or below when the star is near the top edge).
         const below = y < 60;
         const anchor = x < 120 ? 'start' : x > 1000 ? 'end' : 'middle';
         if (label) {
@@ -418,19 +537,6 @@ const LX = 1040;
         if (refl) refl.setAttribute('x', String(x - 14));
       }
     }
-    focus(defaultCode);
-    lectures.forEach((g) => {
-      g.addEventListener('mouseenter', () => focus(g.dataset.lecture ?? null));
-      g.addEventListener('mouseleave', () => focus(defaultCode));
-      g.addEventListener('focusin', () => focus(g.dataset.lecture ?? null));
-      g.addEventListener('focusout', () => focus(defaultCode));
-    });
-    // Hovering a buoy lights every thread that lands on it.
-    root.querySelectorAll<SVGElement>('.sky-light').forEach((el) => {
-      const x = el.querySelector('.light-lamp')?.getAttribute('cx');
-      el.addEventListener('mouseenter', () => threads.forEach((t) => t.classList.toggle('is-on', t.getAttribute('x2') === x)));
-      el.addEventListener('mouseleave', () => focus(defaultCode));
-    });
   }
   initSky();
 </script>

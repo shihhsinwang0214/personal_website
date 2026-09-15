@@ -7,7 +7,7 @@ prereqs:
 lang: "en"
 title: "Progressive Distillation：學生一步，等於老師兩步"
 category: "courses"
-group: "Week 8 · Consistency Models"
+group: "Unit 6 · Consistency Models"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

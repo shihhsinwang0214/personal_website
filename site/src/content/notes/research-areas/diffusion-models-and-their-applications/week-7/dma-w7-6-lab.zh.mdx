@@ -8,10 +8,10 @@ prereqs:
 lang: "zh"
 title: "實作：τ-leaping、Remasking 與比值學習"
 category: "courses"
-group: "Week 7 · Discrete Diffusion II"
+group: "Unit 5 · Discrete Diffusion II"
 status: "available"
 updated: 2026-09-07
-summary: "在上週的 parity 與 Markov toy 上，把取樣器改寫成 CTMC 的 τ-leaping、確認它還原上週的「步數 vs 合法率」曲線；加上 remasking rate σ，在同一張圖上疊出「σ vs 合法率」；最後訓一個 SEDD 式的比值網路，驗證它在 absorbing 鏈上等於 MDLM 的網路乘一個常數。"
+summary: "在上一個單元的 parity 與 Markov toy 上，把取樣器改寫成 CTMC 的 τ-leaping、確認它還原上一個單元的「步數 vs 合法率」曲線；加上 remasking rate σ，在同一張圖上疊出「σ vs 合法率」；最後訓一個 SEDD 式的比值網路，驗證它在 absorbing 鏈上等於 MDLM 的網路乘一個常數。"
 demos: []
 references:
   - label: "Campbell et al., A Continuous Time Framework for Discrete Denoising Models (NeurIPS 2022)"
@@ -43,30 +43,30 @@ import Ref from '../../../components/Ref.astro';
 
 <Objectives>
 - 把 <Ref to="dma-lab-discrete-time"/> 的跳步取樣器改寫成 CTMC 的 τ-leaping，並確認兩者在 absorbing 鏈上是同一個程序、還原同一條「步數 vs 合法率」曲線。
-- 實作 remasking：加 rate $\sigma$、補償翻開 rate，驗證邊際不變，畫「$\sigma$ vs 合法率 / KL」並疊在上週的圖 b 上。
+- 實作 remasking：加 rate $\sigma$、補償翻開 rate，驗證邊際不變，畫「$\sigma$ vs 合法率 / KL」並疊在上一個單元的圖 b 上。
 - 訓一個 SEDD 式的比值網路，驗證它在 absorbing 鏈上等於 MDLM 網路乘 $\alpha_t/(1-\alpha_t)$，並在 uniform 鏈上比較兩種 target。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
 <Ask>
-上週的取樣器和這週的 rate 語言，<br />
+上一個單元的取樣器和這個單元的 rate 語言，<br />
 跑出來是同一條曲線嗎？
 </Ask>
 
-## 沿用上週的 toy
+## 沿用上一個單元的 toy
 
-一切都建在 <Ref to="dma-lab-discrete-time"/> 的 `toy_discrete.py` 上：parity toy（$L=8$）、Markov toy（$L=16$）、`exact_conditional(xt)`、`legal(x)`、`kl_to_data(samples)`。這一週多兩個精確工具，都用查表做：
+一切都建在 <Ref to="dma-lab-discrete-time"/> 的 `toy_discrete.py` 上：parity toy（$L=8$）、Markov toy（$L=16$）、`exact_conditional(xt)`、`legal(x)`、`kl_to_data(samples)`。這個單元多兩個精確工具，都用查表做：
 
 - `exact_marginal(xt, t)`：$p_t(x_t)=\sum_{x_0}q_t(x_t\mid x_0)\,p(x_0)$。
 - `exact_ratios(xt, t)`：對 $x_t$ 的每個鄰居 $y$ 算 $p_t(y)/p_t(x_t)$——<Ref to="dma-concrete-score"/> 說它等於 `exact_conditional` 乘 $\alpha_t/(1-\alpha_t)$（absorbing），這是第一個要用程式驗證的等式。
 
-時間改成連續 $t\in[0,1]$，線性 schedule $\alpha_t=1-t$，forward rate $\beta_t=1/(1-t)$，翻開 rate $u_t=-\dot\alpha_t/(1-\alpha_t)=1/t$。上週的網路吃整數 $t\in\{1,\dots,32\}$，這週要用它時餵 `round(t*32)`；或者用下面步驟 3 的方式重訓一個吃連續 $t$ 的版本（loss 一模一樣，只是 $t\sim\mathrm{Uniform}[0,1]$、權重 $1/t$）。
+時間改成連續 $t\in[0,1]$，線性 schedule $\alpha_t=1-t$，forward rate $\beta_t=1/(1-t)$，翻開 rate $u_t=-\dot\alpha_t/(1-\alpha_t)=1/t$。上一個單元的網路吃整數 $t\in\{1,\dots,32\}$，這個單元要用它時餵 `round(t*32)`；或者用下面步驟 3 的方式重訓一個吃連續 $t$ 的版本（loss 一模一樣，只是 $t\sim\mathrm{Uniform}[0,1]$、權重 $1/t$）。
 
 <VizPlan id="w7-6-notebook" title="Discrete Diffusion II 實作 notebook" type="notebook">
 - 單一 notebook，三個 section 對應下面三個步驟，每個 section 有 TODO 骨架與參考解答（折疊）。
 - 沿用 `toy_discrete.py`，新增 `exact_marginal`、`exact_ratios`、`tau_leap_step`、`score_entropy_loss`。
-- 所有曲線圖沿用 <Ref to="dma-lab-discrete-time"/> 的座標慣例（橫軸步數對數刻度）；步驟 2 的圖**直接疊在上週的圖 b 上**（同一個檔案重新輸出，舊線淡化）。
+- 所有曲線圖沿用 <Ref to="dma-lab-discrete-time"/> 的座標慣例（橫軸步數對數刻度）；步驟 2 的圖**直接疊在上一個單元的圖 b 上**（同一個檔案重新輸出，舊線淡化）。
 </VizPlan>
 
 ## 步驟 1：τ-leaping 取樣器（圖 a）
@@ -100,7 +100,7 @@ def sample_ctmc(model, n, steps, sigma=0.0):
 
 與 <Ref to="dma-lab-discrete-time"/> 步驟 3 的 `sample` 逐行對照：那裡翻開的機率是 $\frac{\bar\alpha_s-\bar\alpha_t}{1-\bar\alpha_t}$，這裡是 $1-e^{-u_t\tau}$。兩者在 $\tau\to0$ 時一致；在有限 $\tau$ 下前者是**精確**的跳步（用了 $\bar Q$ 的 closed form），後者是 Euler 近似。**圖 a**：對 parity toy 畫步數 $\{1,2,4,8,16,32\}$ 的合法率，兩個取樣器各一條線。期待：兩條線很接近但**不重合**，而且都離 100% 還有一段距離——4／8／32 步大致落在 **57–65 / 73–79 / 93–95%**（下面的 demo 量的就是這條線），1、2 步更低。精確跳步那條線有標準答案可以對：<Ref to="dma-lab-discrete-time"/> Q1 那條 $(1+q)/2$ 在 4／8／32 步分別給出 **64.1 / 78.6 / 94.0%**。差距集中在步數最少的那幾個點。
 
-檢查點：τ-leaping 裡「所有位置獨立決定」那一行，就是因子化誤差的來源；把 `steps` 開到 256（每步幾乎最多跳一個位置），兩條線都會到 100%。**同一個 toy、同一個網路，換了語言，得到差不多同一張圖**——這是這週想讓你確認的第一件事，而「差多少」正好是下面 demo 要量的。
+檢查點：τ-leaping 裡「所有位置獨立決定」那一行，就是因子化誤差的來源；把 `steps` 開到 256（每步幾乎最多跳一個位置），兩條線都會到 100%。**同一個 toy、同一個網路，換了語言，得到差不多同一張圖**——這是這個單元想讓你確認的第一件事，而「差多少」正好是下面 demo 要量的。
 
 <Remark label="補充" summary="兩端的 rate 會發散，程式裡要怎麼收">
 線性 schedule 下翻開 rate 是 $u_t=1/t$，$t\to0$ 時發散；forward rate $\beta_t=1/(1-t)$ 在 $t\to1$ 發散。這不是 bug——<Ref to="dma-ctmc"/> 說過它的意思是「剩下的少數 `[MASK]` 要以很快的速度翻開」。
@@ -118,7 +118,7 @@ def sample_ctmc(model, n, steps, sigma=0.0):
 <Answer>
 會被想到的回答大概是「τ-leaping 比較快」或「精確跳步只是 τ-leaping 的特例」。兩個都不對：兩者每步都只呼叫網路一次，成本一樣；而精確跳步用的是**closed form**，不是把 $\tau$ 取小的極限。
 
-真正的理由是**closed form 只對「寫得出 $\bar Q_t$」的鏈存在**。這一整週在做的事都在破壞那個前提：
+真正的理由是**closed form 只對「寫得出 $\bar Q_t$」的鏈存在**。這一整個單元在做的事都在破壞那個前提：
 
 - 加上 remasking 之後，反向鏈的 rate 依賴 $\sigma_t$ 與網路輸出，沒有 $\bar Q$ 可以查（<Ref to="dma-remasking"/>）。
 - 逐位置不同的 source 與 $\kappa_t^\ell$、混合路徑（<Ref to="dma-discrete-flow-matching"/>），一樣沒有一個統一的 closed form。
@@ -142,13 +142,13 @@ def sample_ctmc(model, n, steps, sigma=0.0):
 - 長寬比：約 16:7。
 </VizPlan>
 
-## 步驟 2：remasking 強度 vs 合法率（圖 b，疊在上週的圖上）
+## 步驟 2：remasking 強度 vs 合法率（圖 b，疊在上一個單元的圖上）
 
 上面的 `sigma` 參數已經把 <Ref to="dma-remasking"/> 寫進去了：已翻開位置以 rate $\sigma$ 遮回去，被遮位置的翻開 rate 加大 $\sigma\alpha_t/(1-\alpha_t)$。先做**邊際檢查**：對 Markov toy 跑 2000 條軌跡到 $t=0.5$，數 `[MASK]` 的比例，對 $\sigma\in\{0,0.5,1,2\}$ 應該都是 $0.5\pm$ 抽樣誤差；把補償那一行拿掉（`u_total = u`）再跑一次，比例會隨 $\sigma$ 明顯上升。這兩個數字寫進 notebook。
 
 然後畫圖 b：
 
-- 對 Markov toy，橫軸步數 $\{4,8,16,32,64,128\}$（對數刻度，與上週相同），縱軸 `kl_to_data`，對 $\sigma\in\{0,0.5,1,2\}$ 各一條線。$\sigma=0$ 那條就是上週的圖 b，把它疊回去。
+- 對 Markov toy，橫軸步數 $\{4,8,16,32,64,128\}$（對數刻度，與上一個單元相同），縱軸 `kl_to_data`，對 $\sigma\in\{0,0.5,1,2\}$ 各一條線。$\sigma=0$ 那條就是上一個單元的圖 b，把它疊回去。
 - 對 parity toy 畫同樣的圖，縱軸換成合法率。
 
 **先寫下你的猜測再跑**：$\sigma>0$ 的線會在哪些步數壓到 $\sigma=0$ 底下？把預測寫在 notebook 裡再看結果。
@@ -175,7 +175,7 @@ def score_entropy_loss(s, xt, x0, t):                     # s: (n, L, K) 正數
 訓好後在一批 $(x_t,t)$ 上做三件事：
 
 1. **比值 vs 精確比值**：`s` 與 `exact_ratios` 在被遮位置的相對誤差，對 $t$ 畫曲線。
-2. **比值 vs MDLM 網路**：把上週（或步驟 1 重訓）的 `model(xt,t).softmax(-1)` 乘 $\alpha_t/(1-\alpha_t)$，與 `s` 比對。期待：兩者在資料密集區幾乎重合——**同一組數字、兩種 parametrization**。
+2. **比值 vs MDLM 網路**：把上一個單元（或步驟 1 重訓）的 `model(xt,t).softmax(-1)` 乘 $\alpha_t/(1-\alpha_t)$，與 `s` 比對。期待：兩者在資料密集區幾乎重合——**同一組數字、兩種 parametrization**。
 3. **取樣**：用比值直接寫反向 rate $\bar R_t(\texttt{[MASK]}\to v)=\beta_t\,s_\theta(x_t)_{\ell,v}$ 做 τ-leaping，與步驟 1 的曲線比。
 
 **圖 c**：三個子圖並排。若 (2) 的差距明顯大於 (1) 的誤差，檢查 $a$ 的常數與權重——最常見的 bug 是把 $\alpha_t/(1-\alpha_t)$ 寫反。
@@ -184,7 +184,7 @@ def score_entropy_loss(s, xt, x0, t):                     # s: (n, L, K) 正數
 
 1. **Uniform 鏈上的比值。** 對 uniform 鏈推出條件比值 $q_t(y\mid x_0)/q_t(x\mid x_0)$（位置 $\ell$ 從字 $x^\ell$ 換成 $y^\ell$；提示：只剩位置 $\ell$ 的因子，分子分母各是 $\alpha_t\mathbb 1[\cdot=x_0^\ell]+(1-\alpha_t)/K$），寫出它的後驗平均是 $p(x_0^\ell\mid x_t)$ 的什麼函數。訓一個 uniform 鏈的比值網路，與 <Ref to="dma-lab-discrete-time"/> 作業 1 的 D3PM 網路比較合法率。哪一個 target 在 uniform 鏈上訓得比較穩？
 2. **$\sigma_t$ 的 schedule。** 把常數 $\sigma$ 換成鐘形（中段大、兩端小），在圖 b 上再疊一條線。與常數 $\sigma$ 在相同總「重遮量」$\int\sigma_t(1-m_t)\,dt$（$m_t$ 是 `[MASK]` 的比例，見 <Ref to="dma-remasking"/>）下比較。
-3. **信心排序 vs remasking。** 把 <Ref to="dma-lab-discrete-time"/> 作業 2 的信心排序與這週的 $\sigma>0$ 放在同一張圖。信心排序不保持邊際、remasking 保持——在 toy 上哪一個更好？用步驟 2 的邊際檢查量化前者偏了多少。
+3. **信心排序 vs remasking。** 把 <Ref to="dma-lab-discrete-time"/> 作業 2 的信心排序與這個單元的 $\sigma>0$ 放在同一張圖。信心排序不保持邊際、remasking 保持——在 toy 上哪一個更好？用步驟 2 的邊際檢查量化前者偏了多少。
 4. **（選）精確模擬。** 實作 Gillespie 演算法（一次跳一個 token），確認它在 parity toy 上的合法率是 100%、且與 τ-leaping 在 `steps` 很大時一致。它就是 <Ref to="dma-factorization-error"/> 說的「任意順序 AR」。
 
 <QuizBlock id="w7-6-a">
@@ -208,7 +208,7 @@ def score_entropy_loss(s, xt, x0, t):                     # s: (n, L, K) 正數
 </QuizBlock>
 
 <Bridge to="dma-learn-the-map">
-這兩週把離散資料上的擴散建完：離散時間的 masked diffusion、連續時間的 rate 與比值、remasking 當取樣器旋鈕、discrete flow matching 當統一框架。<Ref to="dma-error-theory"/> 說 Euler 誤差由曲率積分壓住、<Ref to="dma-factorization-error"/> 說離散世界對應的是因子化——但只要積分不是零、只要每步翻開超過一個，有限步就有誤差。下一週換一個問法：能不能不走步，直接學那個「一步到位」的映射？
+這兩個單元把離散資料上的擴散建完：離散時間的 masked diffusion、連續時間的 rate 與比值、remasking 當取樣器旋鈕、discrete flow matching 當統一框架。<Ref to="dma-error-theory"/> 說 Euler 誤差由曲率積分壓住、<Ref to="dma-factorization-error"/> 說離散世界對應的是因子化——但只要積分不是零、只要每步翻開超過一個，有限步就有誤差。下一個單元換一個問法：能不能不走步，直接學那個「一步到位」的映射？
 </Bridge>
 
 ## 參考文獻

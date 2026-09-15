@@ -10,7 +10,7 @@ prereqs:
 lang: "en"
 title: "Consistency Distillation 與 Consistency Training：沒有老師，憑什麼？"
 category: "courses"
-group: "Week 8 · Consistency Models"
+group: "Unit 6 · Consistency Models"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

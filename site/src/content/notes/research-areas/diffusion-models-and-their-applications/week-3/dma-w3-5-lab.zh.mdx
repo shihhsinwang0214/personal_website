@@ -12,12 +12,12 @@ prereqs:
   - ml-evaluating-generative-models
   - math-euler-error
 lang: "zh"
-title: "實作：建立這一週的 Toy"
+title: "實作：建立這個單元的 Toy"
 category: "courses"
-group: "Week 3 · Diffusion Models"
+group: "Unit 1 · Diffusion Models"
 status: "available"
 updated: 2026-09-13
-summary: "把整週的東西縮成一個幾秒就能重跑的小實驗：2D toy 與小 MLP、ε-prediction 訓練、DDPM 與 DDIM 取樣，並畫出 score field 與軌跡圖。"
+summary: "把整個單元的東西縮成一個幾秒就能重跑的小實驗：2D toy 與小 MLP、ε-prediction 訓練、DDPM 與 DDIM 取樣，並畫出 score field 與軌跡圖。"
 demos: []
 references:
   - label: "Ho, Jain & Abbeel, Denoising Diffusion Probabilistic Models (NeurIPS 2020)"
@@ -40,10 +40,10 @@ import VizPlan from '../../../components/VizPlan.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 
-# 實作：建立這一週的 Toy
+# 實作：建立這個單元的 Toy
 
 <Objectives>
-- **建立之後三週共用的 2D toy 與小 MLP。** 說出為什麼要在這麼小的問題上做——真實的 $p_t$、score、後驗均值全部精確算得出來，網路學得好不好不用猜。
+- **建立之後三個單元共用的 2D toy 與小 MLP。** 說出為什麼要在這麼小的問題上做——真實的 $p_t$、score、後驗均值全部精確算得出來，網路學得好不好不用猜。
 - **親手實作 $\epsilon$-prediction 訓練、DDPM 與 DDIM 取樣，並產出三張圖。** score field、$\hat x_0$ 的換算誤差對 $t$、DDPM／DDIM 軌跡；順手驗一次三種 parametrization 真的等價。
 - **看懂「loss 停在某個非零的數字」不是 bug，而是 <Ref to="dma-tweedie-and-score"/> 算出來的地板 $\mathbb E[\operatorname{tr}\operatorname{Var}(\epsilon\mid x_t)]$。** 並知道該看的是它隨 $t$ 的形狀，不是那個平均值。
 </Objectives>
@@ -52,9 +52,9 @@ import Ref from '../../../components/Ref.astro';
 
 ## 先在淺水區把每件事看清楚
 
-這一週的理論講完了，但還沒有一行程式跑過。接下來要做的，是把整週的東西縮成一個**幾秒就能重跑**的小實驗。
+這個單元的理論講完了，但還沒有一行程式跑過。接下來要做的，是把整個單元的東西縮成一個**幾秒就能重跑**的小實驗。
 
-之後三週的理論都要對回同一組實驗，所以這個 toy 值得認真建。選 2D 有三個很實際的好處：
+之後三個單元的理論都要對回同一組實驗，所以這個 toy 值得認真建。選 2D 有三個很實際的好處：
 
 - **有標準答案。** 資料點是有限的，所以 $p_t$ 就是一個混合 Gaussian——真實的 $p_t$、score、後驗均值全部可以**精確算出來**。網路學得好不好不用猜，可以直接比。
 - **看得見。** 軌跡、向量場都能直接畫在平面上，不必靠指標想像。
@@ -62,7 +62,7 @@ import Ref from '../../../components/Ref.astro';
 
 設定：資料是兩個月牙（`sklearn.datasets.make_moons`，$n=2000$，噪聲 0.05），標準化到零均值單位變異數。網路是三層 MLP、寬 128，輸入 $(x_t,t)$，$t$ 用 sinusoidal embedding。$T=1000$，linear schedule $\beta_1=10^{-4}\to\beta_T=0.02$。
 
-<VizPlan id="w3-5-notebook" title="Diffusion 週實作 notebook" type="notebook">
+<VizPlan id="w3-5-notebook" title="Diffusion 單元實作 notebook" type="notebook">
 - 單一 notebook，四個 section 對應下面四個步驟；每個 section 給 TODO 骨架與參考解答（折疊）。
 - 所有圖用同一組色系與座標範圍。<Ref week="dma-week-flow-matching"/>、<Ref week="dma-week-interpolants"/> 的 notebook 沿用同一份 `toy.py`（資料、網路、schedule、精確 score）。
 - 提供 `exact_score(x, t)` 與 `exact_posterior_mean(x, t)` 兩個以混合 Gaussian 精確計算的函數當 ground truth。
@@ -176,7 +176,7 @@ $\eta=0$ 是 DDIM，$\eta=1$ 是 DDPM——一支函數就夠，這正是 <Ref t
 
 1. **Parametrization 等價。** 分別以 $x_0$-、$\epsilon$-、$v$-prediction 訓練三個網路，換算成 $\epsilon$ 之後比較 DDIM 50 步終點的 $W_2$（Wasserstein-2 距離，兩堆樣本之間的距離）。它們應該接近但不相同——說明差異來自 <Ref to="dma-denoising-regression"/> 的哪一節。
 2. **加權。** 以 $\epsilon$-prediction 訓練，但把 loss 乘上 $1/\mathrm{SNR}(t)$。比較 score field 在 $t$ 小與 $t$ 大時的誤差分布，跟均勻加權的版本有什麼不同。
-3. **把 <Ref to="dma-reverse-process"/> 的判準做成定量版。** 對步數 $\lbrace 5,10,20,50,100,1000 \rbrace$，畫 DDPM（$\eta=1$）與 DDIM（$\eta=0$）終點的 $W_2$ 曲線。**先寫下你的猜測再跑。** 這個 toy 的 score 是精確算出來的，所以照 W3.4 的判準，你應該預期確定性那一端不太會輸；如果你量到相反的結果，先去檢查是不是 score 不夠精確。
+3. **把 <Ref to="dma-reverse-process"/> 的判準做成定量版。** 對步數 $\lbrace 5,10,20,50,100,1000 \rbrace$，畫 DDPM（$\eta=1$）與 DDIM（$\eta=0$）終點的 $W_2$ 曲線。**先寫下你的猜測再跑。** 這個 toy 的 score 是精確算出來的，所以照 <Ref to="dma-reverse-process"/> 的判準，你應該預期確定性那一端不太會輸；如果你量到相反的結果，先去檢查是不是 score 不夠精確。
 4. **（選）Anderson 反向 SDE。** 讀 Anderson 1982 [3] 第 2 節，說明 reverse SDE 的 score 項是從哪一個條件期望冒出來的，並指出它與 <Ref to="dma-tweedie-and-score"/> 的 Tweedie 公式是什麼關係。
 
 ## 消化一下
@@ -212,7 +212,7 @@ $t$ 小時 $x_t$ 幾乎就是 $x_0$，看到 $x_t$ 幾乎就知道 $\epsilon$；
 </QuizBlock>
 
 <Bridge to="dma-why-not-diffusion">
-這一週把「生成」翻成了 denoising 回歸，證明 denoiser 就是 score，並得到 DDPM 與 DDIM 兩種取樣器。留下來的問題有兩個：forward process 一定要是 Gaussian 嗎？DDIM 的軌跡為什麼是彎的？下一週從第一個問題開始。
+這個單元把「生成」翻成了 denoising 回歸，證明 denoiser 就是 score，並得到 DDPM 與 DDIM 兩種取樣器。留下來的問題有兩個：forward process 一定要是 Gaussian 嗎？DDIM 的軌跡為什麼是彎的？下一個單元從第一個問題開始。
 </Bridge>
 
 ## 參考文獻

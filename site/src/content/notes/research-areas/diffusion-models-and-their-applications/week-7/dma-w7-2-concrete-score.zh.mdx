@@ -9,7 +9,7 @@ prereqs:
 lang: "zh"
 title: "反向 Rate 與 Concrete Score"
 category: "courses"
-group: "Week 7 · Discrete Diffusion II"
+group: "Unit 5 · Discrete Diffusion II"
 status: "available"
 updated: 2026-09-07
 summary: "把 CTMC 的時間反過來，反向 rate 是「forward rate 反向 × 邊際比值 p_t(y)/p_t(x)」。這個比值就是離散世界的 score——不是梯度，是有限差分。它是條件比值的後驗平均，也就是 conditional trick 的比值版本；SEDD 用 score entropy 直接回歸它。"
@@ -116,7 +116,7 @@ $$
 <Ref to="dma-reverse-process"/> 的 reverse SDE 裡，唯一要學的東西是 score $\nabla_x\log p_t(x)$。<Ref to="dma-discrete-data"/> 說離散空間沒有梯度，所以 score 壞了。現在有了反向 rate 的式子——**離散空間裡扮演 score 角色的量是什麼？** 它和連續的 score 是什麼關係？
 
 <Answer>
-常見的答案大致三類：「對 logits 取梯度」、「$\log p_t(y)-\log p_t(x)$ 這種差」、「就是 $p_\theta(x_0\mid x_t)$，上週已經學過了」。第一類把網路輸出的連續量誤當成狀態空間上的梯度——狀態本身沒有連續座標，對 logits 微分不對應任何「往密度高的方向走」。第二、三類都對，而且是同一件事的兩面。
+常見的答案大致三類：「對 logits 取梯度」、「$\log p_t(y)-\log p_t(x)$ 這種差」、「就是 $p_\theta(x_0\mid x_t)$，上一個單元已經學過了」。第一類把網路輸出的連續量誤當成狀態空間上的梯度——狀態本身沒有連續座標，對 logits 微分不對應任何「往密度高的方向走」。第二、三類都對，而且是同一件事的兩面。
 
 **它就是比值 $p_t(y)/p_t(x)$，對 $x$ 的每個鄰居 $y$ 各一個數。** 反向 rate 的式子已經說了：反向過程需要的、且唯一不知道的量，就是它。
 
@@ -205,7 +205,7 @@ $$
 **權重。** SEDD 取 $w_{xy}=R_t(y\to x)$——把鄰居 $y$ 連到 $x$ 的 forward rate。這樣加權後的 denoising score entropy 對 $t$ 積分，是 $-\log p_\theta(x_0)$ 的一個上界（SEDD 論文的 likelihood bound，連續時間 ELBO 的形式；常數項與 $t\to0$ 端點怎麼處理要照論文讀，這裡只用到「forward 上不存在的管子不必學」這一點）。直覺：forward 上根本不存在的管子（$R_t(y\to x)=0$）反向也不需要，不必浪費容量去學它的比值；absorbing 鏈下這意味著只需要對「被遮位置翻成某個字」這 $\#\text{masked}\times K$ 個鄰居輸出比值。
 </Details>
 
-## Absorbing 鏈上：比值就是上週的網路
+## Absorbing 鏈上：比值就是上一個單元的網路
 
 對 absorbing 鏈把條件比值實際算出來。設 $x$ 在位置 $\ell$ 是 `[MASK]`、$y$ 在 $\ell$ 是字 $v$、其他位置相同。closed form $q_t(x\mid x_0)$ 逐位置因子化，其他位置的因子上下相消，只剩位置 $\ell$：
 
@@ -223,12 +223,12 @@ $$
 \bar R_t\big(\texttt{[MASK]}\to v\ \text{at }\ell\big)=\beta_t\cdot\frac{\alpha_t}{1-\alpha_t}\,p_\theta(x_0^\ell=v\mid x_t)=\frac{-\dot\alpha_t}{1-\alpha_t}\;p_\theta(x_0^\ell=v\mid x_t).
 $$
 
-一個被遮的位置以總 rate $\frac{-\dot\alpha_t}{1-\alpha_t}$ 翻開，翻成哪個字按 $p_\theta$ 抽——這正是 <Ref to="dma-masked-diffusion"/> 那枚硬幣的連續時間版，翻開的機率 $\frac{\bar\alpha_{t-1}-\bar\alpha_t}{1-\bar\alpha_t}$ 變成 rate 乘 $dt$。上週的取樣器一直是這條 CTMC，只是我們當時沒有語言把它寫出來。
+一個被遮的位置以總 rate $\frac{-\dot\alpha_t}{1-\alpha_t}$ 翻開，翻成哪個字按 $p_\theta$ 抽——這正是 <Ref to="dma-masked-diffusion"/> 那枚硬幣的連續時間版，翻開的機率 $\frac{\bar\alpha_{t-1}-\bar\alpha_t}{1-\bar\alpha_t}$ 變成 rate 乘 $dt$。上一個單元的取樣器一直是這條 CTMC，只是我們當時沒有語言把它寫出來。
 
 對 uniform 鏈，同樣的計算會給出一個由 $p(x_0^\ell\mid x_t)$ 決定、但形狀更複雜的比值（見 <Ref to="dma-lab-ctmc"/> 作業）；forward 因子化時，「比值」和「$x_0$ 的逐位置 posterior」永遠是同一份資訊的兩種座標。
 
 <VizPlan id="w7-2-gradient-vs-ratio" title="梯度與比值：同一個東西，一個取了極限、一個沒有" type="static">
-- 檔名 `imgs/w7-2-1.png`，放在「Absorbing 鏈上：比值就是上週的網路」之後、「先消化一下」之前。
+- 檔名 `imgs/w7-2-1.png`，放在「Absorbing 鏈上：比值就是上一個單元的網路」之後、「先消化一下」之前。
 - 版面：左右兩塊，中央一個雙向箭頭把兩塊接起來。
   - **左「連續：取了極限」**：一條 $p(x)$ 的單峰曲線。在某個 $x$ 上標一個實心點，往右三個越來越近的灰點標 $x+h$（$h$ 由大到小，用漸淡的顏色暗示 $h\to0$）；把 $x$ 與最遠那個灰點的高度用虛線引到縱軸，中間標 $\frac{p(x+h)}{p(x)}$。該點畫一條切線，標 $\partial_x\log p(x)$，切線旁寫 $\lim_{h\to0}\frac1h\big(\frac{p(x+h)}{p(x)}-1\big)$。
   - **右「離散：極限拿不掉」**：中央一個長度 5 的序列方框當 $x_t$（第 3 格是 `[MASK]`、灰色）。四周三個鄰居方框 $y_1,y_2,y_3$，各自只有一格和 $x_t$ 不同，不同的那一格用色塊標出。每支箭頭上標 $p_t(y_i)/p_t(x_t)$ 和一個具體數字（0.99、0.01、0.31）；比值大的箭頭畫粗、比值小的畫細。旁邊一行小字：「鄰居就是最小的一步，$h$ 沒有東西可以再縮」。

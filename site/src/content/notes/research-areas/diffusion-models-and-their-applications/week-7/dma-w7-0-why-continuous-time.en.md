@@ -7,7 +7,7 @@ prereqs:
 lang: "en"
 title: "要把「改」說清楚，需要什麼語言？"
 category: "courses"
-group: "Week 7 · Discrete Diffusion II"
+group: "Unit 5 · Discrete Diffusion II"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

@@ -9,7 +9,7 @@ prereqs:
 lang: "en"
 title: "反向 Rate 與 Concrete Score"
 category: "courses"
-group: "Week 7 · Discrete Diffusion II"
+group: "Unit 5 · Discrete Diffusion II"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

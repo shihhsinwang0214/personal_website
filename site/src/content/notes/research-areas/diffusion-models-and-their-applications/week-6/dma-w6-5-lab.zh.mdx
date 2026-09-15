@@ -7,10 +7,10 @@ prereqs:
 lang: "zh"
 title: "實作：Parity 與 Markov Toy 上的 Masked Diffusion"
 category: "courses"
-group: "Week 6 · Discrete Diffusion I"
+group: "Unit 4 · Discrete Diffusion I"
 status: "available"
 updated: 2026-09-07
-summary: "在長度 8 的 parity 序列與長度 16 的 Markov 序列上訓 masked diffusion：實作 absorbing forward、加權 masked cross-entropy、跳步取樣；畫出「每步翻開幾個 vs 合法率」曲線，並比較 absorbing 與 uniform。這組 toy 下週會以連續時間重寫。"
+summary: "在長度 8 的 parity 序列與長度 16 的 Markov 序列上訓 masked diffusion：實作 absorbing forward、加權 masked cross-entropy、跳步取樣；畫出「每步翻開幾個 vs 合法率」曲線，並比較 absorbing 與 uniform。這組 toy 下一個單元會以連續時間重寫。"
 demos: []
 references:
   - label: "Sahoo et al., Simple and Effective Masked Diffusion Language Models (NeurIPS 2024)"
@@ -35,7 +35,7 @@ import Ref from '../../../components/Ref.astro';
 # 實作：Parity 與 Markov Toy 上的 Masked Diffusion
 
 <Objectives>
-- 建立這兩週共用的離散 toy：parity 序列（相依集中在一個自由度）與 Markov 序列（相依散在相鄰位置），並能精確算出所有 conditional marginal 當標準答案。
+- 建立這兩個單元共用的離散 toy：parity 序列（相依集中在一個自由度）與 Markov 序列（相依散在相鄰位置），並能精確算出所有 conditional marginal 當標準答案。
 - 親手實作 absorbing forward、<Ref to="dma-masked-diffusion"/> 的加權 masked cross-entropy、以及跳步取樣。
 - 產出三張圖：訓練 loss 與精確 conditional 的差距、「每步翻開幾個 vs 合法率」曲線、absorbing 與 uniform 的修正實驗。
 </Objectives>
@@ -51,7 +51,7 @@ import Ref from '../../../components/Ref.astro';
 
 網路：小型 transformer（2 層、寬 64、雙向 attention），輸入 $x_t$（含 `[MASK]` 符號的 $K+1=3$ 類 embedding）與 $t$ 的 embedding，對每個位置輸出 $K=2$ 個 logits。若採用 <Ref to="dma-masked-diffusion"/> 說的「網路不需要看 $t$」，可以把 $t$ 拿掉當作業 4 的對照。$T=32$，線性 schedule $\bar\alpha_t=1-t/T$。
 
-<VizPlan id="w6-5-notebook" title="Discrete Diffusion 週實作 notebook" type="notebook">
+<VizPlan id="w6-5-notebook" title="Discrete Diffusion 單元實作 notebook" type="notebook">
 - 單一 notebook，四個 section 對應下面四個步驟，每個 section 有 TODO 骨架與參考解答（折疊）。
 - 提供 `toy_discrete.py`：兩個資料生成器、`exact_conditional(xt)`（查表算出每個被遮位置的真實 marginal）、`legal(x)`（parity 合法性）、`kl_to_data(samples)`（Markov toy 的樣本分佈與資料分佈之 KL 估計）。<Ref week="dma-week-discrete-ii"/> 的 notebook 沿用同一份檔案。
 - 所有曲線圖用與 <Ref to="dma-lab-flow-matching"/> 圖 b 相同的座標慣例（橫軸步數對數刻度）。
@@ -205,7 +205,7 @@ Parity toy 上 8 步取樣的合法率是 78–79%，而不是接近 100%。最�
 </QuizBlock>
 
 <Bridge to="dma-why-continuous-time">
-這一週把 <Ref week="dma-week-diffusion"/> 翻譯到離散狀態空間：已知的 Markov chain、$x_0$-parametrization、加權 masked cross-entropy、因子化誤差當曲率。留下的問題是「翻錯的字能不能改、要付什麼代價」。下一週換成連續時間的語言——rate——這個問題會有一個短答案，score 與 sampler 的語言也會被重建回來。
+這個單元把 <Ref week="dma-week-diffusion"/> 翻譯到離散狀態空間：已知的 Markov chain、$x_0$-parametrization、加權 masked cross-entropy、因子化誤差當曲率。留下的問題是「翻錯的字能不能改、要付什麼代價」。下一個單元換成連續時間的語言——rate——這個問題會有一個短答案，score 與 sampler 的語言也會被重建回來。
 </Bridge>
 
 ## 參考文獻

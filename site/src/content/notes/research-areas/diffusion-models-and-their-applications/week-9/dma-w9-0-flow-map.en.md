@@ -7,7 +7,7 @@ prereqs:
 lang: "en"
 title: "不回到終點，能不能直接跳到中間？"
 category: "courses"
-group: "Week 9 · Flow Maps 與分佈匹配"
+group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

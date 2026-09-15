@@ -8,7 +8,7 @@ prereqs:
 lang: "zh"
 title: "實作：MeanFlow、半群檢查，與交叉問題的最終回收"
 category: "courses"
-group: "Week 9 · Flow Maps 與分佈匹配"
+group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "available"
 updated: 2026-09-06
 summary: "在 2D toy 上用 torch.func.jvp 訓 MeanFlow，做一步與兩步取樣；與 consistency training、reflow×2 放進同一張 W₂ 圖；數值檢查半群性質。作業：用 fake denoiser 實作 DMD，並在兩 Gaussian 交叉例子上比較回歸式與分佈匹配式的一步樣本——前者平均到中間，後者不會。這是整門課的最後一篇。"
@@ -46,9 +46,9 @@ import Answer from '../../../components/Answer.astro';
 
 資料、網路骨架、`exact_score` 都沿用 <Ref to="dma-lab-diffusion"/> 建立的 `toy.py`（two moons，$n=2000$）。這一篇用 <Ref week="dma-week-flow-matching"/> 的 FM 慣例：$t=0$ 噪聲、$t=1$ 資料、$z_t=(1-t)x_0+t\,x_1$、條件速度 $x_1-x_0$。網路 `model(z, r, t)`：三層 MLP，寬 128，$r$ 與 $t$ 各自做 sinusoidal embedding 後串接——比 <Ref to="dma-lab-flow-matching"/> 的網路多一個時間輸入，其餘不變。
 
-需要從前幾週帶進來的東西：<Ref to="dma-lab-interpolants"/> 的 reflow×2 模型與 $W_2$ 函數、<Ref to="dma-lab-consistency"/> 的 consistency training 一步生成器，以及那一張「三種一步方法」的 $W_2$ 圖——這一篇要在上面疊新的線。
+需要從前幾個單元帶進來的東西：<Ref to="dma-lab-interpolants"/> 的 reflow×2 模型與 $W_2$ 函數、<Ref to="dma-lab-consistency"/> 的 consistency training 一步生成器，以及那一張「三種一步方法」的 $W_2$ 圖——這一篇要在上面疊新的線。
 
-<VizPlan id="w9-6-notebook" title="Flow Maps 週實作 notebook" type="notebook">
+<VizPlan id="w9-6-notebook" title="Flow Maps 單元實作 notebook" type="notebook">
 - 單一 notebook，三個步驟加作業，每個 section 有 TODO 骨架與參考解答（折疊）。
 - 沿用 `toy.py`；新增 `toy_crossing.py`：<Ref to="dma-linear-path"/> 那個兩 Gaussian 到兩 Gaussian 的交叉資料、解析邊際速度場 `exact_velocity(x, t)`、與真實 ODE 積分器 `exact_flow_map(x, t, s)`（作業 2 的標準答案）。
 - 所有 $W_2$ 對步數的圖沿用 <Ref to="dma-lab-flow-matching"/> 圖 b 的座標慣例（橫軸步數對數刻度）。
@@ -154,7 +154,7 @@ def sample(model, n, steps):
 <Option correct>只有偏導數 $\partial_t u$，漏掉了 $(\partial_z u)\,v$——粒子沿軌跡移動帶來的變化——identity 不再成立。</Option>
 <Option>對 $r$ 的導數。</Option>
 <Explanation>
-全導數的兩項來自 $u$ 的兩個會動的輸入：$t$ 本身與隨 $t$ 移動的 $z_t$。切向量第一個分量是 $\tfrac{dz_t}{dt}=v$，設成零就丟掉了空間那一項，這正是 <Ref to="dma-error-theory"/> 裡 $(v\cdot\nabla)v$ 對應的角色（那一篇的邊際速度記成 $u$，本週 $u$ 留給平均速度）。
+全導數的兩項來自 $u$ 的兩個會動的輸入：$t$ 本身與隨 $t$ 移動的 $z_t$。切向量第一個分量是 $\tfrac{dz_t}{dt}=v$，設成零就丟掉了空間那一項，這正是 <Ref to="dma-error-theory"/> 裡 $(v\cdot\nabla)v$ 對應的角色（那一篇的邊際速度記成 $u$，本單元 $u$ 留給平均速度）。
 </Explanation>
 </QuizBlock>
 
@@ -164,12 +164,12 @@ def sample(model, n, steps):
 <Option>consistency training 的一步本來就比較差。</Option>
 <Option correct>consistency 的多步要跳回資料端再重新加噪，每次重加噪是新的獨立配對；MeanFlow 的多步是同一條軌跡上的分段跳躍，網路誤差被拆小而不被交叉抵消。</Option>
 <Explanation>
-兩者一步品質相近（都是學終點的回歸）。差別全在多步的路合不合法——<Ref to="dma-flow-map"/> 的半群條件。這張圖就是 <Ref to="dma-multistep-limit"/> 留下的問題與本週答案並排。
+兩者一步品質相近（都是學終點的回歸）。差別全在多步的路合不合法——<Ref to="dma-flow-map"/> 的半群條件。這張圖就是 <Ref to="dma-multistep-limit"/> 留下的問題與本單元答案並排。
 </Explanation>
 </QuizBlock>
 
 <Bridge>
-這是整門課的最後一篇。回頭看，我們從 <Ref to="dma-what-are-we-learning"/> 出發——把「生成」翻成學一個從噪聲到資料的映射——中間換過資料型態（<Ref week="dma-week-discrete-i"/>、<Ref week="dma-week-discrete-ii"/>）、換過時間刻度、換過學的物件（速度、終點、flow map、分佈），但每一週都靠同樣三件工具站穩：**conditional trick**（<Ref to="dma-denoising-regression"/>）讓我們永遠能用自己造的配對當目標；**曲率積分壓住有限步誤差**（<Ref to="dma-error-theory"/>）讓我們知道每個方法的誤差從哪裡來、什麼時候消失；**訓練噪聲與取樣噪聲是兩個旋鈕**（<Ref to="dma-sampler-family"/>）讓我們分得清什麼是模型的性質、什麼是取樣器的性質。再加上一個一路跟到最後的問題——<Ref to="dma-linear-path"/> 的配對交叉——它在 reflow 裡是彎曲、在多步 consistency 裡是重加噪、在蒸餾裡是模糊，本週的作業 2 再做它一次。往後讀任何一篇新的論文，先問它動了哪個旋鈕、誤差落在哪一格；通常，那就是它全部的新意。
+這是整門課的最後一篇。回頭看，我們從 <Ref to="dma-what-are-we-learning"/> 出發——把「生成」翻成學一個從噪聲到資料的映射——中間換過資料型態（<Ref week="dma-week-discrete-i"/>、<Ref week="dma-week-discrete-ii"/>）、換過時間刻度、換過學的物件（速度、終點、flow map、分佈），但每個單元都靠同樣三件工具站穩：**conditional trick**（<Ref to="dma-denoising-regression"/>）讓我們永遠能用自己造的配對當目標；**曲率積分壓住有限步誤差**（<Ref to="dma-error-theory"/>）讓我們知道每個方法的誤差從哪裡來、什麼時候消失；**訓練噪聲與取樣噪聲是兩個旋鈕**（<Ref to="dma-sampler-family"/>）讓我們分得清什麼是模型的性質、什麼是取樣器的性質。再加上一個一路跟到最後的問題——<Ref to="dma-linear-path"/> 的配對交叉——它在 reflow 裡是彎曲、在多步 consistency 裡是重加噪、在蒸餾裡是模糊，本單元的作業 2 再做它一次。往後讀任何一篇新的論文，先問它動了哪個旋鈕、誤差落在哪一格；通常，那就是它全部的新意。
 </Bridge>
 
 ## 參考文獻

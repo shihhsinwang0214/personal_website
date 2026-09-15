@@ -7,7 +7,7 @@ prereqs:
 lang: "en"
 title: "實作：Parity 與 Markov Toy 上的 Masked Diffusion"
 category: "courses"
-group: "Week 6 · Discrete Diffusion I"
+group: "Unit 4 · Discrete Diffusion I"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

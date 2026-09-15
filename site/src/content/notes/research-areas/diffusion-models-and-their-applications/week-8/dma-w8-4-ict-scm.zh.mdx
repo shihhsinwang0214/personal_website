@@ -8,7 +8,7 @@ prereqs:
 lang: "zh"
 title: "讓 CT 訓得起來：iCT 與連續時間的 sCM"
 category: "courses"
-group: "Week 8 · Consistency Models"
+group: "Unit 6 · Consistency Models"
 status: "available"
 updated: 2026-09-06
 summary: "同一個 consistency 目標，怎麼訓得穩？iCT 拿掉 EMA target、換 pseudo-Huber、lognormal 時間取樣、N 指數 curriculum；sCM 把 Δt 推到零——自我一致性變成「沿軌跡全導數為零」，用 JVP 算，用 TrigFlow 參數化與 tangent normalization 穩住。每一項技術都對到一個誤差來源：bias、variance 或 boundary。"
@@ -47,7 +47,7 @@ import Answer from '../../../components/Answer.astro';
 
 ## 訓練不穩，是哪三件事在作用
 
-上一篇結尾留下的圖像是：CT 的目標是 CD 目標的條件版本，代價是 bias 與 variance 的取捨。把這一週到目前為止碰過的所有誤差整理成三類，接下來每一項技術都會被放進其中一格：
+上一篇結尾留下的圖像是：CT 的目標是 CD 目標的條件版本，代價是 bias 與 variance 的取捨。把這個單元到目前為止碰過的所有誤差整理成三類，接下來每一項技術都會被放進其中一格：
 
 - **boundary**：$f(x,\varepsilon)=x$ 有沒有精確成立、參數化在兩端是否有界。
 - **bias**：目標的期望偏離真實終點——來自 Euler 對彎曲軌跡的 $O(\Delta t^2)$ 誤差、$f_{\theta^-}$ 非線性的 Jensen gap，以及任何讓「目標」與「真值」系統性不同的東西。
@@ -118,7 +118,7 @@ $$
 \boxed{\;\frac{d}{dt}f(x_t,t)=\partial_t f(x_t,t)+\nabla_x f(x_t,t)\cdot\frac{dx_t}{dt}=0\;}\qquad\text{沿每一條 PF-ODE 軌跡}.
 $$
 
-這是這一篇唯一的新物件。逐項讀：第一項是「時間往前走、位置不動」時 $f$ 的變化；第二項是「位置隨軌跡移動」帶來的變化，$\frac{dx_t}{dt}$ 是 PF-ODE 的速度（本週座標下 $=\mathbb E[\epsilon\mid x_t]$）。兩項要**恰好相消**。<Ref to="dma-error-theory"/> 裡出現過同一個算子——那裡是對速度場 $u$ 取 $\partial_t u+(u\cdot\nabla)u$ 得到加速度；這裡是對 $f$ 取，得到「$f$ 沿軌跡的漂移」。
+這是這一篇唯一的新物件。逐項讀：第一項是「時間往前走、位置不動」時 $f$ 的變化；第二項是「位置隨軌跡移動」帶來的變化，$\frac{dx_t}{dt}$ 是 PF-ODE 的速度（本單元座標下 $=\mathbb E[\epsilon\mid x_t]$）。兩項要**恰好相消**。<Ref to="dma-error-theory"/> 裡出現過同一個算子——那裡是對速度場 $u$ 取 $\partial_t u+(u\cdot\nabla)u$ 得到加速度；這裡是對 $f$ 取，得到「$f$ 沿軌跡的漂移」。
 
 Song et al. [3] 已經推出：$\ell_2$ 版的 CM 損失在 $N\to\infty$ 時，梯度趨近
 

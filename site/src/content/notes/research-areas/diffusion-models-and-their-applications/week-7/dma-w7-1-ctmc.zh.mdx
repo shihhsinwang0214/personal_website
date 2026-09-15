@@ -9,10 +9,10 @@ prereqs:
 lang: "zh"
 title: "CTMC：Rate Matrix 與 Forward Equation"
 category: "courses"
-group: "Week 7 · Discrete Diffusion II"
+group: "Unit 5 · Discrete Diffusion II"
 status: "available"
 updated: 2026-09-07
-summary: "用「每單位時間流多少機率」定義 rate matrix R_t，寫出 forward equation ṗ_t = p_t R_t，並把它和 Fokker–Planck 並排：兩者都是「分佈的時間導數 = 一個線性算子作用在分佈上」，差別只在算子是微分還是矩陣。uniform 與 absorbing 的 rate 形式解出來，正好還原上週的 Q̄_t。"
+summary: "用「每單位時間流多少機率」定義 rate matrix R_t，寫出 forward equation ṗ_t = p_t R_t，並把它和 Fokker–Planck 並排：兩者都是「分佈的時間導數 = 一個線性算子作用在分佈上」，差別只在算子是微分還是矩陣。uniform 與 absorbing 的 rate 形式解出來，正好還原上一個單元的 Q̄_t。"
 demos: []
 references:
   - label: "Campbell et al., A Continuous Time Framework for Discrete Denoising Models (NeurIPS 2022)"
@@ -56,7 +56,7 @@ import Ref from '../../../components/Ref.astro';
 
 ## 先看三個水桶
 
-上一篇說本週的新物件是「每單位時間有多少機率從 $x$ 流到 $y$」。先把它畫出來。
+上一篇說本單元的新物件是「每單位時間有多少機率從 $x$ 流到 $y$」。先把它畫出來。
 
 三個水桶 $a$、$b$、$c$，總水量固定是 1（這是機率）。桶與桶之間接水管，每根管子上有一個閥門，標一個數字：**每單位時間，來源桶裡的水有多少比例流過這根管子**。比方說 $a\to b$ 的管子標 2，意思是 $a$ 桶每單位時間漏掉自己水量的 2 倍——當然不是真的漏掉兩倍，而是在很短的 $\Delta t$ 裡漏掉 $2\Delta t$ 的比例；$\Delta t=0.01$ 就漏 2%。
 
@@ -77,7 +77,7 @@ import Ref from '../../../components/Ref.astro';
 
 於是**每一列和為零**。這不是額外的規定，是「水沒有憑空消失或出現」的記帳方式：一列裡流出去的（負的對角）與流到各處的（正的非對角）剛好抵消。
 
-它和上週的 $Q_t$ 的關係，是上一篇結尾那一行：在很短的 $\Delta t$ 裡，從 $x$ 走到 $y\ne x$ 的機率約是 $R_t(x\to y)\Delta t$，留在 $x$ 的機率約是 $1-\sum_{y\ne x}R_t(x\to y)\Delta t=1+[R_t]_{xx}\Delta t$。合起來：
+它和上一個單元的 $Q_t$ 的關係，是上一篇結尾那一行：在很短的 $\Delta t$ 裡，從 $x$ 走到 $y\ne x$ 的機率約是 $R_t(x\to y)\Delta t$，留在 $x$ 的機率約是 $1-\sum_{y\ne x}R_t(x\to y)\Delta t=1+[R_t]_{xx}\Delta t$。合起來：
 
 $$
 Q_{t\to t+\Delta t}=I+R_t\,\Delta t+O(\Delta t^2),\qquad\text{每列和}=1+0\cdot\Delta t .
@@ -101,12 +101,12 @@ $$
 
 第一項是各處流進 $y$ 的、第二項是從 $y$ 流出去的。若 $R$ 不隨 $t$ 變，解就是 $p_t=p_0\,e^{tR}$（矩陣指數）；隨 $t$ 變也一樣可解，只是指數裡換成積分（下面兩條鏈會實際算）。
 
-<Remark label="符號" summary="這一週的時間方向，以及它和哪幾週相反">
-這一週的時間和 <Ref week="dma-week-discrete-i"/> 一致：$t\in[0,1]$，$t=0$ 是資料、$t=1$ 是噪聲，forward 方向是**資料→噪聲**，和 <Ref week="dma-week-diffusion"/> 的 DDPM 同向。<Ref to="dma-unified-equation"/> 的 interpolant 慣例相反（$t=0$ 噪聲、$t=1$ 資料）。
+<Remark label="符號" summary="這個單元的時間方向，以及它和哪幾個單元相反">
+這個單元的時間和 <Ref week="dma-week-discrete-i"/> 一致：$t\in[0,1]$，$t=0$ 是資料、$t=1$ 是噪聲，forward 方向是**資料→噪聲**，和 <Ref week="dma-week-diffusion"/> 的 DDPM 同向。<Ref to="dma-unified-equation"/> 的 interpolant 慣例相反（$t=0$ 噪聲、$t=1$ 資料）。
 
 下面對照 Fokker–Planck 時請自行把時間方向對齊——Fokker–Planck 本身對方向沒有偏好，它只說「分佈往前怎麼變」。
 
-還有一個字母要講清楚：**這一週寫的 $\alpha_t$，就是 <Ref to="dma-d3pm"/> 的 $\bar\alpha_t$**——「一個位置到時間 $t$ 還沒被動過的機率」。離散時間要分「這一步」（$\alpha_t$）和「累積到現在」（$\bar\alpha_t$）；連續時間沒有「一步」，累積量才是唯一有意義的東西，所以那一條橫線就省掉了。本週之後的每一篇都用這個寫法。
+還有一個字母要講清楚：**這個單元寫的 $\alpha_t$，就是 <Ref to="dma-d3pm"/> 的 $\bar\alpha_t$**——「一個位置到時間 $t$ 還沒被動過的機率」。離散時間要分「這一步」（$\alpha_t$）和「累積到現在」（$\bar\alpha_t$）；連續時間沒有「一步」，累積量才是唯一有意義的東西，所以那一條橫線就省掉了。本單元之後的每一篇都用這個寫法。
 </Remark>
 
 ## 與 Fokker–Planck 並排
@@ -119,7 +119,7 @@ $$
 
 把兩條式子放在一起：
 
-| | 連續狀態（<Ref week="dma-week-interpolants"/>） | 離散狀態（本週） |
+| | 連續狀態（<Ref week="dma-week-interpolants"/>） | 離散狀態（本單元） |
 |---|---|---|
 | 粒子怎麼動 | SDE：drift $b_t$ + 噪聲 $\sqrt{2\varepsilon}\,dW$ | CTMC：以 rate $R_t(x\to y)$ 跳到 $y$ |
 | 分佈怎麼變 | $\partial_t\rho=-\nabla\cdot(b\rho)+\varepsilon\Delta\rho$ | $\dot p=pR$ |
@@ -179,7 +179,7 @@ $$
 e^{sA}=I+\sum_{n\ge1}\frac{s^n}{n!}(-1)^{n-1}A=I+\big(1-e^{-s}\big)A=e^{-s}I+\big(1-e^{-s}\big)\Pi .
 $$
 
-代 $s=\int_0^t\beta_u\,du$ 即得 $\bar Q_t$。（$R_s$ 在不同 $s$ 之間可交換——都是 $A$ 的倍數——所以時間依賴的 rate 也能直接寫成 $\exp(\int R)$；一般的 $R_t$ 不行，要用 time-ordered exponential，這一週不會遇到。）
+代 $s=\int_0^t\beta_u\,du$ 即得 $\bar Q_t$。（$R_s$ 在不同 $s$ 之間可交換——都是 $A$ 的倍數——所以時間依賴的 rate 也能直接寫成 $\exp(\int R)$；一般的 $R_t$ 不行，要用 time-ordered exponential，這個單元不會遇到。）
 </Details>
 
 反過來，**給任何一條 $\alpha_t$ 從 1 降到 0 的 schedule，rate 就是**

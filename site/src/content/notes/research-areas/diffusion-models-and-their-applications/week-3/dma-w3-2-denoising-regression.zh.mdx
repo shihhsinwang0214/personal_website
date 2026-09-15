@@ -11,7 +11,7 @@ prereqs:
 lang: "zh"
 title: "Denoising：倒著走一步，要怎麼學？"
 category: "courses"
-group: "Week 3 · Diffusion Models"
+group: "Unit 1 · Diffusion Models"
 status: "available"
 updated: 2026-09-13
 summary: "倒著走一步該從哪個分布抽？Bayes 卡在兩個算不出來的邊際。於是改成「學一個分布去逼近它」，而一條等價定理說：把 x₀ 放進條件裡，目標只差一個與參數無關的常數，最佳解仍然是那個邊際。剩下唯一的選擇是模型族——取固定變異數的 Gaussian，KL 就塌成一個加權的平方誤差，而它學到的是 E[x₀|x_t]。"
@@ -518,14 +518,19 @@ $$
 
 ## 同一個 reverse step，不一定要學 $x_0$
 
-由 $x_t=\sqrt{\bar\alpha_t}x_0+\sigma_t\epsilon$ 可知，**知道 $x_t$ 之後，$x_0$ 與 $\epsilon$ 互相決定**：
+由 $x_t=\sqrt{\bar\alpha_t}x_0+\sigma_t\epsilon$ 可以看到：在 $x_t$ 已知的情況下，只要知道 $x_0$ 或 $\epsilon$ 其中一個，另一個就可以直接算出來：
 
 $$
-x_0=\frac{x_t-\sigma_t\epsilon}{\sqrt{\bar\alpha_t}},\qquad
+x_0=\frac{x_t-\sigma_t\epsilon}{\sqrt{\bar\alpha_t}}
+\qquad\Longleftrightarrow\qquad
 \epsilon=\frac{x_t-\sqrt{\bar\alpha_t}x_0}{\sigma_t}.
 $$
 
-所以網路輸出哪一個都可以，另一個用上式換回來。這個「要讓網路去猜哪一個」的選擇叫 **parametrization**，實務上有三種常見的做法。
+所以，網路不一定非得直接預測 $x_0$。我們也可以讓它預測 $\epsilon$，再用上面的式子換回 $x_0$。同一個 denoising 問題，可以選擇讓網路預測不同、但彼此可以換算的 quantity。這個「網路輸出要用哪一種表示方式」的選擇，就叫做 **parametrization**。
+
+在我們目前這個 formulation 裡，實務上常見的選擇有三種：$x_0$-prediction、$\epsilon$-prediction，以及 $v$-prediction。
+
+**$x_0$-prediction**：直接輸出 $\hat x_0$，也就是〈DDPM 的訓練〉推出來的那個 loss。
 
 **$\epsilon$-prediction**（DDPM 原文 [1]）：讓網路去猜那個總噪聲。
 
@@ -534,8 +539,6 @@ $$
 \qquad \hat x_0=\frac{x_t-\sigma_t\epsilon_\theta}{\sqrt{\bar\alpha_t}} .
 $$
 
-**$x_0$-prediction**：直接輸出 $\hat x_0$，也就是〈DDPM 的訓練〉推出來的那個 loss。
-
 **$v$-prediction** [3]：把 $(\sqrt{\bar\alpha_t},\sigma_t)$ 看成 $(\cos\phi_t,\sin\phi_t)$，定義
 
 $$
@@ -543,8 +546,6 @@ v=\sqrt{\bar\alpha_t}\,\epsilon-\sigma_t\,x_0 .
 $$
 
 $v$ 是 $(x_0,\epsilon)$ 平面上與 $x_t$ **垂直**的那個方向。它在 $t\to0$ 時像 $\epsilon$、在 $t\to T$ 時像 $-x_0$，兩端都不會退化。這個「兩端都不退化」現在看起來只是好看，要到 <Ref to="dma-progressive-distillation"/> 把步數減到很少的時候才真正派上用場——$v$-prediction 最早就是在那裡被提出來的。
-
-三者之間全是 **affine transformation**，係數只跟 $t$ 有關。也就是說：給定其中一個訓好的網路，另外兩個不用重訓，代數換算就有了。實作那篇會要你親手驗證一次。
 
 <Remark label="符號" summary="為什麼 v 可以看成「垂直方向」？">
 因為 $\bar\alpha_t+\sigma_t^2=1$，我們可以寫 $\sqrt{\bar\alpha_t}=\cos\phi_t$、$\sigma_t=\sin\phi_t$。於是
@@ -557,9 +558,21 @@ $$
 在以 $x_0$、$\epsilon$ 為兩軸的平面上，$x_t$ 與 $v$ 剛好是**互相垂直的一組座標**——$v$ 就是「沿著 $\phi_t$ 增加的方向」，也就是 $x_t$ 對 $\phi_t$ 的導數。這也是它兩端都不退化的原因：不管 $\phi_t$ 靠近 0 還是 $\pi/2$，垂直方向永遠存在。
 </Remark>
 
-## 等價，但不相同：差在加權
+三者之間可以透過 **affine transformation** 互相轉換，而且轉換係數只和 $t$ 有關。所以，**在表示上**，只要知道其中一個，就可以直接算出另外兩個——給定其中一個訓好的網路，另外兩個不用重訓，代數換算就有了。實作那篇會要你親手驗證一次。
 
-把 $\hat x_0$ 與 $\epsilon_\theta$ 的關係代進去，兩個 loss 的關係就出來了：
+但用這三種 parametrization 去訓練，最後會得到完全一樣的結果嗎？
+
+## 表示上等價，但訓練上不相同
+
+假設我們都使用看起來一樣的 MSE loss：
+
+$$
+\mathbb E\big[\|\text{prediction}-\text{target}\|^2\big],
+$$
+
+把 target 從 $x_0$ 換成 $\epsilon$ 或 $v$ 之後，**對應回同一個 quantity 時，不同 noise level 的誤差會被乘上不同的權重。**
+
+把 $\hat x_0$ 與 $\epsilon_\theta$ 的關係代進去就看得到：
 
 $$
 \|\hat x_0-x_0\|^2=\frac{\sigma_t^2}{\bar\alpha_t}\,\|\epsilon_\theta-\epsilon\|^2
@@ -574,21 +587,30 @@ $$
 \qquad \frac{w(t)}{\mathrm{SNR}(t)}=\frac{\beta_t}{2\,\alpha_t\,(1-\bar\alpha_{t-1})}.
 $$
 
-不同寫法的**最小值點是同一個**（都被同一個條件期望達成）。但在有限容量、有限訓練時間下，它們對不同 $t$ 的重視程度不一樣——而那正是加權在做的事。
+所以三種 parametrization 雖然可以互相換算，但它們定義的 training objective 並不完全相同。
 
-這裡就要講 DDPM 原文做的一件事：它**故意把整個 $w(t)$ 丟掉**，直接用均勻加權的 $\epsilon$-MSE，
+要小心「不完全相同」指的是什麼：不同寫法的**最小值點是同一個**（都被同一個條件期望達成）；不一樣的是在有限容量、有限訓練時間下，它們對不同 $t$ 的重視程度。也就是說：
 
 $$
-\mathcal L_{\text{simple}}(\theta)=\mathbb E_{t,\,x_0,\,\epsilon}\big[\|\epsilon_\theta(x_t,t)-\epsilon\|^2\big],
+\boxed{\text{representation equivalent} \;\neq\; \text{optimization equivalent}}
 $$
 
-在他們的實驗上這樣效果最好。**所以那五行程式不是原始目標，是原始目標拔掉加權之後的版本。** 一個直覺是：$\epsilon$ 的目標尺度在所有 $t$ 都是 $\mathcal N(0,I)$，網路不必額外學會「在不同 $t$ 輸出不同大小的東西」；而理論上的 $w(t)$ 在 $t$ 小的時候非常大，會把訓練資源全部壓在幾乎沒有噪聲的那一端。
+差別主要就在於：**不同的 parametrization，會讓模型更重視不同 noise level 的誤差。**
 
-這裡有一個之後一直會用到的觀念：
+這裡我們順便講一下 DDPM 原文實際採用的做法。
 
-> **「路徑」與「加權」是兩個獨立的設計軸。**
+在實作上，它直接把這個 weighting $w(t)$ 拿掉，改成均勻（uniform）加權的 $\epsilon$-MSE：
 
-同一條 forward 路徑，配上不同的加權，就會訓出不同的模型。而加權是**可以改的**——它不影響最佳解，只影響你在有限預算下走到哪裡。<Ref week="dma-week-flow-matching"/> 在比較 flow matching 與 diffusion 時，這個區分會再回來一次：它們的差別有一部分其實只是加權不同。
+$$
+\mathcal L_{\text{simple}}(\theta)=\mathbb E_{t,\,x_0,\,\epsilon}\big[\|\epsilon_\theta(x_t,t)-\epsilon\|^2\big].
+$$
+
+關於這樣的操作，我們可以理解成：
+
+> **forward process 決定我們怎麼製造不同 noise level 的資料；** <br />
+> **weighting 決定 training 時多重視哪些 noise level。**
+
+兩件事其實可以分開設計。因此，即使 forward process 不變，我們仍然可以改變不同 $t$ 在 loss 裡的 weighting。理想情況下這不改變每個 $t$ 對應的最佳 predictor，但會改變實際訓練時模型把 capacity 和 optimization effort 放在哪些地方。<Ref week="dma-week-flow-matching"/> 比較 diffusion 與 flow matching 時，這個 distinction 還會再出現。
 
 ## 整個訓練就是這五行
 

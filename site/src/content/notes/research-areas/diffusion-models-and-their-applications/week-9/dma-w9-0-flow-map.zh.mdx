@@ -7,7 +7,7 @@ prereqs:
 lang: "zh"
 title: "不回到終點，能不能直接跳到中間？"
 category: "courses"
-group: "Week 9 · Flow Maps 與分佈匹配"
+group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "available"
 updated: 2026-09-06
 summary: "多步 consistency model 做不好，病根是每一步都得跳回資料端再重新加噪。改成學一個雙時間映射 ψ_{t→s}：從任何時刻直接跳到任何時刻。推出它必須滿足的四個條件——恆等、端點、半群、與速度場的相容——並看第一個具體實作 CTM 怎麼把 consistency 的損失推廣到任意一對時間。"
@@ -43,20 +43,20 @@ import Ref from '../../../components/Ref.astro';
 
 <Prereq items={frontmatter.prereqs} />
 
-## 上週留下的病根
+## 上一個單元留下的病根
 
 <Ref to="dma-multistep-limit"/> 收在一個問題上。Consistency model 學到的是 $f(x_t,t)$：把軌跡上任何一點直接送到資料端。一步生成就是 $f(x_T,T)$。想多花幾步換品質，唯一的辦法是：跳到資料端、**重新加噪聲**到某個中間時刻、再跳一次。實驗上多花步數的增益很快就小下去，而且 ODE 那個「多走幾步誤差就小」的保證在那裡不成立。那一篇給了三個理由——每次重新加噪都是一次獨立配對，把 <Ref to="dma-linear-path"/> Q1 的交叉問題重新請回來，所以整個程序不在逼近任何連續極限；每一跳的誤差都是**滿的**，最後一跳的誤差不會因為前面多跳了幾次而變小；而 $f$ 是確定映射、沒有 score，所以也沒有 <Ref to="dma-sampler-family"/> 那種把偏掉的樣本拉回來的機制。
 
 把三個理由並排看，會發現它們指向同一個動作：**「回到終點再加噪」**。跳回終點是浪費——我們本來只想前進一小段；重新加噪是有害——它把已經走對的路徑打亂。如果有一個東西能從 $x_t$ **直接**送到 $x_s$（$s$ 是任何我們想去的中間時刻），不經過終點、不加噪，那兩個問題同時消失。
 
-這一週就是這個東西。
+這個單元就是這個東西。
 
 ## 先把慣例對齊
 
-<Ref week="dma-week-consistency"/> 跟著書用 $t=0$ 是資料、$f(x_t,t)\to x_0$ 的方向（<Ref to="dma-learn-the-map"/> 有說明）。這一週的物件有**兩個**時間，「往哪個方向」不再是問題，所以我們可以回到 <Ref week="dma-week-flow-matching"/>、<Ref week="dma-week-interpolants"/> 的 FM 慣例：$t=0$ 是噪聲 $x_0\sim\mathcal N(0,I)$，$t=1$ 是資料 $x_1$，直線插值 $x_t=(1-t)\,x_0+t\,x_1$，條件速度 $x_1-x_0$。唯一要換的是一個字母：前幾週的邊際速度場寫成 $u_t(x)$，這一週改記成 $v_t(x)$，因為 $u$ 這個字母兩篇之後要當「平均速度」用。
+<Ref week="dma-week-consistency"/> 跟著書用 $t=0$ 是資料、$f(x_t,t)\to x_0$ 的方向（<Ref to="dma-learn-the-map"/> 有說明）。這個單元的物件有**兩個**時間，「往哪個方向」不再是問題，所以我們可以回到 <Ref week="dma-week-flow-matching"/>、<Ref week="dma-week-interpolants"/> 的 FM 慣例：$t=0$ 是噪聲 $x_0\sim\mathcal N(0,I)$，$t=1$ 是資料 $x_1$，直線插值 $x_t=(1-t)\,x_0+t\,x_1$，條件速度 $x_1-x_0$。唯一要換的是一個字母：前幾個單元的邊際速度場寫成 $u_t(x)$，這個單元改記成 $v_t(x)$，因為 $u$ 這個字母兩篇之後要當「平均速度」用。
 
-<Remark label="符號" summary="u 在這一週有兩個身分，怎麼分">
-$u$ 這一週會出現兩次，靠**它吃不吃參數**分辨：
+<Remark label="符號" summary="u 在這個單元有兩個身分，怎麼分">
+$u$ 這個單元會出現兩次，靠**它吃不吃參數**分辨：
 
 - **$u$ 單獨出現**，是 progressive 恆等式裡的**中間時刻**（$\psi_{t\to s}=\psi_{u\to s}\circ\psi_{t\to u}$，$u$ 落在 $s$ 與 $t$ 之間）。CTM 的損失、Shortcut 與 AYF 都用這個寫法，因為原文就是這樣寫的。
 - **$u(z,r,t)$ 帶參數**，是 <Ref to="dma-meanflow"/> 的**平均速度**。
@@ -75,12 +75,12 @@ $$
 $s$ 可以大於 $t$（往資料端走）也可以小於 $t$（往噪聲端走），兩個時間都是自由的。它叫 **flow map**——ODE 教科書裡本來就有這個名字（<Ref to="dma-flows-and-continuity"/> 把它記成 $\psi_t$，而 <Ref to="dma-what-are-we-learning"/> 要的那個 $G$ 就是 $\psi_{0\to1}$ 這一個特例）。<Ref week="dma-week-consistency"/> 學的 consistency function 是它的另一個特例：終點固定在資料端。
 
 <Question id="Q1">
-不看任何論文，只從「$\psi_{t\to s}(x)$ 是軌跡上的位置」這個定義出發：**一個網路 $\psi_\theta$ 想當合格的 flow map，必須滿足哪些條件？** 請至少列出三個，並說出每一個對應前幾週的哪個物件。
+不看任何論文，只從「$\psi_{t\to s}(x)$ 是軌跡上的位置」這個定義出發：**一個網路 $\psi_\theta$ 想當合格的 flow map，必須滿足哪些條件？** 請至少列出三個，並說出每一個對應前幾個單元的哪個物件。
 
 <Answer>
-最先想到的通常是「不跳就不能動」，接著是「跳到終點要等於上週的 $f$」；半群性質要換個角度想「分兩段跳」才會浮現，而與速度場的關係最容易被漏掉。四個條件整理如下。
+最先想到的通常是「不跳就不能動」，接著是「跳到終點要等於上一個單元的 $f$」；半群性質要換個角度想「分兩段跳」才會浮現，而與速度場的關係最容易被漏掉。四個條件整理如下。
 
-**一、恆等。** $\psi_{t\to t}(x)=x$。從 $t$ 跳到 $t$ 就是原地不動。這是 consistency function 邊界條件 $f(x,\varepsilon)=x$ 的推廣（<Ref to="dma-consistency-function"/> 的乾淨端是 $\varepsilon=0.002$ 而不是 $0$）；<Ref to="dma-consistency-function"/> 用 $c_{\text{skip}}(t)\,x+c_{\text{out}}(t)\,F_\theta$ 的參數化讓它自動成立，這一週的參數化也會這麼做。
+**一、恆等。** $\psi_{t\to t}(x)=x$。從 $t$ 跳到 $t$ 就是原地不動。這是 consistency function 邊界條件 $f(x,\varepsilon)=x$ 的推廣（<Ref to="dma-consistency-function"/> 的乾淨端是 $\varepsilon=0.002$ 而不是 $0$）；<Ref to="dma-consistency-function"/> 用 $c_{\text{skip}}(t)\,x+c_{\text{out}}(t)\,F_\theta$ 的參數化讓它自動成立，這個單元的參數化也會這麼做。
 
 **二、端點。** $\psi_{t\to1}$ 就是 consistency function——跳到資料端。（在 <Ref week="dma-week-consistency"/> 的慣例裡資料在 $t=0$，寫成 $f(\cdot,t\to0)$；只是慣例不同。）所以 consistency model 是 flow map 把第二個時間釘死的特例。
 
@@ -98,15 +98,15 @@ $$
 \partial_s\,\psi_{t\to s}(x)=v_s\big(\psi_{t\to s}(x)\big),\qquad\text{因此}\quad \psi_{t\to t+h}(x)=x+h\,v_t(x)+O(h^2).
 $$
 
-第二式說：flow matching 學的速度場，是 flow map 在 $s\to t$ 時的**無窮小極限**。<Ref week="dma-week-flow-matching"/> 學的是這個物件的一階 Taylor 項，<Ref week="dma-week-consistency"/> 學的是它在 $s=1$ 的切片，這一週要學整張表。
+第二式說：flow matching 學的速度場，是 flow map 在 $s\to t$ 時的**無窮小極限**。<Ref week="dma-week-flow-matching"/> 學的是這個物件的一階 Taylor 項，<Ref week="dma-week-consistency"/> 學的是它在 $s=1$ 的切片，這個單元要學整張表。
 
 四個條件不獨立：三推得一（取 $s=t=r$），三加四可以推得一切（無窮多個小跳接起來）。但拆成四條有一個好處——下一篇會看到，**每一條都可以變成一個損失函數**，而且對應到一個已知的方法。
 </Answer>
 </Question>
 
 <VizPlan id="w9-0-flow-map" title="兩個時間滑桿：ψ_{t→s} 把一群粒子送到哪" type="interactive">
-- **位置**：Q1 之後。這是本週的**核心互動**。**檔名**：`week-9/w9-0-1.html`。
-- **資料與場**：2D toy，$p_0=\mathcal N(0,I)$、$p_1=$ two moons，速度場用 <Ref to="dma-lab-interpolants"/> 那個 reflow×2 模型預先算好的網格（和 <Ref to="dma-lab-consistency"/>、本週 lab 沿用的是同一個）（軌跡有可見的彎曲、但不亂），或直接用混合 Gaussian 的解析邊際速度。畫布上淡淡畫出 $p_1$ 的等高線。
+- **位置**：Q1 之後。這是本單元的**核心互動**。**檔名**：`week-9/w9-0-1.html`。
+- **資料與場**：2D toy，$p_0=\mathcal N(0,I)$、$p_1=$ two moons，速度場用 <Ref to="dma-lab-interpolants"/> 那個 reflow×2 模型預先算好的網格（和 <Ref to="dma-lab-consistency"/>、本單元 lab 沿用的是同一個）（軌跡有可見的彎曲、但不亂），或直接用混合 Gaussian 的解析邊際速度。畫布上淡淡畫出 $p_1$ 的等高線。
 - **兩支時間滑桿**：$t$（起始時刻）與 $s$（目標時刻），各在 $[0,1]$，**互不牽制**（$s<t$ 也允許）。畫布顯示 24 顆粒子在時刻 $t$ 的位置（沿真實軌跡從 $x_0$ 積分到 $t$），以及 $\psi_{t\to s}$ 把它們送到的位置；每顆粒子用一條細線連接起點與終點，線上畫一個小箭頭指向 $s$。拖 $s$ 時終點沿軌跡滑動，拖 $t$ 時起點滑動。
 - **開關「顯示完整軌跡」**：畫出每顆粒子從 0 到 1 的完整軌跡（灰色），讀者看到 $\psi_{t\to s}$ 的終點永遠落在**自己那條**灰線上。
 - **按鈕「驗證半群」**：出現第三支滑桿 $r$。畫布同時顯示兩組終點——「先 $t\to s$ 再 $s\to r$」（空心圓）與「直接 $t\to r$」（實心點）；右上角顯示兩組之間的最大距離（理想值 0，用真實 ODE 積分時應在 $10^{-3}$ 以下）。
@@ -135,14 +135,14 @@ CTM 回答了起點問題——有了 $G_\theta(x,t,s)$，多步取樣就是 $0\
 <Details summary="CTM 為什麼仍然需要 teacher？可以拿掉嗎？">
 CTM 的損失裡 teacher 出現在「先走一段」那裡：$\tilde x_u$ 是用 teacher 的速度場解 ODE 得到的。沒有 teacher，我們就不知道 $x_t$ 的軌跡往哪裡走——這是所有 distillation 方法共同的依賴。
 
-<Ref to="dma-cd-vs-ct"/> 的 consistency training 示範過怎麼拿掉 teacher：不真的走一步，改用同一組 $(x_0,x_1)$ 重新插值出 $x_{t'}$，靠 <Ref to="dma-denoising-regression"/> 的 **conditional trick**（條件目標在期望上等於邊際目標），代價是 $O(\Delta t)$ 的曲率 bias。同樣的替換原則上可以搬到 CTM 上，但要處理的細節更多：$s$ 不再固定，網路的輸出空間從「資料」變成「任何時刻的中間狀態」。這一週接下來的三篇，本質上就是在回答「flow map 能不能像 consistency training 那樣**從頭訓練**、而且不帶曲率 bias」——答案是可以，而且方法不只一種。
+<Ref to="dma-cd-vs-ct"/> 的 consistency training 示範過怎麼拿掉 teacher：不真的走一步，改用同一組 $(x_0,x_1)$ 重新插值出 $x_{t'}$，靠 <Ref to="dma-denoising-regression"/> 的 **conditional trick**（條件目標在期望上等於邊際目標），代價是 $O(\Delta t)$ 的曲率 bias。同樣的替換原則上可以搬到 CTM 上，但要處理的細節更多：$s$ 不再固定，網路的輸出空間從「資料」變成「任何時刻的中間狀態」。這個單元接下來的三篇，本質上就是在回答「flow map 能不能像 consistency training 那樣**從頭訓練**、而且不帶曲率 bias」——答案是可以，而且方法不只一種。
 </Details>
 
-## 這一週的路線
+## 這個單元的路線
 
 現在手上有一個新物件（flow map）與一個第一版實作（CTM，需要 teacher、用半群條件）。接下來：
 
-- 下一篇把四個條件裡的三個各寫成一個損失函數，並把上週和這週所有方法排進同一張表——每個方法都是「哪一條恆等式 + 哪一個估計量」。
+- 下一篇把四個條件裡的三個各寫成一個損失函數，並把上一個單元和這個單元所有方法排進同一張表——每個方法都是「哪一條恆等式 + 哪一個估計量」。
 - 再一篇看 MeanFlow：用「平均速度」重新參數化 flow map，得到一條**精確**的恆等式，讓它能像 flow matching 一樣從頭訓練、一步就有競爭力。
 - 然後是 Shortcut、Align Your Flow 這些同一張表上的其他格子。
 - 最後換一條完全不同的路：不再要求「學生輸出等於某個目標點」，改要求「學生的**分佈**等於 teacher 的分佈」。
@@ -190,7 +190,7 @@ $u=s$ 時右邊是 $G_{\theta^-}(\tilde x_s,s\to s)=\tilde x_s$（恆等條件�
 </QuizBlock>
 
 <Bridge to="dma-flow-map-matching">
-本篇把「不回終點、直接跳到中間」寫成 flow map $\psi_{t\to s}$，推出它的四個條件，並看 CTM 用半群條件加 teacher 做出第一版。下一篇把條件三、四各自微分成不同形式，得到三種損失；每一種都對應一個已知方法——上週和這週的所有方法會排進同一張表。
+本篇把「不回終點、直接跳到中間」寫成 flow map $\psi_{t\to s}$，推出它的四個條件，並看 CTM 用半群條件加 teacher 做出第一版。下一篇把條件三、四各自微分成不同形式，得到三種損失；每一種都對應一個已知方法——上一個單元和這個單元的所有方法會排進同一張表。
 </Bridge>
 
 ## 參考文獻

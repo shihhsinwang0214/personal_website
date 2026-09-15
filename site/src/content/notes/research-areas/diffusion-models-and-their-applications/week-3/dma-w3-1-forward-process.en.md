@@ -7,7 +7,7 @@ prereqs:
 lang: "en"
 title: "指定路徑的方法：Forward Process"
 category: "courses"
-group: "Week 3 · Diffusion Models"
+group: "Unit 1 · Diffusion Models"
 status: "missing"
 updated: 2026-09-04
 summary: "English translation in progress; content-agent task."

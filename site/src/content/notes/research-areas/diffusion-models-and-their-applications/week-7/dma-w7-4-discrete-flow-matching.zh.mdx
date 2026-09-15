@@ -8,7 +8,7 @@ prereqs:
 lang: "zh"
 title: "Discrete Flow Matching：條件路徑、Rate 與配對"
 category: "courses"
-group: "Week 7 · Discrete Diffusion II"
+group: "Unit 5 · Discrete Diffusion II"
 status: "available"
 updated: 2026-09-07
 summary: "把 flow matching 的建構搬到離散空間：逐 token 的條件路徑 p_t(x|x₀,x₁)=(1−κ_t)δ_{x₀}+κ_tδ_{x₁}，條件 rate 一行算出，邊際 rate 是條件 rate 的後驗平均——CFM 定理 1 的證明逐字成立，只是 continuity equation 換成 forward equation。配對旋鈕在離散空間裡剩下什麼，是這一篇的問題。"
@@ -61,7 +61,7 @@ import Ref from '../../../components/Ref.astro';
 離散世界能不能做同一件事？可以，而且做完會發現：$x_1$ 取全 `[MASK]` 就是 absorbing、取均勻隨機字就是 uniform，兩條鏈變成同一個框架的兩個特例；更重要的是，它讓 <Ref to="dma-why-not-diffusion"/> 說的「起點可以不是噪聲」在離散世界也成立。這就是 discrete flow matching（DFM），Gat et al. [1] 與 Campbell et al. [2] 在 2024 年各自提出。
 
 <Remark label="符號" summary="這一篇的時間方向和論文原文相反">
-本週和上一週一樣：$t=0$ 是資料、$t=1$ 是噪聲，所以下面 $x_0\sim p_{\text{data}}$、$x_1\sim p_{\text{noise}}$。Gat et al. [1] 的原文把 source 放在 $t=0$、資料放在 $t=1$——式子長得一模一樣，只是 $x_0$ 與 $x_1$ 的角色互換，讀論文時對照即可。
+本單元和上一個單元一樣：$t=0$ 是資料、$t=1$ 是噪聲，所以下面 $x_0\sim p_{\text{data}}$、$x_1\sim p_{\text{noise}}$。Gat et al. [1] 的原文把 source 放在 $t=0$、資料放在 $t=1$——式子長得一模一樣，只是 $x_0$ 與 $x_1$ 的角色互換，讀論文時對照即可。
 
 另外 $\kappa_t$ 和前兩篇的 $\alpha_t$ 是互補的：$\kappa_t$ 是「已經變成 $x_1$ 的機率」、$\alpha_t$ 是「還是原字的機率」，所以 $\kappa_t=1-\alpha_t$。代進式子的時候不要記錯方向。
 </Remark>
@@ -78,7 +78,7 @@ $\delta_{x_0}$ 是集中在 $x_0$ 的 one-hot 分佈。讀法：在時刻 $t$，
 
 整句 $L$ 個 token 各自獨立地做這件事，$p_t(x\mid x_0,x_1)=\prod_\ell p_t(x^\ell\mid x_0^\ell,x_1^\ell)$。
 
-**它就是上週的兩條鏈。** 取 $\kappa_t=1-\alpha_t$：
+**它就是上一個單元的兩條鏈。** 取 $\kappa_t=1-\alpha_t$：
 - $x_1=$ 全 `[MASK]`（一個確定的狀態）：token 以機率 $\alpha_t$ 是原字、$1-\alpha_t$ 是 `[MASK]`——absorbing 的 $\bar Q_t$。
 - $x_1\sim$ 每個位置獨立均勻：token 以機率 $\alpha_t$ 是原字、$1-\alpha_t$ 是均勻隨機字——uniform 的 $\bar Q_t$。
 
@@ -222,7 +222,7 @@ DFM 的條件路徑 $p_t(x\mid x_0,x_1)=(1-\kappa_t)\delta_{x_0}+\kappa_t\delta_
 </QuizBlock>
 
 <Bridge to="dma-discrete-applications">
-本篇把 flow matching 的建構搬進離散空間：條件路徑是「每個 token 跳一次」，邊際 rate 是條件 rate 的後驗平均，absorbing 與 uniform 是 source 的兩個選擇，配對留下對齊的意義。這一週的語言到此齊備：path、target、sampler 三個槽位。下一篇用這三個槽位去讀真實的系統——語言模型、蛋白質、圖。
+本篇把 flow matching 的建構搬進離散空間：條件路徑是「每個 token 跳一次」，邊際 rate 是條件 rate 的後驗平均，absorbing 與 uniform 是 source 的兩個選擇，配對留下對齊的意義。這個單元的語言到此齊備：path、target、sampler 三個槽位。下一篇用這三個槽位去讀真實的系統——語言模型、蛋白質、圖。
 </Bridge>
 
 ## 參考文獻

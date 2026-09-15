@@ -8,7 +8,7 @@ prereqs:
 lang: "en"
 title: "訓練目標：去噪回歸"
 category: "courses"
-group: "Week 3 · Diffusion Models"
+group: "Unit 1 · Diffusion Models"
 status: "missing"
 updated: 2026-09-04
 summary: "English translation in progress; content-agent task."

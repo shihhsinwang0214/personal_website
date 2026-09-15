@@ -1,12 +1,12 @@
 /**
  * noteRefs.ts — resolve stable cross-reference labels to the *current* slug, title and
- * position code ("W3.3", "M1.4") of a note.
+ * position code ("U1.3", "M1.4") of a note.
  *
  * HARD RULE for course notes: never hard-code "W3.3" / a slug in prose, and never type a
  * position code into a note's frontmatter `title` or its body `#` heading. Give every note a
  * frontmatter `label` and reference it with <Ref to="label"/>, <Bridge to="label">,
  * `prereqs: [label, …]`. Week / part numbers are derived here at build time from the note's
- * `group` ("Week 3 · …" → W3, "M1 · …" → M1) and its position in `noteSlugList`, and the
+ * `group` ("Unit 1 · …" → U1, "M1 · …" → M1) and its position in `noteSlugList`, and the
  * layouts prefix them onto the title as they render (see `noteTitles`), so renumbering a
  * week or reordering notes never breaks a link, a code, or a title.
  */
@@ -63,9 +63,9 @@ async function noteIndex(): Promise<Map<string, NoteEntry[]>> {
   return indexPromise;
 }
 
-const GROUP_CODE = /^(Week|Lecture|W|L|M)\s*(\d+)/i;
+const GROUP_CODE = /^(Unit|Week|Lecture|U|W|L|M)\s*(\d+)/i;
 
-/** "Week 3 · Diffusion Models" → "W3"; "M1 · …" → "M1"; otherwise "". */
+/** "Unit 1 · Diffusion Models" → "U1"; "M1 · …" → "M1"; otherwise "". */
 export function groupCode(group: string): string {
   const m = GROUP_CODE.exec(group);
   if (!m) return '';
@@ -77,7 +77,7 @@ export function groupCode(group: string): string {
  * not supposed to have one any more; this only keeps an old hand-typed prefix from being
  * doubled up with the derived code.
  */
-const TITLE_CODE = /^[WLM]\d+(?:\.\d+)?\s*[·:：]?\s*/;
+const TITLE_CODE = /^[UWLM]\d+(?:\.\d+)?\s*[·:：]?\s*/;
 
 export function stripNoteCode(title: string): string {
   return title.replace(TITLE_CODE, '');

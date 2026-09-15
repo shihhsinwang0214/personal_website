@@ -4,7 +4,7 @@ label: "dma-unified-table"
 lang: "en"
 title: "統一表與選擇指南"
 category: "courses"
-group: "Week 9 · Flow Maps 與分佈匹配"
+group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

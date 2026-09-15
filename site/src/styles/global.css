@@ -3099,12 +3099,12 @@ nav.site-nav a[aria-current=page] {
    ============================================================ */
 :root {
   --tone-dma: #a8742a;
-  --tone-math: #3f6db3;
-  --tone-ml: #3f8a5a;
+  --tone-math: #3f8a5a;
+  --tone-ml: #3f6db3;
   --tone-neutral: #646c78;
   --tone-dma-soft: rgba(168, 116, 42, .14);
-  --tone-math-soft: rgba(63, 109, 179, .14);
-  --tone-ml-soft: rgba(63, 138, 90, .14);
+  --tone-math-soft: rgba(63, 138, 90, .14);
+  --tone-ml-soft: rgba(63, 109, 179, .14);
   /* sky map — day version */
   --sky-top: #dfe8f3;
   --sky-bottom: #b9cde6;
@@ -3112,33 +3112,41 @@ nav.site-nav a[aria-current=page] {
   --sky-dust: #5b6c86;
   --sea-top: #8fb4d9;
   --sea-bottom: #5f8cc0;
+  --sea-band: #4f7fb8;
   --sea-line: #e8f1fb;
   --sea-glint: #ffffff;
+  --shore-sand: #d9c9a3;
   --shore-back: #7fae8c;
   --shore-front: #5b9068;
   --shore-grass: #2f5e3d;
+  --sea-text: #f3f8ff;
+  --shore-text: #1f4a2c;
   --sky-label: #1f2733;
   --sky-label-muted: #4b5563;
 }
 :root[data-theme=dark] {
   --tone-dma: #d8a44a;
-  --tone-math: #6f9ad1;
-  --tone-ml: #7fb28a;
+  --tone-math: #7fb28a;
+  --tone-ml: #6f9ad1;
   --tone-neutral: #9a988f;
   --tone-dma-soft: rgba(216, 164, 74, .16);
-  --tone-math-soft: rgba(111, 154, 209, .16);
-  --tone-ml-soft: rgba(127, 178, 138, .16);
+  --tone-math-soft: rgba(127, 178, 138, .16);
+  --tone-ml-soft: rgba(111, 154, 209, .16);
   --sky-top: #15161a;
   --sky-bottom: #24304a;
   --sky-star: #d8a44a;
   --sky-dust: #e9e6e1;
   --sea-top: #22354f;
   --sea-bottom: #16243a;
+  --sea-band: #1d3350;
   --sea-line: #6f9ad1;
   --sea-glint: #9fc0ea;
+  --shore-sand: #2a2f33;
   --shore-back: #1b2620;
   --shore-front: #182219;
   --shore-grass: #7fb28a;
+  --sea-text: #9fc0ea;
+  --shore-text: #a7d3b0;
   --sky-label: #e9e6e1;
   --sky-label-muted: #9a988f;
 }
@@ -3528,6 +3536,21 @@ nav.site-nav a[aria-current=page] {
 }
 
 /* ---- sky map ---- */
+/* Painted backdrop: the procedural scene steps aside, vector data stays on top. */
+.sky-svg--painted .sky-scene { display: none }
+.sky-art image { opacity: 1 }
+.sky-art-night { display: none }
+:root[data-theme=dark] .sky-art-night { display: inline }
+:root[data-theme=dark] .sky-art-day { display: none }
+.sky-svg--painted .sky-star-core { fill: rgba(255, 255, 255, .55) }
+:root[data-theme=dark] .sky-svg--painted .sky-star-core { fill: rgba(21, 22, 26, .55) }
+.sky-svg--painted .light-lamp { fill: rgba(255, 255, 255, .5) }
+:root[data-theme=dark] .sky-svg--painted .light-lamp { fill: rgba(21, 22, 26, .6) }
+.sky-svg--painted .sky-light.is-lit .light-lamp { fill: var(--tone) }
+.sky-svg--painted .sky-star.is-read .sky-star-core { fill: var(--sky-star) }
+.sky-svg--painted .sky-label-code { paint-order: stroke; stroke: var(--sky-top); stroke-width: 3px; stroke-linejoin: round }
+.sky-svg--painted .sky-label-name { paint-order: stroke; stroke: var(--sky-top); stroke-width: 3px; stroke-linejoin: round }
+.sky-svg--painted .light-code { paint-order: stroke; stroke: rgba(0, 0, 0, .35); stroke-width: 3px; stroke-linejoin: round }
 .sky-map { display: grid; gap: 10px }
 .sky-svg {
   background: var(--sky-top);
@@ -3540,9 +3563,15 @@ nav.site-nav a[aria-current=page] {
 .sky-svg text { user-select: none }
 .sky-dust circle { fill: var(--sky-dust) }
 .sky-reflection { fill: var(--sky-star); opacity: .05 }
-.sea-waves polyline { fill: none; stroke: var(--sea-line); stroke-width: 1.2 }
-.sea-glints line { stroke: var(--sea-glint); stroke-width: 1 }
-.shore-back { fill: var(--shore-back); opacity: .9 }
+.sea-band { fill: var(--sea-band); stroke: var(--sea-line); stroke-width: 1.1; stroke-opacity: .5 }
+.sea-band-0 { fill-opacity: .18 } .sea-band-1 { fill-opacity: .3 } .sea-band-2 { fill-opacity: .42 }
+.sea-band-3 { fill-opacity: .55 } .sea-band-4 { fill-opacity: .68 } .sea-band-5 { fill-opacity: .8 }
+.sea-foam line { stroke: var(--sea-glint); stroke-width: 1.8; stroke-linecap: round }
+.sea-foam circle { fill: var(--sea-glint) }
+.shore-sand { fill: var(--shore-sand); opacity: .9; stroke: var(--sea-glint); stroke-opacity: .4; stroke-width: 1.2 }
+.shore-foam line { stroke: var(--sea-glint); stroke-width: 2.2; stroke-linecap: round }
+.shore-back { fill: var(--shore-back); opacity: .92 }
+.shore-shrubs ellipse { fill: var(--shore-grass); opacity: .14 }
 .shore-grass line { stroke: var(--shore-grass); stroke-width: .8 }
 .shore-lighthouse polygon { fill: var(--shore-grass); opacity: .55 }
 .shore-lighthouse rect { fill: var(--shore-grass); opacity: .75 }
@@ -3572,7 +3601,7 @@ nav.site-nav a[aria-current=page] {
 /* lights */
 .sky-light { cursor: pointer; outline: none }
 .light-mast { stroke: var(--tone); stroke-width: 1.2; opacity: .8 }
-.light-lamp { fill: var(--sea-top); stroke: var(--tone); stroke-width: 1.4; transition: fill var(--dur) }
+.light-lamp { fill: var(--sea-bottom); stroke: var(--tone); stroke-width: 1.4; transition: fill var(--dur) }
 .sky-lantern .light-lamp { fill: var(--shore-front) }
 .light-glow { fill: var(--tone); opacity: 0; transition: opacity var(--dur) }
 .sky-light.is-lit .light-lamp { fill: var(--tone) }
@@ -3580,7 +3609,10 @@ nav.site-nav a[aria-current=page] {
 .sky-light.is-complete .light-glow { opacity: .28 }
 .sky-light:hover .light-glow { opacity: .35 }
 .buoy-shadow { fill: #000; opacity: .35 }
-.light-code { fill: var(--tone); font-size: 11px }
+.light-code { fill: var(--sea-text); font-size: 11px }
+.sky-lantern .light-code { fill: var(--shore-text) }
+.realm-label--sea { fill: var(--sea-text) }
+.realm-label--land { fill: var(--shore-text) }
 /* here marker */
 .sky-here.is-hidden { display: none }
 .sky-here-ring { fill: none; stroke: var(--sky-star); stroke-width: 1.5; opacity: .8 }
@@ -3598,7 +3630,7 @@ nav.site-nav a[aria-current=page] {
 .sky-legend > span { align-items: center; display: inline-flex; gap: 6px }
 .sky-legend-dot { border: 1.5px solid var(--tone-dma); border-radius: 50%; display: inline-block; height: 10px; width: 10px }
 .sky-legend-dot.is-on { background: var(--tone-dma) }
-.sky-legend-thread { border-top: 1.5px dashed var(--tone-math); display: inline-block; width: 18px }
+.sky-legend-thread { border-top: 1.5px dashed var(--tone-ml); display: inline-block; width: 18px }
 .sky-legend-note { margin-left: auto }
 @media (prefers-reduced-motion: no-preference) {
   .sky-star.is-read .sky-star-glow { animation: sky-twinkle 4s ease-in-out infinite }

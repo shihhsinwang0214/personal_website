@@ -7,10 +7,10 @@ prereqs:
 lang: "zh"
 title: "Absorbing 與 Uniform：翻錯的字能不能改？"
 category: "courses"
-group: "Week 6 · Discrete Diffusion I"
+group: "Unit 4 · Discrete Diffusion I"
 status: "available"
 updated: 2026-09-07
-summary: "absorbing 鏈翻開的 token 永遠固定，uniform 鏈每一步都能改任何 token。前者像 ODE：沒有修正、誤差累積；後者像 SDE：有自我修正、但代價是模型分不清哪些字是噪聲。只給直覺與實驗，數學留到下週的 rate 語言。"
+summary: "absorbing 鏈翻開的 token 永遠固定，uniform 鏈每一步都能改任何 token。前者像 ODE：沒有修正、誤差累積；後者像 SDE：有自我修正、但代價是模型分不清哪些字是噪聲。只給直覺與實驗，數學留到下一個單元的 rate 語言。"
 demos: []
 references:
   - label: "Austin et al., Structured Denoising Diffusion Models in Discrete State-Spaces (NeurIPS 2021)"
@@ -41,7 +41,7 @@ import Ref from '../../../components/Ref.astro';
 <Objectives>
 - 說出 absorbing 與 uniform 兩條鏈在反向取樣時，對「已經生成的 token」各允許什麼、不允許什麼。
 - 把這個差別對到 <Ref to="dma-sampler-family"/> 的 ODE 與 SDE：沒有修正 vs 有自我修正，以及各自的代價。
-- 說出為什麼實務上 absorbing 通常表現更好，儘管它不能修正——並由此看見下週 remasking 要解決的問題。
+- 說出為什麼實務上 absorbing 通常表現更好，儘管它不能修正——並由此看見下一個單元 remasking 要解決的問題。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -82,14 +82,14 @@ absorbing 鏈把這個判斷**完全拿掉**：`[MASK]` 一眼可辨，沒被遮
 </Remark>
 
 <Question id="Q1">
-有沒有辦法**兩個都要**——保留 `[MASK]` 帶來的乾淨 context，又讓早期填錯的字有機會被改？請用這一週的語言描述你會怎麼設計 forward chain。
+有沒有辦法**兩個都要**——保留 `[MASK]` 帶來的乾淨 context，又讓早期填錯的字有機會被改？請用這個單元的語言描述你會怎麼設計 forward chain。
 
 <Answer>
 直覺的設計是：在 absorbing 鏈上**加一點「回到 `[MASK]`」的機會**——一個已經翻開的字，以某個小機率被重新遮起來，之後再重填。這樣噪聲仍然只有一種符號（context 依然乾淨），但錯字不再永遠固定；重新被遮的位置會用當時更完整的 context 重新填一次。
 
-這個想法叫 **remasking**，近期的工作（例如 ReMDM [3]）正是這麼做的。但要把它做對，有幾件事得說清楚：重新遮的機率該是多少？它會不會改變每個 $t$ 的邊際分佈 $q(x_t\mid x_0)$、進而讓訓好的模型不再適用？「每步翻開的比例」和「每步重遮的比例」之間該怎麼平衡？這些問題用本週離散時間、transition matrix 的語言答起來很笨拙——每個問題都要重新算一次矩陣連乘。
+這個想法叫 **remasking**，近期的工作（例如 ReMDM [3]）正是這麼做的。但要把它做對，有幾件事得說清楚：重新遮的機率該是多少？它會不會改變每個 $t$ 的邊際分佈 $q(x_t\mid x_0)$、進而讓訓好的模型不再適用？「每步翻開的比例」和「每步重遮的比例」之間該怎麼平衡？這些問題用本單元離散時間、transition matrix 的語言答起來很笨拙——每個問題都要重新算一次矩陣連乘。
 
-下週換一種語言：連續時間，用 **rate** 描述「每單位時間有多少機率從一個狀態流到另一個狀態」。在那個語言裡，remasking 只是在 absorbing 過程上多加一個 rate，而它對應到的正是 <Ref to="dma-sampler-family"/> 那個「訓練噪聲與取樣噪聲是兩個旋鈕」裡取樣器的 $\varepsilon$。答案會變得很短。
+下一個單元換一種語言：連續時間，用 **rate** 描述「每單位時間有多少機率從一個狀態流到另一個狀態」。在那個語言裡，remasking 只是在 absorbing 過程上多加一個 rate，而它對應到的正是 <Ref to="dma-sampler-family"/> 那個「訓練噪聲與取樣噪聲是兩個旋鈕」裡取樣器的 $\varepsilon$。答案會變得很短。
 </Answer>
 </Question>
 
@@ -132,7 +132,7 @@ uniform 的終點是每個位置獨立均勻，很好抽；$\bar Q_t$ 也有 clo
 <Option>absorbing 的少步數與 uniform 的 closed form $\bar Q_t$。</Option>
 <Option>uniform 的乾淨 context 與 absorbing 的修正能力。</Option>
 <Explanation>
-乾淨 context 屬於 absorbing、修正能力屬於 uniform，remasking 在 absorbing 鏈上加「回到 `[MASK]`」的機會，兩者兼得。它是否改變邊際、機率該怎麼定，要等下週的 rate 語言才好回答。
+乾淨 context 屬於 absorbing、修正能力屬於 uniform，remasking 在 absorbing 鏈上加「回到 `[MASK]`」的機會，兩者兼得。它是否改變邊際、機率該怎麼定，要等下一個單元的 rate 語言才好回答。
 </Explanation>
 </QuizBlock>
 
@@ -145,4 +145,4 @@ uniform 的終點是每個位置獨立均勻，很好抽；$\bar Q_t$ 也有 clo
 1. Austin, J., Johnson, D. D., Ho, J., Tarlow, D., van den Berg, R. [*Structured Denoising Diffusion Models in Discrete State-Spaces.*](https://arxiv.org/abs/2107.03006) NeurIPS 2021.（文字上 absorbing 優於 uniform 的實驗。）
 2. Lou, A., Meng, C., Ermon, S. [*Discrete Diffusion Modeling by Estimating the Ratios of the Data Distribution.*](https://arxiv.org/abs/2310.16834) ICML 2024.（SEDD：連續時間下 absorbing 與 uniform 的比較。）
 3. Wang, G., Schiff, Y., Sahoo, S. S., Kuleshov, V. [*Remasking Discrete Diffusion Models with Inference-Time Scaling.*](https://arxiv.org/abs/2503.00307) 2025.（ReMDM：在 absorbing 鏈上加 remasking。）
-4. Campbell, A., Benton, J., De Bortoli, V., Rainforth, T., Deligiannidis, G., Doucet, A. [*A Continuous Time Framework for Discrete Denoising Models.*](https://arxiv.org/abs/2205.14987) NeurIPS 2022.（下週的連續時間語言。）
+4. Campbell, A., Benton, J., De Bortoli, V., Rainforth, T., Deligiannidis, G., Doucet, A. [*A Continuous Time Framework for Discrete Denoising Models.*](https://arxiv.org/abs/2205.14987) NeurIPS 2022.（下一個單元的連續時間語言。）

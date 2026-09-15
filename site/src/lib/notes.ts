@@ -46,7 +46,7 @@ export const noteSlugList = [
   'n2d-optimal-transport',
   'n2d-why-gaussian',
   // Diffusion Models and Their Applications — weekly course notes
-  // (category: "courses"; group: "Week N · …"; ordered within each week by this list)
+  // (category: "courses"; group: "Unit N · …"; ordered within each unit by this list)
   'dma-w3-0-what-are-we-learning',
   'dma-w3-1-forward-process',
   'dma-w3-2-denoising-regression',
@@ -191,13 +191,13 @@ const groupOrder = [
   'Lecture 9 · Reading the Math in Papers',
   'Lecture 10 · Review & Projects',
   // Courses — Diffusion Models and Their Applications
-  'Week 3 · Diffusion Models',
-  'Week 4 · Flow Matching',
-  'Week 5 · Stochastic Interpolants 與共用技巧',
-  'Week 6 · Discrete Diffusion I',
-  'Week 7 · Discrete Diffusion II',
-  'Week 8 · Consistency Models',
-  'Week 9 · Flow Maps 與分佈匹配',
+  'Unit 1 · Diffusion Models',
+  'Unit 2 · Flow Matching',
+  'Unit 3 · Stochastic Interpolants 與共用技巧',
+  'Unit 4 · Discrete Diffusion I',
+  'Unit 5 · Discrete Diffusion II',
+  'Unit 6 · Consistency Models',
+  'Unit 7 · Flow Maps 與分佈匹配',
   // Courses — Mathematical Foundations
   'M0 · Calculus 工具箱',
   'M1 · 機率與 Conditional Expectation',
@@ -397,7 +397,7 @@ export const courses: CourseDef[] = [
   {
     key: 'math-for-dl',
     tone: 'neutral',
-    realm: 'sea',
+    realm: 'land',
     title: {
       en: 'All the Math You Need for Deep Learning',
       zh: 'All the Math You Need for Deep Learning',
@@ -495,7 +495,7 @@ export const courses: CourseDef[] = [
     category: 'courses',
     lectures: [
       {
-        group: 'Week 3 · Diffusion Models',
+        group: 'Unit 1 · Diffusion Models',
         label: 'dma-week-diffusion',
         constellation: { anchor: [90, 110], stars: [[0, 70, 3.2], [34, 38, 4.4], [82, 52, 2.8], [118, 18, 3.6], [150, 60, 4.8], [96, 104, 3.0]], edges: [[0, 1], [1, 2], [2, 3], [2, 4], [4, 5]] },
         description: {
@@ -504,7 +504,7 @@ export const courses: CourseDef[] = [
         },
       },
       {
-        group: 'Week 4 · Flow Matching',
+        group: 'Unit 2 · Flow Matching',
         label: 'dma-week-flow-matching',
         constellation: { anchor: [300, 280], stars: [[0, 0, 4.6], [52, -22, 3.0], [96, -8, 3.4], [126, -56, 4.2], [178, -40, 2.8], [210, 8, 3.8]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [2, 5]] },
         description: {
@@ -513,7 +513,7 @@ export const courses: CourseDef[] = [
         },
       },
       {
-        group: 'Week 5 · Stochastic Interpolants 與共用技巧',
+        group: 'Unit 3 · Stochastic Interpolants 與共用技巧',
         label: 'dma-week-interpolants',
         constellation: { anchor: [470, 100], stars: [[0, 40, 3.4], [44, 66, 2.9], [78, 24, 4.9], [120, 44, 3.2], [150, -8, 3.0], [206, -26, 4.0], [238, 22, 2.7]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [3, 6]] },
         description: {
@@ -522,7 +522,7 @@ export const courses: CourseDef[] = [
         },
       },
       {
-        group: 'Week 6 · Discrete Diffusion I',
+        group: 'Unit 4 · Discrete Diffusion I',
         label: 'dma-week-discrete-i',
         constellation: { anchor: [560, 300], stars: [[0, 0, 3.0], [28, 46, 4.4], [74, 32, 3.2], [112, 70, 3.6], [136, 18, 2.8], [180, 50, 4.0]], edges: [[0, 1], [1, 2], [2, 3], [3, 5], [2, 4]] },
         description: {
@@ -531,7 +531,7 @@ export const courses: CourseDef[] = [
         },
       },
       {
-        group: 'Week 7 · Discrete Diffusion II',
+        group: 'Unit 5 · Discrete Diffusion II',
         label: 'dma-week-discrete-ii',
         constellation: { anchor: [770, 326], stars: [[0, 30, 3.6], [38, -12, 2.8], [64, 42, 4.6], [118, 26, 3.2], [150, -30, 3.0], [186, 4, 4.2], [226, -24, 2.9]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [3, 5], [5, 6]] },
         description: {
@@ -540,7 +540,7 @@ export const courses: CourseDef[] = [
         },
       },
       {
-        group: 'Week 8 · Consistency Models',
+        group: 'Unit 6 · Consistency Models',
         label: 'dma-week-consistency',
         constellation: { anchor: [830, 100], stars: [[0, 0, 4.8], [46, 36, 3.0], [90, 22, 3.4], [124, 66, 4.4], [160, 30, 2.8], [190, 90, 3.4], [230, 58, 4.0]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [3, 5], [5, 6]] },
         description: {
@@ -549,7 +549,7 @@ export const courses: CourseDef[] = [
         },
       },
       {
-        group: 'Week 9 · Flow Maps 與分佈匹配',
+        group: 'Unit 7 · Flow Maps 與分佈匹配',
         label: 'dma-week-flow-maps',
         constellation: { anchor: [935, 285], stars: [[0, 20, 3.2], [30, -30, 4.6], [84, -46, 3.0], [130, -20, 3.6], [150, 40, 4.4], [112, 72, 2.8], [60, 50, 3.4]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 0]] },
         description: {
@@ -562,7 +562,7 @@ export const courses: CourseDef[] = [
   {
     key: 'mathematical-foundations',
     tone: 'math',
-    realm: 'sea',
+    realm: 'land',
     title: {
       en: 'Mathematical Foundations',
       zh: 'Mathematical Foundations',
@@ -634,7 +634,7 @@ export const courses: CourseDef[] = [
   {
     key: 'machine-learning-foundations',
     tone: 'ml',
-    realm: 'land',
+    realm: 'sea',
     title: {
       en: 'Machine Learning Foundations',
       zh: 'Machine Learning Foundations',

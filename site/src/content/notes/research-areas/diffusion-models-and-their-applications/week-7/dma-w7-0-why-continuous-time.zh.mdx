@@ -7,7 +7,7 @@ prereqs:
 lang: "zh"
 title: "要把「改」說清楚，需要什麼語言？"
 category: "courses"
-group: "Week 7 · Discrete Diffusion II"
+group: "Unit 5 · Discrete Diffusion II"
 status: "available"
 updated: 2026-09-07
 summary: "uniform 鏈能改已生成的 token、absorbing 不能。想量化「改多少」、設計介於兩者之間的過程，離散時間的 transition matrix 語言會處處卡住：改一點就沒有 closed form、改的量沒有單位、取樣器和 forward chain 綁在一起。連續世界曾用 SDE 解開同一個結，離散世界的對應是 rate。"
@@ -41,21 +41,21 @@ import Ref from '../../../components/Ref.astro';
 <Objectives>
 - 把 <Ref to="dma-absorbing-vs-uniform"/> 留下的問題拆成三個可以回答的小問題：改多少、會不會動到邊際、能不能設計介於 absorbing 與 uniform 之間的過程。
 - 說出離散時間的 transition matrix 語言在這三個問題上各卡在哪裡，並認出這和 <Ref week="dma-week-diffusion"/> 從 DDPM 的 $T$ 步走到 SDE 是同一種卡法。
-- 說出本週要引入的新物件是什麼（rate），以及它為什麼能把「取樣器怎麼走」從「forward chain 是什麼」裡拆出來。
+- 說出本單元要引入的新物件是什麼（rate），以及它為什麼能把「取樣器怎麼走」從「forward chain 是什麼」裡拆出來。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
 <Ask>
 上一篇那個「加一點回到 [MASK] 的機會」，<br />
-為什麼用上週的語言答起來很笨拙？
+為什麼用上一個單元的語言答起來很笨拙？
 </Ask>
 
-## 上週留下的一句話
+## 上一個單元留下的一句話
 
 <Ref to="dma-absorbing-vs-uniform"/> 結尾的問題是這樣的：absorbing 鏈把不確定性集中在 `[MASK]` 上、context 乾淨，但翻開的字永遠固定；uniform 鏈每一步都能改任何字，但模型分不清哪些字是噪聲。能不能兩個都要？
 
-那一篇給了一個直覺的設計——在 absorbing 鏈上加「一點」回到 `[MASK]` 的機會——然後停住了，說這件事用上週的語言「答起來很笨拙」。這一篇就把「笨拙」說清楚。不是為了抱怨，而是因為看清楚哪裡卡住，新語言該長什麼樣就會自己浮出來。
+那一篇給了一個直覺的設計——在 absorbing 鏈上加「一點」回到 `[MASK]` 的機會——然後停住了，說這件事用上一個單元的語言「答起來很笨拙」。這一篇就把「笨拙」說清楚。不是為了抱怨，而是因為看清楚哪裡卡住，新語言該長什麼樣就會自己浮出來。
 
 先把那個含糊的問題拆成三個具體的：
 
@@ -73,7 +73,7 @@ absorbing 的 $Q_t=(1-\beta_t)I+\beta_t\mathbb 1e_m^{\!\top}$，`[MASK]` 那一�
 
 **第二面牆：「一點」沒有單位。** 假設咬牙接受沒有 closed form，「改一點」的量寫成 $\gamma_t$。但 $\gamma_t$ 是**一步**的機率，而「一步」是多長取決於 $T$：$T=1000$ 的 $\gamma_t=0.01$ 和 $T=10$ 的 $\gamma_t=0.01$ 是完全不同強度的修正。<Ref to="dma-masked-diffusion"/> 的取樣器可以訓練時用 $T=1000$、取樣時只走 8 步——跳步的時候，$\gamma$ 該怎麼跟著換？在 transition matrix 的語言裡，「每步改多少」和「走幾步」是綁在同一個數字上的，拆不開。
 
-**第三面牆：取樣器和 forward chain 綁死。** 上週的取樣程序是「反著走 posterior」：$p_\theta(x_{t-1}\mid x_t)=\sum_{\tilde x_0}q(x_{t-1}\mid x_t,\tilde x_0)\,p_\theta(\tilde x_0\mid x_t)$。這裡每一個因子都由 $Q_t$ 決定，取樣器**沒有任何自己的自由度**。想在取樣時多做一件事（把字遮回去），就只能改 $Q_t$——也就是改 forward chain、改訓練分佈、重訓。第 2 個小問題（會不會動到邊際）在這個語言裡連問都問不出來，因為答案永遠是「會」。
+**第三面牆：取樣器和 forward chain 綁死。** 上一個單元的取樣程序是「反著走 posterior」：$p_\theta(x_{t-1}\mid x_t)=\sum_{\tilde x_0}q(x_{t-1}\mid x_t,\tilde x_0)\,p_\theta(\tilde x_0\mid x_t)$。這裡每一個因子都由 $Q_t$ 決定，取樣器**沒有任何自己的自由度**。想在取樣時多做一件事（把字遮回去），就只能改 $Q_t$——也就是改 forward chain、改訓練分佈、重訓。第 2 個小問題（會不會動到邊際）在這個語言裡連問都問不出來，因為答案永遠是「會」。
 
 <VizPlan id="w7-0-two-languages" title="同一個修改，兩種語言" type="static">
 - **位置**：本節之後。**檔名**：`imgs/w7-0-1.png`（16:9，左右兩格）。
@@ -108,7 +108,7 @@ $$
 
 **互動 demo：加一條「回到 [MASK]」的管子，會壞掉什麼。** 兩件事量得出來。$\gamma=0$ 時上圖那條線貼在 0 上——**closed form 完全正確**；把 $\gamma$ 推上去，誤差立刻長出來（$\gamma$ 對應到中等強度時實測最大誤差 **0.33**），$\bar Q_t$ 再也不是「$\bar\alpha_t$ 倍的 identity ＋ 剩下的全在 `[MASK]`」那個形狀。下圖是更麻煩的那件事：兩種模式的**遮罩總量都固定**，但把「在 $T=40$ 校準好的每步機率」直接拿去 $T=10/100/1000$ 用，終點是 **0.126 / 0.556 / 0.926**——差了七倍；換成「每步取 $\sigma/T$」則是 **0.335 / 0.340 / 0.341**，三者幾乎相同。**rate 有單位，每步的機率沒有。**
 
-## 本週的新物件：rate
+## 本單元的新物件：rate
 
 把 $Q_t$ 換掉，改問一個更基本的問題：**在時刻 $t$，每單位時間有多少機率從狀態 $x$ 流到狀態 $y$？** 這個數叫 **rate**，記成 $R_t(x\to y)$，單位是 1/時間。一步的 transition matrix 只是它在一個很短的時間 $\Delta t$ 裡的累積：
 
@@ -124,7 +124,7 @@ $$
 - **會不會動到邊際？** 有一個和 <Ref to="dma-sampler-family"/> 逐字對應的條件，滿足它就不動（<Ref to="dma-remasking"/>）。
 - **能不能連續地調？** $\sigma_t$ 從 0 連續調上去，absorbing 是 $\sigma\equiv0$ 那一端（<Ref to="dma-remasking"/>）。
 
-順便，<Ref to="dma-discrete-data"/> 說 <Ref week="dma-week-diffusion"/> 的框架在離散世界裡真的壞掉的兩塊是 **score** 與 **ODE / SDE**。rate 的語言會把這兩塊重建回來：反向過程的 rate 裡會冒出一個扮演 score 角色的量——不是梯度，是**比值** $p_t(y)/p_t(x)$（<Ref to="dma-concrete-score"/>）；而 flow matching 那套「條件路徑 → 邊際速度」的建構，把速度換成 rate 之後逐字成立（<Ref to="dma-discrete-flow-matching"/>）。<Ref to="dma-discrete-data"/> 那張 2×2 的表，右下角那格這一週填滿。
+順便，<Ref to="dma-discrete-data"/> 說 <Ref week="dma-week-diffusion"/> 的框架在離散世界裡真的壞掉的兩塊是 **score** 與 **ODE / SDE**。rate 的語言會把這兩塊重建回來：反向過程的 rate 裡會冒出一個扮演 score 角色的量——不是梯度，是**比值** $p_t(y)/p_t(x)$（<Ref to="dma-concrete-score"/>）；而 flow matching 那套「條件路徑 → 邊際速度」的建構，把速度換成 rate 之後逐字成立（<Ref to="dma-discrete-flow-matching"/>）。<Ref to="dma-discrete-data"/> 那張 2×2 的表，右下角那格這個單元填滿。
 
 <Details summary="為什麼不乾脆一直用離散時間、把 T 取很大？">
 可以，而且 <Ref to="dma-masked-diffusion"/> 的 Details 已經這麼做過一次：讓 $T\to\infty$，權重 $\frac{\bar\alpha_{t-1}-\bar\alpha_t}{1-\bar\alpha_t}$ 變成 $\frac{-\dot\alpha_t}{1-\alpha_t}dt$。那個極限其實已經是連續時間了——$-\dot\alpha_t/\alpha_t$ 就是 absorbing 鏈的 rate（下一篇會算出來）。
@@ -132,8 +132,8 @@ $$
 問題不在「$T$ 大」，而在**用 $T$ 步的語言描述 $T\to\infty$ 的物件**：每次要問一個新問題（改 schedule、加 remasking、換取樣步數）都得重做一次極限。直接在極限裡工作，每個問題只要算一次。DDPM 到 SDE 的過渡也是同一個理由：DDPM 的 $\beta_t$ 在 $T\to\infty$ 下就是 SDE 的 $g_t^2\,dt$，但在 SDE 裡寫一族取樣器只要一行，在 DDPM 裡要重推 posterior。
 </Details>
 
-<Details summary="這一週不做的事">
-CTMC 是一個可以講一學期的主題。這一週只用到四件事：rate matrix 的定義、forward equation、時間反轉的 rate、以及「rate 是條件 rate 的後驗平均」。不碰 generator 的 semigroup 理論、不碰 Kolmogorov backward equation、不碰 explosion 或無限狀態空間。狀態空間永遠是有限的（$K$ 個字、$L$ 個位置），所有 $p_t$ 都是有限個數字。
+<Details summary="這個單元不做的事">
+CTMC 是一個可以講一學期的主題。這個單元只用到四件事：rate matrix 的定義、forward equation、時間反轉的 rate、以及「rate 是條件 rate 的後驗平均」。不碰 generator 的 semigroup 理論、不碰 Kolmogorov backward equation、不碰 explosion 或無限狀態空間。狀態空間永遠是有限的（$K$ 個字、$L$ 個位置），所有 $p_t$ 都是有限個數字。
 </Details>
 
 <Question id="Q1">

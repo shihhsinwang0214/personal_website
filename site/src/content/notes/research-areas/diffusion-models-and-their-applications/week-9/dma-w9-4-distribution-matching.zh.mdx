@@ -8,7 +8,7 @@ prereqs:
 lang: "zh"
 title: "另一條路：分佈匹配"
 category: "courses"
-group: "Week 9 · Flow Maps 與分佈匹配"
+group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "available"
 updated: 2026-09-06
 summary: "前面所有方法都是回歸：學生的輸出要等於某個目標點。DMD 改要求學生生成的分佈等於 teacher 的分佈——最小化各 noise level 上的 KL，梯度是兩個 score 的差 s_real − s_fake，s_fake 用另一個 denoiser 即時估計。回歸式蒸餾的失敗模式是「平均到中間」（配對交叉在蒸餾裡的樣子），分佈匹配繞開了它，換來 score 估計、mode collapse 與不穩定。"
@@ -49,9 +49,9 @@ import Ref from '../../../components/Ref.astro';
 
 ## 到目前為止，全部都是回歸
 
-回頭看這兩週的每一個損失：progressive distillation 讓學生一步等於 teacher 兩步；consistency 讓 $f_\theta(x_t)$ 等於 $f_{\theta^-}(x_{t'})$；MeanFlow 讓 $u_\theta$ 等於 identity 的右邊；Shortcut 讓大步等於兩小步的平均。形狀全都一樣：**學生在某個輸入上的輸出，要等於某個目標點，用 squared loss 拉近。**
+回頭看這兩個單元的每一個損失：progressive distillation 讓學生一步等於 teacher 兩步；consistency 讓 $f_\theta(x_t)$ 等於 $f_{\theta^-}(x_{t'})$；MeanFlow 讓 $u_\theta$ 等於 identity 的右邊；Shortcut 讓大步等於兩小步的平均。形狀全都一樣：**學生在某個輸入上的輸出，要等於某個目標點，用 squared loss 拉近。**
 
-這個形狀有一個 <Ref to="dma-tweedie-and-score"/> 就講過的性質：squared loss 的最小值是**條件期望**。目標若給定輸入是唯一的，回歸學到它；目標若給定輸入有好幾個可能，回歸學到它們的**平均**。前幾週這件事一直是幫手——正是靠它，條件目標才能在期望上等於邊際目標。但在蒸餾裡，它有另一面。
+這個形狀有一個 <Ref to="dma-tweedie-and-score"/> 就講過的性質：squared loss 的最小值是**條件期望**。目標若給定輸入是唯一的，回歸學到它；目標若給定輸入有好幾個可能，回歸學到它們的**平均**。前幾個單元這件事一直是幫手——正是靠它，條件目標才能在期望上等於邊際目標。但在蒸餾裡，它有另一面。
 
 想像 teacher 從噪聲 $x_0$ 出發，會走到哪一個資料點。若 teacher 是 ODE，這是一個確定的函數，目標唯一。但只要下面任何一件事發生，目標就變成多值：teacher 用的是 SDE 取樣器（同一個 $x_0$ 走出不同終點）；學生用的是條件配對 $(x_0,x_1)$ 而網路還沒學好；或者 consistency training 的時間網格太粗，目標退化成「$x_t$ 對應的 $x_1$」而不是「軌跡的終點」。這時回歸給出的是幾個可能終點的平均——**落在兩個 mode 中間、不像任何一個樣本的點**。<Ref to="dma-linear-path"/> Q1 說邊際速度是交叉直線方向的平均，於是軌跡彎；同一件事在蒸餾裡，是輸出變成終點的平均，於是**模糊**。交叉問題在蒸餾裡換了一身裝。
 
@@ -88,7 +88,7 @@ $s_{\text{real}}$ 是 teacher，用 <Ref to="dma-tweedie-and-score"/> 從 denois
 
 ## 為什麼要在所有 noise level 上做
 
-上面的式子寫在乾淨樣本 $x$ 上，實際做不到：$p_\theta$ 與 $p_{\text{real}}$ 在高維空間都很薄，兩者幾乎不重疊的地方 score 沒有意義，訓練初期學生的樣本全在 teacher 密度為零的區域，$s_{\text{real}}$ 給不出有用的方向。解法和 <Ref to="dma-forward-process"/> 選擇加噪的理由一模一樣：**把兩個分佈都加噪**。對每個 noise level $t$，令 $x_t=(1-t)\,x_0'+t\,x$（FM 慣例；$x_0'$ 是新抽的噪聲端樣本，和本週其他地方的 $x_0$ 一樣來自 $p_0$，加一撇是因為它與生成那一支用的 $z$ 無關），學生的擴散分佈 $p_{\theta,t}$ 與 teacher 的 $p_{\text{real},t}$ 都變得光滑、處處有密度。DMD 的目標是這些 KL 的加權和：
+上面的式子寫在乾淨樣本 $x$ 上，實際做不到：$p_\theta$ 與 $p_{\text{real}}$ 在高維空間都很薄，兩者幾乎不重疊的地方 score 沒有意義，訓練初期學生的樣本全在 teacher 密度為零的區域，$s_{\text{real}}$ 給不出有用的方向。解法和 <Ref to="dma-forward-process"/> 選擇加噪的理由一模一樣：**把兩個分佈都加噪**。對每個 noise level $t$，令 $x_t=(1-t)\,x_0'+t\,x$（FM 慣例；$x_0'$ 是新抽的噪聲端樣本，和本單元其他地方的 $x_0$ 一樣來自 $p_0$，加一撇是因為它與生成那一支用的 $z$ 無關），學生的擴散分佈 $p_{\theta,t}$ 與 teacher 的 $p_{\text{real},t}$ 都變得光滑、處處有密度。DMD 的目標是這些 KL 的加權和：
 
 $$
 \mathcal L_{\text{DMD}}=\mathbb E_t\Big[w(t)\,\mathrm{KL}\big(p_{\theta,t}\,\|\,p_{\text{real},t}\big)\Big],\qquad
@@ -172,7 +172,7 @@ $\mathbb E_{x\sim p_\theta}\big[\log\frac{p_\theta}{p_{\text{real}}}\big]$ 只�
 </QuizBlock>
 
 <Bridge to="dma-unified-table">
-本篇換了訓練訊號：從「輸出等於目標點」到「分佈等於分佈」，梯度是兩個 score 的差。回歸式的失敗是平均（交叉問題的最終形態），分佈匹配的失敗是塌縮與追不上。下一篇把兩週的方法沿著幾個軸排成一張表——學什麼、要不要 teacher、能否多步、誤差從哪裡來——並給一份選擇指南。
+本篇換了訓練訊號：從「輸出等於目標點」到「分佈等於分佈」，梯度是兩個 score 的差。回歸式的失敗是平均（交叉問題的最終形態），分佈匹配的失敗是塌縮與追不上。下一篇把兩個單元的方法沿著幾個軸排成一張表——學什麼、要不要 teacher、能否多步、誤差從哪裡來——並給一份選擇指南。
 </Bridge>
 
 ## 參考文獻

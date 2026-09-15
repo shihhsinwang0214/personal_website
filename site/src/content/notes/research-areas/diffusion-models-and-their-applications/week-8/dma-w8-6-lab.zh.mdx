@@ -7,7 +7,7 @@ prereqs:
 lang: "zh"
 title: "實作：三種「一步」放在同一張圖上"
 category: "courses"
-group: "Week 8 · Consistency Models"
+group: "Unit 6 · Consistency Models"
 status: "available"
 updated: 2026-09-06
 summary: "在同一個 2D toy 上訓 consistency distillation 與 consistency training 各一個一步生成器、比 W₂；畫 CT 在不同時間網格 N 下的 bias；把 reflow×2 的一步 Euler 放進來——三種一步方法同一張圖。再量多步 CM 吃不吃步數。"
@@ -37,7 +37,7 @@ import Answer from '../../../components/Answer.astro';
 # 實作：三種「一步」放在同一張圖上
 
 <Objectives>
-- 在 <Ref to="dma-lab-diffusion"/> 的 toy 上以本週的 VE 座標實作 $c_{\text{skip}},c_{\text{out}}$ 參數化、CD 損失與 CT 損失，各訓一個一步生成器。
+- 在 <Ref to="dma-lab-diffusion"/> 的 toy 上以本單元的 VE 座標實作 $c_{\text{skip}},c_{\text{out}}$ 參數化、CD 損失與 CT 損失，各訓一個一步生成器。
 - 畫出 CT 的一步 $W_2$ 對時間網格 $N$ 的曲線，把 <Ref to="dma-cd-vs-ct"/> 的 bias–variance 取捨變成一條線；並用精確 score 當 teacher 的 CD 把 Euler 曲率誤差單獨量出來。
 - 產出主圖：CD、CT、reflow×2 三種「一步」方法的 $W_2$ 並排；以及多步 CM 的步數曲線。
 </Objectives>
@@ -46,11 +46,11 @@ import Answer from '../../../components/Answer.astro';
 
 ## 設定
 
-沿用 `toy.py`（月牙資料、MLP、`exact_score`）與 <Ref to="dma-lab-interpolants"/> 的 `fm.py`、`couplings.py`（reflow×2 的權重直接載入）。本週新增 `cm.py`：VE 座標下的加噪、時間網格、參數化、CD / CT 損失、一步與多步取樣。
+沿用 `toy.py`（月牙資料、MLP、`exact_score`）與 <Ref to="dma-lab-interpolants"/> 的 `fm.py`、`couplings.py`（reflow×2 的權重直接載入）。本單元新增 `cm.py`：VE 座標下的加噪、時間網格、參數化、CD / CT 損失、一步與多步取樣。
 
-三件事要先定下來。**座標**：本週是 $x_t=x_0+t\epsilon$，$t\in[\varepsilon,T]$，$\varepsilon=0.002$；資料已標準化，toy 上 $T=10$ 就夠遠（$x_T$ 幾乎是純噪聲）。**teacher**：2D toy 的好處在這裡最明顯——真實 score 可以精確算，所以 CD 可以用 `exact_score` 當 teacher，把「teacher 誤差」這一項從實驗裡拿掉，剩下的就只有 Euler 的曲率誤差。作業會再用 <Ref to="dma-lab-diffusion"/> 訓好的 $\epsilon_\theta$ 當 teacher 對照。**評估**：所有方法都用 2000 個樣本對資料的 $W_2$（`ot.emd2`），與 <Ref to="dma-lab-interpolants"/> 圖 b 同一把尺。
+三件事要先定下來。**座標**：本單元是 $x_t=x_0+t\epsilon$，$t\in[\varepsilon,T]$，$\varepsilon=0.002$；資料已標準化，toy 上 $T=10$ 就夠遠（$x_T$ 幾乎是純噪聲）。**teacher**：2D toy 的好處在這裡最明顯——真實 score 可以精確算，所以 CD 可以用 `exact_score` 當 teacher，把「teacher 誤差」這一項從實驗裡拿掉，剩下的就只有 Euler 的曲率誤差。作業會再用 <Ref to="dma-lab-diffusion"/> 訓好的 $\epsilon_\theta$ 當 teacher 對照。**評估**：所有方法都用 2000 個樣本對資料的 $W_2$（`ot.emd2`），與 <Ref to="dma-lab-interpolants"/> 圖 b 同一把尺。
 
-<VizPlan id="w8-6-notebook" title="Consistency Models 週實作 notebook" type="notebook">
+<VizPlan id="w8-6-notebook" title="Consistency Models 單元實作 notebook" type="notebook">
 - 單一 notebook，六個 section 對應下面六個步驟，每個 section 有 TODO 骨架與參考解答（折疊）。
 - 提供 `cm.py`：`karras_grid(N)`、`c_skip / c_out`、`ConsistencyModel` 包裝類（吃任意 `F_theta`，輸出 $f_\theta$）、`exact_score_ve(x, t)`（把 `toy.py` 的混合 Gaussian score 改寫到 VE 座標）、`euler_step_ve`、`w2(samples)`。
 - 載入 <Ref to="dma-lab-interpolants"/> 的 `model_reflow2` 權重當第三種一步方法。
@@ -188,7 +188,7 @@ def multistep_cm(cm, xT, taus):                 # taus：遞減的中間時刻�
 
 1. **Teacher 換成網路。** 把步驟 2 的 CD teacher 從 `exact_score_ve` 換成 <Ref to="dma-lab-diffusion"/> 訓好的 $\epsilon_\theta$（轉到 VE 座標：$\nabla\log p_t\approx-\epsilon_\theta/t$，注意 VP→VE 的時間對應）。重畫圖 a 的 CD 曲線。它在大 $N$ 處的平台是升高還是不變？說明哪一項誤差進來了。
 2. **EMA target。** 在步驟 2 加回 $\theta^-=\text{EMA}_{0.999}(\theta)$，只對 CT 重畫圖 a。曲線的最低點怎麼移動？對照 <Ref to="dma-ict-scm"/> 對這一項的分類（bias）。
-3. **先拉直、再 CT。** 用 reflow×2 的耦合（不是獨立配對）造 $(x_0,\epsilon)$——也就是把 <Ref to="dma-lab-interpolants"/> 的 `(x0, x1)` 配對換成本週座標的 $(x_0,\epsilon)$——重訓 CT。圖 a 的 CT 曲線在小 $N$ 處的 bias 下降了多少？用 <Ref to="dma-cd-vs-ct"/> 那個「CT 的目標是假設這一段是直線」的展開框解釋。
+3. **先拉直、再 CT。** 用 reflow×2 的耦合（不是獨立配對）造 $(x_0,\epsilon)$——也就是把 <Ref to="dma-lab-interpolants"/> 的 `(x0, x1)` 配對換成本單元座標的 $(x_0,\epsilon)$——重訓 CT。圖 a 的 CT 曲線在小 $N$ 處的 bias 下降了多少？用 <Ref to="dma-cd-vs-ct"/> 那個「CT 的目標是假設這一段是直線」的展開框解釋。
 4. **連續時間（sCT）。** 用 `torch.func.jvp` 實作 <Ref to="dma-ict-scm"/> 的全導數目標（toy 上直接用 VE 座標即可，不必換 TrigFlow）：條件速度用 $\epsilon$，tangent 除以 $\|\cdot\|+0.1$。與離散 CT 的最佳 $N$ 比一步 $W_2$。再把 tangent normalization 關掉重訓一次，觀察 loss 曲線。
 5. **（選）最佳 $\tau_1$。** 對兩步 CM 掃 $\tau_1\in[0.1,T]$，畫 $W_2$ 對 $\tau_1$。最低點在哪裡？$\tau_1\to\varepsilon$ 與 $\tau_1\to T$ 兩端各退化成什麼？
 
@@ -213,7 +213,7 @@ bias 隨 $N$ 增加而**減少**，兩種方法都一樣。網格密度對 CD �
 </QuizBlock>
 
 <Bridge to="dma-flow-map">
-這一週從「不走了，直接學那一步」出發：直接回歸終點與 reflow 是同一份配對；progressive distillation 逐輪減半；consistency function 把「一步」定義成從任何 $t$ 到終點，用相鄰點的一致性訓練；CT 不需要 teacher，因為條件目標的後驗平均就是真實 score 的 Euler 一步；iCT 與 sCM 把 bias、variance、boundary 一格一格填掉。留下的問題：$f$ 只會跳到終點，多步必須回到 $x_0$ 再加噪，所以多走幾步不保證更好。下一週從這裡出發——能不能從 $t$ 直接跳到中間的 $s$，不回終點、不重加噪？
+這個單元從「不走了，直接學那一步」出發：直接回歸終點與 reflow 是同一份配對；progressive distillation 逐輪減半；consistency function 把「一步」定義成從任何 $t$ 到終點，用相鄰點的一致性訓練；CT 不需要 teacher，因為條件目標的後驗平均就是真實 score 的 Euler 一步；iCT 與 sCM 把 bias、variance、boundary 一格一格填掉。留下的問題：$f$ 只會跳到終點，多步必須回到 $x_0$ 再加噪，所以多走幾步不保證更好。下一個單元從這裡出發——能不能從 $t$ 直接跳到中間的 $s$，不回終點、不重加噪？
 </Bridge>
 
 ## 參考文獻
