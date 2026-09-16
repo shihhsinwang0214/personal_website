@@ -6,6 +6,7 @@ prereqs:
   - math-random-walk-brownian
   - math-sde
   - math-langevin
+  - math-continuity-equation
   - math-fokker-planck
 lang: "zh"
 title: "反向：DDPM、DDIM 與 SDE/ODE"
@@ -13,7 +14,7 @@ category: "courses"
 group: "Unit 1 · Diffusion Models"
 status: "available"
 updated: 2026-09-13
-summary: "把 x̂₀ 代進 closed form 的 Gaussian：平均精確、變異數少一項，而那一項是 O(β_t)——這才是「切成很多小步」換到的東西。接著寫出 DDPM 與 DDIM 的更新式，再走到連續時間的 reverse SDE 與 probability-flow ODE，看見同一組邊際的兩種走法。"
+summary: "生成時可以自己決定走幾步嗎？先算照原步伐走一步的帳：平均精確、變異數少一項，而那一項是 O(β_t)——所以 DDPM 不能只是把步數調小。DDIM 換掉依據就跳得動：走幾步是取樣時才決定的事。再把步長縮到 0，同一個流動可以寫成 reverse SDE 也可以寫成 probability-flow ODE，同一組邊際、兩種走法。"
 demos: []
 references:
   - label: "Ho, Jain & Abbeel, Denoising Diffusion Probabilistic Models (NeurIPS 2020)"
@@ -42,27 +43,29 @@ import Ref from '../../../components/Ref.astro';
 
 <Objectives>
 - **說出代 $\hat x_0$ 進 closed form 的 Gaussian 要付的代價，以及「切成很多小步」在數學上換到的是什麼。** 平均值是精確的、變異數少了 $c_0^2\operatorname{Var}[x_0\mid x_t]$ 這一項，而它相對於保留的那一項是 $O(\beta_t)$。
-- **寫出 DDPM ancestral sampling 與 DDIM 的更新式，說出兩者共用什麼、差在哪。** 並認出它們是同一族取樣器裡 $\eta=1$ 與 $\eta=0$ 的兩個點。
+- **寫出 DDPM ancestral sampling 與 DDIM 的更新式，說出為什麼只有後者可以跳步。** 說出兩者共用什麼（同一個 $\epsilon_\theta$）、依據差在哪（相鄰兩步的條件分布／$x_s$ 與 $(x_0,\epsilon)$ 的關係），並認出它們是同一族取樣器裡 $\eta=1$ 與 $\eta=0$ 的兩個點。
 - **認識連續時間的 forward SDE、reverse SDE 與 probability-flow ODE，並解釋「三者邊際相同」。** 並說出邊際相同之下取樣結果為什麼還是會有差——以及判準是**模型誤差與離散化誤差誰佔上風**。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 把 $\hat x_0$ 代進去，代價是什麼？
+## 照原本的步伐走一步，要付什麼代價？
 
-倒著走一步那一行，<Ref to="dma-denoising-regression"/> 其實已經寫出來了：
+<Ref to="dma-tweedie-and-score"/> 把缺的那一塊補上了：訓好的網路給的就是 score，也就是每個時刻、每個位置「人群往哪邊變密」。所以現在可以回頭問 <Ref to="dma-denoising-regression"/> 留下的那個問題了。
+
+<Ask>
+訓練時我們把路切成一千小步；<br />
+生成時，可以自己決定走幾步、每一步走多遠嗎？
+</Ask>
+
+先把帳算清楚再談少走幾步。倒著走一步那一行，<Ref to="dma-denoising-regression"/> 其實已經寫出來了：
 
 $$
 x_{t-1}=\tilde\mu_t\big(x_t,\ \hat x_\theta(x_t,t)\big)+\sqrt{\tilde\beta_t}\,z,
 \qquad z\sim\mathcal N(0,I).
 $$
 
-而 <Ref to="dma-tweedie-and-score"/> 又告訴我們，網路給的那個 $\hat x_\theta\to\mathbb E[x_0\mid x_t]$ 就是 score 的另一種寫法。所以工具都齊了，**這一篇要做的是算那一行的帳**：它到底對不對，不對的話錯在哪、錯多少。
-
-<Ask>
-真正的 $q(x_{t-1}\mid x_t)$ 不是 Gaussian，<br />
-拿一個 Gaussian 去代替它，錯多少？
-</Ask>
+問題是這一行只有在「$q(x_{t-1}\mid x_t)$ 真的是那個 Gaussian」的時候才精確，而它其實不是。所以在問「能不能少走幾步」之前，得先知道**照原本的步伐走一步，本身錯多少**——因為那個誤差的大小，正好和步長綁在一起。
 
 <Question id="Q1">
 <Ref to="dma-denoising-regression"/> 的積分寫著 $q(x_{t-1}\mid x_t)=\int q(x_{t-1}\mid x_t,x_0)\,p(x_0\mid x_t)\,\mathrm dx_0$——一堆 Gaussian 按後驗權重疊起來，那是一個**混合 Gaussian**，一般不是 Gaussian。但我們的取樣器只抽一個 $\mathcal N(\tilde\mu_t(x_t,\hat x_0),\tilde\beta_t I)$。
@@ -112,7 +115,7 @@ $$
 
 每一步做兩件事：**先用網路猜噪聲、扣掉一部分**，然後**再加回一點新的隨機噪聲**。從 $x_T\sim\mathcal N(0,I)$ 出發跑 $T$ 步，就得到一張圖——<Ref to="dma-denoising-regression"/> 最後那一段講的就是這件事，只是還沒給它名字：這種「照著每一步的條件分布一路往下抽」的取樣方式叫 **ancestral sampling**。
 
-第二件事常常讓人困惑：好不容易去噪，為什麼又要加噪回去？一個直覺是：每一步的 $\hat x_0$ 是一個**平均**（<Ref to="dma-denoising-regression"/> 那張模糊圖），如果每步都朝著那個平均走、什麼都不補回去，樣本會一路被拉向高密度的地方、擠成一團。加回噪聲讓它重新散開到當下的 $p_{t-1}$ 上。
+第二件事常常讓人困惑：好不容易去噪，為什麼又要加噪回去？回到 <Ref to="dma-tweedie-and-score"/> 那個廣場就看得清楚。每個人都照「周遭的人平均往哪去」移動——但站在附近的人，看到的平均**幾乎是同一個方向**。照這樣走下去，同一團裡的人只會越靠越近，最後疊在同一個點上：人群還在，但它塌成了幾個點。**加回噪聲，就是讓每個人在照平均走完之後再隨機挪一下**，人群才維持該有的寬度——也就是當下的 $p_{t-1}$。
 
 要注意這句話說的是**「朝平均走」會塌**，不是「確定性的取樣器」會塌——下一節的 DDIM 完全不加噪聲，卻不會塌，因為它補回去的是網路預測的**噪聲方向** $\epsilon_\theta$ 而不是零。確定與隨機的差別留到那裡談。
 
@@ -133,7 +136,13 @@ $$
 這不是「相信」，而是一條**構造**：如果 $\hat x_0$ 與 $\epsilon_\theta$ 正好等於真實的那一對 $(x_0,\epsilon)$，這一行就會精確落在真實的 $x_s$ 上。這就是 DDIM [2]（$\eta=0$）。它有兩個很不一樣的性質：
 
 - **完全確定**：給定 $x_T$，輸出唯一，沒有任何隨機。多樣性全部來自起點 $x_T$——路上不需要再補隨機，也不會因此塌成一團，因為每一步補回去的是 $\sigma_s\epsilon_\theta$ 這個**有方向的**量。
-- **可以跳步**：上面那條構造裡 $s$ 從頭到尾是自由的——它用的是 $x_s$ 與 $(x_0,\epsilon)$ 的關係，不是相鄰兩步的 Markov 結構。所以從 $t$ 直接跳到任意 $s \lt t$ 都行。這就是 DDIM 能用 50 步、而 DDPM 要 1000 步的原因。
+- **可以跳步**：上面那條構造裡 $s$ 從頭到尾是自由的——它用的是 $x_s$ 與 $(x_0,\epsilon)$ 的關係，不是相鄰兩步的 Markov 結構。所以從 $t$ 直接跳到任意 $s \lt t$ 都行。
+
+第二點就是開頭那個問題的答案：
+
+> **走幾步、每一步走多遠，是取樣時才決定的事，和訓練無關。**
+
+DDPM 之所以非走一千步不可，是因為它的每一步都建在「相鄰兩步的條件分布」上，步長一大 Q1 那個 $O(\beta_t)$ 就撐不住。DDIM 換掉的是**依據**：它不問「下一步的條件分布長什麼樣」，只問「照現在估出來的 $(x_0,\epsilon)$，時刻 $s$ 應該在哪裡」——而那個問題對任何 $s$ 都問得出來。這就是 DDIM 能用 50 步、而 DDPM 要 1000 步的原因。
 
 而且它用的是**同一個訓好的 $\epsilon_\theta$**，沒有重訓。DDIM 的一般式還帶一個 $\eta\in[0,1]$ 控制每步加回多少噪聲：$\eta=0$ 是確定版，$\eta=1$ 就退回 DDPM。
 
@@ -175,7 +184,7 @@ $$
 
 ## 如果步長縮到 0 呢？
 
-到這裡取樣器已經可以跑了，所以**接下來這一節不是在補救前面的任何東西**——它是換一個視角，看同一件事在步長趨近 0 的時候長成什麼樣子。好處是：那個視角會直接告訴我們「噪聲該加多少」其實是一個旋鈕，而不是一個定數。
+到這裡取樣器已經可以跑了，所以**接下來這一節不是在補救前面的任何東西**——它是換一個視角，看同一件事在步長趨近 0 的時候長成什麼樣子。<Ref to="dma-tweedie-and-score"/> 最後問的正是這個：那個流動有沒有一個嚴謹的數學模型在描述它？有，而且答案會順便告訴我們「噪聲該加多少」其實是一個旋鈕，不是一個定數。
 
 把步長寫成 $\Delta t=1/T$、$\beta_t\to\beta(t)\Delta t$，<Ref to="dma-forward-process"/> 那條 $x_t=\sqrt{1-\beta_t}\,x_{t-1}+\sqrt{\beta_t}\,\epsilon_t$ 的遞迴在**連續時間**的極限下就是一條 SDE：
 
@@ -209,6 +218,17 @@ $$
 
 也就是「擴散」可以被**吸進 drift 裡**，變成一個沿著 $\nabla\log p_t$ 的移動。所以我們可以拿掉噪聲項，同時從 drift 扣掉那一半 score——分布的演化完全一樣，只是每條軌跡不再隨機。
 
+把這個改寫代回 Fokker–Planck，drift 項與擴散項就併成一項：
+
+$$
+\partial_t p_t+\nabla\cdot\big(p_t\,u_t\big)=0,\qquad
+u_t(x)=-\tfrac12\beta(t)\,x-\tfrac12\beta(t)\,\nabla\log p_t(x) .
+$$
+
+那個 $u_t$ 正是上面 PF-ODE 的速度場，而左邊這條方程式有名字：**continuity equation**（<Ref to="math-continuity-equation"/>）。它說的只是**東西不會憑空出現或消失**——$p_t u_t$ 是「流量」，某一點的密度會上升，只能是因為流進來的比流出去的多。
+
+所以「SDE 與 ODE 的邊際相同」不是巧合：把擴散吸進 drift 之後，兩邊滿足的是同一條 continuity equation。<Ref to="dma-flows-and-continuity"/> 會把它反過來用——先指定想要的 $p_t$，再去找推動它的 $u_t$。
+
 這件事之後會被推廣成一整族取樣器（<Ref week="dma-week-interpolants"/>）：噪聲要注入多少，其實是一個**可以調的旋鈕**。
 </Remark>
 
@@ -228,7 +248,9 @@ $$
 
 它們共用同一個 $\epsilon_\theta$，因為兩者需要的都只是 score。
 
-**注意這裡出現了第二套誤差帳。** Q1 算的是「在**固定的一步**上，用一個 Gaussian 代替混合分布錯多少」——那是**模型族**的誤差，$O(\beta_t)$。這一節講的是「這一步是某條連續方程的**一階離散**」——那是**離散化**的誤差，$O(\Delta t)$。兩者都正比於步長，但量的是不同的東西：前者就算你有精確的 score 也還在，後者就算模型族選得完美也還在。要少步生成，兩筆都得付。
+用廣場再說一次「邊際相同」是什麼意思：一千個人從同一批位置出發往資料走，一組人邊走邊隨機晃（SDE），一組人走得筆直（ODE）。**每隔一段時間對整個廣場拍一張照，兩組人的分布會一模一樣**——不一樣的只有每一個人走出來的那條路。所以「同一組邊際」講的是照片，不是路線。
+
+**注意這裡出現了第二套誤差帳。** Q1 算的是「在**固定的一步**上，用一個 Gaussian 代替混合分布錯多少」——那是**模型族**的誤差，$O(\beta_t)$。這一節講的是「這一步是某條連續時間方程式的**一階離散**」——那是**離散化**的誤差，$O(\Delta t)$。兩者都正比於步長，但量的是不同的東西：前者就算你有精確的 score 也還在，後者就算模型族選得完美也還在。要少步生成，兩筆都得付。
 
 ## 一個留著的問題
 
@@ -312,6 +334,8 @@ denoiser 給的是條件期望（一個平均）。加噪聲是這一族取樣�
 </QuizBlock>
 
 <Bridge to="dma-lab-diffusion">
+開頭那個問題有答案了：**走幾步、每一步走多遠，是取樣時才決定的事。** 但不是免費的——代價分成兩筆，一筆是模型族（用 Gaussian 代替混合，$O(\beta_t)$），一筆是離散化（用直線代替曲線，$O(\Delta t)$），步數一少兩筆都會變大。
+
 理論部分到這裡結束。下一篇動手做：把這個單元所有圖背後的 2D toy 與小 MLP 建起來，並親手畫出 Q2 裡提到的那些軌跡。
 </Bridge>
 

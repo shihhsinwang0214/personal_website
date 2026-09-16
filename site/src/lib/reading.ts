@@ -10,6 +10,7 @@
 const READ_KEY = 'slam:notes-read';
 const LAST_KEY = 'slam:notes-last';
 const VIEW_KEY = 'slam:notes-view';
+const CELEBRATED_KEY = 'slam:notes-celebrated';
 
 export interface LastRead {
   slug: string;
@@ -68,6 +69,28 @@ export function clearReading(): void {
   try {
     localStorage.removeItem(READ_KEY);
     localStorage.removeItem(LAST_KEY);
+    localStorage.removeItem(CELEBRATED_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Constellations whose completion animation has already played on this device. */
+export function readCelebrated(): Set<string> {
+  try {
+    const raw = localStorage.getItem(CELEBRATED_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? new Set(parsed.filter((s): s is string => typeof s === 'string')) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+export function markCelebrated(code: string): void {
+  try {
+    const seen = readCelebrated();
+    seen.add(code);
+    localStorage.setItem(CELEBRATED_KEY, JSON.stringify([...seen]));
   } catch {
     /* ignore */
   }

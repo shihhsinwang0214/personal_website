@@ -499,7 +499,7 @@ export const courses: CourseDef[] = [
       {
         group: 'Unit 1 · Diffusion Models',
         label: 'dma-week-diffusion',
-        constellation: { anchor: [90, 110], stars: [[0, 70, 3.2], [34, 38, 4.4], [82, 52, 2.8], [118, 18, 3.6], [150, 60, 4.8], [96, 104, 3.0]], edges: [[0, 1], [1, 2], [2, 3], [2, 4], [4, 5]] },
+        constellation: { anchor: [110, 60], stars: [[0, 70, 3.2], [34, 38, 4.4], [82, 52, 2.8], [118, 18, 3.6], [150, 60, 4.8], [96, 104, 3.0]], edges: [[0, 1], [1, 2], [2, 3], [2, 4], [4, 5]] },
         description: {
           zh: '從「生成在學什麼」出發：forward process、denoising 回歸、Tweedie 與 score、DDPM / DDIM / SDE-ODE 反向取樣。',
           en: 'From "what does generation learn" to the forward process, denoising regression, Tweedie & score, and DDPM / DDIM / SDE-ODE sampling.',
@@ -508,7 +508,7 @@ export const courses: CourseDef[] = [
       {
         group: 'Unit 2 · Flow Matching',
         label: 'dma-week-flow-matching',
-        constellation: { anchor: [300, 280], stars: [[0, 0, 4.6], [52, -22, 3.0], [96, -8, 3.4], [126, -56, 4.2], [178, -40, 2.8], [210, 8, 3.8]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [2, 5]] },
+        constellation: { anchor: [70, 300], stars: [[0, 0, 4.6], [52, -22, 3.0], [96, -8, 3.4], [126, -56, 4.2], [178, -40, 2.8], [210, 8, 3.8]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [2, 5]] },
         description: {
           zh: 'forward process 是必要的嗎？flow 與 continuity equation、conditional flow matching、直線路徑，以及 FM 與 diffusion 的同與異。',
           en: 'Is a forward process necessary? Flows and the continuity equation, conditional flow matching, linear paths, and FM vs. diffusion.',
@@ -517,7 +517,7 @@ export const courses: CourseDef[] = [
       {
         group: 'Unit 3 · Stochastic Interpolants 與共用技巧',
         label: 'dma-week-interpolants',
-        constellation: { anchor: [470, 100], stars: [[0, 40, 3.4], [44, 66, 2.9], [78, 24, 4.9], [120, 44, 3.2], [150, -8, 3.0], [206, -26, 4.0], [238, 22, 2.7]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [3, 6]] },
+        constellation: { anchor: [400, 50], stars: [[0, 40, 3.4], [44, 66, 2.9], [78, 24, 4.9], [120, 44, 3.2], [150, -8, 3.0], [206, -26, 4.0], [238, 22, 2.7]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [3, 6]] },
         description: {
           zh: '一個式子裝下兩個框架：一族 SDE 取樣器、曲率與誤差理論、rectified flow、minibatch OT，以及 guidance / 高階 solver / 時間加權。',
           en: 'One equation for both frameworks: a family of SDE samplers, curvature and error theory, rectified flow, minibatch OT, and shared techniques.',
@@ -526,7 +526,7 @@ export const courses: CourseDef[] = [
       {
         group: 'Unit 4 · Discrete Diffusion I',
         label: 'dma-week-discrete-i',
-        constellation: { anchor: [560, 300], stars: [[0, 0, 3.0], [28, 46, 4.4], [74, 32, 3.2], [112, 70, 3.6], [136, 18, 2.8], [180, 50, 4.0]], edges: [[0, 1], [1, 2], [2, 3], [3, 5], [2, 4]] },
+        constellation: { anchor: [340, 262], stars: [[0, 0, 3.0], [28, 46, 4.4], [74, 32, 3.2], [112, 70, 3.6], [136, 18, 2.8], [180, 50, 4.0]], edges: [[0, 1], [1, 2], [2, 3], [3, 5], [2, 4]] },
         description: {
           zh: '資料是 token 時怎麼「加噪聲」？離散是狀態不是時間；D3PM 的轉移矩陣、masked diffusion 塌成加權 cross-entropy、因子化誤差是離散版的曲率。',
           en: 'How to "add noise" to tokens: discrete states, not discrete time; D3PM transition matrices, masked diffusion as weighted cross-entropy, and factorization error as the discrete analogue of curvature.',
@@ -535,7 +535,7 @@ export const courses: CourseDef[] = [
       {
         group: 'Unit 5 · Discrete Diffusion II',
         label: 'dma-week-discrete-ii',
-        constellation: { anchor: [770, 326], stars: [[0, 30, 3.6], [38, -12, 2.8], [64, 42, 4.6], [118, 26, 3.2], [150, -30, 3.0], [186, 4, 4.2], [226, -24, 2.9]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [3, 5], [5, 6]] },
+        constellation: { anchor: [590, 246], stars: [[0, 30, 3.6], [38, -12, 2.8], [64, 42, 4.6], [118, 26, 3.2], [150, -30, 3.0], [186, 4, 4.2], [226, -24, 2.9]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [3, 5], [5, 6]] },
         description: {
           zh: '連續時間 Markov chain 的語言：rate、forward equation 與 Fokker–Planck 並排；反向 rate 需要的是比值（concrete score）；remasking 是取樣器旋鈕；discrete flow matching 與應用。',
           en: 'The language of continuous-time Markov chains: rates and the forward equation beside Fokker–Planck; reverse rates need ratios (concrete score); remasking as a sampler knob; discrete flow matching and applications.',
@@ -544,7 +544,7 @@ export const courses: CourseDef[] = [
       {
         group: 'Unit 6 · Consistency Models',
         label: 'dma-week-consistency',
-        constellation: { anchor: [830, 100], stars: [[0, 0, 4.8], [46, 36, 3.0], [90, 22, 3.4], [124, 66, 4.4], [160, 30, 2.8], [190, 90, 3.4], [230, 58, 4.0]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [3, 5], [5, 6]] },
+        constellation: { anchor: [800, 82], stars: [[0, 0, 4.8], [46, 36, 3.0], [90, 22, 3.4], [124, 66, 4.4], [160, 30, 2.8], [190, 90, 3.4], [230, 58, 4.0]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [3, 5], [5, 6]] },
         description: {
           zh: '能不能直接學「一步」？progressive distillation、consistency function 與自我一致性、CD 與 CT、iCT / sCM 各對付哪個誤差，以及多步 CM 為什麼很快飽和。',
           en: 'Can we learn the one-step map directly? Progressive distillation, the consistency function and self-consistency, CD vs. CT, which error each iCT / sCM trick fights, and why multistep CM saturates.',
@@ -553,7 +553,7 @@ export const courses: CourseDef[] = [
       {
         group: 'Unit 7 · Flow Maps 與分佈匹配',
         label: 'dma-week-flow-maps',
-        constellation: { anchor: [935, 285], stars: [[0, 20, 3.2], [30, -30, 4.6], [84, -46, 3.0], [130, -20, 3.6], [150, 40, 4.4], [112, 72, 2.8], [60, 50, 3.4]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 0]] },
+        constellation: { anchor: [900, 280], stars: [[0, 20, 3.2], [30, -30, 4.6], [84, -46, 3.0], [130, -20, 3.6], [150, 40, 4.4], [112, 72, 2.8], [60, 50, 3.4]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 0]] },
         description: {
           zh: '從 t 直接跳到 s：flow map 的四個條件、flow map matching 的三種損失、MeanFlow identity 與條件速度代換、Shortcut / AYF，以及回歸式與分佈匹配式（DMD）蒸餾的失敗模式。',
           en: 'Jumping from t straight to s: the four conditions of a flow map, the three flow-map-matching losses, the MeanFlow identity, Shortcut / AYF, and the failure modes of regression vs. distribution-matching (DMD) distillation.',

@@ -2,9 +2,11 @@
 slug: "dma-w3-4-reverse-process"
 label: "dma-reverse-process"
 prereqs:
+  - math-euler-error
   - math-random-walk-brownian
   - math-sde
   - math-langevin
+  - math-continuity-equation
   - math-fokker-planck
 lang: "en"
 title: "反向：DDPM、DDIM 與 SDE/ODE"

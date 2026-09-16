@@ -14,7 +14,7 @@ category: "courses"
 group: "Unit 1 · Diffusion Models"
 status: "available"
 updated: 2026-09-13
-summary: "倒著走一步該從哪個分布抽？Bayes 卡在兩個算不出來的邊際。於是改成「學一個分布去逼近它」，而一條等價定理說：把 x₀ 放進條件裡，目標只差一個與參數無關的常數，最佳解仍然是那個邊際。剩下唯一的選擇是模型族——取固定變異數的 Gaussian，KL 就塌成一個加權的平方誤差，而它學到的是 E[x₀|x_t]。"
+summary: "倒著走一步該從哪個分布抽？Bayes 卡在兩個算不出來的邊際。於是改成「學一個分布去逼近它」，而一條等價定理說：把 x₀ 放進條件裡，目標只差一個與參數無關的常數，最佳解仍然是那個邊際。剩下的選擇是模型族——取固定變異數的 Gaussian，KL 就塌成一個加權的平方誤差，而它學到的量我們先講出來、證明留到下一篇；把學到的 x̂ 代回 posterior mean，就是取樣時跑的那一行。"
 demos: []
 references:
   - label: "Ho, Jain & Abbeel, Denoising Diffusion Probabilistic Models (NeurIPS 2020)"
@@ -42,9 +42,9 @@ import Ref from '../../../components/Ref.astro';
 # Denoising：倒著走一步，要怎麼學？
 
 <Objectives>
-- **把「想從 $q(x_{t-1}\mid x_t)$ 抽樣」改寫成一個可以最小化的目標，並說出為什麼可以把 $x_0$ 放進條件裡。** 寫出那條等價：條件化之後的目標與原來的目標只差一個與參數無關的常數，而且最佳解仍然是原來那個邊際。
-- **說出 DDPM 的訓練本質：挑一個固定變異數的 Gaussian 模型族。** 挑完之後 KL 就塌成一個加權的平方誤差，而這個回歸的最佳解是 $\mathbb E[x_0\mid x_t]$。
-- **說出不同 prediction parametrization 其實只是在改變學習問題的 weighting。** 寫出 $x_0$-、$\epsilon$-、$v$-prediction 這幾個不同學習物件之間的等價轉換，並解釋它們雖然表達相同資訊，卻會因為不同的 timestep／SNR weighting 得到不同的結果。
+- **把「想從 $q(x_{t-1}\mid x_t)$ 抽樣」改寫成一個可以最小化的 training objective。** 說明為什麼 training 時可以把 $x_0$ 放進條件裡，寫出兩個 objective 之間的關係，並解釋為什麼它們有相同的最佳解。
+- **說出 DDPM 的訓練方式與生成方式。** 說明我們如何選擇 $p_\theta(x_{t-1}\mid x_t)$ 的 parametrization，把上面的 objective 轉成可以實際訓練的 regression loss；並在訓練完成後，利用學到的模型一步一步從 $x_T$ 生成到 $x_0$。
+- **說出不同 prediction parametrization 在表示上等價，但會改變 training 的 weighting。** 寫出 $x_0$-、$\epsilon$-、$v$-prediction 之間的轉換，並解釋它們雖然表達相同資訊，使用相同形式的 MSE 訓練時，卻會因為不同的 timestep／SNR weighting 而形成不同的 training objective。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -109,10 +109,10 @@ covariance 不是零，就代表有相關；有相關，就不能另外抽一個
 因為我們是知道 $q(x_t\mid x_{t-1})$ 的，這時候就會想要用 Bayes 定理來算 $q(x_{t-1}\mid x_t)$（<Ref to="math-bayes-posterior"/>）：
 
 $$
-q(x_{t-1}\mid x_t)=\frac{q(x_t\mid x_{t-1})\,q(x_{t-1})}{q(x_t)} .
+q(x_{t-1}\mid x_t)=\frac{q(x_t\mid x_{t-1})\,p_{t-1}(x_{t-1})}{p_t(x_t)} .
 $$
 
-分子的 $q(x_t\mid x_{t-1})$ 我們確實會算——那是上一篇自己設計的那一步（<Ref to="dma-forward-process"/>）。但右邊還有 $q(x_{t-1})$ 和 $q(x_t)$：它們是**資料經過加噪之後的 marginal distribution**，也就是「所有真實圖片加噪 $t$ 步之後，長成 $x_t$ 的可能性有多大」。要知道它，就得把每一張真實圖片的貢獻都加總起來——也就是得先知道整個 $p_{\text{data}}$（但很明顯我們不知道）。這種「式子寫得出來、但實際上算不出來」的東西，以下都叫 **不可算（intractable）**。
+分子的 $q(x_t\mid x_{t-1})$ 我們確實會算——那是上一篇自己設計的那一步（<Ref to="dma-forward-process"/>）。但右邊還有 $p_{t-1}(x_{t-1})$ 和 $p_t(x_t)$：它們是**資料經過加噪之後的 marginal distribution**，也就是「所有真實圖片加噪 $t$ 步之後，長成 $x_t$ 的可能性有多大」，我們記成 $p_t$。要知道它，就得把每一張真實圖片的貢獻都加總起來——也就是得先知道整個 $p_{\text{data}}$（但很明顯我們不知道）。這種「式子寫得出來、但實際上算不出來」的東西，以下都叫 **不可算（intractable）**。
 
 ## 如果算不出來，那可不可以用「學」的？那要怎麼學？
 
@@ -133,7 +133,7 @@ $$
 那就來設計這個 learning problem。第一件事是把「接近」說清楚——也就是寫下一個 loss function。兩個分布之間最常用的那個 loss function 是 **Kullback–Leibler divergence**（<Ref to="math-kl"/>），以下都簡稱 **KL**；而 $x_t$ 本身也是隨機的，所以要對所有可能的 $x_t$ 取平均：
 
 $$
-\mathcal J(\theta)=\mathbb E_{q(x_t)}\Big[D_{\mathrm{KL}}\big(q(x_{t-1}\mid x_t)\,\big\|\,p_\theta(x_{t-1}\mid x_t)\big)\Big].
+\mathcal J(\theta)=\mathbb E_{p_t(x_t)}\Big[D_{\mathrm{KL}}\big(q(x_{t-1}\mid x_t)\,\big\|\,p_\theta(x_{t-1}\mid x_t)\big)\Big].
 $$
 
 這一行就是最直覺、我們真正想要最小化的東西。好消息是 learning objective 有了，壞消息是裡面那個 $q(x_{t-1}\mid x_t)$ 還是不可算，所以這個 loss 我們似乎還是算不出來，也不知道怎麼求 gradient。
@@ -148,7 +148,7 @@ $$
 <Answer>
 $x_0$。
 
-寫 $q(x_{t-1}\mid x_t)$ 的時候，我們假裝手上只有 $x_t$，但我們其實還知道它是來自哪一張圖 $x_0$。而那正是卡住的原因：$q(x_{t-1})$ 和 $q(x_t)$ 之所以難算，就是因為它們把**所有可能的 $x_0$ 都考慮進去了**。
+寫 $q(x_{t-1}\mid x_t)$ 的時候，我們假裝手上只有 $x_t$，但我們其實還知道它是來自哪一張圖 $x_0$。而那正是卡住的原因：$p_{t-1}(x_{t-1})$ 和 $p_t(x_t)$ 之所以難算，就是因為它們把**所有可能的 $x_0$ 都考慮進去了**。
 
 既然算不動的原因是「要考慮所有的 $x_0$」，那就先別考慮全部：**把 $x_0$ 也放進條件裡**看看。
 </Answer>
@@ -453,6 +453,8 @@ $$
 
 也就是真正那個邊際 $q(x_{t-1}\mid x_t)$ 的平均。所以「倒著走一步需要知道什麼」有了完整的答案：**散布是 schedule 給的，中心由 $\mathbb E[x_0\mid x_t]$ 決定，而那一個量就是我們要學的東西。**
 
+（要說清楚的是：「$L_2$ 的最佳解是條件期望」這件事，我們在這裡只是**提到**，並沒有證明——上面是靠和前一個情境對照得到的。這個結論的證明與它真正的份量，<Ref to="dma-tweedie-and-score"/> 會好好討論。）
+
 ![示意圖：上排 t 小，三張候選原圖中只有一張亮著，加噪後的 x_t 仍看得出是貓，模型輸出幾乎與原圖相同；下排 t 大，五張不同的照片（貓、鳥、兔、盆栽）都連到同一張看不出內容的 x_t，權重以線的粗細表示，模型輸出是一張模糊的加權平均。](./imgs/w-3-2-1.png)
 
 **圖：同一個 $x_t$ 可以來自很多張圖。** 上排 $t$ 小，能對上的原圖只有一張，輸出就幾乎是原圖；下排 $t$ 大，很多張圖都可能變成同一個 $x_t$，$L_2$ 的最佳解就是它們的**加權平均**。所以這裡的模糊是正確答案，不是訓練失敗。
@@ -506,15 +508,49 @@ $$
 
 到這裡，我們已經知道 DDPM **怎麼訓練，也知道訓練完之後怎麼拿來生成**。
 
-不過有一件事我們暫時忽略沒有好好處理：在〈DDPM 的訓練〉那一節中，我們挑一個固定變異數的 Gaussian，並去學它的 mean 來達成 denoise；但真正的 $q(x_{t-1}\mid x_t)$ 是一堆 Gaussian 疊起來的混合，通常不會還是 Gaussian。也就是說，上面生成的方式是有誤差的。
+## 這樣的 regression，憑什麼保證生成出來的東西是好的？
 
-所以還有幾件事沒有仔細討論：
+前面一路做下來，我們最後得到的只是一個 regression loss。但我們真正關心的是：把這個 loss 壓低，真的會讓模型生成的 data distribution 更接近資料實際的分布嗎？
 
-- 這樣一步一步走，和真正的 reverse process 差多少？
-- 每一步的 $\sqrt{\tilde\beta_t}\,z$ 一定要加嗎？
-- 如果把 timestep 切得越來越細，最後會變成什麼？
+根據其實是有的，我們可以沿著三個步驟去解釋、證明。
 
-這些留到 <Ref to="dma-reverse-process"/> 再處理。
+**第一步：從 likelihood 出發。** 我們希望模型對真實資料給高 likelihood，也就是讓 $-\log p_\theta(x_0)$ 越小越好。但 $p_\theta(x_0)$ 需要把整條 latent path 積掉，不好直接算。利用 forward process $q(x_{1:T}\mid x_0)$ 和 Jensen inequality，可以得到
+
+$$
+-\log p_\theta(x_0)\ \le\ \mathbb E_{q(x_{1:T}\mid x_0)}\!\left[-\log\frac{p_\theta(x_{0:T})}{q(x_{1:T}\mid x_0)}\right].
+$$
+
+也就是說，我們可以改去最小化 negative log-likelihood 的一個上界，也就是 **ELBO**（evidence lower bound，見 <Ref to="ml-latent-variables-elbo" mode="title"/>）對應的 loss。
+
+**第二步：把整條 path 看成兩個 distribution。** 再對 $x_0\sim p_{\text{data}}$ 取平均，上面的 quantity 可以寫成
+
+$$
+D_{\mathrm{KL}}\big(q(x_{0:T})\,\big\|\,p_\theta(x_{0:T})\big)+\text{constant}.
+$$
+
+所以問題變成：**讓模型的整條 reverse path，接近資料經過 forward process 產生的那條 path。**
+
+**第三步：Markov structure 讓這個 path-level KL 可以逐步拆開。** 最後跟 $\theta$ 有關的部分，就是每個 timestep 的 reverse transition mismatch：
+
+$$
+\sum_t\mathbb E_{p_t(x_t)}\Big[D_{\mathrm{KL}}\big(q(x_{t-1}\mid x_t)\,\big\|\,p_\theta(x_{t-1}\mid x_t)\big)\Big].
+$$
+
+而這正是我們前面一路改寫、最後變成 regression loss 的東西。
+
+所以整條關係是
+
+$$
+\boxed{\ \text{regression loss}\ \longrightarrow\ \text{reverse-step KL}\ \longrightarrow\ \text{path KL}\ \longrightarrow\ -\log p_\theta(x_0)\ \text{的上界}\ }
+$$
+
+也就是說，前面的 regression 並不是憑空設計的：它一路可以接回我們真正關心的 generative likelihood。
+
+不過這並不代表每一步都能完全學準。我們把 $p_\theta(x_{t-1}\mid x_t)$ 限制在特定的 Gaussian family 裡，因此一般不保證它能精確等於真正的 reverse conditional。
+
+這也留下幾個後面的問題：這個 approximation 到底有多好？noise 一定要加嗎？如果 timestep 切得越來越細，又會發生什麼？
+
+這些等到 <Ref to="dma-reverse-process"/> 再討論！
 
 ## 同一個 reverse step，不一定要學 $x_0$
 
@@ -564,7 +600,7 @@ $$
 
 ## 表示上等價，但訓練上不相同
 
-假設我們都使用看起來一樣的 MSE loss：
+假設我們都使用看起來一樣的 **MSE** loss——就是前面一路在用的那個平方誤差：
 
 $$
 \mathbb E\big[\|\text{prediction}-\text{target}\|^2\big],
@@ -610,9 +646,9 @@ $$
 > **forward process 決定我們怎麼製造不同 noise level 的資料；** <br />
 > **weighting 決定 training 時多重視哪些 noise level。**
 
-兩件事其實可以分開設計。因此，即使 forward process 不變，我們仍然可以改變不同 $t$ 在 loss 裡的 weighting。理想情況下這不改變每個 $t$ 對應的最佳 predictor，但會改變實際訓練時模型把 capacity 和 optimization effort 放在哪些地方。<Ref week="dma-week-flow-matching"/> 比較 diffusion 與 flow matching 時，這個 distinction 還會再出現。
+兩件事其實可以分開設計。因此，即使 forward process 不變，我們仍然可以改變不同 $t$ 在 loss 裡的 weighting。代價是前面那個 ELBO 的不等式跟著失效：加權一換，被界住的就不再是原來那個 $-\log p_\theta(x_0)$。理想情況下這不改變每個 $t$ 對應的最佳 predictor，但會改變實際訓練時模型把 capacity 和 optimization effort 放在哪些地方。<Ref week="dma-week-flow-matching"/> 比較 diffusion 與 flow matching 時，這個 distinction 還會再出現。
 
-## 整個訓練就是這五行
+## DDPM 的訓練核心其實就這五行
 
 ```
 repeat
@@ -624,9 +660,9 @@ repeat
   梯度下降
 ```
 
-五行。從「想從一個算不出來的分布抽樣」走到這裡，中間做了一個取捨（固定變異數的 Gaussian 模型族）和一個實務調整（丟掉加權），其餘每一步都是恆等式。
+這裡我們先寫成 pseudo code。真的要實作，還需要決定 batch size、$T$、noise schedule、$\epsilon_\theta$ 的網路架構和 optimizer，但核心 training loop 就是上面這幾步。
 
-這裡故意只寫成 pseudo code。真的要跑，還得決定 batch 大小、$T$、schedule、網路架構、optimizer——那些都不改變上面這五行在說什麼。<Ref to="dma-lab-diffusion"/> 會把同樣這五行寫成真的跑得動的程式；到時候會看到 loss 掉到某個值就停住不動，那不是寫錯了，<Ref to="dma-tweedie-and-score"/> 會說它為什麼停在那裡。
+到 <Ref to="dma-lab-diffusion"/>，我們會把它真的寫成可以跑的程式。到時候你也會看到一個有趣的現象：loss 不會一路掉到 0，而會停在一個非零值附近。這不是程式寫錯；在 <Ref to="dma-tweedie-and-score"/>，我們會先了解為什麼這件事本來就應該發生。
 
 ## 消化一下
 
@@ -681,7 +717,17 @@ DDPM 原文用的 $\mathcal L_{\text{simple}}$ 和這一篇推導出來的目標
 </QuizBlock>
 
 <Bridge to="dma-tweedie-and-score">
-我們有一個五行的訓練演算法，也知道它的三種寫法。但核心問題還沒回答：只用 $(x_t,\epsilon)$ 的配對做回歸，憑什麼學到跟**整批資料**有關的東西？下一篇用 Tweedie 公式回答——它會把訓好的 denoiser 和一個叫 score 的量寫成同一件事。
+我們從 $q(x_{t-1}\mid x_t)$ 出發，把原本不好算的 reverse problem 轉成可以實際訓練的 MSE，也看到了 $x_0$-、$\epsilon$-、$v$-prediction 之間的關係，以及不同 parametrization 帶來的 weighting 差異。
+
+不過還有一件事沒有動搖過：DDPM 一開始把 forward process 切成很多小步，reverse 時我們也只能照著**同一套步伐**一步一步走回去。生成的時候，真的需要走完全一樣的路嗎？如果模型其實知道「現在應該往哪個方向走」，那我們是不是可以依照自己的算力，決定要走幾步、每一步走多遠？
+
+要做到這件事，得先弄清楚一件更基本的事：
+
+**那個 simple MSE，到底在學什麼？為什麼把原本的 weighting 拿掉之後，好像還是可以？**
+
+下一篇我們會把 simple MSE 在每一個 noise level 上分開來看。會發現每一項的最佳解都是一個 conditional expectation——$\mathcal L_{\text{simple}}$ 練的是 $\epsilon$，所以那個量是 $\mathbb E[\epsilon\mid x_t]$。這一篇提過的 $\mathbb E[x_0\mid x_t]$ 是它的另一種寫法，而這次的理由完全不必用到 Gaussian，所以加權換掉也動不了它。而透過 Tweedie formula，這個 conditional expectation 可以直接和 noisy distribution $p_t$ 的 score function $\nabla_{x_t}\log p_t(x_t)$ 連起來。
+
+有了這個 formulation，到了 <Ref to="dma-reverse-process"/>，我們就可以進一步把 discrete reverse process 寫成 SDE，並看到對應的 ODE。
 </Bridge>
 
 ## 參考文獻
