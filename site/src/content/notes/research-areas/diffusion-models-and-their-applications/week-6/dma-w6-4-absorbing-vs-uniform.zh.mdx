@@ -9,8 +9,8 @@ title: "Absorbing 與 Uniform：翻錯的字能不能改？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion I"
 status: "available"
-updated: 2026-09-07
-summary: "absorbing 鏈翻開的 token 永遠固定，uniform 鏈每一步都能改任何 token。前者像 ODE：沒有修正、誤差累積；後者像 SDE：有自我修正、但代價是模型分不清哪些字是噪聲。只給直覺與實驗，數學留到下一個單元的 rate 語言。"
+updated: 2026-09-21
+summary: "Absorbing chain 給模型乾淨的 `[MASK]` 訊號，卻不能修改已生成 token；uniform chain 能反覆修正，卻讓模型分不清哪些位置被破壞。"
 demos: []
 references:
   - label: "Austin et al., Structured Denoising Diffusion Models in Discrete State-Spaces (NeurIPS 2021)"
@@ -39,9 +39,9 @@ import Ref from '../../../components/Ref.astro';
 # Absorbing 與 Uniform：翻錯的字能不能改？
 
 <Objectives>
-- 說出 absorbing 與 uniform 兩條鏈在反向取樣時，對「已經生成的 token」各允許什麼、不允許什麼。
-- 把這個差別對到 <Ref to="dma-sampler-family"/> 的 ODE 與 SDE：沒有修正 vs 有自我修正，以及各自的代價。
-- 說出為什麼實務上 absorbing 通常表現更好，儘管它不能修正——並由此看見下一個單元 remasking 要解決的問題。
+- **比較 absorbing 與 uniform 的反向取樣。** 前者翻開後固定，後者允許任何 token 再次改動。
+- **把兩條鏈對到 ODE／SDE 的取捨。** 一邊保留乾淨 context 但不修正，另一邊能修正卻持續擾動樣本。
+- **解釋 absorbing 為何常在實務上更好。** `[MASK]` 明確標出未知位置；這也暴露出 remasking 想解的缺口。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -89,20 +89,13 @@ absorbing 鏈把這個判斷**完全拿掉**：`[MASK]` 一眼可辨，沒被遮
 
 這個想法叫 **remasking**，近期的工作（例如 ReMDM [3]）正是這麼做的。但要把它做對，有幾件事得說清楚：重新遮的機率該是多少？它會不會改變每個 $t$ 的邊際分佈 $q(x_t\mid x_0)$、進而讓訓好的模型不再適用？「每步翻開的比例」和「每步重遮的比例」之間該怎麼平衡？這些問題用本單元離散時間、transition matrix 的語言答起來很笨拙——每個問題都要重新算一次矩陣連乘。
 
-下一個單元換一種語言：連續時間，用 **rate** 描述「每單位時間有多少機率從一個狀態流到另一個狀態」。在那個語言裡，remasking 只是在 absorbing 過程上多加一個 rate，而它對應到的正是 <Ref to="dma-sampler-family"/> 那個「訓練噪聲與取樣噪聲是兩個旋鈕」裡取樣器的 $\varepsilon$。答案會變得很短。
+下一個單元換一種語言：連續時間，用 **rate** 描述「每單位時間有多少機率從一個狀態流到另一個狀態」。在那個語言裡，remasking 只是在 absorbing 過程上多加一個 rate，而它對應到的正是 <Ref to="dma-sampler-family"/> 那個「訓練噪聲與取樣噪聲是兩個設定」裡取樣器的 $\varepsilon$。答案會變得很短。
 </Answer>
 </Question>
 
-<VizPlan id="w6-4-tradeoff" title="修正能力，對上乾淨的 context" type="static">
-- 檔名 `imgs/w6-4-1.png`，放在 Q1 之後、「先消化一下」之前。
-- 版面：左右兩塊，各一條鏈；兩塊各分「模型看到的」與「後果」上下兩層。
-  - **左「absorbing」**：上層一排格子，幾格是 `[MASK]`（灰）、其餘是實字（橘），旁註「一眼看得出哪裡不確定」。下層畫一條反向的時間軸，某一步填了一個紅框的錯字，之後每一步那個紅框都在——旁註「翻開就固定：錯字帶到最後」。
-  - **右「uniform」**：上層一排格子**全部都是實字**，其中三格其實是噪聲（用淡虛線框標出，並在旁邊加一個小圖示寫「模型看不到這些虛線」），旁註「每一步、每個位置都得先判斷這是噪聲還是原文」。下層同樣的時間軸，紅框的錯字在某一步變成綠框——旁註「有機會被改回來」。
-- 兩塊之間下方一條橫幅，天秤造型：左盤「乾淨的 context」、右盤「修正能力」，天秤明顯偏向左盤，旁註「語言上、目前的規模下，第二項比較不值錢」。
-- 底部一句：「absorbing 把所有不確定性集中在一種符號上；uniform 把它散在字典的每一個字裡。」
-- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、原字橘 `#f0803c`／`[MASK]` 灰／錯誤紅 `#d94f4f`／修正綠 `#60ba82`）。
-- 長寬比：約 16:9。
-</VizPlan>
+![修正能力，對上乾淨的 context](./imgs/w6-4-1.png)
+
+*圖：Absorbing 保留乾淨 context，代價是已生成 token 不能回頭；uniform 能修正，卻讓 context 持續帶噪。*
 
 ## 先消化一下
 
@@ -137,7 +130,7 @@ uniform 的終點是每個位置獨立均勻，很好抽；$\bar Q_t$ 也有 clo
 </QuizBlock>
 
 <Bridge to="dma-lab-discrete-time">
-本篇把 absorbing / uniform 的差別放到 ODE / SDE 的位置上，並看到「修正」與「乾淨 context」的取捨。下一篇動手：在 parity 與 Markov toy 上訓一個 masked diffusion，畫出「每步翻開幾個 vs 合法率」的曲線，並比較兩條鏈。
+現在有兩個分開的問題：一次翻太多造成 factorization error，完全不能反悔又會累積早期錯誤。實作篇用 parity 與 Markov toy 把兩者拆開量，避免只看最後品質卻不知道錯從哪裡來。
 </Bridge>
 
 ## 參考文獻

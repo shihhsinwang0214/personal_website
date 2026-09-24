@@ -35,9 +35,8 @@ import Ref from '../../../components/Ref.astro';
 # 指定路徑的方法：Forward Process
 
 <Objectives>
-- **寫出 DDPM 的 forward process，並解釋其中的性質。** 說出 Markov property 與 Linear + Gaussian 各自負責什麼，以及 variance-preserving 在 preserve 什麼、其中的 schedule 又是在調什麼。
-- **從單步遞迴推出 $q(x_t\mid x_0)$ 的 closed form。** 說清楚為什麼不必真的跑 $t$ 次，以及式子裡那個 $\epsilon$ 到底是什麼（不是任何單一步加進去的那一撮）。
-- **了解 forward process 是一個可設計的過程。** 說出每一個設計有什麼好處、為什麼這樣設計。
+- **DDPM 的 forward process 到底在設計什麼？** 在 DDPM 裡，我們自己選一條逐步加入 Gaussian noise 的路；Markov property 讓每一步只依賴現在，Linear + Gaussian 讓條件分布可以解析計算，而 variance-preserving 與 noise schedule 則決定 signal 如何被 noise 取代。
+- **為什麼任意時刻的 $x_t$ 都可以一行抽出來？** Gaussian 的封閉性讓整段遞迴可以收成 $q(x_t\mid x_0)$ 的 closed form；式子裡的 $\epsilon$ 是整段 noise 的合成，不是某一步單獨加入的 noise。這也讓訓練時不必真的走完前面 $t$ 步。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -288,9 +287,11 @@ $\bar\alpha_T$ 更快趨近 0，終點更乾淨（prior mismatch 更小），但
 </QuizBlock>
 
 <Bridge to="dma-denoising-regression">
-在這一篇中，我們已經將 forward process 完全定下來了；我們特別設計成每一步 $q(x_t\mid x_{t-1})$ 只加一點 noise、只看上一步、而且都是 Gaussian，使得任意時刻的 $x_t$ 都能用一行公式算出來、不必真的把遞迴跑 $t$ 次；也因此，forward process 讓我們可以輕易地製造一堆 $(x_0,x_t,\epsilon,t)$ 的配對。
+DDPM 的 forward process 已經定下來了。Markov property 與 Linear + Gaussian 不只讓任意 $x_t$ 都能一行抽出來，也讓 training 時可以輕易製造 $(x_0,x_t,\epsilon,t)$ 的配對。
 
-接下來，我們想要探討怎麼學會 reverse process——倒著走、denoise 的那個過程。我們需要先釐清「倒著走一步」$q(x_{t-1}\mid x_t)$ 到底需要知道什麼：我們會從 Bayes 定理出發，找到一個可以利用這些配對去學習的回歸目標，讓 $q(x_{t-1}\mid x_t)$ 真的抽得出樣本來。
+但生成需要的是反方向：看到 $x_t$ 之後，下一步應該從哪個 $x_{t-1}$ 抽樣？真正的 $q(x_{t-1}\mid x_t)$ 牽涉到未知的 data distribution，不能直接計算。
+
+下一篇會利用 training 時多知道的 $x_0$，先處理可以解析計算的 $q(x_{t-1}\mid x_t,x_0)$，再把它變成一個 regression objective，學出 $p_\theta(x_{t-1}\mid x_t)$ 來近似真正的 reverse step。
 </Bridge>
 
 ## 參考文獻

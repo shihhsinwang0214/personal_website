@@ -1,0 +1,91 @@
+---
+slug: "dma-u1-u2-homework-a"
+label: "dma-homework-a"
+prereqs:
+  - dma-lab-diffusion
+  - dma-lab-flow-matching
+  - ml-evaluating-generative-models
+lang: "zh"
+title: "作業候選 A：有限步急救室"
+category: "courses"
+group: "作業 · Unit 1–2"
+status: "available"
+updated: 2026-09-19
+summary: "在固定六次網路呼叫下，診斷既有生成模型為什麼失效，只動一個 U1／U2 設定完成救援，並替自己的方法造一個最小反例。"
+demos: []
+references: []
+---
+import Prereq from '../../../components/Prereq.astro';
+
+# 作業候選 A：有限步急救室
+
+<Prereq items={frontmatter.prereqs} />
+
+> **評分原則：未達數字門檻、但診斷與失敗分析完整的作業，分數高於達標卻無法說明原因的作業。** 數字達標只占總分 5%。
+
+## 任務
+
+你接手了一個已經訓好的 2D 生成模型。它用 64 次 network function evaluation（NFE）時表現正常，但部署環境只允許 **6 NFE**。你的工作不是換一台更大的模型，而是先找出六步版本壞在哪裡，再只動一個 U1／U2 已經出現的設定，把它救回來。
+
+這份作業不是要找全班統一的最佳方法。每個人的資料幾何不同；你的分數來自「診斷—方法—證據—限制」是否連成一條因果鏈。
+
+[下載共用 starter notebook](/personal_website/notes/notebooks/diffusion-models-applications/dma-homework/dma-u1-u2-homework-starter.ipynb) · [下載 Python starter](/personal_website/notes/notebooks/diffusion-models-applications/dma-homework/dma_hw_starter.py)
+
+## 硬限制
+
+- 個人作業；資料由 `make_case(student_id)` 產生。
+- 正式取樣固定 6 NFE、2,048 個樣本與 evaluation seed。
+- 主模型架構、batch size、training seed 與起始 noise 固定。
+- 最多 6,000 optimizer steps；1,500／3,000／6,000 checkpoints 必須來自同一次訓練。
+- 只能宣稱一個 primary intervention：path family、六個 sampling times、time sampling／loss weighting，或 Gaussian path 下的 stochasticity。
+- 不得使用高階 solver、distillation、consistency、reflow、OT、learned teacher、額外資料或更大的網路。
+- limitation micro-toy 固定 width 32、最多 1,000 steps。
+
+## W4.5 前：押注單
+
+用 200–300 字回答，繳交後鎖定：
+
+1. 六步版本的主要病因是什麼？是路徑彎、某段時間的模型誤差、步點放錯，還是 stochastic／deterministic 的取捨？
+2. 你只準備動哪一個設定？
+3. 你預測 precision 與 coverage 分別上升、下降或不變？
+4. 這個改善最可能付出什麼代價？
+
+押錯不扣分；看完結果把原押注改成正確答案才扣分。若結果推翻押注，在旁邊追加 revision log。
+
+## 必做實驗
+
+### 1. 驗屍
+
+使用相同起點畫出 baseline 的 6-step 與 64-step 軌跡。另畫八個 time bins 的 common-coordinate prediction error。你必須指出六步路線在哪個時間區段開始和 64 步分開。
+
+### 2. 只動一個設定
+
+把介入前後的式子並排寫出來。若改 time grid，列出六個時間點；若改 path，寫出 $x_t$ 與 $\dot x_t$；若改 weighting，寫出實際被最佳化的 objective；若改 stochasticity，說明它為什麼在你的 Gaussian path 上合法。
+
+### 3. 主圖
+
+同一張圖必須含：
+
+- baseline，6 NFE；
+- 你的方法，6 NFE；
+- baseline，64 NFE；
+- NFE $\{2,4,6,12,32\}$ 的 precision 與 coverage 曲線；
+- real-vs-real reference 與量測波動。
+
+### 4. Training-length sweep
+
+比較 1,500／3,000／6,000 steps。若改善只在 6,000 steps 才出現，不能直接宣稱「方法比較好」；你必須分清方法效果與 optimization lag。
+
+### 5. 自己造 limitation
+
+改變一個幾何條件，例如 mode 間距、權重、狹窄程度或交叉角度，使你的介入失效。不能只換 random seed。畫出 micro-toy 並解釋失效條件。
+
+## 交件
+
+固定六格：押注、驗屍、方法、結果、limitation、U3 接口列。最後一列請填：
+
+| source | path | pairing | target / weighting | sampler | NFE | 主要代價 |
+| --- | --- | --- | --- | --- | ---: | --- |
+|  |  |  |  |  | 6 |  |
+
+評分：問題診斷 25%、方法與理由 25%、實驗證據 30%（數字達標 5%）、limitation 與反例 20%。課堂上另有兩分鐘圖表口頭檢核。

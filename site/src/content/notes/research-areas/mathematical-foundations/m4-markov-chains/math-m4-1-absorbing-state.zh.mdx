@@ -8,7 +8,7 @@ title: "進去就出不來：Absorbing State 與吸收時間"
 category: "courses"
 group: "M4 · Markov Chains"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "單人遊戲每回合有一成機率結束，平均玩十回合——這個「平均」怎麼來、為什麼中位數只有七回合、為什麼玩了二十回合後剩下的期望仍是十；absorbing state 讓 stationary distribution 變得無趣，有趣的量換成吸收時間，用 first-step analysis 一行解出。"
 demos: []
 references:
@@ -33,9 +33,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 # 進去就出不來：Absorbing State 與吸收時間
 
 <Objectives>
-- 認出一條 chain 裡的 absorbing state（$P(x,x)=1$ 的格子），並說出它讓 stationary distribution 變得平凡、讓「吸收時間」成為真正要算的量。
-- 用 first-step analysis 寫出期望吸收時間的方程式，手算「每回合結束機率 $q$」的例子得到 $1/q$，並說出它的分佈是 geometric、中位數與期望為何不同。
-- 對一個生活情境（遊戲回合、顧客流失、零件故障）判斷「平均還要多久」這類問題的答案是否可信、說出它依賴的假設（每回合機率不變、結束後不復活），並用模擬驗證。
+- **認出一條 chain 裡的 absorbing state（$P(x,x)=1$ 的格子）。** 說出它讓 stationary distribution 變得平凡、讓「吸收時間」成為真正要算的量。
+- **用 first-step analysis 寫出期望吸收時間的方程式，手算「每回合結束機率 $q$」的例子得到 $1/q$。** 說出它的分佈是 geometric、中位數與期望為何不同。
+- **對一個生活情境（遊戲回合、顧客流失、零件故障）判斷「平均還要多久」這類問題的答案是否可信、說出它依賴的假設（每回合機率不變、結束後不復活）。** 用模擬驗證。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -75,12 +75,9 @@ $$
 
 這個畫面立刻回答了第二題：站在「還在玩」格的棋子，不管已經站了多久，下一回合掉坑的機率都是一成——它沒有記憶。所以「玩了二十回合的人」跟「剛開始的人」面對的未來一模一樣，還能再玩的期望**還是十**。「應該快結束了」是把「平均十回合」誤讀成「配額」，好像每局有十回合的額度會用完；實際上額度不存在，只有每回合一成的骰子。
 
-<VizPlan id="m4-1-pit" title="一千顆棋子與一個坑" type="static">
-- **檔名**：`m4-markov-chains/imgs/m4-1-1.svg`（16:9）。
-- **版面**：左邊一個平台格標 A（還在玩），右邊一個坑標 E（已結束），A→A 的箭頭標 $1-q$、A→E 標 $q$、E→E 標 1 並用粗線強調「出不來」。
-- **右側**：長條圖，橫軸回合 $n=1,\dots,30$，每根柱子高度是「在第 $n$ 回合結束的玩家數」$1000\,q(1-q)^{n-1}$（100、90、81、73、…），呈幾何遞減；柱子上方畫一條「還在玩的人數」$1000(1-q)^{n}$ 的折線。在 $n=7$ 處畫一條豎線標「一半的人已經結束」，在 $n=10$ 處標「期望」。
-- **圖說**：「每回合掉坑的比例固定一成，掉坑的人數卻一回合比一回合少。一半的玩家在第 7 回合之前就結束了，但長尾把平均拉到 10。」
-</VizPlan>
+![一千顆棋子與一個坑](./imgs/m4-1-1.svg)
+
+*圖：固定 hazard 產生 geometric 長尾；中位數約 7 回合，少數長局把平均拉到 10。*
 
 ## 把畫面寫成方程式
 
@@ -149,18 +146,9 @@ tau2 = np.array([play() for _ in range(T)])
 print("遞增 q：平均", tau2.mean(), " 已玩 5 回合者剩餘", (tau2[tau2 > 5] - 5).mean())
 ```
 
-<VizPlan id="m4-1-geometric" title="拉 q、看分佈；讓 q 隨回合變、看 memoryless 消失" type="interactive">
-- **位置**：本節之後。**檔名**：`site/public/notes/research_areas/mathematical-foundations/m4-markov-chains/m4-1-1.html`。
-- **版面**：左格是 $\tau$ 的長條圖（模擬 20,000 局），橫軸回合 $1\dots60$，疊上理論 $q(1-q)^{n-1}$ 的點線；三條豎線標中位數、期望、期望＋一個標準差，各附數值。右格是「已玩 $k$ 回合者的剩餘期望」折線，橫軸 $k=0,\dots,30$，理論值是水平線 $1/q$。
-- **控制項**：滑桿 $q\in[0.02,0.5]$（預設 0.1）；滑桿「每回合遞增量 $\delta$」$\in[0,0.05]$（預設 0，$q_n=\min(1,q+\delta(n-1))$）；滑桿「復活機率 $r$」$\in[0,0.3]$（預設 0）。
-- **拖 $q$**：期望 $1/q$、中位數 $\ln\tfrac12/\ln(1-q)$、標準差 $\sqrt{1-q}/q$ 即時更新；讀者看到 $q$ 不大時中位數約為期望的 $\ln2\approx0.69$ 倍、標準差約等於期望（比值 $\sqrt{1-q}$）——「平均」永遠不代表任何一局。
-- **拖 $\delta>0$**：左格長條圖變窄、右偏減弱，理論點線（仍用固定 $q$ 畫）與模擬分離；右格的剩餘期望折線**往下彎**——玩越久剩越少，memoryless 失效，「快結束了」在這個世界是對的。
-- **拖 $r>0$**：畫面上方多一條 A/E 色帶（一條 500 回合的軌跡），E 段之後又出現 A 段；右上角改顯示 $\pi_\mathrm E=q/(q+r)$ 與模擬的 E 佔比。註記：「$\mathrm E$ 不再是 absorbing state，問題從『多久被吸收』變回『長期比例』。」
-- **底部觀察句**：「觀察：$q$ 固定時，剩餘期望是一條水平線——玩了多久都一樣，這就是 memoryless；$q$ 隨回合上升時它才往下彎。平均 $1/q$ 告訴你很多局的總和，不告訴你這一局。」
-- **匯出 PNG**：左右兩格併成 16:9，含當前 $q,\delta,r$。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m4-markov-chains/m4-1-1.html" class="demo-frame" title="吸收時間：geometric 分布與 memoryless" style="height: 820px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m4-1-a">
 一家訂閱服務的資料顯示，每個月有 5% 的用戶取消訂閱，且取消後不再回來。行銷部門問「一個新用戶平均會訂閱幾個月」。該用什麼工具？
@@ -195,7 +183,7 @@ Absorbing state 的定義是 $P(x,x)=1$，有 30% 會離開就不是了，「吸
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-ctmc">
-這一篇認出「進去就出不來」的格子，看到它讓長期比例變得平凡、讓「多久被吸收」成為主角，並用 first-step analysis 一行解出期望。到目前為止時間都是一回合一回合走的。下一篇處理「隨時都可能發生」的事——電話隨時進來、隨時結束——那時 transition matrix 要換成另一個物件。
+這一篇認出「進去就出不來」的格子，看到它讓長期比例變得平凡、讓「多久被吸收」成為主角，並用 first-step analysis 一行解出期望。到目前為止時間都是一回合一回合走的。接著處理「隨時都可能發生」的事——電話隨時進來、隨時結束——那時 transition matrix 要換成另一個物件。
 </Bridge>
 
 ## 參考文獻

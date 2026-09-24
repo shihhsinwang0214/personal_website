@@ -1,0 +1,101 @@
+---
+slug: "dma-u1-u2-homework-b"
+label: "dma-homework-b"
+prereqs:
+  - dma-lab-diffusion
+  - dma-lab-flow-matching
+  - ml-evaluating-generative-models
+lang: "zh"
+title: "作業候選 B：幫生成模型鋪路"
+category: "courses"
+group: "作業 · Unit 1–2"
+status: "available"
+updated: 2026-09-19
+summary: "固定網路、預算與 Euler sampler，只改 path 或 pairing，替個人化 source-to-target 任務設計一條有限步更好走的路。"
+demos: []
+references: []
+---
+import Prereq from '../../../components/Prereq.astro';
+
+# 作業候選 B：幫生成模型鋪路
+
+<Prereq items={frontmatter.prereqs} />
+
+> **評分原則：未達數字門檻、但診斷與失敗分析完整的作業，分數高於達標卻無法說明原因的作業。** 數字達標只占總分 5%。
+
+## 任務
+
+這次不准換車：網路、training budget 與 8-step Euler 全部固定。你要替自己的 source-to-target 病例設計一條比較好走的路。
+
+你可以改 **path** 或 **pairing**，只能二選一。兩端分布不變；你要用程式與圖說明，中間的選擇如何改變有限步取樣，以及代價落在哪裡。
+
+[下載共用 starter notebook](/personal_website/notes/notebooks/diffusion-models-applications/dma-homework/dma-u1-u2-homework-starter.ipynb) · [下載 Python starter](/personal_website/notes/notebooks/diffusion-models-applications/dma-homework/dma_hw_starter.py)
+
+## 硬限制
+
+- 個人作業；source 與 target 由 `make_case(student_id)` 決定。
+- 正式 sampler 固定一階 Euler；主要結果固定 8 NFE。
+- 網路、batch size、seed 與最多 6,000 optimizer steps 固定。
+- 只能選 path design 或 pairing design，不能兩個一起改。
+- 不得使用 OT solver、reflow、learned mapper、distillation、consistency、高階 solver、額外資料或更大的網路。
+- limitation micro-toy 固定 width 32、最多 1,000 steps。
+
+## 兩條合法路線
+
+### 路線一：Path design
+
+使用固定端點的形式，例如
+
+$$
+x_t=(1-t)x_0+t x_1+t(1-t)g_\phi(x_0,x_1),
+$$
+
+其中 $g_\phi$ 必須是你明寫的低成本函數，不可以是另一個需要訓練的大網路。你必須自己推出 $\dot x_t$，並用 conditional regression 訓練速度場。端點必須精確滿足 $x_{t=0}=x_0$、$x_{t=1}=x_1$。
+
+### 路線二：Pairing design
+
+保持
+
+$$
+x_t=(1-t)x_0+t x_1,
+$$
+
+只修改 $(x_0,x_1)\sim\pi$。可以使用排序、角度、半徑、投影或你自己寫的簡單幾何規則。禁止呼叫 assignment／OT library，也禁止讓另一個模型替你產生配對。
+
+## W4.5 前：押注單
+
+用 200–300 字回答：baseline 的條件路線在哪裡交叉或繞路？你要改哪個設定？你預測 8-step precision、coverage 與 transport/path-length cost 各怎麼變？
+
+## 必做實驗
+
+1. **畫條件路線。** 至少 16 組相同端點，並排 baseline 與你的設計。
+2. **畫邊際軌跡。** 固定 32 個 source samples，畫 8-step Euler 的完整軌跡。條件路徑直，不代表邊際軌跡直；兩張圖都要有。
+3. **畫 NFE 曲線。** 對 $\{2,4,8,16,32\}$ 報 precision 與 coverage，並標出 real-vs-real reference。
+4. **量代價。** 至少報一項 transport cost、平均 path length 或最大偏航距離。不能只說品質改善，卻不說改路付了什麼錢。
+5. **Training-length sweep。** 同一次訓練保存 1,500／3,000／6,000 steps，確認結果不是單純比較誰訓得久。
+6. **最小反例。** 把問題縮成 2–4 組端點，讓你的 pairing/path 產生交叉、塌縮或不必要繞路。
+
+## 數學與直覺
+
+你的方法格必須同時有：
+
+- 一個生活比喻，說明為什麼 baseline 的路難走；
+- 自訂符號與完整 $x_t,\dot x_t$；
+- conditional target 為什麼仍可計算；
+- 為什麼 $L_2$ 回歸得到的 marginal field 應打中你診斷的問題。
+
+## 交件與 U3 接口
+
+固定六格：押注、驗屍、方法、結果、limitation、U3 接口列。
+
+| source $p_0$ | target $p_1$ | $\alpha_t,\beta_t$ | coupling $\pi$ | target | sampler | 代價 |
+| --- | --- | --- | --- | --- | --- | --- |
+|  |  |  |  |  | Euler, 8 NFE |  |
+
+第五週課堂會把全班的列排在一起，再加入 $\gamma_tz$：
+
+$$
+x_t=\alpha_t x_0+\beta_t x_1+\gamma_t z,\qquad (x_0,x_1)\sim\pi.
+$$
+
+評分：問題診斷 25%、方法與理由 25%、實驗證據 30%（數字達標 5%）、limitation 與反例 20%。課堂上另有兩分鐘圖表口頭檢核。

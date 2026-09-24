@@ -11,8 +11,8 @@ title: "CTMC：Rate Matrix 與 Forward Equation"
 category: "courses"
 group: "Unit 5 · Discrete Diffusion II"
 status: "available"
-updated: 2026-09-07
-summary: "用「每單位時間流多少機率」定義 rate matrix R_t，寫出 forward equation ṗ_t = p_t R_t，並把它和 Fokker–Planck 並排：兩者都是「分佈的時間導數 = 一個線性算子作用在分佈上」，差別只在算子是微分還是矩陣。uniform 與 absorbing 的 rate 形式解出來，正好還原上一個單元的 Q̄_t。"
+updated: 2026-09-21
+summary: "Rate matrix 記錄狀態之間每單位時間流多少機率；forward equation 再把局部流量組成整體分布的變化。它就是離散狀態版的 Fokker–Planck。"
 demos: []
 references:
   - label: "Campbell et al., A Continuous Time Framework for Discrete Denoising Models (NeurIPS 2022)"
@@ -42,9 +42,9 @@ import Ref from '../../../components/Ref.astro';
 # CTMC：Rate Matrix 與 Forward Equation
 
 <Objectives>
-- 用「單位時間的機率流量」定義 rate matrix $R_t$，說出它每一列和為零、非對角非負的理由，並寫出 $Q_{t\to t+\Delta t}\approx I+R_t\Delta t$。
-- 寫出 forward equation $\dot p_t=p_tR_t$，並把它與 <Ref to="dma-sampler-family"/> 的 Fokker–Planck 並排：$\Delta$ 換成 $R$。
-- 把 uniform 與 absorbing 寫成 rate 的形式，解出 $\bar Q_t$，確認與 <Ref to="dma-d3pm"/> 的 closed form 一致。
+- **從機率流量定義 rate matrix $R_t$。** 解釋非對角元素為何非負、每列為何加總為零，並寫出 $Q\approx I+R_t\Delta t$。
+- **推導 forward equation $\dot p_t=p_tR_t$。** 把它和 Fokker–Planck 並排，認出兩者都是守恆的分布動力學。
+- **把 uniform 與 absorbing chain 改寫成 rate。** 解回 $\bar Q_t$，確認連續時間沒有改變原本的邊際路徑。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -84,6 +84,19 @@ Q_{t\to t+\Delta t}=I+R_t\,\Delta t+O(\Delta t^2),\qquad\text{每列和}=1+0\cdo
 $$
 
 列和為 1 正是因為 $R_t$ 列和為 0。所以 $R_t$ 是 transition matrix 的時間導數；**$Q_t$ 是一步之後到哪，$R_t$ 是此刻正往哪流。**
+
+<Remark label="符號" summary="書上的 Q 和我們的 Q 是相反的東西">
+我們跟著 <Ref to="dma-d3pm"/> 的慣例：$Q_t$ 是**轉移矩陣**，$R_t$ 是 **rate matrix**。
+
+多數 CTMC 文獻——包括這門課的主要參考書——用的是另一套：轉移矩陣寫成 $P_{t,\Delta t}$，而 $Q_t$ 就是 rate matrix（在那裡叫 **generator**）。同一條式子兩邊長這樣：
+
+$$
+\underbrace{Q_{t\to t+\Delta t}=I+R_t\,\Delta t}_{\text{本課}},\qquad
+\underbrace{P_{t,\Delta t}=I+Q_t\,\Delta t}_{\text{多數文獻}} .
+$$
+
+$Q$ 這個字母在兩邊的意思**恰好相反**。我們不改名，因為上一個單元一路用 $Q_t$ 當轉移矩陣；但翻書的時候要記得換。
+</Remark>
 
 ## 分佈怎麼隨時間變？
 
@@ -221,16 +234,9 @@ $$
 </Answer>
 </Question>
 
-<VizPlan id="w7-1-two-equations" title="forward equation 與 Fokker–Planck：同一句話的兩種寫法" type="static">
-- 檔名 `imgs/w7-1-1.png`，放在「多個 token：一次只跳一個」之後、「先消化一下」之前。
-- 版面：左右兩塊，中央上方橫跨兩塊寫一句大標「**分佈的變化率 ＝ 流入 − 流出**」。
-  - **左「離散（CTMC）」**：三個圓（$a,b,c$）與帶箭頭的弧；把 $b$ 這個圓highlight 出來，用兩種顏色的粗箭頭分別標「流入」（兩支指進來）與「流出」（兩支指出去）。下方寫式子 $\dot p_t(b)=\sum_{x\ne b}p_t(x)R(x\to b)-p_t(b)\sum_{y\ne b}R(b\to y)$，並把兩個 $\sum$ 分別用和上面箭頭同色的底色框起。
-  - **右「連續（Fokker–Planck）」**：一條 $p_t(x)$ 的曲線，在某個 $x$ 處畫一個小區間，左右兩支箭頭代表流入與流出的通量 $p_tb_t$。下方寫 $\partial_t p_t=-\nabla\cdot(b_tp_t)+\varepsilon\Delta p_t$，並標「散度 ＝ 淨流出」。
-- 兩塊之間畫一個雙向箭頭，上方寫「離散的『對鄰居求和』對應連續的『取散度』」。
-- 底部一句：「兩邊都只是質量守恆；差別在『鄰居』是有限個還是連續的一片。」
-- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、流入綠 `#60ba82`／流出紅 `#d94f4f`／強調靛 `#2a4ea3`）。
-- 長寬比：約 16:8。
-</VizPlan>
+![forward equation 與 Fokker–Planck：同一句話的兩種寫法](./imgs/w7-1-1.png)
+
+*圖：forward equation 與 Fokker–Planck 是同一則守恆故事：分布的變化，等於流入減去流出。*
 
 ## 先消化一下
 
@@ -275,7 +281,7 @@ Absorbing 鏈取 $\alpha_t=1-t$，rate 是 $\beta_t=1/(1-t)$，在 $t\to1$ 時�
 </QuizBlock>
 
 <Bridge to="dma-concrete-score">
-本篇把 forward chain 寫成 rate matrix，forward equation $\dot p_t=p_tR_t$ 是 Fokker–Planck 的離散版，兩條鏈的 closed form 從矩陣指數一行算出。下一篇把時間反過來：反向過程的 rate 是什麼？答案裡會冒出一個比值 $p_t(y)/p_t(x)$——它就是離散世界的 score。
+Forward rate 告訴我們機率怎麼從乾淨資料流向噪聲；生成需要把每根管子的流向倒過來。可是反向流量不能只把箭頭翻面，還要看兩端目前各有多少機率。下一篇從這個平衡條件推出離散 score。
 </Bridge>
 
 ## 參考文獻

@@ -4,13 +4,14 @@ label: "dma-discrete-applications"
 prereqs:
   - math-markov-chain
   - math-absorbing-state
+  - ml-autoregressive
 lang: "zh"
 title: "應用：語言模型、蛋白質序列、圖"
 category: "courses"
 group: "Unit 5 · Discrete Diffusion II"
 status: "available"
-updated: 2026-09-07
-summary: "用 path / target / sampler 三個槽位讀三類真實系統：LLaDA 等 masked diffusion 語言模型（與 autoregressive 的速度／品質權衡）、蛋白質序列生成（EvoDiff、DPLM、Multiflow 的結構＋序列共同生成）、圖生成（DiGress 的節點與邊）。每一個都能放回這兩個單元的框架，沒有新的數學。"
+updated: 2026-09-21
+summary: "用 path、target、sampler 三個問題拆解語言、蛋白質與圖生成系統，分清真正的新設計落在哪裡，而不是被模型名稱帶著走。"
 demos: []
 references:
   - label: "Nie et al., Large Language Diffusion Models (2025)"
@@ -53,9 +54,9 @@ import Ref from '../../../components/Ref.astro';
 # 應用：語言模型、蛋白質序列、圖
 
 <Objectives>
-- 把任何一個離散生成系統拆成三個槽位——**path**（forward chain / source 與 $\kappa_t$）、**target**（網路回歸什麼）、**sampler**（步數、每步翻開幾個、有沒有 $\sigma_t$）——並用它讀三類真實系統。
-- 說出 masked diffusion 語言模型與 autoregressive 模型在速度與品質上的權衡，以及它在這兩個單元的哪一篇被解釋過。
-- 說出蛋白質序列與圖這兩類資料為什麼特別適合離散擴散，各自把噪聲放在哪裡。
+- **用 path、target、sampler 拆解一個離散生成系統。** 分別回答如何破壞資訊、網路預測什麼、生成時如何跳轉。
+- **比較 masked diffusion 與 autoregressive 語言模型。** 說出平行生成的速度從哪裡來，又在哪裡受到 factorization error 限制。
+- **解釋蛋白質與圖為何適合離散 diffusion。** 指出序列、節點與邊各自如何被 corruption process 處理。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -65,7 +66,7 @@ import Ref from '../../../components/Ref.astro';
 要怎麼一句話說出「它動了哪一格」？
 </Ask>
 
-## 一個離散模型要填哪三格
+## 讀一個離散模型，先問三件事
 
 這兩個單元建立的東西可以壓成一張表的三欄。任何一個離散生成系統，只要回答三個問題就能定位：
 
@@ -102,8 +103,8 @@ masked diffusion 語言模型最常被講的優點是**可以平行生成**。�
 在這個前提下，AR 換成 masked diffusion 真正留下來的是三件事：
 
 1. **雙向 context。** 填空（infilling）與不受生成方向限制——LLaDA 報告在「倒著補全」這類 reversal 任務上明顯優於同規模 AR，因為 AR 只在一個方向上學過條件分佈。這不是取樣器補得回來的東西，是訓練目標的差別。
-2. **取樣預算變成一顆可調的旋鈕。** block 大小、每個 block 走幾步、$\sigma_t$——全部在取樣器裡，**不必重訓就能換品質**。AR 的生成步數就是 $L$，沒有這條軸可以調。
-3. **同一個 loss 同時是表徵學習的目標。** <Ref to="dma-masked-diffusion"/> 說 masked diffusion 是 BERT 加上隨機遮罩比例與權重；下一節的 DPLM 就是把這件事直接用在蛋白質上。
+2. **取樣預算變成一項可調的選擇。** block 大小、每個 block 走幾步、$\sigma_t$——全部在取樣器裡，**不必重訓就能換品質**。AR 的生成步數就是 $L$，沒有這條軸可以調。
+3. **同一個 loss 同時是表徵學習的目標。** <Ref to="dma-masked-diffusion"/> 說 masked diffusion 是 BERT 加上隨機遮罩比例與權重；DPLM 正是把這件事直接用在蛋白質上。
 
 所以「AR 還是 diffusion 比較快」問錯了。該問的是：**這份資料的條件相依有多強、我願意花幾次網路呼叫。** 順著這個問法，還有一項對 diffusion 不利的成本要記住：雙向 attention 讓 KV cache 沒辦法直接沿用（每一步整串都在變），所以單步比 AR 一步貴——BD3-LM [9] 那種 block 設計，一部分就是為了把 cache 拿回來。
 </Answer>
@@ -111,7 +112,7 @@ masked diffusion 語言模型最常被講的優點是**可以平行生成**。�
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w7-5-blocks.html" class="demo-frame" title="block 大小對誤差與呼叫次數：互動 demo" style="height: 900px; width: 100%; border: none;"></iframe>
 
-**互動 demo：block 這顆旋鈕在賣什麼。** 還是 Markov toy（$L=16$、相鄰格以 0.9 相同，切換率真值 0.10），橫軸是**網路呼叫次數**、縱軸是樣本的切換率，每個點標它的 block 大小。兩個端點先看：$B=1$（一次一格、16 次呼叫）量到 **0.098**——那就是 autoregressive，沒有因子化誤差；$B=16$ 且只走 1 步（一次呼叫全部填完）衝到 **0.504**，等於每格獨立。中間才是有意思的地方：$B=4$、每個 block 走 2 步（**8 次呼叫**）量到 **0.172**，用一半的呼叫次數走完這段路的大約八成。把相依強度切到 0.7（真值變成 0.30）：兩端變成 0.498 與 0.299，可讀的範圍整個變窄——**相依越弱，平行翻開的代價越小**，這正是 Q1 說「平行的上限由資料決定」的樣子。
+**互動 demo：block 這項設定在賣什麼。** 還是 Markov toy（$L=16$、相鄰格以 0.9 相同，切換率真值 0.10），橫軸是**網路呼叫次數**、縱軸是樣本的切換率，每個點標它的 block 大小。兩個端點先看：$B=1$（一次一格、16 次呼叫）量到 **0.098**——那就是 autoregressive，沒有因子化誤差；$B=16$ 且只走 1 步（一次呼叫全部填完）衝到 **0.504**，等於每格獨立。中間才是有意思的地方：$B=4$、每個 block 走 2 步（**8 次呼叫**）量到 **0.172**，用一半的呼叫次數走完這段路的大約八成。把相依強度切到 0.7（真值變成 0.30）：兩端變成 0.498 與 0.299，可讀的範圍整個變窄——**相依越弱，平行翻開的代價越小**，這正是 Q1 說「平行的上限由資料決定」的樣子。
 
 <Remark label="補充" summary="這一篇的數字哪些是量出來的、哪些是論文報告的">
 上面 demo 的數字是在一個 16 格的 toy 上量出來的，可以自己重跑。而三個應用的敘述——LLaDA 與同規模 AR 相當、EvoDiff 能生成可摺疊的蛋白、DiGress 比連續版好——都是**各篇論文報告的結果**，設定、資料與評分方式都不一樣，彼此不能直接比大小。
@@ -121,7 +122,7 @@ masked diffusion 語言模型最常被講的優點是**可以平行生成**。�
 
 <Details summary="這條線上其他值得知道的名字">
 - **MDLM [2]、SEDD [3]**：語言上兩條 target 路線的代表——加權 cross-entropy 與 score entropy——<Ref to="dma-concrete-score"/> 說過在 absorbing 鏈上它們學的是同一組數字。
-- **Block diffusion（BD3-LM）**：把 AR 與 masked diffusion 內插——block 之間 AR、block 內 diffusion，block 大小是「每步翻開幾個」之外的另一個速度／品質旋鈕，也讓 KV cache 部分回來 [9]。
+- **Block diffusion（BD3-LM）**：把 AR 與 masked diffusion 內插——block 之間 AR、block 內 diffusion，block 大小是「每步翻開幾個」之外的另一個速度／品質設定，也讓 KV cache 部分回來 [9]。
 - **商用系統**：Mercury（Inception Labs [10]）與 Gemini Diffusion 都是以 diffusion 為骨架的語言模型，主打生成速度。Mercury 的技術報告有 path 與 sampler 的粗略描述，Gemini Diffusion 目前沒有公開細節可以放進三個槽位。
 </Details>
 
@@ -154,17 +155,11 @@ masked diffusion 語言模型最常被講的優點是**可以平行生成**。�
 | Multiflow | DFM（序列）+ FM（結構），成對 | $x_0$ posterior（兩種模態） | 帶 $\eta$ 的 CTMC 取樣 |
 | DiGress | 朝 marginal 走的 uniform 型鏈 | 節點與邊的 $x_0$ logits | 反向 posterior，一步更新全圖 |
 
-兩個觀察。第一，**target 那一欄幾乎沒有變化**：所有系統都在學 $x_0$ 的 posterior，差別全在 path 與 sampler——這印證了 <Ref to="dma-discrete-data"/> 的盤點：「在每個 $t$ 做回歸」是離散世界裡活得最好的那一環。第二，**sampler 那一欄是目前變動最快的地方**：信心排序、block、remasking、$\eta$——它們都在對付同一個東西，<Ref to="dma-factorization-error"/> 的因子化誤差，而且都是取樣時的旋鈕、不必重訓。這和連續世界裡 solver 與 $\varepsilon_t$ 的研究地位一樣。
+兩個觀察。第一，**target 那一欄幾乎沒有變化**：所有系統都在學 $x_0$ 的 posterior，差別全在 path 與 sampler——這印證了 <Ref to="dma-discrete-data"/> 的盤點：「在每個 $t$ 做回歸」是離散世界裡活得最好的那一環。第二，**sampler 那一欄是目前變動最快的地方**：信心排序、block、remasking、$\eta$——它們都在對付同一個東西，<Ref to="dma-factorization-error"/> 的因子化誤差，而且都是取樣時的設定、不必重訓。這和連續世界裡 solver 與 $\varepsilon_t$ 的研究地位一樣。
 
-<VizPlan id="w7-5-three-slots" title="三個應用放回三個槽位" type="static">
-- **位置**：本節之後。**檔名**：`imgs/w7-5-1.png`（16:9，四列三欄的格狀圖）。
-- **三欄**（由左至右）：path、target、sampler，欄首用醒目色框，欄首下方一行小字各寫該欄對應的筆記主題（「forward chain / source」「網路回歸什麼」「步數、翻開幾個、σ」；不寫編號）。
-- **四列**：LLaDA、EvoDiff、Multiflow、DiGress，每列左端一個小 icon（一排文字 token、一串胺基酸珠鍊、一段結構+序列並排、一個分子圖）。
-- **每格**畫一個極簡示意而非文字：path 格畫「起點 → 終點」的兩個小狀態（全 `[MASK]` 灰底 / 均勻雜色 / 稀疏噪聲圖）與一條 $\kappa_t$ 小曲線；target 格畫一個小長條圖（$K$ 根柱子）標 $p_\theta(x_0\mid x_t)$，Multiflow 那格多一支箭頭代表連續的結構；sampler 格畫一排格子與「每步翻開幾個」的小數字，LLaDA 格畫成幾個 block、DiGress 格畫全圖一次更新、Multiflow 格加一個 $\eta$ 的小旋鈕。
-- **底部一行**：target 欄整欄用淡色底標「幾乎沒變」，sampler 欄整欄標「變動最快」。
-- **圖說（.mdx 內）**：「**圖：三個應用放回三個槽位。** 所有系統都在學 $x_0$ 的 posterior；差別在 forward chain 與取樣器。取樣器那一欄的每個花樣都在對付同一個東西——因子化誤差——而且都不必重訓。」
-- 術語一律英文（path、target、sampler、posterior、block、remasking）。
-</VizPlan>
+![三個應用放回三個槽位](./imgs/w7-5-1.png)
+
+*圖：語言、蛋白質與分子圖都可沿 path、target、sampler 三個槽位拆解；常見 target 都是 $x_0$ posterior，差異集中在 path 與 sampler。*
 
 ## 先消化一下
 
@@ -189,7 +184,7 @@ DiGress 把邊的 forward chain 終點設成資料裡邊種類的 marginal（大
 </QuizBlock>
 
 <QuizBlock id="w7-5-c">
-Multiflow 讓結構（連續）與序列（離散）共同生成。這裡「配對」旋鈕的角色是：
+Multiflow 讓結構（連續）與序列（離散）共同生成。這裡「配對」設定的角色是：
 <Option>用 OT 把序列配到最近的結構，拉直路徑。</Option>
 <Option>沒有角色，兩條路徑各自獨立。</Option>
 <Option correct>結構與序列在資料裡本來就是成對的，兩條路徑的端點 $(x_0^{\text{struct}},x_0^{\text{seq}})$ 一起抽——配對是任務給的對齊，不是為了拉直。</Option>
@@ -199,7 +194,7 @@ Multiflow 讓結構（連續）與序列（離散）共同生成。這裡「配�
 </QuizBlock>
 
 <Bridge to="dma-lab-ctmc">
-本篇用 path / target / sampler 讀了三類系統，看到 target 幾乎不變、sampler 變動最快。最後一篇動手：把 <Ref to="dma-lab-discrete-time"/> 的取樣器改寫成 CTMC 的 τ-leaping、加上 remasking rate 畫「強度 vs 合法率」、並在同一個 toy 上比較 SEDD 的比值學習與 MDLM 的 cross-entropy。
+三類應用看似不同，最後都回到同一組選擇；變動最快的通常不是 target，而是 sampler。實作篇把離散時間 sampler 改寫成 $\tau$-leaping，再加入 remasking，直接量「能反悔」是否真的改善合法率。
 </Bridge>
 
 ## 參考文獻

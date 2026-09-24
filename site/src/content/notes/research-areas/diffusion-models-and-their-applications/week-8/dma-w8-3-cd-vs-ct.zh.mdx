@@ -12,8 +12,8 @@ title: "Consistency Distillation 與 Consistency Training：沒有老師，憑�
 category: "courses"
 group: "Unit 6 · Consistency Models"
 status: "available"
-updated: 2026-09-06
-summary: "填上損失裡的空格：CD 用 teacher 的 score 走一步 Euler；CT 不用 teacher，把同一組 (x₀, ε) 在 t_n 重新加噪當作「走了一步」。CT 憑什麼成立？因為那個條件目標對 x_{t_{n+1}} 取後驗平均，恰好就是用真實 score 走的那一步 Euler——conditional trick 的 consistency 版本。剩下的偏差正比於 Δt 與曲率，這解釋了時間網格為什麼要 curriculum。"
+updated: 2026-09-21
+summary: "CD 請 teacher 沿 ODE 走一步；CT 用同一組資料與噪聲重建相鄰點。後者看似走錯路，取後驗平均後卻正好得到前者。"
 demos: []
 references:
   - label: "Song, Dhariwal, Chen & Sutskever, Consistency Models (ICML 2023)"
@@ -38,9 +38,9 @@ import Ref from '../../../components/Ref.astro';
 # Consistency Distillation 與 Consistency Training：沒有老師，憑什麼？
 
 <Objectives>
-- 寫出 $\hat x_{t_n}$ 的兩種算法：CD 用 teacher 的 score 走一步 Euler，CT 用同一組 $(x_0,\epsilon)$ 重新加噪；並說出各自需要什麼。
-- 證明 CT 的條件目標對 $x_{t_{n+1}}$ 取後驗平均後恰等於用真實 score 走的一步 Euler，並把它認成 <Ref to="dma-denoising-regression"/> 那個 conditional trick 的 consistency 版本。
-- 說出 CT 相對真實軌跡的兩個誤差來源（$f_\theta$ 的非線性、Euler 本身的曲率誤差）都隨 $\Delta t\to0$ 消失，以及這如何解釋 bias、variance 與時間網格的 curriculum。
+- **寫出 CD 與 CT 的相鄰點。** 分清 teacher 的 Euler 一步，與同一組 $(x_0,\epsilon)$ 在另一時刻重新合成。
+- **證明 CT 為什麼可行。** 對條件目標取後驗平均，得到真實 score 的 Euler 一步，並連回 conditional trick。
+- **說出 CT 的 bias–variance 取捨。** 找出非線性與曲率造成的 bias，並解釋時間網格為什麼需要 curriculum。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -111,22 +111,13 @@ $$
 
 兩項合起來，就是 Song et al. [1] 那條定理的精神：**在 $\Delta t\to0$ 時，CT 的損失與（用真實 score 的）CD 損失只差 $o(\Delta t)$**，兩者訓出同一個 $f$。（定理的精確條件——$d$ 的形式、對 $f$ 的 Lipschitz 與二階可微假設、$\theta^-=\theta$——請查原文；這裡只用它的結論。）
 
-一句話總結：**CT 不是「沒有 teacher」，它的 teacher 是資料本身**——$(x_0,\epsilon)$ 這一組配對就是一條條件軌跡，而條件軌跡的後驗平均就是真實的 PF-ODE。
+這個結果可以收成一句話：**CT 不是「沒有 teacher」，它的 teacher 是資料本身**——$(x_0,\epsilon)$ 這一組配對就是一條條件軌跡，而條件軌跡的後驗平均就是真實的 PF-ODE。
 </Answer>
 </Question>
 
-<VizPlan id="w8-3-ct-target" title="CT 的條件目標 vs 真實軌跡上的點：Δt 與曲率" type="interactive">
-- **位置**：Q1 之後。**檔名**：`week-8/w8-3-1.html`。
-- **資料與座標**：2D toy（月牙），VE 座標 $x_t=x_0+t\epsilon$，$T=10$。精確 score 由混合 Gaussian 解析算出，真實軌跡用細步 RK4。
-- **版面**：左大格平面，右側控制項與兩張小曲線圖。
-- **左格的基本畫面**：先由讀者（或按「隨機」）選一組 $(x_0,\epsilon)$ 與一個時刻 $t_{n+1}$。畫出：(a) **條件直線** $\{x_0+t\epsilon\}$——虛線，從 $x_0$ 出發往外；(b) 點 $x_{t_{n+1}}$（大圓點）；(c) 經過 $x_{t_{n+1}}$ 的**真實 PF-ODE 軌跡**——實線、彎曲，往乾淨端走到終點打星號；(d) 三個候選的 $\hat x_{t_n}$：CT 目標 $x_0+t_n\epsilon$（在虛線上，方形）、Euler 一步（在切線方向上，三角形）、真實 $x_{t_n}$（在實線上，圓形）。三者用三色，右側圖例。
-- **滑桿 $\Delta t=t_{n+1}-t_n$**（對數刻度）：拖大，三個候選點散開；拖小，三點收攏到一起。數字欄即時顯示 $\|\text{CT}-\text{Euler}\|$、$\|\text{Euler}-\text{真實}\|$、$\|\text{CT}-\text{真實}\|$。
-- **按鈕「經過同一個 $x_{t_{n+1}}$ 的 100 組 $(x_0,\epsilon)$」**：從後驗 $p(x_0\mid x_{t_{n+1}})$ 抽 100 個 $x_0$（混合 Gaussian 後驗可精確抽），每組的 CT 目標畫成一個淡色小方形，形成一把扇子；扇子的**質心**用粗方形標出——它應與 Euler 三角形重合（100 組的蒙地卡羅誤差在 $10^{-2}$ 量級，隨組數以 $1/\sqrt{n}$ 收斂，數字欄顯示；<Ref to="dma-lab-consistency"/> 用 500 組，容差要跟著縮到 $5\times10^{-3}$）。這就是 Q1 的等式。
-- **右上小圖「每步誤差 vs $\Delta t$」**：log-log。兩條線：$\|\text{Euler}-\text{真實}\|$（斜率 2，這是 Euler 局部誤差）與扇子的**標準差**（斜率 1，這是條件目標的 variance $\propto\Delta t$）。旁邊小字：「bias 降得比 variance 快——小 $\Delta t$ 時 loss 訊號被雜訊淹沒」。
-- **右下小圖「曲率的角色」**：把 $x_{t_{n+1}}$ 拖到三個位置（兩個月牙之間、月牙正上方、遠離資料處），$\|\text{Euler}-\text{真實}\|$ 的長條並排，並在左格用顏色沿軌跡標 $\|\ddot x_t\|$。兩月牙之間最彎、誤差最大。
-- **底部觀察句**：「觀察：CT 的目標每一筆都不在軌跡上——它退的是自己的 $\epsilon$ 方向。但把經過同一個 $x_{t_{n+1}}$ 的所有配對平均起來，質心就是用真實 score 走的那一步 Euler。剩下的偏差是 Euler 對彎曲軌跡的誤差，$\Delta t$ 越小、軌跡越直，它越小。」
-- **匯出 PNG**：左格 + 兩張小圖併成 16:9，含當前 $\Delta t$。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/week-8/w8-3-1.html" class="demo-frame" title="CT 條件目標、Euler 與真實軌跡：互動 demo" style="height: 930px; width: 100%; border: none;"></iframe>
+
+**互動 demo：條件目標的扇形。** 調整 $\Delta t$ 與曲率，單筆 CT 目標、後驗平均的 Euler 點、真實軌跡點會分開或重合；右側同時顯示 bias 約為 $O(\Delta t^2)$、條件目標標準差約為 $O(\Delta t)$。
 
 ## 為什麼時間網格要慢慢變細
 
@@ -202,7 +193,7 @@ CT 的時間網格 $N$ 為什麼要從小到大做 curriculum，而不是一開�
 </QuizBlock>
 
 <Bridge to="dma-ict-scm">
-本篇填上了空格：CD 用 teacher 走一步，CT 用同一組 $(x_0,\epsilon)$ 重加噪，後者成立是因為條件目標的後驗平均就是真實 score 的 Euler 一步。CT 的代價是 bias（$\propto\Delta t\times$曲率）與 variance（訊噪比隨 $\Delta t$ 變差）之間的取捨。下一篇把 2023 到 2024 年讓 CT 真正能訓起來的技術逐一過一遍，每一項都要問：它在對付 bias、variance，還是 boundary？
+CT 拿掉了 teacher，卻把問題換成 bias、variance 與 boundary 三者的拉扯。<Ref to="dma-ict-scm"/> 接著問：每一項訓練改良究竟在處理哪一種誤差？若把時間間隔推到零，又能不能直接消掉離散化 bias？
 </Bridge>
 
 ## 參考文獻

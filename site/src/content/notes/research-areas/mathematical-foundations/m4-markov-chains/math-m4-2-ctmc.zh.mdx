@@ -9,7 +9,7 @@ title: "電話隨時會響：Continuous-Time Markov Chain 與 Rate Matrix"
 category: "courses"
 group: "M4 · Markov Chains"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "客服專線電話隨時進來、隨時結束，「隨時」沒有回合可數，只能說「每小時平均幾次」——這就是 rate。把每個小時段的 transition matrix 寫成 I+RΔt，讓 Δt→0 得到 P(t)=e^{tR} 與 forward equation ṗ=pR；它是 Fokker–Planck 的離散狀態版本，而「話務員忙碌時間比例是 50%」這個直覺為什麼錯了三分之一。"
 demos: []
 references:
@@ -34,9 +34,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 # 電話隨時會響：Continuous-Time Markov Chain 與 Rate Matrix
 
 <Objectives>
-- 說出「每小時平均 3 通」這種 rate 和「每回合機率 0.1」的差別，並把一個連續時間的狀態切換寫成 rate matrix $R$：非對角線是 rate、每列和為 0。
-- 從 $P(\Delta t)\approx I+R\Delta t$ 推出 $P(t)=e^{tR}$ 與 forward equation $\dot p_t=p_tR$，手算 2 狀態的解，並指出它與 <Ref to="math-fokker-planck"/> 是同一件事的兩個版本。
-- 對一個生活情境（客服專線、機器故障與維修、燈號切換）判斷「長期忙碌比例」的直覺算法是否正確、說出它依賴的假設（rate 不隨時間變、事件之間無記憶），並用模擬驗證。
+- **說出「每小時平均 3 通」這種 rate 和「每回合機率 0.1」的差別。** 把一個連續時間的狀態切換寫成 rate matrix $R$：非對角線是 rate、每列和為 0。
+- **從 $P(\Delta t)\approx I+R\Delta t$ 推出 $P(t)=e^{tR}$ 與 forward equation $\dot p_t=p_tR$，手算 2 狀態的解。** 指出它與 <Ref to="math-fokker-planck"/> 是同一件事的兩個版本。
+- **對一個生活情境（客服專線、機器故障與維修、燈號切換）判斷「長期忙碌比例」的直覺算法是否正確、說出它依賴的假設（rate 不隨時間變、事件之間無記憶）。** 用模擬驗證。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -67,12 +67,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 「隨時」的意思就是：時間不再是一格一格的，但在每個瞬間，「跳走」這件事有一個固定的**傾向**。把這個傾向叫做 rate，整個描述就完整了。
 
-<VizPlan id="m4-2-alarm" title="兩個沒有記憶的鬧鐘" type="static">
-- **檔名**：`m4-markov-chains/imgs/m4-2-1.svg`（16:9）。
-- **版面**：上半是兩個格子 0（閒）、1（忙），格子上各畫一個鬧鐘圖示，0→1 箭頭標「rate $\lambda=3$／小時」，1→0 標「rate $\mu=6$／小時」。**不畫**自環（連續時間沒有「留在原地」的箭頭）。
-- **下半**：一條 0 到 3 小時的時間軸，畫一條樣本軌跡（階梯函數在 0/1 之間跳），忙碌段塗色。忙碌段長度標出幾個實際值（如 4 分、13 分、7 分），閒置段標出 22 分、9 分、31 分；旁邊註記「忙碌段平均 $1/\mu=10$ 分，閒置段平均 $1/\lambda=20$ 分」。
-- **圖說**：「沒有回合，只有兩個隨時可能響的鬧鐘。每一段停留的長度是隨機的，平均分別是 $1/\lambda$ 與 $1/\mu$——長期忙碌比例的答案已經藏在這兩個數字的比例裡。」
-</VizPlan>
+![兩個沒有記憶的鬧鐘](./imgs/m4-2-1.svg)
+
+*圖：CTMC 用 rate 決定 exponential 停留時間；長期占比由兩種平均停留時間的比例決定。*
 
 ## 把畫面寫成矩陣
 
@@ -161,18 +158,9 @@ print("忙碌比例", busy / T)                       # ≈ 1/3
 # 違反 Δt 小：用 P ≈ I + R·0.5 走離散步 → 出現負機率，模擬直接壞掉
 ```
 
-<VizPlan id="m4-2-rates" title="拉 rate、切 Δt、換掉無記憶的鬧鐘" type="interactive">
-- **位置**：本節之後。**檔名**：`site/public/notes/research_areas/mathematical-foundations/m4-markov-chains/m4-2-1.html`。
-- **版面**：左格是 $p_t(1)$ 的曲線（橫軸 $t\in[0,1]$ 小時），畫理論解 $e^{tR}$ 的那條（實線）、水平虛線 $\pi(1)=\lambda/(\lambda+\mu)$、以及用 $(I+R\Delta t)^{t/\Delta t}$ 算的離散近似（點線）。右格是一條 3 小時的樣本軌跡色帶，下方即時顯示「模擬忙碌比例」（以 5000 小時模擬）與「直覺值 $\lambda/\mu$」「理論值 $\lambda/(\lambda+\mu)$」三個數字並排。
-- **控制項**：滑桿 $\lambda\in[0.5,12]$（預設 3）、$\mu\in[1,12]$（預設 6）；滑桿 $\Delta t\in[0.005,0.6]$ 小時（預設 0.01）；下拉「通話長度分佈」：exponential（預設）／固定 10 分鐘／兩點混合（3 分鐘或 24 分鐘各半，平均 10 分鐘）。
-- **拖 $\lambda,\mu$**：三個數字即時更新；$\lambda\ll\mu$ 時直覺值與理論值接近（電話很少撞在一起），$\lambda$ 接近 $\mu$ 時差距明顯（預設 $0.5$ vs $0.333$）；$\lambda>\mu$ 時直覺值超過 1、明顯荒謬。
-- **拖 $\Delta t$**：點線在 $\Delta t$ 小時與實線重合；超過 $1/\max(\lambda,\mu)$ 時對角線變負，畫面在點線旁顯示紅字「$I+R\Delta t$ 有負元素，不是合法的 transition matrix」，點線開始震盪或超出 $[0,1]$。
-- **切換通話分佈**：右格模擬的忙碌比例幾乎不變（三種都 $\approx\tfrac13$），但左格多出一條由模擬得到的 $p_t(1)$（灰色）與理論實線分離——固定 10 分鐘那種在 $t=1/6$ 小時附近有明顯的折點。右下角一句註記：「長期比例只用到平均通話長度；曲線形狀用到無記憶。」
-- **底部觀察句**：「觀察：rate 不是機率，rate × 短時間才是。長期忙碌比例是流量平衡 $\pi(0)\lambda=\pi(1)\mu$ 的解，直覺的 $\lambda/\mu$ 漏掉了被掛掉的電話。$\Delta t$ 太大時 $I+R\Delta t$ 不再是合法矩陣，$e^{tR}$ 才是對任何 $t$ 都成立的答案。」
-- **匯出 PNG**：左右兩格併成 16:9，含當前參數與分佈選項。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m4-markov-chains/m4-2-1.html" class="demo-frame" title="CTMC：rate、時間離散化與停留時間" style="height: 820px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m4-2-a">
 一台機器在正常運轉時平均每 10 小時故障一次，每次維修平均 2 小時，維修期間不會再故障。工廠問「長期可用率」。該用什麼工具？
@@ -207,7 +195,7 @@ $\frac{d}{dt}\sum_yp_t(y)=p_tR\mathbb 1$，而 $R\mathbb 1=0$ 就是「每列和
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-time-reversal">
-這一篇把「隨時」寫成 rate matrix $R$，得到 $P(t)=e^{tR}$ 與 forward equation $\dot p_t=p_tR$，並看到它是 Fokker–Planck 的離散狀態版本。下一篇把影片倒著播：一條 chain 反過來走，rate 會變成什麼？為什麼會冒出一個比值 $p_t(y)/p_t(x)$？
+這一篇把「隨時」寫成 rate matrix $R$，得到 $P(t)=e^{tR}$ 與 forward equation $\dot p_t=p_tR$，並看到它是 Fokker–Planck 的離散狀態版本。接著把影片倒著播：一條 chain 反過來走，rate 會變成什麼？為什麼會冒出一個比值 $p_t(y)/p_t(x)$？
 </Bridge>
 
 ## 參考文獻

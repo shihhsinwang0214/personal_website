@@ -8,8 +8,8 @@ title: "實作：同一個 toy，只換訓練目標"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-09-13
-summary: "沿用 diffusion 單元的 toy，只換掉訓練目標與取樣器：實作線性 FM 與 Euler／Heun 取樣，畫出步數對誤差的 log-log 圖，並親手驗證 ε 模型不重訓就能當速度場用。"
+updated: 2026-09-21
+summary: "沿用同一個 toy，只換訓練目標與取樣器；用實驗分開路徑曲率、solver 階數與模型誤差，並驗證同一路徑上的 noise／velocity 轉換。"
 demos: []
 references:
   - label: "Lipman, Chen, Ben-Hamu, Nickel & Le, Flow Matching for Generative Modeling (ICLR 2023)"
@@ -28,16 +28,15 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 
 # 實作：同一個 toy，只換訓練目標
 
 <Objectives>
-- **在 <Ref week="dma-week-diffusion"/> 的同一個 toy 上實作線性 FM，並產出三張圖。** 訓練與 Euler／Heun 取樣、軌跡並排、步數對誤差的 log-log 圖、$\epsilon$ 模型轉速度場的驗證。
-- **學會從 log-log 圖上分開讀「斜率」與「高度」。** 斜率是取樣器的階數、高度是路徑的彎曲程度，不要拿單一步數下的數字比較。
-- **說出一個 diffusion 框架做不到、而這個 toy 只要改一行就能做的實驗：非 Gaussian 起點。** 並說出為什麼 diffusion 那一側做不到（作業 1 會真的把它跑出來）。
+- **在同一個 toy 上實作線性 FM 與 Euler／Heun 取樣。** 只改路徑、目標與 solver，保留其餘設定。
+- **從 log-log 圖分開讀斜率與高度。** 前者反映 solver 階數，後者反映路徑造成的誤差尺度。
+- **驗證同一路徑上的 noise／velocity 轉換。** 並用失敗對照說明：模型可以換座標，不能在不重訓下換路徑。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -48,11 +47,9 @@ import Ref from '../../../components/Ref.astro';
 
 先確認符號沒有搞反：這個單元 `x0` 是**噪聲**、`x1` 是**資料**、`t` 從 0 走到 1，跟 <Ref week="dma-week-diffusion"/> 的 notebook 剛好對調。
 
-<VizPlan id="w4-5-notebook" title="Flow Matching 單元實作 notebook" type="notebook">
-- 沿用 `toy.py`，新增 `fm.py`：線性 FM 訓練、Euler／Heun 取樣器、`eps_to_velocity` 轉換函數。
-- 四個 section 對應下面四個步驟。附上 <Ref week="dma-week-diffusion"/> 訓好的 $\epsilon_\theta$ 權重檔，讀者不必重跑上一個單元。
-- 所有軌跡圖沿用 <Ref to="dma-lab-diffusion"/> 的座標範圍與配色。
-</VizPlan>
+[下載 Week 4：Flow Matching 與 ODE 取樣 notebook（.ipynb）](/personal_website/notes/notebooks/diffusion-models-applications/dma-w4-lab.ipynb)
+
+**Notebook 內容。** 用解析旋轉／縮放 coupling 建立有曲率的 conditional path 與 marginal velocity，實作 Euler／Heun 取樣，並從 log-log 誤差曲線讀出階數。完美 velocity 是明寫的 surrogate，不會假裝是已訓練網路。
 
 ## 步驟 1：訓練
 
@@ -113,7 +110,7 @@ def euler_sample(model, x0, n_steps):
 
 > **量收斂階數之前，先確認你量的是離散化誤差，不是分岔選錯邊。**
 
-取中位數就避開這件事。**這不是把不好看的資料藏起來**：分岔造成的誤差確實存在，但它和「離散化誤差隨步數怎麼縮」是兩個不同的現象，要分開量。跑自己的實驗時，值得把兩者都畫出來。
+取中位數就避開這件事。**這不是把不好看的資料藏起來**：分岔造成的誤差確實存在，但它和「離散化誤差隨步數怎麼縮」是兩個不同的現象，要分開量。跑自己的實驗時，兩者都畫出來。
 </Remark>
 
 ## 步驟 4：不重訓的轉換（圖 c）
@@ -141,23 +138,17 @@ $\epsilon_\theta$ 學到的是 $\mathbb E[\epsilon\mid x_t]$，其中 $x_t=\sqrt
 
 所以步驟 4 的轉換式裡，$(\alpha_t,\sigma_t)$ 必須是**模型當初訓練時用的那一條路徑**：「不用重訓」只換得了取樣器，換不了路徑。路徑是訓練時就寫進模型裡的東西。
 
-這也順便解釋了 <Ref to="dma-fm-vs-diffusion"/> 為什麼要把四個旋鈕分開講：能事後換的（取樣器、座標）和不能事後換的（起點、路徑、配對、加權）不是同一類事情。
+這也順便解釋了 <Ref to="dma-fm-vs-diffusion"/> 為什麼要把四個設定分開講：能事後換的（取樣器、座標）和不能事後換的（起點、路徑、配對、加權）不是同一類事情。
 </Answer>
 </Question>
 
-<VizPlan id="w4-5-two-readings" title="log-log 圖的兩種讀法" type="static">
-- 檔名 `imgs/w4-5-1.png`，放在 Q1 之後、「作業」之前。
-- 版面：左右兩張小的 log-log 示意圖，橫軸都標「步數（對數）」、縱軸都標「誤差（對數）」。
-  - **左「斜率＝方法的階數」**：兩條線從同一點出發、斜率不同，分別標 `Euler：斜率 −1` 與 `Heun：斜率 −2`；旁註「步數加倍：一階減半、二階掉四分之一」。
-  - **右「高度＝軌跡有多彎」**：兩條**平行**的線（斜率都 −1），上面那條標 `軌跡比較彎`、下面那條標 `軌跡比較直`；在同一個步數上畫一條垂直的雙箭頭標出高度差。
-- 底部一句：「比較兩個方法要看斜率，比較兩條路徑要看高度；只報一個步數下的數字，什麼都沒說。」
-- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、強調靛 `#2a4ea3`／路徑綠 `#60ba82`）；不要畫資料點雲，這張圖只有兩個座標軸和四條線。
-- 長寬比：約 16:7。
-</VizPlan>
+![log-log 圖的兩種讀法](./imgs/w4-5-1.png)
+
+*圖：在 log-log 圖上，線的斜率用來比較 solver order；斜率相同時，垂直高度差反映 path curvature。*
 
 ## 作業
 
-1. **非 Gaussian 起點。** 把 `x0` 換成 $[-2,2]^2$ 上的均勻分布，重訓 FM，畫軌跡。說明 <Ref week="dma-week-diffusion"/> 的框架為什麼做不到這件事——對應 <Ref to="dma-why-not-diffusion"/> Q1 的哪一個旋鈕？
+1. **非 Gaussian 起點。** 把 `x0` 換成 $[-2,2]^2$ 上的均勻分布，重訓 FM，畫軌跡。說明 <Ref week="dma-week-diffusion"/> 的框架為什麼做不到這件事——對應 <Ref to="dma-why-not-diffusion"/> Q1 的哪一個設定？
 2. **加權對照。** 訓兩個線性 FM 模型：一個均勻抽 $t$，一個從 logit-normal$(0,1)$ 抽 $t$。比較圖 b 的兩條曲線：斜率變了還是高度變了？先猜再跑，<Ref to="dma-shared-techniques"/> 會給答案。
 3. **路徑對照（把一個軸單獨隔離出來）。** 保持獨立配對、保持 FM 目標，只把 $(\alpha_t,\sigma_t)$ 換成 VP 的 $(\sin\frac{\pi t}{2},\cos\frac{\pi t}{2})$ 重訓。它的軌跡比線性 FM 直還是彎？和上面 demo 量到的方向一致嗎？如果不一致，先懷疑「網路有沒有訓好」而不是「理論錯了」。
 4. **分岔樣本。** 把步驟 3 的誤差改成平均而不是中位數，看曲線怎麼變形；再把「終點跑到另一個月牙」的樣本單獨挑出來畫。你會得到兩條性質完全不同的曲線。
@@ -196,7 +187,7 @@ $\epsilon_\theta$ 學到的是 $\mathbb E[\epsilon\mid x_t]$，其中 $x_t=\sqrt
 </QuizBlock>
 
 <Bridge to="dma-unified-equation">
-這個單元把 FM 建起來、證明它在 Gaussian 路徑上與 diffusion 是同一個 ODE、也把差異分到四個軸上。剩下的問題全部指向同一個地方：軌跡為什麼彎、彎多少、怎麼拉直、噪聲該不該加回去。下一個單元從一個把兩個框架都裝得進去的式子開始。
+U2 已經把 DDPM 與 flow matching 放進同一張圖：同一路徑可以換預測座標，不同配對卻會改變整條軌跡。接著真正想解的是少步取樣：軌跡到底彎多少、怎麼拉直，以及加回隨機性是否能修正誤差。U3 先用一個 interpolant 把這些選擇寫進同一條式子。
 </Bridge>
 
 ## 參考文獻

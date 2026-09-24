@@ -59,6 +59,9 @@ export const noteSlugList = [
   'dma-w4-3-linear-path',
   'dma-w4-4-fm-vs-diffusion',
   'dma-w4-5-lab',
+  'dma-u1-u2-homework-a',
+  'dma-u1-u2-homework-b',
+  'dma-u1-u2-homework-c',
   'dma-w5-0-unified-equation',
   'dma-w5-1-sampler-family',
   'dma-w5-2-error-theory',
@@ -537,7 +540,7 @@ export const courses: CourseDef[] = [
         label: 'dma-week-discrete-ii',
         constellation: { anchor: [590, 246], stars: [[0, 30, 3.6], [38, -12, 2.8], [64, 42, 4.6], [118, 26, 3.2], [150, -30, 3.0], [186, 4, 4.2], [226, -24, 2.9]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [3, 5], [5, 6]] },
         description: {
-          zh: '連續時間 Markov chain 的語言：rate、forward equation 與 Fokker–Planck 並排；反向 rate 需要的是比值（concrete score）；remasking 是取樣器旋鈕；discrete flow matching 與應用。',
+          zh: '連續時間 Markov chain 的語言：rate、forward equation 與 Fokker–Planck 並排；反向 rate 需要的是比值（concrete score）；remasking 是取樣器的設計選擇；discrete flow matching 與應用。',
           en: 'The language of continuous-time Markov chains: rates and the forward equation beside Fokker–Planck; reverse rates need ratios (concrete score); remasking as a sampler knob; discrete flow matching and applications.',
         },
       },

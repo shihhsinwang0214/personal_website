@@ -11,8 +11,8 @@ title: "反向 Rate 與 Concrete Score"
 category: "courses"
 group: "Unit 5 · Discrete Diffusion II"
 status: "available"
-updated: 2026-09-07
-summary: "把 CTMC 的時間反過來，反向 rate 是「forward rate 反向 × 邊際比值 p_t(y)/p_t(x)」。這個比值就是離散世界的 score——不是梯度，是有限差分。它是條件比值的後驗平均，也就是 conditional trick 的比值版本；SEDD 用 score entropy 直接回歸它。"
+updated: 2026-09-21
+summary: "CTMC 的反向 rate 等於反向的 forward rate 乘上邊際機率比。離散 score 因此不是梯度，而是相鄰狀態之間的 density ratio。"
 demos: []
 references:
   - label: "Lou, Meng & Ermon, Discrete Diffusion Modeling by Estimating the Ratios of the Data Distribution (ICML 2024)"
@@ -49,9 +49,9 @@ import Ref from '../../../components/Ref.astro';
 # 反向 Rate 與 Concrete Score
 
 <Objectives>
-- 推出 CTMC 時間反轉的 rate $\bar R_t(x\to y)=R_t(y\to x)\,p_t(y)/p_t(x)$，並用「把每根水管的流量倒過來」讀懂它。
-- 回答「離散空間的 score 是什麼」：不是梯度，是鄰居之間的比值 $p_t(y)/p_t(x)$；並驗證它等於條件比值的後驗平均——<Ref to="dma-denoising-regression"/> 那個 conditional trick 的比值版本。
-- 寫出 SEDD 的 score entropy loss，說出它為什麼可以只用 $(x_0,x_t)$ 配對訓練，以及在 absorbing 鏈上它和 <Ref to="dma-masked-diffusion"/> 的 cross-entropy 是同一個物件。
+- **推導 CTMC 的反向 rate。** 用「反向管線 × 兩端機率比」讀懂 $\bar R_t(x\to y)$。
+- **定義離散 score。** 它是鄰居之間的比值 $p_t(y)/p_t(x)$，也是條件比值的後驗平均。
+- **寫出 SEDD 的 score entropy loss。** 解釋它如何只用 $(x_0,x_t)$ 訓練，以及在 absorbing chain 上如何退化成 masked cross-entropy。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -231,18 +231,9 @@ $$
 
 對 uniform 鏈，同樣的計算會給出一個由 $p(x_0^\ell\mid x_t)$ 決定、但形狀更複雜的比值（見 <Ref to="dma-lab-ctmc"/> 作業）；forward 因子化時，「比值」和「$x_0$ 的逐位置 posterior」永遠是同一份資訊的兩種座標。
 
-<VizPlan id="w7-2-gradient-vs-ratio" title="梯度與比值：同一個東西，一個取了極限、一個沒有" type="static">
-- 檔名 `imgs/w7-2-1.png`，放在「Absorbing 鏈上：比值就是上一個單元的網路」之後、「先消化一下」之前。
-- 版面：左右兩塊，中央一個雙向箭頭把兩塊接起來。
-  - **左「連續：取了極限」**：一條 $p(x)$ 的單峰曲線。在某個 $x$ 上標一個實心點，往右三個越來越近的灰點標 $x+h$（$h$ 由大到小，用漸淡的顏色暗示 $h\to0$）；把 $x$ 與最遠那個灰點的高度用虛線引到縱軸，中間標 $\frac{p(x+h)}{p(x)}$。該點畫一條切線，標 $\partial_x\log p(x)$，切線旁寫 $\lim_{h\to0}\frac1h\big(\frac{p(x+h)}{p(x)}-1\big)$。
-  - **右「離散：極限拿不掉」**：中央一個長度 5 的序列方框當 $x_t$（第 3 格是 `[MASK]`、灰色）。四周三個鄰居方框 $y_1,y_2,y_3$，各自只有一格和 $x_t$ 不同，不同的那一格用色塊標出。每支箭頭上標 $p_t(y_i)/p_t(x_t)$ 和一個具體數字（0.99、0.01、0.31）；比值大的箭頭畫粗、比值小的畫細。旁邊一行小字：「鄰居就是最小的一步，$h$ 沒有東西可以再縮」。
-- 中央雙向箭頭上方寫一句大標「**score 是取了極限的比值；比值是沒取極限的 score**」；下方兩行對照，並把「＋」和「×」用強調色圈起來：
-  - 連續：drift ＝ 已知的部分 ＋ $g^2\nabla\log p_t$
-  - 離散：rate ＝ 已知的部分 × $p_t(y)/p_t(x)$
-- 底部一句：「離散空間沒有梯度，不是因為少了什麼，而是因為極限拿不掉——剩下的比值本身就是要學的東西。」
-- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註；資料橘 `#f0803c`／噪聲藍 `#4a90e2`／強調靛 `#2a4ea3`）。
-- 長寬比：約 16:8。
-</VizPlan>
+![梯度與比值：同一個東西，一個取了極限、一個沒有](./imgs/w7-2-1.png)
+
+*圖：連續空間以無限小位移的梯度描述密度變化；離散空間保留鄰居間的有限比值，前者可視為後者在間距趨零時的極限。*
 
 ## 先消化一下
 
@@ -287,7 +278,7 @@ Score entropy 中括號裡 $s-a\log s+a(\log a-1)$，其中 $a$ 是真比值。�
 </QuizBlock>
 
 <Bridge to="dma-remasking">
-本篇把時間反轉，得到反向 rate；其中唯一要學的量是鄰居比值——離散世界的 score，也是條件比值的後驗平均。有了反向 rate 的語言，<Ref to="dma-why-continuous-time"/> 留下的三個小問題可以正面回答了：下一篇在 absorbing 的反向鏈上多加一條「回到 `[MASK]`」的管子，問它對應連續世界的哪個旋鈕。
+反向 rate 已經把「怎麼生成」拆成一條條可調的管線。Absorbing sampler 裡，已生成 token 回到 `[MASK]` 的管線目前是關閉的。下一篇把它打開一點，再補上相反方向的流量，看看能否在不改邊際的前提下讓模型反悔。
 </Bridge>
 
 ## 參考文獻

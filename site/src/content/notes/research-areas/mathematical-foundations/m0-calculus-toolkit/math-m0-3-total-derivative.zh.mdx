@@ -9,7 +9,7 @@ title: "漂流的溫度計：全導數、微分穿過積分與 JVP"
 category: "courses"
 group: "M0 · Calculus 工具箱"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "河裡漂著的溫度計讀數上升了，是水變熱、還是漂到了熱的地方？沿路徑的全導數 ∂_t f + ∇f·ẋ 把兩種來源拆開；同一個「微分可以拆開、可以穿過」的邏輯給出 Leibniz 法則；而 JVP 是在程式裡一次算出整個全導數、不必算 Jacobian 的做法。"
 demos: []
 references:
@@ -27,7 +27,6 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import UsedBy from '../../../components/UsedBy.astro';
@@ -36,14 +35,14 @@ import Ref from '../../../components/Ref.astro';
 # 漂流的溫度計：全導數、微分穿過積分與 JVP
 
 <Objectives>
-- 把「一個會動的觀測者讀到的變化」拆成 $\partial_t f+\nabla f\cdot\dot x$ 兩項，並說出每一項各自是什麼、拆開需要什麼假設。
-- 說出 Leibniz 法則（微分穿過積分）在什麼條件下成立，以及它和全導數共用的那個「微分可以逐項拆開」的邏輯。
-- 對「讀數上升所以水變熱了」這個判斷，說出它漏了什麼、要補哪個量測才能拆開；並用 `torch.func.jvp` 三行算出全導數，說出為什麼不需要整個 Jacobian。
+- **把「一個會動的觀測者讀到的變化」拆成 $\partial_t f+\nabla f\cdot\dot x$ 兩項。** 說出每一項各自是什麼、拆開需要什麼假設。
+- **說出 Leibniz 法則（微分穿過積分）在什麼條件下成立。** 解釋它和全導數共用的「微分可以逐項拆開」邏輯。
+- **對「讀數上升所以水變熱了」這個判斷，說出它漏了什麼、要補哪個量測才能拆開。** 用 `torch.func.jvp` 三行算出全導數，說出為什麼不需要整個 Jacobian。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 起點：讀數上升了
+## 讀數上升了
 
 你把一支溫度計綁在浮球上放進河裡，它跟著水漂，每分鐘回傳一次讀數。十分鐘後，讀數從 18.0 °C 升到 18.6 °C。
 
@@ -75,12 +74,9 @@ import Ref from '../../../components/Ref.astro';
 
 河的情形一樣。「同一個位置的水溫在變」是電扶梯，「漂到別處」是走路，漂流的溫度計量到的是總和。
 
-<VizPlan id="m0-3-two-sources" title="讀數的變化來自兩個來源" type="static">
-- **檔名**：`m0-calculus-toolkit/imgs/m0-3-1.svg`（16:9，左右兩格）。
-- **左格**：河段俯視圖，用顏色深淺畫溫度場 $T(x,t)$（下游一塊暖區）。溫度計在時間 $t$ 與 $t+\Delta t$ 的兩個位置畫出來，中間一支箭頭標 $\dot x$（漂速）。在**同一個**位置 $x(t)$ 畫一個小時鐘圖示與向上的小箭頭，標「這裡的水在變熱：$\partial_t T$」；沿漂移方向畫溫度色階的變化，標「漂到更暖處：$\nabla T\cdot\dot x$」。
-- **右格**：讀數對時間的折線 $g(t)$，在 $t$ 附近把斜率拆成兩段疊起來的柱狀（一段標 $\partial_t T$、一段標 $\nabla T\cdot\dot x$），總高度是 $g'(t)$。
-- **圖說**：「溫度計讀到的變化率是兩個來源之和。單看讀數拆不開；要拆開，至少要另外量到其中一個。」
-</VizPlan>
+![浮球溫度計的讀數變化拆成原地升溫與漂到較暖處兩項。](./imgs/m0-3-1.svg)
+
+*圖：沿路徑的全導數是時間偏導與空間梯度乘速度之和。*
 
 ## 把兩個來源寫成數學
 
@@ -114,9 +110,9 @@ $$
 \frac{d}{dt}\int w(x)\,T(x,t)\,dx=\int w(x)\,\partial_t T(x,t)\,dx .
 $$
 
-這就是 Leibniz 法則：**微分可以穿過積分符號，變成對被積函數的 partial derivative。** 它成立的條件是 $\partial_t T$ 存在，並且 $|w(x)\,\partial_t T(x,t)|$ 能被一個不依賴 $t$、可積的函數壓住（技術名詞是 dominated convergence；直覺是「沒有任何一支溫度計的變化率大到壞掉整個平均」）。一般形式是 $\frac{d}{dy}\int f(x,y)\,dx=\int\partial_y f(x,y)\,dx$——變數叫什麼不重要，重要的是被微分的變數**不是**積分變數，而且積分範圍不隨它改變。這條規則在之後很多推導裡是關鍵的一步，值得在這裡先站穩。
+這就是 Leibniz 法則：**微分可以穿過積分符號，變成對被積函數的 partial derivative。** 它成立的條件是 $\partial_t T$ 存在，並且 $|w(x)\,\partial_t T(x,t)|$ 能被一個不依賴 $t$、可積的函數壓住（技術名詞是 dominated convergence；直覺是「沒有任何一支溫度計的變化率大到壞掉整個平均」）。一般形式是 $\frac{d}{dy}\int f(x,y)\,dx=\int\partial_y f(x,y)\,dx$——變數叫什麼不重要，重要的是被微分的變數**不是**積分變數，而且積分範圍不隨它改變。這條規則在之後很多推導裡是關鍵的一步，後面會直接用到。
 
-## 回到情境：一支溫度計拆不開
+## 一支溫度計拆不開
 
 **結論。** 讀數十分鐘升 0.6 °C，這個數字是 $\int g'(t)\,dt$，是兩項的**總和**。「水變熱了」對應 $\partial_t T>0$，「漂到暖處」對應 $\nabla T\cdot\dot x>0$；單靠 $g(t)$，兩者的任何組合都能給出同樣的 0.6 °C。直覺「當然是變熱了」隱含了一個假設：**$\nabla T=0$，河水處處同溫**——這正是需要被檢查的那個假設。
 
@@ -124,7 +120,7 @@ $$
 
 **假設與失效點。** 式子要求 $T$ 對位置與時間都 differentiable。若浮球漂過一條支流的匯入口——那裡兩股不同溫度的水還沒混合、溫度幾乎是跳躍的——$\nabla T$ 在匯入口沒有定義，讀數會在一分鐘內跳一大格，那一段的變化不能用兩項之和來解釋，也不該把它算進「水變熱」。
 
-## 回到情境：程式裡怎麼算全導數
+## 程式裡怎麼算全導數
 
 當 $T$ 不是手寫的式子，而是一個程式（例如一個神經網路 $f(x,t)$，輸入輸出都是高維向量），全導數 $\partial_t f+(\nabla_x f)\,\dot x$ 有一個計算上的陷阱：$\nabla_x f$ 是一個 $d\times d$ 的 **Jacobian** 矩陣。$d$ 是幾萬時，把它整個算出來要 $d$ 次前向或反向傳播，記憶體 $d^2$，完全不可行。
 
@@ -143,17 +139,9 @@ print(f"讀數 {reading:.3f}  全導數 {dg_dt:.6f}  釘住 {dT_dt_fixed:.6f}  �
 
 `jvp(f, primals, tangents)` 回傳 `(f(primals), J·tangents)`：第一個 tangent 是 $\dot x$、第二個是 $dt/dt=1$，回傳的第二項就是全導數。上面這個例子會印出全導數 $0.001668$、釘住 $0.0005$、漂移項 $0.001168$（手算：$\partial_x T(250)=0.3\,e^{-0.25}\times0.01\approx0.00234$ °C/m，乘 $\dot x=0.5$ 得 $0.00117$）。把 `x0` 換成一個幾千維的向量、`T` 換成一個網路，程式一個字都不用改。
 
-<VizPlan id="m0-3-jvp" title="拆開兩個來源：釘一支溫度計、加一條支流、比較 JVP 與 Jacobian 的成本" type="interactive">
-- **位置**：本節之後。**檔名**：`site/public/notes/research_areas/mathematical-foundations/m0-calculus-toolkit/m0-3-2.html`。這是本篇的核心互動。
-- **版面**：上半是一維河道（橫軸位置 0–600 m），溫度用色帶畫出，浮球沿河漂；下半是三條隨時間的曲線：浮球讀數 $g(t)$、釘住溫度計的讀數、以及「兩者之差」。右側一個小面板即時顯示 $\partial_t T$、$\nabla T\cdot\dot x$、$g'(t)$ 三個數字與一個疊起來的柱狀（對應靜態圖右格）。
-- **控制項**：滑桿「整體升溫率」$\partial_t T$（$0$–$0.002$ °C/s）、滑桿「暖區強度」（$0$–$1$ °C）、滑桿「漂速」$\dot x$（$0$–$2$ m/s）；按鈕「放進河裡」開始十分鐘的模擬（不自動循環）；開關「釘一支溫度計在起點」顯示第二條曲線；開關「加一條支流」：在 $x=400$ m 插入一個溫度跳躍 $+1.5$ °C（寬度 1 m），浮球漂過時讀數會瞬間跳、面板上的 $\nabla T$ 顯示為「未定義」並亮紅。
-- **Hover** 下半任一時刻顯示該時刻的三個量，並用一句話寫出「此刻讀數變化中有 $a\%$ 來自升溫、$b\%$ 來自漂移」。
-- **右下角一個成本表**（靜態文字）：「算整個 Jacobian：$d$ 次傳播、$d^2$ 記憶體；算 JVP：約 2–3 次前向的成本、$d$ 記憶體」，旁邊一個滑桿 $d$ 從 $10$ 到 $10^5$，表格的數字跟著變。
-- **底部觀察句**：「觀察：浮球讀數的斜率＝釘住溫度計的斜率＋漂移項，兩條曲線一起看才能拆開；只有浮球那一條，任何拆法都說得通。漂過支流時 $T$ 不 differentiable，這條公式在那一刻不適用。」
-- **匯出 PNG**：上下兩半併成 16:9，含當前參數。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m0-calculus-toolkit/m0-3-2.html" class="demo-frame" title="拆開全導數的兩個來源並比較 JVP 與 Jacobian" style="height: 850px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m0-3-a">
 一台空拍機邊飛邊量 PM2.5，讀數在三分鐘內從 20 升到 35。要判斷「這個城市的空氣正在變差」，你需要哪個工具？
@@ -188,7 +176,7 @@ $m(t)=\int_0^{L}T(x,t)\,dx$ 是一段固定河段的總熱量。$\frac{dm}{dt}=\
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-gaussian">
-本篇把「會動的觀測者讀到的變化」拆成 $\partial_t f+\nabla f\cdot\dot x$，把「對很多項的和微分」寫成 Leibniz 法則，並用 JVP 在程式裡一次算出全導數而不碰 Jacobian。到這裡，微積分工具箱的四件工具——gradient、divergence、Taylor、全導數——都備齊了。下一個 class 換一種不確定性：不是「函數在變」，而是「量到的數字本身有雜訊」。第一個問題很日常：兩台體重計讀數不同，該怎麼合併？
+本篇把「會動的觀測者讀到的變化」拆成 $\partial_t f+\nabla f\cdot\dot x$，把「對很多項的和微分」寫成 Leibniz 法則，並用 JVP 在程式裡一次算出全導數而不碰 Jacobian。到這裡，微積分工具箱的四件工具——gradient、divergence、Taylor、全導數——都備齊了。接下來的單元 換一種不確定性：不是「函數在變」，而是「量到的數字本身有雜訊」。第一個問題很日常：兩台體重計讀數不同，該怎麼合併？
 </Bridge>
 
 ## 參考文獻

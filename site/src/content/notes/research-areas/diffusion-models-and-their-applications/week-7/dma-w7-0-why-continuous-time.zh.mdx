@@ -9,8 +9,8 @@ title: "要把「改」說清楚，需要什麼語言？"
 category: "courses"
 group: "Unit 5 · Discrete Diffusion II"
 status: "available"
-updated: 2026-09-07
-summary: "uniform 鏈能改已生成的 token、absorbing 不能。想量化「改多少」、設計介於兩者之間的過程，離散時間的 transition matrix 語言會處處卡住：改一點就沒有 closed form、改的量沒有單位、取樣器和 forward chain 綁在一起。連續世界曾用 SDE 解開同一個結，離散世界的對應是 rate。"
+updated: 2026-09-21
+summary: "要讓 token 可以反悔，真正需要的是控制『每單位時間改多少』。Transition matrix 把整步結果綁在一起；rate 才能把 forward chain 與取樣方式拆開。"
 demos: []
 references:
   - label: "Campbell et al., A Continuous Time Framework for Discrete Denoising Models (NeurIPS 2022)"
@@ -39,9 +39,9 @@ import Ref from '../../../components/Ref.astro';
 # 要把「改」說清楚，需要什麼語言？
 
 <Objectives>
-- 把 <Ref to="dma-absorbing-vs-uniform"/> 留下的問題拆成三個可以回答的小問題：改多少、會不會動到邊際、能不能設計介於 absorbing 與 uniform 之間的過程。
-- 說出離散時間的 transition matrix 語言在這三個問題上各卡在哪裡，並認出這和 <Ref week="dma-week-diffusion"/> 從 DDPM 的 $T$ 步走到 SDE 是同一種卡法。
-- 說出本單元要引入的新物件是什麼（rate），以及它為什麼能把「取樣器怎麼走」從「forward chain 是什麼」裡拆出來。
+- **把「能不能改」拆成可計算的問題。** 要量改動強度、檢查邊際是否改變，還要能介於 absorbing 與 uniform 之間。
+- **指出 transition matrix 為何不方便。** 它描述整一步的結果，難以單獨調整某條跳轉，也把 sampler 綁回 forward chain。
+- **說出 rate 帶來的自由度。** 它描述單位時間的機率流，讓 forward dynamics 與取樣時怎麼跳可以分開討論。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -51,7 +51,7 @@ import Ref from '../../../components/Ref.astro';
 為什麼用上一個單元的語言答起來很笨拙？
 </Ask>
 
-## 上一個單元留下的一句話
+## 可以反悔，但要反悔多少？
 
 <Ref to="dma-absorbing-vs-uniform"/> 結尾的問題是這樣的：absorbing 鏈把不確定性集中在 `[MASK]` 上、context 乾淨，但翻開的字永遠固定；uniform 鏈每一步都能改任何字，但模型分不清哪些字是噪聲。能不能兩個都要？
 
@@ -75,14 +75,9 @@ absorbing 的 $Q_t=(1-\beta_t)I+\beta_t\mathbb 1e_m^{\!\top}$，`[MASK]` 那一�
 
 **第三面牆：取樣器和 forward chain 綁死。** 上一個單元的取樣程序是「反著走 posterior」：$p_\theta(x_{t-1}\mid x_t)=\sum_{\tilde x_0}q(x_{t-1}\mid x_t,\tilde x_0)\,p_\theta(\tilde x_0\mid x_t)$。這裡每一個因子都由 $Q_t$ 決定，取樣器**沒有任何自己的自由度**。想在取樣時多做一件事（把字遮回去），就只能改 $Q_t$——也就是改 forward chain、改訓練分佈、重訓。第 2 個小問題（會不會動到邊際）在這個語言裡連問都問不出來，因為答案永遠是「會」。
 
-<VizPlan id="w7-0-two-languages" title="同一個修改，兩種語言" type="static">
-- **位置**：本節之後。**檔名**：`imgs/w7-0-1.png`（16:9，左右兩格）。
-- **左格「transition matrix」**：三個 $3\times3$ 的小矩陣（字典兩個字 + `[MASK]`）水平排開，中間用 $\times$ 連接，標 $\bar Q_t=Q_1Q_2Q_3$。第三個矩陣的 `[MASK]` 列被紅框圈起、一個格子從 0 改成 $\gamma$；連乘結果的矩陣畫成一片問號，旁邊三行小字：「closed form 沒了」、「$\gamma$ 是每步的機率，換 $T$ 就得換」、「取樣器 = 反著走 posterior，沒有自己的旋鈕」。
-- **右格「rate」**：同一組三個狀態畫成三個圓，圓之間畫帶箭頭的弧，每條弧上標一個數字（單位時間的流量）。absorbing 只有兩條指向 `[MASK]` 的弧；用虛線多加兩條從 `[MASK]` 回到字的弧，標 $\sigma$。右下角三行小字對照：「邊際仍有 closed form（下一篇）」、「$\sigma$ 的單位是 1/時間，與步數無關」、「弧可以在取樣時加，不動 forward」。
-- **兩格之間**一個大箭頭，上方寫「換一種語言」。
-- **圖說（.mdx 內）**：「**圖：同一個修改，兩種語言。** 在 transition matrix 裡加一點『回到 [MASK]』的機會，closed form 消失、量沒有單位、取樣器沒有自己的旋鈕。換成『單位時間流量』的語言後，同一件事變成在圖上多畫兩條弧。」
-- 術語一律英文（transition matrix、rate、posterior、closed form）。配色沿用 <Ref to="dma-discrete-data"/> 那張逐 token 加噪聲圖的 `[MASK]` 灰底。
-</VizPlan>
+![同一個修改，兩種語言](./imgs/w7-0-1.png)
+
+*圖：同一個修改，兩種語言。左邊用每步機率重排整串 transition matrices；右邊把修改寫成單位時間的局部 rate，因此可與步數分開。*
 
 ## 這面牆我們撞過一次
 
@@ -97,7 +92,7 @@ $$
 並用 Fokker–Planck 三行證明：對**任何** $\varepsilon_t\ge0$，邊際都是 $p_t$。這正好把上面三面牆一次拆掉：
 
 - $\varepsilon_t$ 是**單位時間**的量，與步數無關（第二面牆）。
-- 取樣器有了自己的旋鈕 $\varepsilon_t$，forward 的 $f,g$ 完全不動（第三面牆）。
+- 取樣器有了自己的設定 $\varepsilon_t$，forward 的 $f,g$ 完全不動（第三面牆）。
 - 「動不動到邊際」變成一個可以證明的命題，而且答案是「不動」（第二個小問題）。
 
 而它之所以做得到，是因為 SDE 與 Fokker–Planck 描述的是**每單位時間的變化率**——drift 是單位時間的位移、噪聲項是單位時間增加的變異數——而不是「一步之後到哪」。步長 $h$ 是事後由取樣器決定的、可以任意切的東西。
@@ -147,7 +142,7 @@ CTMC 是一個可以講一學期的主題。這個單元只用到四件事：rat
 換成 rate 之後，$\Delta t$ 從模型的定義裡消失：$R_t$ 描述鏈，「一步走多久」變成取樣器的事。於是三件事同時變便宜：
 
 1. **參數有單位。** $\sigma_t$ 的單位是 1/時間，寫下來就固定了一個物理量，不會因為換步數而改變意思。
-2. **可以連續地調。** absorbing 是 $\sigma\equiv0$，加 remasking 是把 $\sigma$ 從 0 往上推——之間沒有斷點。離散時間裡「加一點」得先決定加在哪一步、加多少，那不是一個連續的旋鈕。
+2. **可以連續地調。** absorbing 是 $\sigma\equiv0$，加 remasking 是把 $\sigma$ 從 0 往上推——之間沒有斷點。離散時間裡「加一點」得先決定加在哪一步、加多少，那不是一個連續的設定。
 3. **同一個問題只要算一次。** 「這樣改會不會動到邊際？」在 rate 的語言裡是一條式子（<Ref to="dma-remasking"/>），在 $Q$ 的語言裡每換一次 $T$ 都得重算一次矩陣連乘。
 
 這和 <Ref week="dma-week-diffusion"/> 到 <Ref to="dma-sampler-family"/> 的過渡是**同一件事**：DDPM 的 $\beta_t$ 在 $T\to\infty$ 下就是 SDE 的 $g_t^2\,dt$，而「寫下一族邊際相同的取樣器」在 SDE 裡是一行、在 DDPM 裡要重推 posterior。
@@ -199,7 +194,7 @@ $\Delta t$ 很小時的 transition matrix 是 $I+R_t\Delta t$，幾乎是 identi
 </QuizBlock>
 
 <Bridge to="dma-ctmc">
-本篇把「翻錯的字能不能改」拆成三個小問題，看到 transition matrix 的語言在每一個上都卡住，並認出這與 DDPM 走向 SDE 是同一種卡法。下一篇正式引入 rate matrix：定義、forward equation、與 Fokker–Planck 並排，並把 uniform 與 absorbing 兩條鏈寫成 rate 的形式。
+問題不再是「要不要反悔」，而是每條可能的跳轉在一小段時間裡發生多快。下一篇先用水桶與閥門建立 rate matrix，再看這個局部流量如何決定整個分布的變化。
 </Bridge>
 
 ## 參考文獻

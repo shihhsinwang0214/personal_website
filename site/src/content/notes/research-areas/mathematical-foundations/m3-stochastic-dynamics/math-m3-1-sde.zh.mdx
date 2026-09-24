@@ -9,7 +9,7 @@ title: "水流加亂流：SDE 是加了噪聲的 ODE"
 category: "courses"
 group: "M3 · Stochastic Dynamics"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "河裡有確定的水流，也有隨機的亂流，葉子怎麼漂？把 ODE 的每一小步加上一個 √h 尺度的 Gaussian，就是 SDE dx = f dt + g dW 的全部讀法；照著這個讀法寫程式就是 Euler–Maruyama。不需要 Itô 積分——但要知道 √h 為什麼不能寫成 h，以及哪些情況下這個讀法會出問題。"
 demos: []
 references:
@@ -38,9 +38,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 # 水流加亂流：SDE 是加了噪聲的 ODE
 
 <Objectives>
-- 把 $dx=f(x,t)\,dt+g(t)\,dW_t$ 讀成「每一小步 $h$：確定地走 $f h$，再加一個 $g\sqrt h\,\varepsilon$ 的 Gaussian」，並說出 $f$（drift）與 $g$（diffusion coefficient）各控制什麼。
-- 寫出 Euler–Maruyama 法，並說明為什麼噪聲項是 $\sqrt h$ 而不是 $h$、為什麼 SDE 的「解」是一個分佈而不是一條路。
-- 對「有亂流的河裡葉子會漂到哪」這類情境，判斷用 SDE 模擬是否恰當、說出它依賴的假設（噪聲是 Brownian 增量、$g$ 不依賴 $x$），並用模擬驗證與破壞它。
+- **把 $dx=f(x,t)\,dt+g(t)\,dW_t$ 讀成「每一小步 $h$：確定地走 $f h$，再加一個 $g\sqrt h\,\varepsilon$ 的 Gaussian」。** 說出 $f$（drift）與 $g$（diffusion coefficient）各控制什麼。
+- **寫出 Euler–Maruyama 法。** 說明為什麼噪聲項是 $\sqrt h$ 而不是 $h$、為什麼 SDE 的「解」是一個分佈而不是一條路。
+- **對「有亂流的河裡葉子會漂到哪」這類情境，判斷用 SDE 模擬是否恰當、說出它依賴的假設（噪聲是 Brownian 增量、$g$ 不依賴 $x$）。** 用模擬驗證與破壞它。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -75,20 +75,17 @@ $$
 </Answer>
 </Question>
 
-## 先看畫面：一條路變成一把扇子
+## 一條路變成一把扇子
 
 ODE 的葉子畫出一條線。SDE 的葉子每一瞬間被隨機推一下，畫出一條抖動的線；放一百片葉子，一百條抖動的線從同一點出發，往下游張開成一把**扇子**——中心線是 drift 帶著走的那條 ODE 軌跡，扇子的寬度按 $g\sqrt t$ 長。
 
 所以 SDE 可以拆成兩個你已經認識的東西疊起來：**一條 ODE 的路**（<Ref to="math-vector-field-ode"/>）加上**一個 random walk 的散開**（<Ref to="math-random-walk-brownian"/>）。drift 決定扇子往哪彎，$g$ 決定扇子多寬。
 
-<VizPlan id="m3-1-fan" title="一條路變成一把扇子" type="static">
-- **檔名**：`m3-stochastic-dynamics/imgs/m3-1-1.svg`，16:9。
-- **版面**：俯視的河，主流往右。左半：$g=0$，一片葉子的 ODE 軌跡（一條平滑曲線，沿 $u=(0.5,\,0.1\cos(x/5))$ 微微擺動）。右半：同一個 drift 加 $g=0.3$，畫 100 條 Euler–Maruyama 路徑（細線半透明）從同一起點出發，疊上中心線（原 ODE 軌跡，粗線）與 $\pm g\sqrt t$、$\pm2g\sqrt t$ 的包絡（虛線）。
-- 在 $t=60$ 處畫一條垂直的截線，旁邊小圖是該時刻橫向位置的直方圖疊 Gaussian，標「均值 ≈ 30 m，標準差 ≈ $0.3\sqrt{60}\approx2.3$ m」。
-- **圖說**：「SDE 的解不是一條路，是一把扇子。中心線由 drift $f$ 決定，扇子寬度由 $g\sqrt t$ 決定。」
-</VizPlan>
+![一條路變成一把扇子](./imgs/m3-1-1.svg)
 
-## 寫成數學：讀法、模擬、以及為什麼是 $\sqrt h$
+*圖：SDE 的中心線由 drift 決定，路徑扇面的典型寬度由 g√t 決定。*
+
+## 讀法、模擬、以及為什麼是 $\sqrt h$
 
 **讀法就是定義（本課程採用的層次）。** 給 $f$、$g$，SDE $dx=f\,dt+g\,dW$ 的意思是：對任何很小的 $h$，
 
@@ -126,13 +123,13 @@ $c=0.5$、$g=0.3$、$T=60$：均值 30 公尺、標準差 $0.3\sqrt{60}\approx2.
 上面的讀法有一個隱藏的選擇：噪聲強度 g 在每一步用的是步「起點」的值。當 g 只依賴 t，起點、中點或終點的 g 在 h → 0 時沒有差別。當 g 依賴 x（例如亂流在河中央比岸邊強），差別就出現了：用起點的 g(xₙ) 對應 Itô 的定義，用中點對應 Stratonovich 的定義，兩者的極限是不同的過程，差一個 ½ g ∂ₓg 的 drift。這門課只處理 g = g(t) 的情形，所以不需要區分；遇到 g(x) 時要另外學 Itô 引理 [1, 3]。另一個代價是我們沒有證明「h → 0 時分佈收斂」——這是本 class 最後一篇（<Ref to="math-weak-strong-convergence"/>）與 [4] 的內容。
 </Details>
 
-## 回到河面：直覺的骨架對了，數字補上了
+## 直覺的骨架對了，數字補上了
 
 起點問題的答案：一分鐘後葉子在下游約 30 公尺處，左右偏差的標準差約 2.3 公尺——95% 的葉子落在 $30\pm4.6$ 公尺內。直覺的「晃一點」沒錯，但它說不出 2.3 這個數字從哪來：來自 $g\sqrt T$，也就是 <Ref to="math-random-walk-brownian"/> 的 $\sqrt t$ 規律。
 
 這個判斷依賴的假設：**亂流的推力是 Brownian 增量**——每一瞬間 independent、Gaussian、variance 與時間成正比。以及 **$g$ 不依賴位置**。真實的河兩者都不完全成立：渦旋有大小，推力在一個渦旋的時間尺度內是**相關**的（那會像上一篇的 $\rho>0$，把有效的 $g$ 放大）；河中央的亂流比岸邊強（$g$ 依賴 $x$，進入展開框裡說的 Itô 領域）。理論告訴你這兩件事會往哪個方向偏；偏多少，要靠實作。
 
-## 回到河面：模擬一次，再用錯誤的尺度模擬一次
+## 模擬一次，再用錯誤的尺度模擬一次
 
 ```python
 import numpy as np
@@ -153,17 +150,9 @@ for h in [1.0, 0.1, 0.01]:
 
 用 $\sqrt h$ 時三種步長給出同樣的均值與標準差，與理論 $\mathcal N(30,2.32^2)$ 一致——這是「模型合法」的實作證據。用 $h$ 時標準差每縮 $h$ 十倍就縮 $\sqrt{10}$ 倍，模擬結果取決於你選的步長，理論預告的失敗兌現了。再進一步違反假設：把 $\varepsilon_n$ 換成前後相關的序列（例如 $\varepsilon_n=\rho\varepsilon_{n-1}+\sqrt{1-\rho^2}\eta_n$），標準差會被放大，且放大的倍數隨 $h$ 改變——噪聲不再是 Brownian 增量，SDE 的讀法不再適用。
 
-<VizPlan id="m3-1-em" title="Euler–Maruyama：對的尺度、錯的尺度、相關的噪聲" type="interactive">
-- **位置**：本節之後。**檔名**：`m3-stochastic-dynamics/m3-1-1.html`。
-- **版面**：左格俯視的河，畫 200 條 Euler–Maruyama 路徑成扇形，疊 ODE 中心線與 $\pm g\sqrt t$ 包絡；右格是 $t=T$ 的橫向位置直方圖疊理論 Gaussian $\mathcal N(x_0+cT,g^2T)$，右上角顯示實測均值、標準差與理論值。
-- **控制項**：滑桿「步長 $h$」（$3,\,1,\,0.3,\,0.1,\,0.03$ 秒）；滑桿「主流 $c$」與「亂流強度 $g$」；三選一「噪聲尺度」：$\sqrt h\,\varepsilon$（正確）、$h\,\varepsilon$（錯誤）、$\varepsilon$ 不縮放（錯誤）；滑桿「噪聲相關 $\rho$」（$0$–$0.95$，以 $h$ 為單位的相鄰步相關）；下拉「drift」：等速、往中線拉回的 $-0.1\,y$、擺動的 $0.1\cos(x/5)$。按鈕「重抽」。
-- **行為**：正確尺度下拖 $h$，扇形寬度與直方圖**不動**，只有路徑變得更細碎；$h\varepsilon$ 時 $h$ 越小扇子越窄、直方圖縮成一根柱；不縮放時扇子爆開。拖 $\rho>0$：直方圖變寬、實測標準差高於理論值，且縮小 $h$ 時倍數改變，畫面標「噪聲不是 Brownian 增量，讀法失效」。
-- **Hover** 左格任一路徑：把它的路拆成兩條顯示——drift 累積的部分（平滑）與噪聲累積的部分（random walk），讓讀者看到「SDE = ODE + random walk」。
-- **底部觀察句**：「觀察：每一步走 $fh$、再加 $g\sqrt h\,\varepsilon$，就是 SDE 的全部；$\sqrt h$ 讓亂流的總效果與步長無關。寫成 $h\varepsilon$ 噪聲會隨步長消失；噪聲前後相關時扇子比理論寬，且寬多少取決於 $h$。」
-- **匯出 PNG**：兩格併成 16:9，含當前 $h$、$c$、$g$、尺度選項與 $\rho$。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m3-stochastic-dynamics/m3-1-1.html" class="demo-frame" title="Euler–Maruyama：噪聲尺度與路徑扇面" style="height: 840px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m3-1-a">
 一個電池的電量每小時穩定下降 2%，同時因為溫度波動每小時隨機上下浮動、浮動彼此獨立。要模擬 24 小時後電量的分佈，該用哪個工具？
@@ -198,7 +187,7 @@ $g$ 依賴 $x$ 時，「在步的哪個位置評估 $g$」在 $h\to0$ 後仍留�
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-fokker-planck">
-本篇把 SDE 讀成「每一小步走 $fh$、加 $g\sqrt h\,\varepsilon$」，看到它的解是一把扇子而不是一條路，並用 variance 與 $h$ 無關來檢驗 $\sqrt h$。一片葉子的分佈我們用模擬得到；下一篇像 <Ref to="math-continuity-equation"/> 那樣，不追葉子，直接寫下這個分佈自己滿足的方程式。
+本篇把 SDE 讀成「每一小步走 $fh$、加 $g\sqrt h\,\varepsilon$」，看到它的解是一把扇子而不是一條路，並用 variance 與 $h$ 無關來檢驗 $\sqrt h$。一片葉子的分佈我們用模擬得到；接著像 <Ref to="math-continuity-equation"/> 那樣，不追葉子，直接寫下這個分佈自己滿足的方程式。
 </Bridge>
 
 ## 參考文獻

@@ -10,8 +10,8 @@ title: "Remasking：取樣器多一條管子"
 category: "courses"
 group: "Unit 5 · Discrete Diffusion II"
 status: "available"
-updated: 2026-09-07
-summary: "在 absorbing 的反向鏈上加一條「回到 [MASK]」的 rate σ_t，同時把翻開的 rate 加大同樣多的流量，邊際 p_t 一格都不動——訓好的網路照用。這條 σ_t 就是一族取樣器裡的 ε_t：加噪聲再拉回來，淨效果為零，卻讓早期翻錯的字有機會被改。"
+updated: 2026-09-21
+summary: "Remasking 在反向鏈上加入回到 `[MASK]` 的 rate，再補上對應的 unmask 流量。兩者抵消後邊際不變，早期填錯的 token 卻有機會重選。"
 demos: []
 references:
   - label: "Wang et al., Remasking Discrete Diffusion Models with Inference-Time Scaling (2025)"
@@ -42,9 +42,9 @@ import Ref from '../../../components/Ref.astro';
 # Remasking：取樣器多一條管子
 
 <Objectives>
-- 用 rate 的語言寫出 remasking：在 absorbing 的反向鏈上，每個已翻開的位置以 rate $\sigma_t$ 回到 `[MASK]`。
-- 推出「加了 $\sigma_t$ 之後邊際 $p_t$ 不變」的條件——翻開的 rate 要同時加大 $\sigma_t\,\alpha_t/(1-\alpha_t)$——並認出它與 <Ref to="dma-sampler-family"/> 的 $\varepsilon_t$ 逐字對應。
-- 說出 remasking 的代價，以及它為什麼是「取樣噪聲」而不是「訓練噪聲」那個旋鈕。
+- **用 rate 寫出 remasking。** 讓已翻開的位置以 $\sigma_t$ 回到 `[MASK]`。
+- **推導保持 $p_t$ 不變的補償流量。** 說明 unmask rate 為何必須同時增加 $\sigma_t\alpha_t/(1-\alpha_t)$。
+- **把 remasking 對到 Langevin 修正。** 它是取樣時加入的隨機性，能修正錯誤，也會增加有限步成本。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -76,7 +76,7 @@ $u_t$ 是「一個被遮位置每單位時間翻開的比例」，翻成哪個�
 只做這一件事會壞掉一樣東西。反向鏈的邊際本來沿著 forward 的 $p_t$ 往回走（上一篇的驗證）；多一條把質量倒回 `[MASK]` 的管子，`[MASK]` 的比例會比 $1-\alpha_t$ 高，$x_t$ 的分佈變了，網路面對的是它沒訓過的輸入。<Ref to="dma-why-continuous-time"/> 的第 2 個小問題——會不會動到邊際——現在有了正面的答案：會。但也有補救。
 
 <Question id="Q1">
-在 absorbing 的反向鏈上加一條「回到 `[MASK]`」的 rate $\sigma_t$。**這對應 <Ref to="dma-sampler-family"/> 那一族取樣器裡的哪個旋鈕？** 順著那個對應，能不能推出「加了 $\sigma_t$ 但邊際 $p_t$ 不變」的條件？
+在 absorbing 的反向鏈上加一條「回到 `[MASK]`」的 rate $\sigma_t$。**這對應 <Ref to="dma-sampler-family"/> 那一族取樣器裡的哪個設定？** 順著那個對應，能不能推出「加了 $\sigma_t$ 但邊際 $p_t$ 不變」的條件？
 
 <Answer>
 常見的答案會先分成「訓練時的 $\gamma_t$」與「取樣時的 $\varepsilon_t$」兩種，也有一種說法是「這是把 absorbing 變成 uniform」。第三個答案值得先處理：uniform 的修正能力來自 **forward chain**——訓練時 $x_t$ 裡就有被換掉的字，模型學的是「哪些字是噪聲」；remasking 沒有動 forward，訓練分佈裡從來沒有「被重遮的字」這種東西，所以它不是 uniform。
@@ -105,7 +105,7 @@ $$
 
 讀法：**倒回 `[MASK]` 的流量 $\sigma_t(1-m_t)$，必須由多翻開的流量 $(u'_t-u_t)\,m_t$ 一比一補回來。** 兩條管子的流量相等、方向相反，邊際一格都不動。
 
-還有一個條件藏在「翻開時填什麼字」裡：多翻開的那部分也要按 $p_\theta(x_0^\ell\mid x_t)$ 填。這樣才能保證不只 `[MASK]` 的比例不變，翻開的字在給定其他位置下的分佈也不變（Details 有論證）。而 $p_\theta$ 正是訓好的網路——**訓練端什麼都不用改**。這就是 $\varepsilon_t$ 那個旋鈕的全部性質：只動取樣器、邊際不變、共用網路。
+還有一個條件藏在「翻開時填什麼字」裡：多翻開的那部分也要按 $p_\theta(x_0^\ell\mid x_t)$ 填。這樣才能保證不只 `[MASK]` 的比例不變，翻開的字在給定其他位置下的分佈也不變（Details 有論證）。而 $p_\theta$ 正是訓好的網路——**訓練端什麼都不用改**。這就是 $\varepsilon_t$ 那個設定的全部性質：只動取樣器、邊際不變、共用網路。
 </Answer>
 </Question>
 
@@ -143,26 +143,17 @@ demo 裡有一個「有誤差的網路」開關（把 $p_\theta$ 往均勻分布
 理由是重填的時候用的還是同一個偏掉的網路。remasking 給的好處只有一個——**第二次填的時候 context 比第一次完整**。所以它修得動「因為旁邊還是 `[MASK]`，所以猜錯」這一種錯（<Ref to="dma-factorization-error"/> 的因子化誤差就屬於這一類），修不動「網路對這個 context 本來就估偏了」那一種。$\varepsilon_t$ 在連續世界也是這樣：Langevin 項把樣本拉回 $p_t$，但那個 $p_t$ 是**網路認為的** $p_t$。
 </Remark>
 
-## 兩個旋鈕，現在分開了
+## 兩個設定，現在分開了
 
-<Ref to="dma-absorbing-vs-uniform"/> 把 absorbing / uniform 對到 ODE / SDE，並說這個對應「不完全」——uniform 的代價是每步都要重新判斷什麼是噪聲，而且這個代價不隨步數變小。現在可以說清楚為什麼不完全：**uniform 的修正能力是訓練噪聲**（forward chain 裡的隨機替換），**remasking 的修正能力是取樣噪聲**（反向鏈裡的 $\sigma_t$）。<Ref to="dma-sampler-family"/> 的 Q1 說這是兩個獨立的旋鈕：訓練噪聲決定 $p_t$ 長什麼樣、以及你能學到什麼；取樣噪聲決定你怎麼走。而取樣噪聲正是這門課數到現在的**第五個旋鈕**——<Ref to="dma-why-not-diffusion"/> 的起點、路徑、配對三個都在 forward process 裡，<Ref to="dma-fm-vs-diffusion"/> 的加權在訓練端，$\varepsilon_t$ 是第一個完全不碰訓練的。remasking 就是它的離散版。
+<Ref to="dma-absorbing-vs-uniform"/> 把 absorbing / uniform 對到 ODE / SDE，並說這個對應「不完全」——uniform 的代價是每步都要重新判斷什麼是噪聲，而且這個代價不隨步數變小。現在可以說清楚為什麼不完全：**uniform 的修正能力是訓練噪聲**（forward chain 裡的隨機替換），**remasking 的修正能力是取樣噪聲**（反向鏈裡的 $\sigma_t$）。<Ref to="dma-sampler-family"/> 的 Q1 說這是兩個獨立的設定：訓練噪聲決定 $p_t$ 長什麼樣、以及你能學到什麼；取樣噪聲決定你怎麼走。而取樣噪聲正是這門課數到現在的**第五個設定**——<Ref to="dma-why-not-diffusion"/> 的起點、路徑、配對三個都在 forward process 裡，<Ref to="dma-fm-vs-diffusion"/> 的加權在訓練端，$\varepsilon_t$ 是第一個完全不碰訓練的。remasking 就是它的離散版。
 
-在連續世界裡 diffusion 的 Gaussian noise 同時扮演了兩個角色（起點分佈是 Gaussian、天然有 score），所以旋鈕分不分開不那麼顯眼。在離散世界裡兩者的差別很明顯：uniform 把噪聲放進訓練分佈，模型必須學會分辨噪聲字（context 不乾淨）；remasking 把噪聲放進取樣器，訓練分佈裡只有 `[MASK]`（context 乾淨），而修正能力照樣有。**<Ref to="dma-absorbing-vs-uniform"/> 的問題「能不能兩個都要」，答案是可以，而且理由就是兩個旋鈕本來就是分開的。**
+在連續世界裡 diffusion 的 Gaussian noise 同時扮演了兩個角色（起點分佈是 Gaussian、天然有 score），所以設定分不分開不那麼顯眼。在離散世界裡兩者的差別很明顯：uniform 把噪聲放進訓練分佈，模型必須學會分辨噪聲字（context 不乾淨）；remasking 把噪聲放進取樣器，訓練分佈裡只有 `[MASK]`（context 乾淨），而修正能力照樣有。**<Ref to="dma-absorbing-vs-uniform"/> 的問題「能不能兩個都要」，答案是可以，而且理由就是兩個設定本來就是分開的。**
 
-同樣的旋鈕在其他語言裡也出現：Campbell et al. [2] 在 discrete flow matching 的取樣器裡加一個「stochasticity」參數 $\eta$，做法是把 forward rate 與它的反向配對加進生成 rate（一對流量相反、淨效果為零的管子）——與這裡的 $(\sigma_t,\ \sigma_t\frac{\alpha_t}{1-\alpha_t})$ 是同一個構造；Gat et al. [3] 的 corrector sampling 亦然。下一篇會看到這些名字之間的關係。
+同樣的設定在其他語言裡也出現：Campbell et al. [2] 在 discrete flow matching 的取樣器裡加一個「stochasticity」參數 $\eta$，做法是把 forward rate 與它的反向配對加進生成 rate（一對流量相反、淨效果為零的管子）——與這裡的 $(\sigma_t,\ \sigma_t\frac{\alpha_t}{1-\alpha_t})$ 是同一個構造；Gat et al. [3] 的 corrector sampling 亦然。下一篇會看到這些名字之間的關係。
 
-<VizPlan id="w7-3-two-pipes" title="兩條管子：rate 不相等，流量相等" type="static">
-- 檔名 `imgs/w7-3-1.png`，放在「兩個旋鈕，現在分開了」之後、「先消化一下」之前。
-- 版面：左右兩塊，中間一條細分隔線；上方橫跨兩塊一句大標「**加噪聲的那一項，一定配一個把它拉回來的項**」。
-  - **左「離散：remasking」**：畫兩個水位槽。上面一個灰底槽標 `[MASK]`，旁註「比例 $m_t=1-\alpha_t$」；下面一個橘底槽標「字 $v$」，旁註「比例 $1-m_t=\alpha_t$」。兩槽之間畫**兩根管子**：
-    - 向上（字 → `[MASK]`）標「重遮，rate $\sigma_t$」；
-    - 向下（`[MASK]` → 字）標「補償的多翻開，rate $\sigma_t\dfrac{\alpha_t}{1-\alpha_t}$」。
-    兩根管子**畫成一樣粗**，並在各自旁邊寫同一個數字「流量 $=\sigma_t\alpha_t$」，用一個等號把兩個流量框起來。左側另外畫一根獨立的、比較細的管子標「原本的翻開 rate $u_t$」，註「這一根才會動邊際」。
-  - **右「連續：$\varepsilon_t$」**：一條 $p_t$ 的曲線與一個樣本點。兩支箭頭：一支向外（離開峰）標 $\sqrt{2\varepsilon_t}\,dW$「往外推」，一支向內標 $\varepsilon_t s_t\,dt$「沿 score 拉回」；兩支箭頭畫成一樣長，中間一個等號框住「淨效果為零」。
-- 底部一句：「**rate 不相等（差一個 $\alpha_t/(1-\alpha_t)$），流量才相等**——因為兩根管子的來源水位不一樣。」
-- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註；資料橘 `#f0803c`／噪聲藍 `#4a90e2`／強調靛 `#2a4ea3`／`[MASK]` 用中性灰）。
-- 長寬比：約 16:8。
-</VizPlan>
+![兩條管子：rate 不相等，流量相等](./imgs/w7-3-1.png)
+
+*圖：兩邊的 rate 可以不同；真正要配平的是「rate × 來源比例」形成的流量，兩股相反流量相等時邊際不變。*
 
 ## 先消化一下
 
@@ -199,7 +190,7 @@ Remasking 保持邊際的條件 $u'_t=u_t+\sigma_t\frac{\alpha_t}{1-\alpha_t}$�
 <QuizBlock id="w7-3-d">
 「remasking 保留了 absorbing 的乾淨 context，又有 uniform 的修正能力」——這件事之所以可能，根本原因是：
 <Option>remasking 的網路比 uniform 的網路大。</Option>
-<Option correct>修正能力可以來自取樣器（$\sigma_t$）而不必來自 forward chain；訓練噪聲與取樣噪聲是兩個獨立的旋鈕，uniform 把噪聲放在前者、remasking 放在後者。</Option>
+<Option correct>修正能力可以來自取樣器（$\sigma_t$）而不必來自 forward chain；訓練噪聲與取樣噪聲是兩個獨立的設定，uniform 把噪聲放在前者、remasking 放在後者。</Option>
 <Option>因為 `[MASK]` 是吸收態。</Option>
 <Explanation>
 <Ref to="dma-sampler-family"/> Q1 的結論在離散世界裡變得特別明顯：訓練分佈裡只有 `[MASK]`（context 乾淨），修正由取樣器提供。`[MASK]` 是吸收態這件事本身正是「不能修正」的來源，是 remasking 要繞開的，不是它的理由。
@@ -207,7 +198,7 @@ Remasking 保持邊際的條件 $u'_t=u_t+\sigma_t\frac{\alpha_t}{1-\alpha_t}$�
 </QuizBlock>
 
 <Bridge to="dma-discrete-flow-matching">
-本篇把 remasking 寫成反向鏈上多一條管子，推出邊際不變的條件，並把它對到取樣器的 $\varepsilon_t$。到這裡，反向過程一直是「把 forward 倒過來」得到的。下一篇換一個起點：像 <Ref week="dma-week-flow-matching"/> 那樣先寫條件路徑、再取後驗平均——discrete flow matching——並問 <Ref to="dma-linear-path"/> 的配對旋鈕在離散空間裡還剩什麼。
+目前的生成器都是先選 forward chain，再把它反轉。Flow matching 曾經把順序倒過來：先選容易監督的條件路徑，再讓後驗平均產生邊際動力。下一篇問同一招能否搬到 token，以及沒有直線可走時，「配對」還會改變什麼。
 </Bridge>
 
 ## 參考文獻

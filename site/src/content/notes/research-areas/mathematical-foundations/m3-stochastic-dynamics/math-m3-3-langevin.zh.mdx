@@ -9,7 +9,7 @@ title: "山谷裡隨機走的人群：Langevin Dynamics 與 Stationary Distribut
 category: "courses"
 group: "M3 · Stochastic Dynamics"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "一群人在山谷裡隨機亂走，但每一步都有點傾向往低處。很久以後大家在哪？答案不依賴出發點，只依賴山谷的形狀：密度 ∝ e^{−V}。把「往低處」寫成 drift −∇V、「亂走」寫成 √2 dW，就是 Langevin dynamics；把 e^{−V} 代進 Fokker–Planck 右邊、看它是否為零，就是證明。也會看到「很久」可以有多久、步長太大會把答案偏掉多少。"
 demos: []
 references:
@@ -37,9 +37,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 # 山谷裡隨機走的人群：Langevin Dynamics 與 Stationary Distribution
 
 <Objectives>
-- 寫出 Langevin dynamics $dx=-\nabla V(x)\,dt+\sqrt2\,dW_t$，說出 drift 與噪聲各扮演什麼角色，以及「拉回」的機制。
-- 用 Fokker–Planck 右邊為零，驗證 stationary distribution 是 $p_\infty\propto e^{-V}$，並說出它為什麼與起點無關。
-- 對「一群人在某種地形上帶偏好地亂走、最後分佈在哪」這類情境判斷 $e^{-V}$ 是否適用、說出它依賴的假設（時間夠久、步長夠小），並用模擬驗證與破壞它。
+- **寫出 Langevin dynamics $dx=-\nabla V(x)\,dt+\sqrt2\,dW_t$。** 解釋 drift 如何把人拉回、噪聲如何把人群攤開。
+- **用 Fokker–Planck 右邊為零，驗證 stationary distribution 是 $p_\infty\propto e^{-V}$。** 說出它為什麼與起點無關。
+- **對「一群人在某種地形上帶偏好地亂走、最後分佈在哪」這類情境判斷 $e^{-V}$ 是否適用、說出它依賴的假設（時間夠久、步長夠小）。** 用模擬驗證與破壞它。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -70,7 +70,7 @@ $$
 </Answer>
 </Question>
 
-## 先看畫面：拉回與攤開的拔河
+## 拉回與攤開的拔河
 
 <Ref to="math-fokker-planck"/> 說分佈的演化是兩股力量：drift 搬、噪聲攤。這裡 drift 永遠指向谷底，所以「搬」永遠是**往中間拉回**；噪聲則永遠把人群**往外攤**。
 
@@ -78,15 +78,11 @@ $$
 
 把同一座山谷橫向拉寬兩倍：每一處的坡都變緩、拉回變弱，要攤得更開才會碰到足夠陡的坡，所以人群也散開兩倍。反過來，窄而陡的山谷聚得緊。谷底特別平、但邊坡特別陡的山谷，則會給出頂部平坦、尾巴很薄的分佈——形狀跟著山谷走。
 
-<VizPlan id="m3-3-tug" title="拉回與攤開：山谷形狀決定最後的寬度" type="static">
-- **檔名**：`m3-stochastic-dynamics/imgs/m3-3-1.svg`，16:9。
-- **版面**：上排三格是三種山谷的側視 $V(x)$：標準谷 $V=x^2/2$、寬兩倍的谷 $V=x^2/8$、平底陡坡谷 $V=x^4/4$；每格在坡上畫幾支 $-\nabla V$ 的箭頭（越陡越長、都指向谷底），谷底附近箭頭幾乎消失，並用一對相對的波浪箭頭示意噪聲「往外攤」。
-- 下排三格是對應的 stationary distribution $p_\infty\propto e^{-V}$（實線），疊上「一小時後」模擬的直方圖；寬谷的鐘形寬兩倍、平底陡坡谷的頂部最平坦且尾巴最薄；每格右上角標該分佈的標準差（$1$、$2$、$0.82$）。
-- 中間一列小字：「拉回 $-\nabla V$ vs. 攤開 $\sqrt2\,dW$，平衡處 $=e^{-V}$」。
-- **圖說**：「drift 一直往谷底拉，噪聲一直往外攤，兩者在 $e^{-V}$ 這個形狀上達成平衡。分佈的形狀跟著山谷走；與出發點無關。」
-</VizPlan>
+![拉回與攤開：山谷形狀決定最後的寬度](./imgs/m3-3-1.svg)
 
-## 寫成數學：把 $e^{-V}$ 代進 Fokker–Planck
+*圖：−∇V 往谷底拉、噪聲往外攤；兩者在 e⁻ⱽ 的形狀上達到平衡。*
+
+## 把 $e^{-V}$ 代進 Fokker–Planck
 
 Langevin dynamics 的 $f=-\nabla V$、$g=\sqrt2$，所以 $g^2/2=1$，Fokker–Planck 方程式（<Ref to="math-fokker-planck"/>）是
 
@@ -116,7 +112,7 @@ s = 2h / (1 − (1−h)²) = 2h / (2h − h²) = 1 / (1 − h/2)。
 h → 0 時 s → 1，回到理論的 N(0,1)；h = 0.1 時 s ≈ 1.053（偏 5%）；h = 0.5 時 s = 1.33；h = 1 時 s = 2（寬一倍）；h ≥ 2 時 |1−h| ≥ 1，遞迴發散。所以「離散的 Langevin 有它自己的 stationary distribution，與連續版差 O(h)」——這是 Roberts & Tweedie [2] 分析的現象，也是實務上要把 h 選小、或在每步後加一個接受／拒絕修正（MALA）的原因。
 </Details>
 
-## 回到山谷：直覺對了，但「很久」有多久
+## 直覺對了，但「很久」有多久
 
 回答起點問題。一小時後（若一小時算「很久」），一千人的密度 $\propto e^{-V}$：與出發點無關、由山谷形狀完全決定。寬兩倍的谷讓人散開兩倍——直覺對，而且現在有數字；平底陡坡的谷給出平頂薄尾的分佈——這一個直覺猜不出來。
 
@@ -125,7 +121,7 @@ h → 0 時 s → 1，回到理論的 N(0,1)；h = 0.1 時 s ≈ 1.053（偏 5%�
 - **時間要夠久。** 「指數速率收斂」的速率取決於 $V$ 的形狀。單一碗狀的谷收斂很快；若山谷有**兩個**谷底、中間隔一道高 $\Delta V$ 的山脊，理論上 $p_\infty\propto e^{-V}$ 仍然對（兩個谷底各占一團、比例由 $e^{-V}$ 決定），但從一側出發的人要**翻過山脊**才能填滿另一側，翻越的平均等待時間約 $e^{\Delta V/\tau}$ 的量級（Arrhenius 定律 [3]）。$\Delta V/\tau=10$ 時是兩萬多倍的時間尺度——「一小時」可能連一個人都沒翻過去。這時模擬的直方圖只填了一個谷，而理論的 $e^{-V}$ 說兩個谷都有人：**理論沒錯，是你等得不夠久。**
 - **步長要夠小。** 電腦模擬用有限的 $h$，離散鏈的 stationary distribution 與 $e^{-V}$ 差 $O(h)$（展開框有精確的算法：$V=x^2/2$ 時 variance 是 $1/(1-h/2)$）。$h=0.5$ 偏 33%，$h\ge2$ 直接發散。
 
-## 回到山谷：跑一次，等不夠久一次，步長太大一次
+## 跑一次，等不夠久一次，步長太大一次
 
 ```python
 import numpy as np
@@ -146,18 +142,9 @@ print((xb > 0).mean())                                      # ≈ 0.05，理論�
 
 碗狀谷：從 $x=3$ 出發，$T=20$ 後均值 0、variance 1，與 $\mathcal N(0,1)$ 一致，起點的記憶消失。步長：$h=0.1,0.5,1.0$ 的 variance 分別約 $1.05$、$1.33$、$2.0$，與 $1/(1-h/2)$ 吻合——理論不只預告會偏，還算出偏多少。雙井（山脊高 8）：$T=20$ 時右井只有約 5% 的人，理論卻說各占一半；把 $T$ 拉長一百倍到 2000，右井才填到 50%。
 
-<VizPlan id="m3-3-langevin" title="Langevin：山谷形狀、等待時間、步長偏差" type="interactive">
-- **位置**：本節之後。**檔名**：`m3-stochastic-dynamics/m3-3-1.html`。
-- **版面**：上半是山谷側視 $V(x)$，人群畫成沿著曲線滾動的點（$N=2000$）；下半是人群位置的直方圖疊 $e^{-V/\tau}/Z_\tau$ 的實線。共用時間滑桿 $t$（對數刻度，$0.1$–$10^4$），旁邊顯示實測與理論的均值、標準差。
-- **控制項**：下拉「山谷」：碗 $x^2/2$、寬碗 $x^2/8$、平底陡坡碗 $x^4/4$、**雙井** $k(x^2-1)^2/4$（滑桿 $k$ 控制山脊高度 $\Delta V=k/4$）、非對稱雙井；滑桿「溫度 $\tau$」；滑桿「起點 $x_0$」與「起點散佈」；滑桿「步長 $h$」（$0.01$–$2.5$）。按鈕「重新放人」。
-- **行為**：碗狀谷拖 $t$，直方圖從起點的尖峰迅速變成貼合實線的鐘形；改 $x_0$ 只改前面幾秒、不改最後的形狀。切到雙井從 $x_0=-1$ 出發：右上角顯示「右井人數比例」與理論值 $0.5$，並顯示 Arrhenius 估計的翻越時間 $\sim e^{\Delta V/\tau}$；$k$ 大時拖到 $t=10^3$ 比例仍接近 0，畫面標「理論正確，時間不夠」；$k$ 小或 $\tau$ 大時很快填到 0.5。
-- **步長子面板**：碗狀谷下拖 $h$，實測 variance 與 $1/(1-h/2)$ 的曲線同步顯示；$h\ge2$ 時點群飛出畫面並亮紅「發散」。
-- **Hover** 上半任一人：顯示該處的 $-V'(x)$（拉回力）與 $\sqrt{2\tau h}$（一步噪聲的典型大小），讓讀者看到坡陡處拉回主導、谷底噪聲主導。
-- **底部觀察句**：「觀察：往低處的 drift 與亂走的噪聲在 $e^{-V/\tau}$ 上平衡，答案與起點無關、只看山谷形狀。但『很久』可能是 $e^{\Delta V/\tau}$ 那麼久；步長有限時答案偏 $O(h)$，太大則發散。」
-- **匯出 PNG**：上下兩半併成 16:9，含當前山谷、$\tau$、$t$、$h$ 與比例數字。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m3-stochastic-dynamics/m3-3-1.html" class="demo-frame" title="Langevin：山谷、混合時間與步長偏差" style="height: 880px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m3-3-a">
 一群氣體分子在重力場裡上下亂撞，高度 $z$ 的位能是 $V(z)=mgz$（$z\ge0$，地面是牆）。很久以後分子密度隨高度的分佈是：
@@ -192,7 +179,7 @@ $e^{-V/\tau}$ 在 $\tau\to0$ 時越來越尖、集中到 $V$ 的最小值，極�
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-weak-strong-convergence">
-本篇把「往低處的偏好」寫成 $-\nabla V$、「亂走」寫成噪聲，用 Fokker–Planck 右邊為零驗證 stationary distribution 是 $e^{-V}$，並看到它與起點無關但可能要等 $e^{\Delta V/\tau}$ 那麼久、步長有限時偏 $O(h)$。最後這個 $O(h)$ 值得追問：模擬 SDE 時，「誤差」到底是指哪個量？每條路徑對、還是分佈對？下一篇回答。
+本篇把「往低處的偏好」寫成 $-\nabla V$、「亂走」寫成噪聲，用 Fokker–Planck 右邊為零驗證 stationary distribution 是 $e^{-V}$，並看到它與起點無關但可能要等 $e^{\Delta V/\tau}$ 那麼久、步長有限時偏 $O(h)$。最後這個 $O(h)$ 直接留下下一個問題：模擬 SDE 時，「誤差」到底是指哪個量？每條路徑對、還是分佈對？接著回答。
 </Bridge>
 
 ## 參考文獻

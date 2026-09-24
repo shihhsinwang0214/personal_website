@@ -4,13 +4,14 @@ label: "dma-masked-diffusion"
 prereqs:
   - math-absorbing-state
   - math-kl
+  - ml-latent-variables-elbo
 lang: "zh"
 title: "Masked Diffusion：ELBO 塌成加權的 Cross-Entropy"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion I"
 status: "available"
-updated: 2026-09-07
-summary: "在 absorbing 鏈上，D3PM 的 ELBO 逐項化簡，最後只剩「對被遮的位置做 cross-entropy、乘上一個只跟 t 有關的權重」。這就是 BERT 的 masked language modeling 加上隨機遮罩比例與時間加權；取樣則是從全 [MASK] 出發、每步 unmask 一部分。"
+updated: 2026-09-21
+summary: "Absorbing chain 的 ELBO 只在被遮住的位置留下 cross-entropy。訓練像隨機遮罩比例的 BERT，生成則從全 `[MASK]` 開始逐步翻開。"
 demos: []
 references:
   - label: "Sahoo et al., Simple and Effective Masked Diffusion Language Models (NeurIPS 2024)"
@@ -45,9 +46,9 @@ import Ref from '../../../components/Ref.astro';
 # Masked Diffusion：ELBO 塌成加權的 Cross-Entropy
 
 <Objectives>
-- 對 absorbing 鏈把 ELBO 的每一項算出來，說出為什麼沒被遮的位置貢獻為零、被遮的位置只剩一個 cross-entropy。
-- 寫出 masked diffusion 的 loss，指出它與 BERT 的 masked language modeling 差在哪兩件事。
-- 描述取樣程序（從全 `[MASK]` 出發、每步 unmask 一部分），並說出為什麼已 unmask 的 token 之後不再改變。
+- **把 absorbing chain 的 ELBO 化簡到底。** 說出未遮位置為何沒有 loss，被遮位置為何只剩 cross-entropy。
+- **比較 masked diffusion 與 BERT。** 兩者都猜被遮 token，但時間取樣、加權與生成用途不同。
+- **寫出逐步 unmask 的取樣程序。** 解釋為什麼 token 一旦翻開，在純 absorbing 反向鏈裡便不再改動。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -90,14 +91,9 @@ $$
 
 讀一遍：**抽一個 $t$、按 $\bar\alpha_t$ 隨機遮掉一些位置、對被遮的位置做 cross-entropy、乘上一個只跟 $t$ 有關的權重。** 沒有 KL、沒有 posterior、沒有輔助 loss；上一篇 D3PM 額外加的 $\lambda$ 項在這裡變成多餘的——ELBO 本身就是這個形狀 [1, 2]。
 
-<VizPlan id="w6-2-collapse" title="ELBO 為什麼會塌" type="static">
-- **位置**：本節之後。**檔名**：`week-6/imgs/w6-2-1.svg`（16:9，三欄）。
-- **左欄**：D3PM 的 ELBO 三種項 $L_0$、$\sum L_{t-1}$、$L_T$ 疊成三個方塊，$L_T$ 標「$\approx0$，無參數」淡出。
-- **中欄**：一個 absorbing 位置的兩枚硬幣並排——左硬幣 posterior、右硬幣 model。兩枚硬幣「留在 `[MASK]`」的那一面畫成同色、中間一個等號並劃掉（相消）；「翻開」那一面：posterior 是一根集中在 $x_0^\ell$ 的柱子，model 是 $K$ 根柱子的分佈，兩者之間標 $-\log p_\theta(x_0^\ell\mid x_t)$。上方一行小字：「沒被遮的位置：兩邊都是確定的 → KL $=0$」。
-- **右欄**：只剩一條式子 $\sum_t w_t\sum_{\ell\in\text{masked}}-\log p_\theta(x_0^\ell\mid x_t)$，$w_t$ 用醒目色框起，旁邊小字「只跟 $t$ 有關」。
-- **圖說（.mdx 內）**：「**圖：ELBO 為什麼會塌。** 沒被遮的位置兩邊都是確定的，KL 為零；被遮的位置兩邊是同一枚硬幣，『留在 `[MASK]`』那一面相消，只剩翻開時的 cross-entropy。」
-- 術語一律英文（posterior、model、cross-entropy、masked）；配色沿用 <Ref to="dma-what-are-we-learning"/> 圖 1 的基準色。
-</VizPlan>
+![ELBO 為什麼會塌](./imgs/w6-2-1.png)
+
+*圖：未被遮的位置對 ELBO 貢獻為零；被遮的位置則經時間權重匯成一個 cross-entropy。*
 
 讓步數趨於無窮，這個和會變成一個積分。到了連續時間，「這一步」不再有意義，累積量是唯一有意義的東西，所以**那條橫線會被省掉**：從下面的展開框到 <Ref week="dma-week-discrete-ii"/>，$\alpha_t$ 指的都是這裡的 $\bar\alpha_t$。
 
@@ -108,7 +104,7 @@ $$
 \mathcal L_{\text{MDM}}=\int_0^1\frac{-\dot\alpha_t}{1-\alpha_t}\ \mathbb E\Bigg[\sum_{\ell:\ x_t^\ell=\texttt{[MASK]}}-\log p_\theta(x_0^\ell\mid x_t)\Bigg]dt .
 $$
 
-（$\dot\alpha_t<0$，所以權重是正的。）取線性 schedule $\alpha_t=1-t$，權重是 $1/t$；而 $t$ 時刻平均有 $tL$ 個位置被遮，所以 $1/t$ 大致是在把「每個被遮位置的平均 cross-entropy」拉成等權——這是 MDLM [1] 與 MD4 [2] 都指出的事：這個 loss 本質上是一個對「遮罩比例」取平均的 cross-entropy。兩篇也都證明，在連續時間下換任何一條 $\alpha_t$ 都只是把時間重新參數化，loss 的最小值不變；schedule 的選擇只影響訓練時 $t$ 的取樣密度，也就是 <Ref to="dma-fm-vs-diffusion"/> 那**第四個旋鈕：訓練端的加權**（<Ref to="dma-shared-techniques"/> 把它和 SNR 的換算做完了）。
+（$\dot\alpha_t<0$，所以權重是正的。）取線性 schedule $\alpha_t=1-t$，權重是 $1/t$；而 $t$ 時刻平均有 $tL$ 個位置被遮，所以 $1/t$ 大致是在把「每個被遮位置的平均 cross-entropy」拉成等權——這是 MDLM [1] 與 MD4 [2] 都指出的事：這個 loss 本質上是一個對「遮罩比例」取平均的 cross-entropy。兩篇也都證明，在連續時間下換任何一條 $\alpha_t$ 都只是把時間重新參數化，loss 的最小值不變；schedule 的選擇只影響訓練時 $t$ 的取樣密度，也就是 <Ref to="dma-fm-vs-diffusion"/> 那**第四個設定：訓練端的加權**（<Ref to="dma-shared-techniques"/> 把它和 SNR 的換算做完了）。
 </Details>
 
 ## 和 BERT 差在哪
@@ -196,7 +192,7 @@ $t$ 時平均有 $tL$ 個位置被遮，乘 $1/t$ 後每個 $t$ 貢獻的量級�
 </QuizBlock>
 
 <Bridge to="dma-factorization-error">
-本篇把 absorbing 鏈的 ELBO 算成一條加權的 masked cross-entropy，並確定取樣是「每步翻開一部分、翻開就固定」。取樣步數越少，每步同時翻開的格子越多——下一篇問：同時翻開很多格，到底哪裡會出錯？答案是離散世界裡的「曲率」。
+取樣現在像填字遊戲：每一步翻開一些格子，而且翻開後固定。若想少走幾步，就得一次填更多格；但網路只給每一格自己的 marginal。下一篇要問的是：這些格子各自猜對，為什麼合起來仍可能是一個不合法的句子？
 </Bridge>
 
 ## 參考文獻

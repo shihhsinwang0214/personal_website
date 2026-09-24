@@ -10,7 +10,7 @@ title: "五萬個倉庫怎麼算：Sinkhorn 與 Minibatch 近似"
 category: "courses"
 group: "M6 · Optimal Transport"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "五萬個倉庫對五萬家店，運輸表有二十五億格，LP 算不動。兩條出路：把問題弄平滑——在成本上加一個 entropy 項，最佳解變成「兩個對角縮放夾一個矩陣」，交替正規化列與欄就能收斂（Sinkhorn）；或只在隨機抽出的小組裡配對（minibatch）。兩者都會偏：前者偏向「拆得更散」、後者高估距離、低估配對的精確度。這一篇把偏差寫成公式，並看它們隨 ε 與 batch 大小怎麼變。"
 demos: []
 references:
@@ -41,9 +41,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 # 五萬個倉庫怎麼算：Sinkhorn 與 Minibatch 近似
 
 <Objectives>
-- 寫出 entropic OT $\min_\pi\langle\pi,c\rangle-\varepsilon H(\pi)$，說出它的最佳解有 $\pi=\mathrm{diag}(u)\,K\,\mathrm{diag}(v)$、$K=e^{-c/\varepsilon}$ 的形狀，以及 Sinkhorn 演算法為什麼只是「交替把列和欄正規化」。
-- 說出 $\varepsilon$ 的作用：$\varepsilon\to0$ 回到精確 OT、$\varepsilon\to\infty$ 變成獨立 coupling；entropic 解比精確解「拆得更散」、成本偏高。
-- 說出 minibatch 近似的偏差方向：在小組內配對得到的距離期望**高於**真實 $W_2$、得到的配對比真實最佳配對「更亂」，且偏差隨 batch 變大而縮小；並對一個大規模情境判斷該用哪種近似、驗證偏差的方向與大小。
+- **寫出 entropic OT 與最佳解 $\pi=\mathrm{diag}(u)K\mathrm{diag}(v)$ 的形狀。** 解釋 Sinkhorn 為什麼只要交替正規化列和欄。
+- **說出 $\varepsilon$ 如何在精確 OT 與獨立 coupling 之間插值。** 解釋它為什麼讓運輸表更分散、原始運輸成本偏高。
+- **說出 minibatch 近似的偏差方向：在小組內配對得到的距離期望高於真實 $W_2$、得到的配對比真實最佳配對「更亂」，且偏差隨 batch 變大而縮小。** 對一個大規模情境判斷該用哪種近似、驗證偏差的方向與大小。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -72,7 +72,7 @@ $$
 </Answer>
 </Question>
 
-## 先抓住這個畫面：把稜角磨圓，或只看一小塊
+## 把稜角磨圓，或只看一小塊
 
 精確 OT 的解是運輸多面體的一個頂點——一個有稜角的東西，最多 $m+n-1$ 格不為零。要找到頂點得走 LP 那種組合式的路。
 
@@ -80,15 +80,11 @@ $$
 
 **Minibatch 只看一小塊。** 五萬對五萬看不完，就看兩百對兩百。組內的問題小到能精確解。代價是每一組都在「以偏概全」：組裡剛好沒有某個區域的店，那個區域的倉庫就被迫送遠。
 
-<VizPlan id="m6-3-two-ways" title="磨圓稜角 vs 只看一小塊" type="static">
-- **檔名**：`m6-optimal-transport/imgs/m6-3-1.svg`，16:9，三欄。
-- **左欄「精確」**：一張 $8\times8$ 的運輸表熱圖，只有沿一條「對角帶」的 15 格有值（頂點），其餘全白；標「最多 $m+n-1$ 格」。
-- **中欄「entropic」**：同一對邊際，三張熱圖並排 $\varepsilon=0.01,\,0.1,\,1$：從幾乎等於左欄、到對角帶變寬變模糊、到幾乎均勻一片；下方標「$\pi=\mathrm{diag}(u)\,K\,\mathrm{diag}(v)$」與各自的成本（單調上升）。
-- **右欄「minibatch」**：整個大點雲淡色為背景，隨機圈出兩小組（各 8 點）並在組內畫最佳配對線；其中幾條線明顯很長、跨過了背景裡「本來有更近的店」的位置，用紅色標出；下方小字「組內被迫配 → 距離偏高、配對偏亂」。
-- **圖說**：「精確解是多面體的頂點、有稜角、難找。entropic OT 用 $\varepsilon$ 把它磨圓，解變成兩個對角縮放夾一個矩陣。minibatch 只在小組裡精確解，但小組代表不了全體，配出來的距離偏高。」
-</VizPlan>
+![大規模 OT：entropic 與 minibatch 兩種近似](./imgs/m6-3-1.svg)
 
-## 寫成數學：Sinkhorn
+*圖：Sinkhorn 用 ε 磨圓稜角；minibatch 用 B 限制視野，兩者造成不同方向的偏差。*
+
+## Sinkhorn
 
 **解的形狀。** 對 entropic 問題寫 Lagrangian，對每個 $\pi_{ij}$ 微分令其為零：
 
@@ -119,7 +115,7 @@ $$
 entropic 成本 ⟨π_ε, c⟩ 與精確 OT 的差是 O(ε log(1/ε)) 量級（Peyré & Cuturi [2] 第 4.1 節）；ε → 0 時收斂但很慢。另外 entropic OT 有一個討厭的性質：把同一個分佈搬到自己，成本不是零（π_ε 會把質量拆散到鄰近的點）。Genevay et al. [5] 的修正是 **Sinkhorn divergence**：S_ε(μ,ν) = OT_ε(μ,ν) − ½OT_ε(μ,μ) − ½OT_ε(ν,ν)，把「搬到自己也有成本」的那部分扣掉；它在 μ = ν 時為零、對 ε 的偏差小得多，是拿 entropic OT 當「距離」用時的標準版本。
 </Details>
 
-## 寫成數學：Minibatch 的偏差
+## Minibatch 的偏差
 
 抽 $B$ 個 $\mu$ 的樣本、$B$ 個 $\nu$ 的樣本，各成經驗分佈 $\hat\mu_B,\hat\nu_B$，算 $W_2(\hat\mu_B,\hat\nu_B)$，對抽樣取期望。兩件事可以說清楚。
 
@@ -135,7 +131,7 @@ $$
 
 兩種近似殊途同歸：**都給出一個比精確解更分散的 coupling、成本偏高**；一個用 $\varepsilon$ 控制、一個用 $1/B$ 控制。
 
-## 回到五萬個倉庫：該用哪個
+## 該用哪個
 
 回答起點問題。第一條路（entropic）成本**偏高**、配對**偏散**，偏差由 $\varepsilon$ 控制，代價是 $O(mn)$ 的矩陣乘向量——五萬對五萬在 GPU 上可行，但 $K$ 要 $2.5\times10^9$ 格的記憶體（可以分塊）。第二條路（minibatch）成本**偏高**、配對**偏亂**，偏差由 $B$ 控制，記憶體只要 $B^2$，但每組的估計有隨機性、要多抽幾組平均。
 
@@ -143,7 +139,7 @@ $$
 
 依賴的假設：Sinkhorn 的收斂需要 $K$ 沒有全零的列或欄（$\varepsilon$ 太小時會發生，要用 log 域）；minibatch 的偏差分析假設樣本獨立同分佈抽自 $\mu,\nu$。兩者的偏差方向（成本偏高）是嚴格的，但偏差的大小要靠實驗量。
 
-## 回到五萬個倉庫：縮小成兩千個，把三個數並排
+## 縮小成兩千個，把三個數並排
 
 ```python
 import numpy as np
@@ -178,22 +174,15 @@ for B in [8, 512]: print('same', B, round(minibatch_w2(C2, B, 50), 3))     # 1.3
 
 三組數字並排。closed form 真值 $10.25$；用全部 2000 個樣本精確解 assignment 得 $10.73$（有限樣本的估計本身就偏高一點）。Sinkhorn 成本隨 $\varepsilon$ 從 $10.77$ 單調升到 $13.31$、entropy 從 $11.6$ 升到 $15.0$——**偏高、偏散**，而且 $\varepsilon=0.05$ 就已經在 $K=e^{-C/\varepsilon}$ 下溢的邊緣，所以程式直接寫成 $\log$ 域。minibatch 從 $B=8$ 的 $11.91$ 降到 $B=512$ 的 $10.77$，**從上方**逼近 $10.73$。
 
-這裡有一個實作上很會騙人的地方，值得自己踩一次。把 `iters` 從 1000 降回 300，$\varepsilon=0.05$ 會給出 $10.49$——**比精確解 $10.73$ 還低**，直接違反上面那個「entropic 解的成本不低於真實 OT」。原因不是定理錯了，是那個 $P$ 還不是合法的 coupling：300 輪之後列邊際的 $L_1$ 誤差還有 $0.038$，質量沒有守好，成本自然可以被壓到下界以下。$\varepsilon$ 越小收斂越慢，所以**看到「比精確解還低」的第一件事是去檢查邊際**，不是去懷疑定理。
+這裡有一個實作上很會騙人的地方，最好自己驗一次。把 `iters` 從 1000 降回 300，$\varepsilon=0.05$ 會給出 $10.49$——**比精確解 $10.73$ 還低**，直接違反上面那個「entropic 解的成本不低於真實 OT」。原因不是定理錯了，是那個 $P$ 還不是合法的 coupling：300 輪之後列邊際的 $L_1$ 誤差還有 $0.038$，質量沒有守好，成本自然可以被壓到下界以下。$\varepsilon$ 越小收斂越慢，所以**看到「比精確解還低」的第一件事是去檢查邊際**，不是去懷疑定理。
 
 **刻意違反一個假設。** 把 $Y$ 換成與 $X$ 同分佈的另一組樣本（真值 $W_2=0$）：2000 對 2000 的精確解給 $0.02$，minibatch 在 $B=8$ 時給 $1.33$、$B=512$ 時給 $0.067$——它會把「兩個相同的分佈」判成「有差」，$B$ 越小越嚴重。再把 $\varepsilon$ 壓到 $10^{-3}$ 且改回普通域的 $K=e^{-C/\varepsilon}$：矩陣大量下溢成 0、`K @ v` 出現零、除法變成 `inf`——這就是為什麼要在 $\log$ 域做。
 
-<VizPlan id="m6-3-approx" title="拖動 ε 與 B：兩種近似怎麼偏、偏多少" type="interactive">
-- **位置**：本節之後。**檔名**：`m6-optimal-transport/m6-3-1.html`。
-- **版面**：左格是兩團二維點雲（各 300 點）與當前 coupling 的連線（$\pi_{ij}$ 大於門檻才畫、粗細 ∝ $\pi_{ij}$）；右格上方是「成本 vs $\varepsilon$」與「成本 vs $B$」兩條曲線疊在同一張圖（橫軸分別是 $\log\varepsilon$ 與 $\log B$，各自標軸），一條水平線標精確 OT 的成本（用 LP 算一次）；右格下方顯示當前 coupling 的 entropy 與「每個 $x$ 平均被配到幾個 $y$」。
-- **控制項**：模式切換「Sinkhorn／minibatch」；Sinkhorn 模式有 $\varepsilon$ 滑桿（$10^{-2}$–$10^1$，對數）與「單步」按鈕（一次只做一輪列／欄正規化，畫面高亮當前正在修的是列和還是欄和，並顯示兩組約束各自的違反量——讀者看到輪流修、逐步收斂）；minibatch 模式有 $B$ 滑桿（$2$–$300$）與「再抽一組」按鈕（左格圈出這一組並畫組內最佳配對，累計平均成本更新右圖）。
-- **行為**：$\varepsilon$ 拉大：連線從幾乎一對一變成每個點連出一把扇形，成本曲線上升、entropy 上升；$\varepsilon$ 拉到最小：畫面標「$K$ 下溢，切換 log 域」並自動切換。$B$ 拉小：每次抽組畫出的配對線有明顯的長線，累計成本高於水平線；$B$ 拉大：逼近水平線。
-- **開關「$\mu=\nu$」**：把第二團換成第一團的另一組樣本，精確 OT 成本的水平線落到 0 附近，minibatch 曲線仍明顯為正——標「相同分佈被判成有差」。
-- **開關「Sinkhorn divergence」**：右圖多一條扣掉自我運輸成本的曲線，對 $\varepsilon$ 平坦得多。
-- **底部觀察句**：「觀察：Sinkhorn 把稜角磨圓，解是 $\mathrm{diag}(u)K\mathrm{diag}(v)$、輪流正規化就收斂，成本隨 $\varepsilon$ 偏高、配對偏散；minibatch 只在小組裡精確解，成本隨 $1/B$ 偏高、配對偏亂。兩個旋鈕都在『精確 OT』與『隨便配』之間插值。」
-- **匯出 PNG**：左右併成 16:9，含當前模式、$\varepsilon$ 或 $B$、成本與 entropy。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m6-optimal-transport/m6-3-1.html" class="demo-frame" title="Sinkhorn ε 與 minibatch B 互動示範" style="height: 900px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+**互動 demo：切換兩種近似並逐步更新，觀察 coupling、成本、entropy 與邊際誤差。**
+
+## 檢查理解
 
 <QuizBlock id="m6-3-a">
 你用 Sinkhorn 算兩個點雲的距離，發現把**同一個**點雲跟自己比，算出來的成本不是零。這是：
@@ -221,14 +210,16 @@ for B in [8, 512]: print('same', B, round(minibatch_w2(C2, B, 50), 3))     # 1.3
 <Option correct>兩者都趨近**獨立 coupling** $\mu\otimes\nu$——完全不看成本的隨機配對；精確 OT 在另一端（$\varepsilon\to0$、$B\to\infty$）。</Option>
 <Option>Sinkhorn 趨近精確 OT，minibatch 趨近獨立 coupling。</Option>
 <Explanation>
-$\varepsilon\to\infty$ 時 $K\to$ 全 1，$\pi\to ab^\top$；$B=1$ 時每組只有一個 $x$ 一個 $y$、只能配在一起，平均後是 $\mu\otimes\nu$。兩個旋鈕都在同一條線段的兩端之間插值，只是一個用平滑、一個用抽樣。
+$\varepsilon\to\infty$ 時 $K\to$ 全 1，$\pi\to ab^\top$；$B=1$ 時每組只有一個 $x$ 一個 $y$、只能配在一起，平均後是 $\mu\otimes\nu$。兩個設定都在同一條線段的兩端之間插值，只是一個用平滑、一個用抽樣。
 </Explanation>
 </QuizBlock>
 
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge>
-本篇看了大規模 OT 的兩條近似路：Sinkhorn 用 $\varepsilon$ 把解磨圓成 $\mathrm{diag}(u)K\mathrm{diag}(v)$、輪流正規化就收斂；minibatch 用 $B$ 只在小組裡精確解。兩者都給出比精確解更分散、成本偏高的 coupling，而且都在「精確 OT」與「隨機配」之間插值。到這裡，Mathematical Foundations 的七個 class——calculus 工具箱、機率與 conditional expectation、確定與隨機的動力學、Markov chain、optimization 與距離、optimal transport——全部建好了。每一篇的末尾都列出了它在哪些課程裡被重用；當你在某門課裡遇到一個工具覺得陌生，回到這裡對應的那一篇，讀十分鐘，再回去。
+Sinkhorn 用 $\varepsilon$ 把尖銳的最佳配對磨平，minibatch 則只在一小群樣本裡配對；兩者都把算不動的精確 OT 換成可以實際執行、但帶偏差的近似。
+
+Mathematical Foundations 到這裡收束。留下來的不是一張公式清單，而是一個反覆使用的做法：先把生活問題翻成數學，說清楚公式依賴的假設，再刻意看它何時失效。之後在其他課程裡遇到陌生工具，就從篇末的 Used By 回來補上這一塊。
 </Bridge>
 
 ## 參考文獻

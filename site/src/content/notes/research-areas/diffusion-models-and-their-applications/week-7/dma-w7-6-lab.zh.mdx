@@ -10,8 +10,8 @@ title: "實作：τ-leaping、Remasking 與比值學習"
 category: "courses"
 group: "Unit 5 · Discrete Diffusion II"
 status: "available"
-updated: 2026-09-07
-summary: "在上一個單元的 parity 與 Markov toy 上，把取樣器改寫成 CTMC 的 τ-leaping、確認它還原上一個單元的「步數 vs 合法率」曲線；加上 remasking rate σ，在同一張圖上疊出「σ vs 合法率」；最後訓一個 SEDD 式的比值網路，驗證它在 absorbing 鏈上等於 MDLM 的網路乘一個常數。"
+updated: 2026-09-21
+summary: "在同一組離散 toy 上比較精確跳步、$\tau$-leaping 與 remasking，並驗證 score-ratio target 在 absorbing chain 上如何對回 masked cross-entropy。"
 demos: []
 references:
   - label: "Campbell et al., A Continuous Time Framework for Discrete Denoising Models (NeurIPS 2022)"
@@ -34,7 +34,6 @@ import Prereq from '../../../components/Prereq.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
@@ -42,9 +41,9 @@ import Ref from '../../../components/Ref.astro';
 # 實作：τ-leaping、Remasking 與比值學習
 
 <Objectives>
-- 把 <Ref to="dma-lab-discrete-time"/> 的跳步取樣器改寫成 CTMC 的 τ-leaping，並確認兩者在 absorbing 鏈上是同一個程序、還原同一條「步數 vs 合法率」曲線。
-- 實作 remasking：加 rate $\sigma$、補償翻開 rate，驗證邊際不變，畫「$\sigma$ vs 合法率 / KL」並疊在上一個單元的圖 b 上。
-- 訓一個 SEDD 式的比值網路，驗證它在 absorbing 鏈上等於 MDLM 網路乘 $\alpha_t/(1-\alpha_t)$，並在 uniform 鏈上比較兩種 target。
+- **把離散跳步取樣改寫成 CTMC 的 $\tau$-leaping。** 確認 absorbing chain 上兩種實作還原同一條步數曲線。
+- **實作 remasking 與補償 rate。** 驗證邊際不變，並畫出強度對合法率與 KL 的影響。
+- **比較 SEDD ratio target 與 MDLM cross-entropy。** 在 absorbing chain 上驗證兩者只差已知係數，再到 uniform chain 看差異。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -63,11 +62,9 @@ import Ref from '../../../components/Ref.astro';
 
 時間改成連續 $t\in[0,1]$，線性 schedule $\alpha_t=1-t$，forward rate $\beta_t=1/(1-t)$，翻開 rate $u_t=-\dot\alpha_t/(1-\alpha_t)=1/t$。上一個單元的網路吃整數 $t\in\{1,\dots,32\}$，這個單元要用它時餵 `round(t*32)`；或者用下面步驟 3 的方式重訓一個吃連續 $t$ 的版本（loss 一模一樣，只是 $t\sim\mathrm{Uniform}[0,1]$、權重 $1/t$）。
 
-<VizPlan id="w7-6-notebook" title="Discrete Diffusion II 實作 notebook" type="notebook">
-- 單一 notebook，三個 section 對應下面三個步驟，每個 section 有 TODO 骨架與參考解答（折疊）。
-- 沿用 `toy_discrete.py`，新增 `exact_marginal`、`exact_ratios`、`tau_leap_step`、`score_entropy_loss`。
-- 所有曲線圖沿用 <Ref to="dma-lab-discrete-time"/> 的座標慣例（橫軸步數對數刻度）；步驟 2 的圖**直接疊在上一個單元的圖 b 上**（同一個檔案重新輸出，舊線淡化）。
-</VizPlan>
+[下載 Week 7：CTMC、τ-leaping 與 remasking notebook（.ipynb）](/personal_website/notes/notebooks/diffusion-models-applications/dma-w7-lab.ipynb)
+
+**Notebook 內容。** 將 absorbing schedule 寫成連續時間 reveal rate，觀察 τ-leaping 步長誤差，再以 parity oracle 比較一次 factorized reveal 與反覆 remasking。`noisy_probs` 是明確標示的人工 surrogate，可單獨調整誤差。
 
 ## 步驟 1：τ-leaping 取樣器（圖 a）
 
@@ -130,17 +127,9 @@ def sample_ctmc(model, n, steps, sigma=0.0):
 </Answer>
 </Question>
 
-<VizPlan id="w7-6-one-step" title="τ-leaping 的一步：三件事，各自的誤差" type="static">
-- 檔名 `imgs/w7-6-1.png`，放在 Q1 之後、「步驟 2」之前。
-- 版面：一條橫向流程，從左到右四個狀態，狀態之間三個操作方塊。狀態都畫成一排 8 格，`[MASK]` 用中性灰、已填的字用橘。
-  - **操作 1「被遮位置各自擲硬幣」**：標機率 $1-e^{-u'_t\tau}$，被選中的格子加紅框。旁邊小字 $u'_t=u_t+\sigma_t\frac{\alpha_t}{1-\alpha_t}$。
-  - **操作 2「選中的格子依 $p_\theta$ 各自抽字」**：每個選中的格子上方畫一個小長條圖（$K$ 根柱）；用一條紅色虛線把兩個同時被填的格子連起來，標「**各自抽，相依被丟掉**」，下面小字「因子化誤差（<Ref to="dma-factorization-error"/>）」。
-  - **操作 3「已填位置擲硬幣遮回去」**：標機率 $1-e^{-\sigma_t\tau}$，被選中的格子從橘變灰、上面畫一支回頭的箭頭，小字「remasking（$\sigma=0$ 時這一步不做）」。
-- 圖的下方一條「誤差來源」帶，用三個顏色塊對到三個操作：操作 1 →「一階近似：用步首的 rate 走完整段 $\tau$」；操作 2 →「因子化：同時填的位置被獨立抽」；操作 3 →「多一次網路呼叫，再付一次因子化」。
-- 底部一句：「$\tau\to0$ 時前兩項都會消失，代價是步數。」
-- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註；資料橘 `#f0803c`／`[MASK]` 中性灰／強調靛 `#2a4ea3`／誤差紅 `#d94f4f`）。
-- 長寬比：約 16:7。
-</VizPlan>
+![τ-leaping 的一步：三件事，各自的誤差](./imgs/w7-6-1.png)
+
+*圖：τ-leaping 一步先凍結步首 rate、逐位置獨立抽樣；若啟用 remasking，已填位置還會再擲一次 coin。時間離散與因子化會隨 $\tau\to0$ 消失，端點偏差則要另外處理。*
 
 ## 步驟 2：remasking 強度 vs 合法率（圖 b，疊在上一個單元的圖上）
 
@@ -208,7 +197,7 @@ def score_entropy_loss(s, xt, x0, t):                     # s: (n, L, K) 正數
 </QuizBlock>
 
 <Bridge to="dma-learn-the-map">
-這兩個單元把離散資料上的擴散建完：離散時間的 masked diffusion、連續時間的 rate 與比值、remasking 當取樣器旋鈕、discrete flow matching 當統一框架。<Ref to="dma-error-theory"/> 說 Euler 誤差由曲率積分壓住、<Ref to="dma-factorization-error"/> 說離散世界對應的是因子化——但只要積分不是零、只要每步翻開超過一個，有限步就有誤差。下一個單元換一個問法：能不能不走步，直接學那個「一步到位」的映射？
+U4–U5 都在改善「怎麼走」：連續模型減少曲率，離散模型減少 factorization error 或允許 remasking。但只要還要走很多步，有限步成本就不會消失。U6 因此換一個問題：能不能不學每一步的方向，直接學從現在到終點的映射？
 </Bridge>
 
 ## 參考文獻

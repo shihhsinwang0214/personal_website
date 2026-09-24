@@ -9,7 +9,7 @@ title: "在 30 秒的中點多看一眼：高階方法"
 category: "courses"
 group: "M2 · Deterministic Dynamics"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "導航如果在 30 秒的中點多讀一次方向，能省多少誤差？Heun 與 midpoint 法用每步兩次讀取把局部誤差從 h² 推到 h³、全域誤差從一階推到二階。代價是每步成本加倍，所以公平的比較是「同樣的讀取次數」——高階在讀取夠多、路夠平滑時大勝，在路有尖角或預算極少時不一定。"
 demos: []
 references:
@@ -25,7 +25,6 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
@@ -34,9 +33,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 # 在 30 秒的中點多看一眼：高階方法
 
 <Objectives>
-- 寫出 Heun 法與 midpoint 法的更新式，並用 Taylor 展開說明它們的局部誤差為什麼是 $h^3$（全域二階）。
-- 說出「階數」與「每步成本」的取捨：在**相同的方向讀取次數**下比較誤差，並說出高階方法何時贏、何時不贏。
-- 對「導航多讀一次方向值不值得」這類情境做判斷、說出它依賴的假設（路夠 smooth、預算夠多），並用一個小模擬在相同讀取次數下對照兩種方法。
+- **寫出 Heun 法與 midpoint 法的更新式。** 用 Taylor 展開說明它們的局部誤差為什麼是 $h^3$（全域二階）。
+- **說出「階數」與「每步成本」的取捨：在相同的方向讀取次數下比較誤差。** 說出高階方法何時贏、何時不贏。
+- **對「導航多讀一次方向值不值得」這類情境做判斷、說出它依賴的假設（路夠 smooth、預算夠多）。** 用一個小模擬在相同讀取次數下對照兩種方法。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -71,21 +70,17 @@ $$
 </Answer>
 </Question>
 
-## 先看畫面：切線 vs 弦
+## 切線 vs 弦
 
 回到那段圓弧。Euler 沿著起點的**切線**走，一步就離開圓；步長越長、離得越遠，離開的量是 $h^2$ 的量級。
 
 中點的方向是什麼？圓弧上中點的切線，方向剛好與連接起點和終點的**弦**平行。所以「用中點方向走整步」幾乎就是沿著弦走——弦的兩端都在圓上，走完一步幾乎回到圓弧上。剩下的誤差不是「切線離開圓」那種一次項的偏差，而是「弦的長度與弧長不完全相等」這種更高一階的小量。這就是為什麼多讀一次不是「好一倍」，而是**好一個數量級**：它消掉的不是誤差的一半，而是誤差的**最低階項**。
 
-<VizPlan id="m2-4-chord" title="切線走、弦走：Euler 與 midpoint 在一步裡的差別" type="static">
-- **檔名**：`m2-deterministic-dynamics/imgs/m2-4-1.svg`，16:9。
-- **版面**：左格一段圓弧，起點 $A$、真實終點 $B$、中點 $M$。從 $A$ 畫切線（Euler 一步，終點 $E$ 落在圓外），標「$\|EB\|\sim h^2$」；再從 $A$ 畫一條與 $M$ 處切線平行的線段（midpoint 一步，終點 $P$ 幾乎落在 $B$ 上），標「$\|PB\|\sim h^3$」。$M$ 處的切線用虛線畫出，並標「與弦 $AB$ 平行」。
-- 中格：Heun 的畫法——從 $A$ 畫切線到 $E$，在 $E$ 讀方向（畫一支箭頭），把 $A$ 與 $E$ 兩支箭頭平均後從 $A$ 走一步，終點也幾乎落在 $B$。
-- 右格：三條完整的四分之一圓 Euler／Heun／midpoint 折線疊在圓弧上（$h=30$ s，各六步），終點分別標 $486$、$23$、$7$ m。
-- **圖說**：「Euler 用起點方向直走，離開彎路的量是 $h^2$；midpoint 用中點方向、Heun 用兩端平均，都消掉了 $h^2$ 那一項，一步只剩 $h^3$ 的誤差。」
-</VizPlan>
+![Euler 起點切線與 midpoint 中點斜率在同一彎路上的差別。](./imgs/m2-4-1.svg)
 
-## 寫成數學：把 $h^2$ 那一項配掉
+*圖：midpoint 多讀一次向量場，以平滑問題上的二階精度換取較少步數。*
+
+## 把 $h^2$ 那一項配掉
 
 以 autonomous 的 $u(x)$ 為例（有 $t$ 的情形只是多幾項，結論相同）。真實解的 Taylor 展開到二階（<Ref to="math-taylor"/>）：
 
@@ -115,7 +110,7 @@ $$
 兩者都是 h³，係數分別是 1/24 與 1/12——midpoint 在這個度量下常數小一半，與上面 7 m 對 23 m 的實測一致。有 x 依賴時多出 (∇u)u 的交叉項，但配掉 h² 項的機制不變。
 </Details>
 
-## 回到導航：贏在哪、什麼時候不贏
+## 贏在哪、什麼時候不贏
 
 回答起點問題。中點多讀一次，$h=30$ 秒的 midpoint 誤差是 7 公尺，Heun 是 23 公尺——都遠好於「每 10 秒讀一次」的 Euler（161 公尺，而且那還多用了 50% 的讀取）。直覺的「好一倍」錯在把方法的改進想成**線性**的：多一次讀取不是多修正一半，而是把誤差的主項整個消掉、換成下一階。
 
@@ -125,7 +120,7 @@ $$
 - **預算要夠多。** 二階方法的誤差 $\approx C_2(2T/E)^2$、一階的 $\approx C_1(T/E)$（$E$ 是總讀取次數，二階方法每步用兩次所以步長是 $2T/E$）。$E$ 大時 $1/E^2$ 必勝 $1/E$；但 $E$ 很小（例如全程只讀兩三次）時，$C_2\cdot4T^2/E^2$ 未必小於 $C_1T/E$——**高階方法在極粗的步長下不保證比較好**。
 - **穩定性不會免費變好。** 步長大到 <Ref to="math-euler-error"/> 那種發散區時，二階方法的穩定區只比 Euler 大一點，不是質的改變。
 
-## 回到導航：同樣的讀取次數比一次
+## 同樣的讀取次數比一次
 
 ```python
 import numpy as np
@@ -146,18 +141,9 @@ for nfe in [12, 38, 126]:
 
 同樣的讀取次數，二階方法的誤差每次都少一到兩個數量級，而且讀取越多差距越大（一階縮三倍時二階縮九倍）。接著違反假設：把圓弧路換成一條有 90 度**尖角**的折線路（$u$ 在角上不連續）。兩種方法在跨過尖角的那一步都會偏，偏的量都是 $O(h)$；跑一次會看到 midpoint 的優勢從兩個數量級掉到不到一倍。
 
-<VizPlan id="m2-4-nfe" title="同樣的讀取次數：一階 vs 二階，平滑路 vs 尖角路" type="interactive">
-- **位置**：本節之後。**檔名**：`m2-deterministic-dynamics/m2-4-1.html`。
-- **版面**：左格俯視道路，疊上三條折線（Euler、Heun、midpoint）與真實路徑；右格是 log–log 圖，橫軸是總讀取次數 NFE、縱軸是終點誤差，三條方法各一條曲線，並畫斜率 $-1$、$-2$ 的參考虛線。
-- **控制項**：滑桿「總讀取次數 NFE」（$4$–$400$，對數）；下拉「路型」：等速圓弧、S 形彎、**帶一個 90 度尖角的折線路**、直路加減速；開關「顯示每步的局部誤差」在折線頂點上畫小圓、半徑正比於該步局部誤差。
-- **行為**：圓弧路上拖 NFE 往右，右格三條線分開——Euler 貼著斜率 $-1$、另兩條貼著斜率 $-2$，midpoint 常數約是 Heun 的一半。拖 NFE 到最左（$4$–$6$ 次）時三條線接近甚至交錯，畫面顯示「預算極少時階數優勢不保證」。
-- **切到尖角路**：右格三條線在中等 NFE 以後全部變成斜率 $-1$，並在圖上標出「尖角處 Taylor 展開失效，所有方法退回一階」；左格在尖角那一步的局部誤差小圓變得特別大，三種方法差不多大。
-- **Hover** 右格任一點：顯示該 NFE 下三種方法的步長 $h$ 與誤差數字，並列出「Euler 需要多少 NFE 才能達到 midpoint 在此的誤差」。
-- **底部觀察句**：「觀察：多讀一次方向不是把誤差減半，而是消掉 $h^2$ 那一項，換成 $h^3$——同樣的讀取次數下差一到兩個數量級。但這件事靠的是路夠 smooth；遇到尖角，所有方法一起退回一階。」
-- **匯出 PNG**：兩格併成 16:9，含當前 NFE 與路型。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m2-deterministic-dynamics/m2-4-1.html" class="demo-frame" title="固定 NFE：Euler 與 midpoint，平滑路與尖角路" style="height: 800px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m2-4-a">
 一個天氣模擬每一步都要跑一次極貴的物理計算（一次讀取 $u$ 要一分鐘）。在總計算時間固定為一小時的前提下，下面哪個說法最合理？
@@ -192,7 +178,7 @@ Heun 法用 $\tfrac h2(k_1+k_2)$，midpoint 用 $h\,k_2$（$k_2$ 在半步處）
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-random-walk-brownian">
-本篇用「在中點多看一眼」把誤差從一階推到二階，並學會用相同的讀取次數做公平比較、以及在路不 smooth 時保持懷疑。到此為止，河面上的水流是確定的、葉子的路是確定的。下一個 class 把亂流放進河裡：先從最簡單的隨機運動——每秒隨機往左或往右一步——開始，問一小時後離起點多遠。
+本篇用「在中點多看一眼」把誤差從一階推到二階，並學會用相同的讀取次數做公平比較、以及在路不 smooth 時保持懷疑。到此為止，河面上的水流是確定的、葉子的路是確定的。接下來的單元 把亂流放進河裡：先從最簡單的隨機運動——每秒隨機往左或往右一步——開始，問一小時後離起點多遠。
 </Bridge>
 
 ## 參考文獻

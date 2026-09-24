@@ -8,7 +8,7 @@ title: "河面上的箭頭：Vector Field 與 ODE"
 category: "courses"
 group: "M2 · Deterministic Dynamics"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "河面每一點的水流方向已知，一片葉子放下去會漂到哪？把「每點一支箭頭」寫成 vector field、把「順著箭頭走」寫成 ODE，說出解存在且唯一需要什麼條件，並由唯一性得到「軌跡不交叉」——以及這條規則在什麼樣的河面上會失效。"
 demos: []
 references:
@@ -24,7 +24,6 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
@@ -33,9 +32,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 # 河面上的箭頭：Vector Field 與 ODE
 
 <Objectives>
-- 把「每個位置一支箭頭」寫成 vector field $u(x,t)$，把「順著箭頭走」寫成 ODE $\dot x=u(x,t)$，並說出解「存在且唯一」依賴的條件。
-- 由唯一性推出「兩條軌跡不會在同一時刻交叉」，並說出這件事在時間會變的 vector field 上要怎麼修正。
-- 對「葉子放在河面上會漂到哪」這類情境，判斷「順著箭頭一步步走」這個做法何時可靠、依賴什麼假設，並用一個小模擬驗證。
+- **把「每個位置一支箭頭」寫成 vector field $u(x,t)$，把「順著箭頭走」寫成 ODE $\dot x=u(x,t)$。** 說出解「存在且唯一」依賴的條件。
+- **由唯一性推出「兩條軌跡不會在同一時刻交叉」。** 說出這件事在時間會變的 vector field 上要怎麼修正。
+- **對「葉子放在河面上會漂到哪」這類情境，判斷「順著箭頭一步步走」這個做法何時可靠、依賴什麼假設。** 用一個小模擬驗證。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -68,22 +67,17 @@ $$
 </Answer>
 </Question>
 
-## 先看畫面：一張地圖，一條路
+## 一張地圖，一條路
 
 想像水流地圖是一張畫滿短箭頭的紙，葉子是一支筆尖。筆尖落在某一點，就沿著那點的箭頭滑一小段，到了新位置再看新位置的箭頭，再滑一小段。把「一小段」縮到無限小，筆畫出來的線就是葉子的軌跡。
 
 這個畫面已經暗示了兩件事。第一，軌跡上每一點的切線方向就是那一點的箭頭——軌跡「貼著」場走。第二，只要箭頭的方向從一點到鄰近的點是**連續變化**的，從同一點出發的兩支筆應該畫出同一條線，因為每一刻它們看到的箭頭都一樣。第二件事「應該」成立，但它需要一個條件，下面說。
 
-<VizPlan id="m2-0-field" title="水流地圖與一片葉子的軌跡" type="static">
-- **檔名**：`m2-deterministic-dynamics/imgs/m2-0-1.svg`，16:9。
-- **版面**：一條由左往右的河，河面畫 $12\times6$ 網格的短箭頭（vector field $u(x,y)=(1,\;0.5\cos x)$：往右流，同時上下微微擺動），靠岸箭頭短、中間箭頭長。
-- 一片葉子從左側 $(0,0)$ 出發，畫出它的軌跡 $y=0.5\sin x$，軌跡上每隔一段放一個小圓點，並在三個點旁畫出「那一點的箭頭剛好是軌跡的切線」。
-- 另一片葉子從 $(0,0.6)$ 出發，畫出平行擺動的第二條軌跡；兩條線**靠近但不相碰**，旁邊小字「同一時刻不會交叉」。
-- 右下角小格：把同一點放兩片葉子，畫成一條線上的兩個重疊的圓點，小字「同一起點 → 同一條路」。
-- **圖說**：「水流地圖是 vector field $u(x,t)$：每點一支箭頭。葉子的軌跡 $x(t)$ 處處貼著箭頭走，寫成 ODE 就是 $\dot x=u(x,t)$。」
-</VizPlan>
+![水流 vector field 與兩片葉子的 ODE 軌跡。](./imgs/m2-0-1.svg)
 
-## 寫成數學：存在、唯一、不交叉
+*圖：軌跡的切線處處等於當地向量；Lipschitz 場中，同一起點只有一條路。*
+
+## 存在、唯一、不交叉
 
 **定義。** 一個 vector field 是函數 $u:\mathbb R^d\times[0,T]\to\mathbb R^d$。給定 $x_0$，ODE 初值問題是找一條可微曲線 $x(t)$ 滿足 $\dot x(t)=u(x(t),t)$ 且 $x(0)=x_0$。這樣的 $x(\cdot)$ 叫這個初值問題的**解**，也叫從 $x_0$ 出發的 **trajectory**（軌跡）。
 
@@ -103,13 +97,13 @@ Lipschitz 是「箭頭不能變得太突然」的精確版本：任何 $\nabla_x
 另一個常見的失效是「解在有限時間內跑到無限遠」：ẋ = x²，x(0)=x₀>0 的解是 x(t) = 1/(1/x₀ − t)，在 t = 1/x₀ 時爆掉。這裡 Lipschitz 只在每個有界區域內成立（局部 Lipschitz），所以只保證短時間內的存在唯一。
 </Details>
 
-## 回到河面：直覺對了，但要說出條件
+## 直覺對了，但要說出條件
 
 回頭看起點問題。「順著箭頭一步一步走」是對的，而且我們現在能說清楚它**為什麼**對：Lipschitz 條件下軌跡唯一，所以不論你用什麼方法沿著箭頭走，只要走得夠細，都會逼近同一條線；一分鐘後的位置是一個確定的答案 $x(60)$。
 
 同一位置放兩片葉子會漂到同一處——**在 Lipschitz 的河面上**是對的。兩片葉子從不同地方出發會不會在某刻重合又分開——**不會**，這是不交叉推論。直覺在這裡沒有錯，它缺的只是「依賴什麼假設」：真實的河面在礁石邊、漩渦中心，水流方向會在極短距離內劇烈改變，Lipschitz 常數 $L$ 很大甚至不存在，這時「同一點放兩片葉子」的結果就不再由地圖決定，任何微小的擾動都會被放大。理論的價值不在於重申直覺，而在於告訴你**在哪裡**該不相信直覺。
 
-## 回到河面：動手放葉子
+## 動手放葉子
 
 用電腦「順著箭頭走」最簡單的做法，就是把上面「滑一小段」的畫面直接寫成程式：每隔 $h$ 秒看一次箭頭，往那個方向走 $h\cdot u$。
 
@@ -127,18 +121,9 @@ print(drift([0.0, 0.0]))          # 應接近 (60, 0.5*sin 60)
 
 這個場有 closed form 解 $x(t)=t$、$y(t)=0.5\sin t$（自己代入檢查：$\dot y=0.5\cos t=0.5\cos x$），所以可以對答案。$h$ 縮小十倍，數值解與 closed form 解的差距也大約縮小十倍——這個「差距怎麼隨 $h$ 縮小」的規律，本 class 後面兩篇會精確算出來。
 
-<VizPlan id="m2-0-two-leaves" title="兩片葉子、同一個起點：Lipschitz 與非 Lipschitz 的河" type="interactive">
-- **位置**：本節之後。**檔名**：`m2-deterministic-dynamics/m2-0-1.html`。
-- **版面**：左右兩格，各是一條河的俯視圖，畫滿短箭頭。左格是上面的 smooth 場 $u=(1,0.5\cos x)$；右格是一條在中線附近**非 Lipschitz** 的河：$u=(1,\;\mathrm{sign}(y)\,|y|^{1/3})$——離中線越近，箭頭轉得越急。
-- **控制項**：滑桿「步長 $h$」（$1,\,0.3,\,0.1,\,0.03$）；滑桿「兩片葉子的起點間距 $\delta$」（$0$ 到 $0.1$，含 $0$）；按鈕「放葉子」逐步畫出兩條軌跡（不自動循環，可按「再放一次」）。
-- **行為**：左格不論 $h$、$\delta$ 怎麼調，兩條軌跡幾乎重合、與淡灰色的 closed form 解貼著走，且縮小 $h$ 差距等比例縮小。右格當起點在中線 $y=0$ 附近、$\delta$ 極小或為 $0$ 時，兩片葉子會被數值誤差推到中線兩側後**分道揚鑣**；hover 任一點顯示該處的 Jacobian 大小，中線附近顯示「$\partial_y u\to\infty$，Lipschitz 常數不存在」。
-- **開關**「時間會變的場」：把左格改成 $u=(1,0.5\cos(x-t))$，並額外畫出 $(x,t)$ 的側視小圖，讓讀者看到兩條軌跡在空間中可以穿過同一點（不同時刻），但在 $(x,t)$ 圖裡不交叉。
-- **底部觀察句**：「觀察：箭頭變化不劇烈（Lipschitz）的河面上，同一點出發只有一條路，兩條路不會在同一刻相交；在箭頭變化無限急的中線上，同一點出發的兩片葉子可以漂去不同地方——決定它們命運的不再是地圖，而是雜訊。」
-- **匯出 PNG**：兩格併成 16:9，含當前 $h$、$\delta$ 與軌跡。
-- **註記**：右格的分道揚鑣不是程式錯誤，是 ODE 本身沒有唯一解；再小的 $h$ 都會發生，只是分開的位置變得更難預測。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m2-deterministic-dynamics/m2-0-1.html" class="demo-frame" title="兩片葉子：Lipschitz 與 non-Lipschitz 的 ODE" style="height: 800px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m2-0-a">
 氣象台給你一張「每個位置此刻的風向風速」地圖，你放出一顆完全隨風飄的氣球。下面哪個描述最貼切？
@@ -173,7 +158,7 @@ autonomous 的場不看時鐘，「在不同時刻經過同一點」等同於「
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-pushforward-flow-map">
-本篇把「每點一支箭頭」寫成 vector field、「順著箭頭走」寫成 ODE，並用 Lipschitz 條件換到解的存在唯一與軌跡不交叉。一片葉子的問題解決了；下一篇同時放下一千片葉子，問的不再是「一片葉子在哪」，而是「這群葉子的分佈變成什麼樣」。
+本篇把「每點一支箭頭」寫成 vector field、「順著箭頭走」寫成 ODE，並用 Lipschitz 條件換到解的存在唯一與軌跡不交叉。一片葉子的問題解決了；接著同時放下一千片葉子，問的不再是「一片葉子在哪」，而是「這群葉子的分佈變成什麼樣」。
 </Bridge>
 
 ## 參考文獻

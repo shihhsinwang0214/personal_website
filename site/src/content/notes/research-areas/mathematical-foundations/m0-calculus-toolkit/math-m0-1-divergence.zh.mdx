@@ -8,7 +8,7 @@ title: "閘門的進出：Divergence 與通量"
 category: "courses"
 group: "M0 · Calculus 工具箱"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "看不到站內，只有每個閘門的進出人數，能判斷站內人數增減嗎？把「穿過邊界的淨流量」寫成 flux，把它縮到一個小格子裡就是 divergence；Gauss 定理說「邊界上算」與「內部逐點算」一定相等——條件是沒有漏掉的門。"
 demos: []
 references:
@@ -25,7 +25,6 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import UsedBy from '../../../components/UsedBy.astro';
@@ -34,14 +33,14 @@ import Ref from '../../../components/Ref.astro';
 # 閘門的進出：Divergence 與通量
 
 <Objectives>
-- 把「穿過一道邊界的淨流量」寫成 flux，並說出它與「區域內總量的變化率」之間的關係依賴哪一個假設。
-- 寫出 divergence 的定義，說出它為什麼是「每單位面積的淨流出」，並用小格子拼接的方式說明 Gauss 定理。
-- 對「只看閘門就知道站內人數增減」這個做法，判斷它何時成立、漏掉什麼會失準，並用一個可以開關暗門的 demo 驗證。
+- **把「穿過一道邊界的淨流量」寫成 flux。** 說出它與「區域內總量的變化率」之間的關係依賴哪一個假設。
+- **寫出 divergence 的定義，說出它為什麼是「每單位面積的淨流出」。** 用小格子拼接的方式說明 Gauss 定理。
+- **對「只看閘門就知道站內人數增減」這個做法，判斷它何時成立、漏掉什麼會失準。** 用一個可以開關暗門的 demo 驗證。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 起點：看不見站內
+## 看不見站內
 
 你負責一座捷運站的人流。站內沒有攝影機，你手上只有每個閘門的計數器：每分鐘各有多少人刷卡進、多少人刷卡出。四個閘門的讀數擺在你面前。
 
@@ -75,14 +74,9 @@ import Ref from '../../../components/Ref.astro';
 
 「圈一個小圈，數淨流出多少」這個動作，對平面上**每一點**都可以做。做出來的數字有正有負：正的地方在「吐出」、負的地方在「吸入」、零的地方只是「經過」。這個逐點的數字就是 divergence。
 
-<VizPlan id="m0-1-source-sink" title="源、匯、穿流：三種箭頭場，三種小圈讀數" type="static">
-- **檔名**：`m0-calculus-toolkit/imgs/m0-1-1.svg`（16:9，三格並排）。
-- **左格「源」**：箭頭從中心向外放射、越遠越長；畫一個虛線小圈，圈上每一段標一支向外的法線箭頭，右下角標「小圈淨流出 $>0$」。
-- **中格「匯」**：箭頭向中心收攏；同樣的小圈，標「小圈淨流出 $<0$」。
-- **右格「穿流」**：一條走廊，箭頭全部向右、等長；小圈左邊進、右邊出，標「淨流出 $=0$」。
-- **底部一行**：三格共用一句「對每一點圈一個小圈、數淨流出——這就是 divergence 的讀法」。
-- **圖說**：「箭頭是流量場。divergence 不看箭頭指哪裡，只看『圈起來後是吐出還是吸入』。」
-</VizPlan>
+![源、匯、穿流三種向量場，以及各自小圈的淨流出。](./imgs/m0-1-1.svg)
+
+*圖：紅色 source 的 divergence 為正；藍色 sink 的 divergence 為負；均勻穿流為零。*
 
 ## 把小圈寫成數學
 
@@ -121,7 +115,7 @@ $$
 在一個 $n\times n$ 的格網上，把每條格線上的流量記成數字 $F$。「格子 $(i,j)$ 的淨流出」定義為它四條邊的 $F$ 帶正負號相加。把所有格子的淨流出相加，每條**內部**格線出現兩次：對左邊那格是流出（$+F$），對右邊那格是流入（$-F$），和為零。剩下的只有最外圈——這是一個 telescoping sum，沒有任何近似。連續版本的 Gauss 定理就是這個離散事實取極限，divergence 的定義正好讓「每格淨流出 $\approx(\nabla\cdot v)\,\Delta x\Delta y$」在極限下成為等式。
 </Details>
 
-## 回到情境：直覺對了，但要說出它靠什麼
+## 直覺對了，但要說出它靠什麼
 
 **結論。** 「進減出」正確，因為它就是 $dN/dt=-\Phi(\Omega)$：站內人數的變化率等於邊界上的淨流入。這一行是恆等式，不是估計。
 
@@ -129,17 +123,9 @@ $$
 
 **Divergence 多給了什麼。** 閘門版只回答「整站」的增減。若你有站內各處的人流方向與速度（例如手機定位的匿名統計），$\nabla\cdot v$ 能**逐點**告訴你哪裡在累積（$\nabla\cdot v<0$，淨流入）、哪裡在疏散（$\nabla\cdot v>0$）；而 Gauss 定理保證：把整站的 $\nabla\cdot v$ 積分起來，一定等於閘門加列車門的總 flux——兩種算法可以互相對帳。對不上，就表示有一道門沒被算進去。
 
-## 回到情境：實際算一次
+## 實際算一次
 
-<VizPlan id="m0-1-station" title="閘門對帳：邊界 flux vs 內部 divergence，開一道暗門看差多少" type="interactive">
-- **位置**：本節。**檔名**：`site/public/notes/research_areas/mathematical-foundations/m0-calculus-toolkit/m0-1-2.html`。這是本篇的核心互動。
-- **版面**：左格是站內平面圖（$40\times40$ 格網，格子顏色深淺＝該格人數，上面疊一層稀疏的流量箭頭），四邊各開一道閘門（邊界上的一段）；右格是兩條隨時間走的曲線：「閘門淨流入的累積」與「站內實際總人數的變化」。
-- **控制項**：四個滑桿分別是四道閘門的淨流量（人／分鐘，可正可負）；按鈕「走一分鐘」「走十分鐘」「重置」。開關「顯示 divergence 熱圖」：把每格的 $\nabla\cdot v$ 畫成藍（吸入）到紅（吐出）。開關「暗門」：在站內某一格加一個固定的匯（每分鐘帶走 $k$ 人，$k$ 可調），畫面上不畫任何箭頭——模擬沒被計數的出口。開關「列車門」：在月台邊那段邊界加一個週期性的大流量（每三分鐘一列車，一次帶走 60 人），計數器**不**把它算進去。
-- **每一分鐘的行為**：格網用離散守恆更新（每格人數 $-=$ 四條邊的淨流出）；右格同步畫「閘門對帳」與「實際」兩條線。兩者重合時顯示綠色「對帳成功」，分岔時顯示紅色並標出差額；差額的數值應恰等於暗門的 $k$（或列車帶走的人數）。Hover 任一格顯示該格的 $\nabla\cdot v$ 與「這一格這一分鐘淨變化」。
-- **預期看到的事**：沒有暗門時兩條線完全重合（Gauss 定理是精確的，不是近似）。開暗門後，「閘門對帳」持續高估站內人數，差距線性成長、斜率＝$k$。開列車門後差距呈階梯狀。開 divergence 熱圖時，暗門那格是一個明顯的紅點（局部有匯），其他地方接近零——divergence 能指出暗門在哪，閘門總數不能。
-- **底部觀察句**：「觀察：邊界 flux 與內部 divergence 的積分永遠相等——只要邊界沒有漏掉的門、內部沒有源與匯。對不上帳的時候，divergence 熱圖告訴你漏在哪裡。」
-- **匯出 PNG**：兩格併成 16:9，含當前開關狀態。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m0-calculus-toolkit/m0-1-2.html" class="demo-frame" title="閘門對帳：邊界 flux、內部 divergence 與漏算暗門" style="height: 820px; width: 100%; border: none;"></iframe>
 
 十行程式就能看到「內部相加＝邊界」是精確的，以及暗門造成的差額：
 
@@ -159,7 +145,7 @@ for leak in (0.0, 0.5):                            # 0.5 = 暗門每步帶走的
 
 第一行兩個數字完全相同；第二行差 $0.5$——正是暗門的量。
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m0-1-a">
 你有一張夜市的人流圖：每個位置有一支箭頭表示人往哪走、走多快。你想知道**哪裡正在越來越擠**。該看哪個量？
@@ -194,7 +180,7 @@ $\nabla\cdot v=0$ 不代表 $v=0$：走廊裡等速穿流的 divergence 就是�
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-taylor">
-本篇把「閘門進減出」翻成 $dN/dt=-\Phi(\Omega)$，把 flux 縮到一格得到 divergence，並用「內部格線抵消」看到 Gauss 定理是精確的——前提是邊界沒有漏掉的門。把這個守恆關係寫成一條隨時間演化的方程式，是 <Ref to="math-continuity-equation"/> 的事。下一篇先回到另一個日常經驗：導航每隔一段時間才更新一次，中間你假設車在直走——這個假設會差多少？
+本篇把「閘門進減出」翻成 $dN/dt=-\Phi(\Omega)$，把 flux 縮到一格得到 divergence，並用「內部格線抵消」看到 Gauss 定理是精確的——前提是邊界沒有漏掉的門。把這個守恆關係寫成一條隨時間演化的方程式，是 <Ref to="math-continuity-equation"/> 的事。接著先回到另一個日常經驗：導航每隔一段時間才更新一次，中間你假設車在直走——這個假設會差多少？
 </Bridge>
 
 ## 參考文獻

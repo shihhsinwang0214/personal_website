@@ -9,8 +9,8 @@ title: "Progressive Distillation：學生一步，等於老師兩步"
 category: "courses"
 group: "Unit 6 · Consistency Models"
 status: "available"
-updated: 2026-09-06
-summary: "不事先生成資料：每一輪讓學生的一步對齊 teacher 的兩步，步數逐輪減半，學生再變成下一輪的 teacher。目標是確定的、逐輪算出來的；代價是每一輪的逼近誤差都留在下一輪的老師身上。"
+updated: 2026-09-21
+summary: "讓學生一步模仿 teacher 兩步，再把學生升格為下一輪 teacher；步數逐輪減半，誤差也逐輪留下。"
 demos: []
 references:
   - label: "Salimans & Ho, Progressive Distillation for Fast Sampling of Diffusion Models (ICLR 2022)"
@@ -35,16 +35,16 @@ import Answer from '../../../components/Answer.astro';
 # Progressive Distillation：學生一步，等於老師兩步
 
 <Objectives>
-- 寫出 progressive distillation 的一輪：學生從 $x_t$ 走一步，要落在 teacher 從同一個 $x_t$ 走兩步的位置；並說出目標為什麼是確定的、為什麼不需要事先生成資料。
-- 說出「步數逐輪減半、學生變成下一輪 teacher」這個流程裡誤差怎麼累積，並與 <Ref to="dma-rectified-flow"/> 的多輪 reflow 對照。
-- 指出這個做法解決了上一篇哪一個「不好」、還留下哪些。
+- **寫出一次 progressive distillation。** 讓學生從 $x_t$ 走一步，對齊 teacher 從同一點走兩步的落點。
+- **追蹤步數與誤差如何逐輪傳遞。** 說明學生升格為 teacher 後，為什麼步數減半、上一輪誤差卻會留下。
+- **判斷它解決了什麼。** 分清即時造目標省下的資料成本，以及 teacher 上限與逐輪累積仍然存在。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
 ## 不要先造資料，邊走邊教
 
-上一篇 Q1 的第一個「不好」是：每一筆訓練配對都要 teacher 跑完整條 ODE。Salimans & Ho [1] 的觀察是，這件事沒有必要一次做完。
+直接學終點的第一個問題是：每一筆訓練配對都要 teacher 跑完整條 ODE。Salimans & Ho [1] 的觀察是，這件事沒有必要一次做完。
 
 想像 teacher 是一個要走 $N$ 步的取樣器（本單元座標下，從 $t=T$ 走到 $t=0$，每步是 <Ref to="dma-lab-diffusion"/> 的 DDIM，也就是 PF-ODE 的一步 Euler）。我們不要求學生一口氣學會整條路，只要求：**學生走一步，要到 teacher 走兩步的地方。** 學好之後，學生是一個 $N/2$ 步的取樣器。然後把學生當成新的 teacher，再訓一個 $N/4$ 步的學生。重複 $\log_2 N$ 輪。
 
@@ -60,7 +60,7 @@ import Answer from '../../../components/Answer.astro';
 
 **換到的第二件事才是重點：每一輪要學的東西都只比上一輪難一點點。** 第一輪的學生要學的是「teacher 的兩小步」——那兩小步幾乎共線，所以那個映射幾乎就是一條直線，網路很好表達。學好之後它自己成為一個 $N/2$ 步的取樣器，下一輪再把兩步合成一步，又只是「比上一輪的映射彎一點」。難度被攤在 $\log_2 N$ 輪上。直接回歸沒有這個階梯：第一天就要網路表達整條 ODE 疊起來的那個映射。
 
-**代價是什麼？** 每一輪都在上一輪的輸出上訓練，所以上一輪的誤差進入這一輪的訓練資料——這和 <Ref to="dma-rectified-flow"/> 的 reflow 是同一種代價。下一節把它寫出來。
+**代價是什麼？** 每一輪都在上一輪的輸出上訓練，所以上一輪的誤差進入這一輪的訓練資料——這和 <Ref to="dma-rectified-flow"/> 的 reflow 是同一種代價。下面把它寫成式子。
 
 順帶一提，這也解釋了為什麼 PD 蒸到 4 步品質還好、蒸到 1 步明顯下降 [1]：不是最後一輪比較不認真，是**最後那幾輪要跨的那一段本來就最難學**。
 </Answer>
@@ -104,18 +104,9 @@ $$
 
 還有一個更細的觀察。前幾輪（$N$ 很大、$\Delta$ 很小）幾乎沒有東西要學：teacher 的兩小步本來就接近一大步，因為那一段軌跡幾乎是直線。真正困難的是**最後幾輪**：從 4 步到 2 步、從 2 步到 1 步，這時一步要跨過整條軌跡最難學的中段。<Ref to="dma-error-theory"/> 的曲率在這裡以另一種形式回來——不是 Euler 的離散誤差，而是「這一大步的 flow map 有多難用網路表達」。實務上 PD 蒸餾到 4 步左右品質仍好，1 步明顯下降 [1]。
 
-<VizPlan id="w8-1-halving" title="逐輪減半：學生的一步對齊老師的兩步" type="interactive">
-- **位置**：本節之後。**檔名**：`week-8/w8-1-1.html`。
-- **版面**：左大格 2D toy（<Ref to="dma-lab-diffusion"/> 的月牙，本單元 VE 座標，$T$ 依 toy 尺度設為 $T=10$），右側一欄控制項與數字。
-- **左格**：固定 6 個起點 $x_T$（顏色編碼）。底層淡灰畫**真實 PF-ODE 軌跡**（用精確 score 細步積分）。上層畫當前「輪次」的取樣器折線：輪次 $k=0$ 是 teacher 的 $N=32$ 步 Euler 折線；$k=1$ 是 16 步、$k=2$ 是 8 步……到 $k=5$ 是 1 步。折線用該起點的顏色、粗一點。每個折線的終點畫一個實心點，並用一條細線連到真實軌跡終點，標「終點誤差」。
-- **控制項**：滑桿「輪次 $k\in\{0,\dots,5\}$」；開關「用理想學生（精確算 teacher 兩步的合成）／用實際訓出的學生」。理想學生的折線就是 teacher 折線每隔一個頂點連線——讀者看到「一步＝兩步的合成」是幾何上的取捷徑；切到實際學生時終點會多出一點抖動，那是逼近誤差。
-- **hover 折線的任一段**：高亮該段對應的 teacher 兩小段（上一輪的兩段），旁邊顯示 $x_0^{\text{target}}$ 的位置與 $\hat x_0^\theta$ 的位置（兩個小叉），以及兩者距離。
-- **右欄**：一張隨輪次累加的長條圖——每一輪學生的逼近誤差（$W_2$，數值）與累積到當前輪的總終點誤差。旁邊一行小字「前幾輪幾乎是零，最後兩輪最大」。
-- **對照按鈕**「疊上 reflow×2 的一步 Euler」：把 <Ref to="dma-lab-interpolants"/> 那個模型的一步結果用虛線畫上，同樣 6 個起點，看兩種「一步」落點與真實終點的差。
-- **底部觀察句**：「觀察：每一輪學生只學『把兩小步合成一大步』，目標是確定的。前幾輪的軌跡幾乎是直線、沒什麼可學；最後兩輪要一步跨過最難學的中段，誤差主要在那裡，而且每一輪的誤差都留給下一輪。」
-- **匯出 PNG**：左格 + 長條圖併成 16:9，含當前輪次。
-- **註記**：真實 PD 從 $N=1024$ 開始、蒸餾影像模型；這裡 $N=32$ 是為了在平面上看得見每一段。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/week-8/w8-1-1.html" class="demo-frame" title="逐輪減半：學生的一步對齊老師的兩步：互動 demo" style="height: 900px; width: 100%; border: none;"></iframe>
+
+**互動 demo：逐輪減半。** 拖動輪次，看 32 步如何逐輪變成 1 步；切換理想學生與帶可控逼近誤差的 surrogate，可以分開看「兩步合一」本身與誤差沿輪次累積。
 
 ## 解掉了什麼、留下什麼
 
@@ -170,7 +161,7 @@ PD 與多輪 reflow 的共同結構是：
 </QuizBlock>
 
 <Bridge to="dma-consistency-function">
-本篇用「學生一步等於老師兩步、逐輪減半」省掉了事先生成資料，也讓學生看過所有時刻；代價是多輪累積、而且最後幾輪最難。下一篇把「一步」重新定義：不是跳到網格上的下一格，而是**從任何一點直接跳到終點**。這個新物件叫 consistency function。
+「學生一步等於 teacher 兩步」省掉了事先生成資料，卻仍要經過一輪輪蒸餾。若網路能從軌跡上的任何位置直接認出共同終點，就不必把路逐格壓短；這正是 <Ref to="dma-consistency-function"/> 要定義的物件。
 </Bridge>
 
 ## 參考文獻

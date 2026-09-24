@@ -1,0 +1,319 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="840" viewBox="0 0 1920 840" role="img" aria-labelledby="title desc">
+  <title id="title">τ-leaping 的一步：三個操作與三種誤差來源</title>
+  <desc id="desc">四個八格 token 狀態由三個操作連接：被遮位置各自擲硬幣、選中位置依模型分布獨立抽字、已填位置擲硬幣遮回去。下方對應時間離散、因子化與端點處理三種誤差。</desc>
+
+  <defs>
+    <marker id="arrow-indigo" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#2a4ea3"/>
+    </marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#d94f4f"/>
+    </marker>
+    <style><![CDATA[
+      .sans { font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", Arial, sans-serif; }
+      .math { font-family: "STIX Two Math", "Cambria Math", "Times New Roman", serif; }
+      .ink { fill: #10234a; }
+      .muted { fill: #65718a; }
+      .tiny { font-size: 15px; }
+      .small { font-size: 17px; }
+      .body { font-size: 19px; }
+      .label { font-size: 21px; font-weight: 700; }
+      .panel-title { font-size: 22px; font-weight: 800; }
+      .error-title { font-size: 23px; font-weight: 800; }
+      .stroke { stroke: #cfd8e6; stroke-width: 2; }
+      .state { fill: #ffffff; stroke: #cfd8e6; stroke-width: 2; }
+      .op { fill: #f4f8fd; stroke: #b9cee9; stroke-width: 2; }
+      .token-mask { fill: #e5e8ed; stroke: #a8b0bd; stroke-width: 1.5; }
+      .token-data { fill: #f0803c; stroke: #d76523; stroke-width: 1.5; }
+      .token-selected { stroke: #d94f4f; stroke-width: 3.5; }
+      .token-text { font-size: 15px; font-weight: 800; text-anchor: middle; dominant-baseline: middle; }
+      .dash { stroke-dasharray: 8 7; }
+    ]]></style>
+  </defs>
+
+  <!-- Paper-like, flat U1 canvas -->
+  <rect width="1920" height="840" fill="#fffdfb"/>
+  <rect x="24" y="22" width="1872" height="796" rx="28" fill="none" stroke="#e4e9f0" stroke-width="2"/>
+
+  <!-- Header -->
+  <g class="sans">
+    <rect x="45" y="39" width="52" height="40" rx="12" fill="#2a4ea3"/>
+    <text x="71" y="66" text-anchor="middle" font-size="25" font-weight="800" fill="#ffffff" class="math">τ</text>
+    <text x="112" y="69" font-size="34" font-weight="850" class="ink">一步 τ-leaping：每個位置自己決定，但 joint 會付出代價</text>
+
+    <g transform="translate(1373,41)">
+      <rect width="220" height="38" rx="19" fill="#eef4fb" stroke="#b9cee9" stroke-width="1.5"/>
+      <rect x="14" y="10" width="20" height="20" rx="5" class="token-mask"/>
+      <text x="43" y="26" class="small muted">灰＝[MASK]</text>
+    </g>
+    <g transform="translate(1607,41)">
+      <rect width="267" height="38" rx="19" fill="#fff4ec" stroke="#f4c7a7" stroke-width="1.5"/>
+      <rect x="14" y="10" width="20" height="20" rx="5" class="token-data"/>
+      <text x="43" y="26" class="small muted">橘＝已填 token</text>
+    </g>
+  </g>
+
+  <!-- State 0 -->
+  <g class="sans" transform="translate(40,145)">
+    <rect width="225" height="320" rx="20" class="state"/>
+    <rect x="15" y="14" width="68" height="29" rx="14.5" fill="#eef1f5"/>
+    <text x="49" y="35" text-anchor="middle" class="small muted" font-weight="700">狀態 0</text>
+    <text x="15" y="72" class="panel-title ink">步首 x<tspan baseline-shift="sub" font-size="15">t</tspan></text>
+    <text x="15" y="99" class="small muted">rate 只在這裡評估一次</text>
+
+    <g transform="translate(7,130)">
+      <rect x="0" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="11.5" y="19" class="token-text muted">M</text>
+      <rect x="27" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="38.5" y="19" class="token-text muted">M</text>
+      <rect x="54" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="65.5" y="19" class="token-text muted">M</text>
+      <rect x="81" y="0" width="23" height="38" rx="6" class="token-data"/><text x="92.5" y="19" class="token-text" fill="#ffffff">A</text>
+      <rect x="108" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="119.5" y="19" class="token-text muted">M</text>
+      <rect x="135" y="0" width="23" height="38" rx="6" class="token-data"/><text x="146.5" y="19" class="token-text" fill="#ffffff">C</text>
+      <rect x="162" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="173.5" y="19" class="token-text muted">M</text>
+      <rect x="189" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="200.5" y="19" class="token-text muted">M</text>
+    </g>
+
+    <line x1="16" y1="203" x2="209" y2="203" stroke="#e1e6ee" stroke-width="1.5"/>
+    <text x="16" y="233" class="body ink">8 個位置，共用同一個</text>
+    <text x="16" y="260" class="body ink">步首 rate；位置的 coin</text>
+    <text x="16" y="287" class="body ink">與抽樣彼此獨立。</text>
+  </g>
+
+  <!-- Operation 1 -->
+  <g class="sans" transform="translate(285,110)">
+    <rect width="265" height="390" rx="22" class="op"/>
+    <circle cx="28" cy="28" r="17" fill="#2a4ea3"/><text x="28" y="35" text-anchor="middle" font-size="20" font-weight="800" fill="#fff">1</text>
+    <text x="54" y="35" class="panel-title ink">每個 MASK 擲硬幣</text>
+    <text x="20" y="73" class="small muted">位置 ℓ 各自決定是否翻開</text>
+
+    <rect x="17" y="94" width="231" height="66" rx="14" fill="#ffffff" stroke="#b9cee9" stroke-width="1.5"/>
+    <text x="132.5" y="120" text-anchor="middle" class="small muted">翻開機率</text>
+    <text x="132.5" y="148" text-anchor="middle" font-size="26" class="math ink">1 − e<tspan baseline-shift="super" font-size="17">−u′ₜτ</tspan></text>
+
+    <text x="132.5" y="196" text-anchor="middle" class="math body ink">B<tspan baseline-shift="sub" font-size="14">ℓ</tspan> ∼ Bernoulli(1 − e<tspan baseline-shift="super" font-size="13">−u′ₜτ</tspan>)</text>
+
+    <g transform="translate(34,216)">
+      <circle cx="39" cy="39" r="34" fill="#fff" stroke="#7fa3d5" stroke-width="3"/>
+      <path d="M39,5 A34,34 0 0 1 39,73 Z" fill="#dceafb"/>
+      <text x="25" y="47" text-anchor="middle" font-size="21" font-weight="800" fill="#2a4ea3">0</text>
+      <text x="53" y="47" text-anchor="middle" font-size="21" font-weight="800" fill="#2a4ea3">1</text>
+      <circle cx="155" cy="39" r="34" fill="#fff" stroke="#7fa3d5" stroke-width="3"/>
+      <path d="M155,5 A34,34 0 0 1 155,73 Z" fill="#dceafb"/>
+      <text x="141" y="47" text-anchor="middle" font-size="21" font-weight="800" fill="#2a4ea3">0</text>
+      <text x="169" y="47" text-anchor="middle" font-size="21" font-weight="800" fill="#2a4ea3">1</text>
+      <text x="97" y="92" text-anchor="middle" class="tiny muted">每個位置一枚 coin</text>
+    </g>
+
+    <rect x="17" y="326" width="231" height="48" rx="12" fill="#eaf1fb"/>
+    <text x="132.5" y="347" text-anchor="middle" class="math small ink">u′ₜ = uₜ + σₜ αₜ/(1 − αₜ)</text>
+    <text x="132.5" y="367" text-anchor="middle" class="tiny muted">remasking 的補償 rate</text>
+  </g>
+
+  <!-- State 1 -->
+  <g class="sans" transform="translate(570,145)">
+    <rect width="225" height="320" rx="20" class="state"/>
+    <rect x="15" y="14" width="68" height="29" rx="14.5" fill="#eef1f5"/>
+    <text x="49" y="35" text-anchor="middle" class="small muted" font-weight="700">狀態 1</text>
+    <text x="15" y="72" class="panel-title ink">選中位置</text>
+    <text x="15" y="99" class="small muted">紅框＝B<tspan baseline-shift="sub" font-size="12">ℓ</tspan> = 1</text>
+
+    <g transform="translate(7,130)">
+      <rect x="0" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="11.5" y="19" class="token-text muted">M</text>
+      <rect x="27" y="0" width="23" height="38" rx="6" class="token-mask token-selected"/><text x="38.5" y="19" class="token-text muted">M</text>
+      <rect x="54" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="65.5" y="19" class="token-text muted">M</text>
+      <rect x="81" y="0" width="23" height="38" rx="6" class="token-data"/><text x="92.5" y="19" class="token-text" fill="#ffffff">A</text>
+      <rect x="108" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="119.5" y="19" class="token-text muted">M</text>
+      <rect x="135" y="0" width="23" height="38" rx="6" class="token-data"/><text x="146.5" y="19" class="token-text" fill="#ffffff">C</text>
+      <rect x="162" y="0" width="23" height="38" rx="6" class="token-mask token-selected"/><text x="173.5" y="19" class="token-text muted">M</text>
+      <rect x="189" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="200.5" y="19" class="token-text muted">M</text>
+      <circle cx="38.5" cy="-17" r="13" fill="#fff1f1" stroke="#d94f4f" stroke-width="2"/><text x="38.5" y="-11" text-anchor="middle" font-size="15" font-weight="800" fill="#d94f4f">1</text>
+      <circle cx="173.5" cy="-17" r="13" fill="#fff1f1" stroke="#d94f4f" stroke-width="2"/><text x="173.5" y="-11" text-anchor="middle" font-size="15" font-weight="800" fill="#d94f4f">1</text>
+    </g>
+
+    <line x1="16" y1="203" x2="209" y2="203" stroke="#e1e6ee" stroke-width="1.5"/>
+    <text x="16" y="233" class="body ink">同一步可同時選中</text>
+    <text x="16" y="260" class="body ink">多個位置；這正是 joint</text>
+    <text x="16" y="287" class="body ink">資訊可能被丟掉的入口。</text>
+  </g>
+
+  <!-- Operation 2 -->
+  <g class="sans" transform="translate(815,110)">
+    <rect width="265" height="390" rx="22" fill="#fff7f1" stroke="#f1c7aa" stroke-width="2"/>
+    <circle cx="28" cy="28" r="17" fill="#f0803c"/><text x="28" y="35" text-anchor="middle" font-size="20" font-weight="800" fill="#fff">2</text>
+    <text x="54" y="35" class="panel-title ink">各自依 p<tspan baseline-shift="sub" font-size="15">θ</tspan> 抽字</text>
+    <text x="20" y="73" class="small muted">只對紅框位置抽 categorical</text>
+
+    <rect x="17" y="94" width="231" height="58" rx="14" fill="#ffffff" stroke="#f1c7aa" stroke-width="1.5"/>
+    <text x="132.5" y="129" text-anchor="middle" class="math body ink">C<tspan baseline-shift="sub" font-size="14">ℓ</tspan> ∼ Categorical(p<tspan baseline-shift="sub" font-size="14">θ</tspan>(· | x<tspan baseline-shift="sub" font-size="14">t</tspan>))</text>
+
+    <!-- Two independent K-way distributions -->
+    <g transform="translate(34,181)">
+      <line x1="0" y1="72" x2="82" y2="72" stroke="#9ba7b8" stroke-width="1.5"/>
+      <rect x="7" y="50" width="11" height="22" rx="2" fill="#f6bd98"/>
+      <rect x="22" y="27" width="11" height="45" rx="2" fill="#f0803c"/>
+      <rect x="37" y="42" width="11" height="30" rx="2" fill="#f6bd98"/>
+      <rect x="52" y="9" width="11" height="63" rx="2" fill="#d94f4f"/>
+      <rect x="67" y="55" width="11" height="17" rx="2" fill="#f6bd98"/>
+      <text x="41" y="94" text-anchor="middle" class="tiny muted">位置 2</text>
+      <line x1="116" y1="72" x2="198" y2="72" stroke="#9ba7b8" stroke-width="1.5"/>
+      <rect x="123" y="40" width="11" height="32" rx="2" fill="#f6bd98"/>
+      <rect x="138" y="54" width="11" height="18" rx="2" fill="#f6bd98"/>
+      <rect x="153" y="18" width="11" height="54" rx="2" fill="#d94f4f"/>
+      <rect x="168" y="35" width="11" height="37" rx="2" fill="#f0803c"/>
+      <rect x="183" y="49" width="11" height="23" rx="2" fill="#f6bd98"/>
+      <text x="157" y="94" text-anchor="middle" class="tiny muted">位置 7</text>
+      <path d="M58,10 C82,-15 121,-15 153,18" fill="none" stroke="#d94f4f" stroke-width="2.5" class="dash"/>
+    </g>
+
+    <rect x="17" y="304" width="231" height="70" rx="14" fill="#fff0ee" stroke="#e9aaa5" stroke-width="1.5"/>
+    <text x="132.5" y="333" text-anchor="middle" class="label" fill="#c43f3f">各自抽，相依被丟掉</text>
+    <text x="132.5" y="360" text-anchor="middle" class="small muted">joint → 各位置 marginal 的乘積</text>
+  </g>
+
+  <!-- State 2 -->
+  <g class="sans" transform="translate(1100,145)">
+    <rect width="225" height="320" rx="20" class="state"/>
+    <rect x="15" y="14" width="68" height="29" rx="14.5" fill="#eef1f5"/>
+    <text x="49" y="35" text-anchor="middle" class="small muted" font-weight="700">狀態 2</text>
+    <text x="15" y="72" class="panel-title ink">同時填入兩格</text>
+    <text x="15" y="99" class="small muted">每格都有自己的 K 類分布</text>
+
+    <!-- K bars aligned above selected positions -->
+    <g transform="translate(17,115)">
+      <line x1="0" y1="54" x2="70" y2="54" stroke="#aeb7c4" stroke-width="1.5"/>
+      <rect x="4" y="39" width="9" height="15" rx="2" fill="#f4c7aa"/>
+      <rect x="17" y="24" width="9" height="30" rx="2" fill="#f0803c"/>
+      <rect x="30" y="35" width="9" height="19" rx="2" fill="#f4c7aa"/>
+      <rect x="43" y="7" width="9" height="47" rx="2" fill="#d94f4f"/>
+      <rect x="56" y="42" width="9" height="12" rx="2" fill="#f4c7aa"/>
+      <text x="35" y="72" text-anchor="middle" class="tiny muted">K 類</text>
+      <line x1="139" y1="54" x2="209" y2="54" stroke="#aeb7c4" stroke-width="1.5"/>
+      <rect x="143" y="32" width="9" height="22" rx="2" fill="#f4c7aa"/>
+      <rect x="156" y="42" width="9" height="12" rx="2" fill="#f4c7aa"/>
+      <rect x="169" y="13" width="9" height="41" rx="2" fill="#d94f4f"/>
+      <rect x="182" y="28" width="9" height="26" rx="2" fill="#f0803c"/>
+      <rect x="195" y="38" width="9" height="16" rx="2" fill="#f4c7aa"/>
+      <text x="174" y="72" text-anchor="middle" class="tiny muted">K 類</text>
+      <path d="M60,8 C95,-18 135,-18 169,13" fill="none" stroke="#d94f4f" stroke-width="2.5" class="dash"/>
+    </g>
+
+    <g transform="translate(7,210)">
+      <rect x="0" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="11.5" y="19" class="token-text muted">M</text>
+      <rect x="27" y="0" width="23" height="38" rx="6" class="token-data token-selected"/><text x="38.5" y="19" class="token-text" fill="#ffffff">D</text>
+      <rect x="54" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="65.5" y="19" class="token-text muted">M</text>
+      <rect x="81" y="0" width="23" height="38" rx="6" class="token-data"/><text x="92.5" y="19" class="token-text" fill="#ffffff">A</text>
+      <rect x="108" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="119.5" y="19" class="token-text muted">M</text>
+      <rect x="135" y="0" width="23" height="38" rx="6" class="token-data"/><text x="146.5" y="19" class="token-text" fill="#ffffff">C</text>
+      <rect x="162" y="0" width="23" height="38" rx="6" class="token-data token-selected"/><text x="173.5" y="19" class="token-text" fill="#ffffff">B</text>
+      <rect x="189" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="200.5" y="19" class="token-text muted">M</text>
+    </g>
+    <text x="112.5" y="287" text-anchor="middle" class="small" fill="#c43f3f">p(D,B | xₜ) 被近似成乘積</text>
+  </g>
+
+  <!-- Operation 3 -->
+  <g class="sans" transform="translate(1345,110)">
+    <rect width="265" height="390" rx="22" fill="#f7f7fa" stroke="#cdd2dc" stroke-width="2"/>
+    <circle cx="28" cy="28" r="17" fill="#65718a"/><text x="28" y="35" text-anchor="middle" font-size="20" font-weight="800" fill="#fff">3</text>
+    <text x="54" y="35" class="panel-title ink">已填位置再擲 coin</text>
+    <text x="20" y="73" class="small muted">決定是否遮回 [MASK]</text>
+
+    <rect x="17" y="94" width="231" height="66" rx="14" fill="#ffffff" stroke="#cdd2dc" stroke-width="1.5"/>
+    <text x="132.5" y="120" text-anchor="middle" class="small muted">remask 機率</text>
+    <text x="132.5" y="148" text-anchor="middle" font-size="26" class="math ink">1 − e<tspan baseline-shift="super" font-size="17">−σₜτ</tspan></text>
+
+    <text x="132.5" y="196" text-anchor="middle" class="math body ink">R<tspan baseline-shift="sub" font-size="14">ℓ</tspan> ∼ Bernoulli(1 − e<tspan baseline-shift="super" font-size="13">−σₜτ</tspan>)</text>
+
+    <g transform="translate(38,220)">
+      <rect x="8" y="22" width="52" height="52" rx="12" class="token-data"/>
+      <text x="34" y="49" text-anchor="middle" dominant-baseline="middle" font-size="24" font-weight="800" fill="#fff">A</text>
+      <path d="M68,16 C118,-17 161,8 156,52 C154,69 141,80 123,82" fill="none" stroke="#d94f4f" stroke-width="4" marker-end="url(#arrow-red)"/>
+      <rect x="120" y="52" width="52" height="52" rx="12" class="token-mask token-selected"/>
+      <text x="146" y="79" text-anchor="middle" dominant-baseline="middle" font-size="20" font-weight="800" fill="#65718a">M</text>
+    </g>
+
+    <rect x="17" y="334" width="231" height="40" rx="12" fill="#eef1f5"/>
+    <text x="132.5" y="360" text-anchor="middle" class="small ink">σₜ = 0 時，這一步不做</text>
+  </g>
+
+  <!-- State 3 -->
+  <g class="sans" transform="translate(1630,145)">
+    <rect width="250" height="320" rx="20" class="state"/>
+    <rect x="15" y="14" width="68" height="29" rx="14.5" fill="#eef1f5"/>
+    <text x="49" y="35" text-anchor="middle" class="small muted" font-weight="700">狀態 3</text>
+    <text x="15" y="72" class="panel-title ink">一步結束</text>
+    <text x="15" y="99" class="small muted">下一步會重新評估 rate</text>
+
+    <g transform="translate(19,130)">
+      <rect x="0" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="11.5" y="19" class="token-text muted">M</text>
+      <rect x="27" y="0" width="23" height="38" rx="6" class="token-data"/><text x="38.5" y="19" class="token-text" fill="#ffffff">D</text>
+      <rect x="54" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="65.5" y="19" class="token-text muted">M</text>
+      <rect x="81" y="0" width="23" height="38" rx="6" class="token-mask token-selected"/><text x="92.5" y="19" class="token-text muted">M</text>
+      <rect x="108" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="119.5" y="19" class="token-text muted">M</text>
+      <rect x="135" y="0" width="23" height="38" rx="6" class="token-data"/><text x="146.5" y="19" class="token-text" fill="#ffffff">C</text>
+      <rect x="162" y="0" width="23" height="38" rx="6" class="token-data"/><text x="173.5" y="19" class="token-text" fill="#ffffff">B</text>
+      <rect x="189" y="0" width="23" height="38" rx="6" class="token-mask"/><text x="200.5" y="19" class="token-text muted">M</text>
+      <path d="M92.5,-8 C73,-25 66,-4 76,5" fill="none" stroke="#d94f4f" stroke-width="2.5" marker-end="url(#arrow-red)"/>
+    </g>
+
+    <line x1="16" y1="203" x2="234" y2="203" stroke="#e1e6ee" stroke-width="1.5"/>
+    <text x="16" y="233" class="body ink">若 t → 0 還有 MASK：</text>
+    <text x="16" y="260" class="body ink">必須 clamp t<tspan baseline-shift="sub" font-size="13">min</tspan> 或強制填完。</text>
+    <rect x="15" y="278" width="220" height="27" rx="13.5" fill="#fff0ee"/>
+    <text x="125" y="297" text-anchor="middle" class="tiny" fill="#c43f3f">這是端點處理，不是因子化</text>
+  </g>
+
+  <!-- Small flow arrows between panels -->
+  <g fill="none" stroke="#2a4ea3" stroke-width="3" marker-end="url(#arrow-indigo)">
+    <path d="M267,306 L281,306"/>
+    <path d="M552,306 L566,306"/>
+    <path d="M797,306 L811,306"/>
+    <path d="M1082,306 L1096,306"/>
+    <path d="M1327,306 L1341,306"/>
+    <path d="M1612,306 L1626,306"/>
+  </g>
+
+  <!-- Error source band -->
+  <g class="sans">
+    <text x="45" y="548" class="label ink">誤差來源：上面的哪一步在付代價？</text>
+    <line x1="45" y1="560" x2="1875" y2="560" stroke="#d9e0ea" stroke-width="2"/>
+
+    <!-- Time discretization -->
+    <g transform="translate(40,578)">
+      <rect width="580" height="190" rx="20" fill="#f3f7fc" stroke="#9db9de" stroke-width="2"/>
+      <rect x="18" y="17" width="101" height="30" rx="15" fill="#2a4ea3"/>
+      <text x="68.5" y="38" text-anchor="middle" class="small" font-weight="800" fill="#ffffff">操作 1</text>
+      <text x="135" y="40" class="error-title ink">時間離散誤差</text>
+      <text x="20" y="80" class="body ink">用步首的 u′<tspan baseline-shift="sub" font-size="13">t</tspan> 走完整段 τ，忽略區間內 rate 的變化。</text>
+      <rect x="20" y="100" width="540" height="45" rx="12" fill="#ffffff" stroke="#cbd8e8" stroke-width="1.5"/>
+      <text x="290" y="130" text-anchor="middle" class="math body ink">u′(t+s) ≈ u′(t),  0 ≤ s ≤ τ</text>
+      <text x="20" y="174" class="small muted">τ → 0 時消失；有限 τ 下是一階 Euler 近似。</text>
+    </g>
+
+    <!-- Factorization -->
+    <g transform="translate(670,578)">
+      <rect width="580" height="190" rx="20" fill="#fff3f1" stroke="#e6a5a0" stroke-width="2"/>
+      <rect x="18" y="17" width="164" height="30" rx="15" fill="#d94f4f"/>
+      <text x="100" y="38" text-anchor="middle" class="small" font-weight="800" fill="#ffffff">操作 2；3 會再做</text>
+      <text x="198" y="40" class="error-title ink">因子化誤差</text>
+      <text x="20" y="80" class="body ink">同時選中的位置各自抽樣，把 joint 的相依改成 marginals 乘積。</text>
+      <rect x="20" y="100" width="540" height="45" rx="12" fill="#ffffff" stroke="#e6b7b2" stroke-width="1.5"/>
+      <text x="290" y="130" text-anchor="middle" class="math body ink">p(D,B | xₜ) ≠ p(D | xₜ) p(B | xₜ)</text>
+      <text x="20" y="174" class="small muted">τ → 0 時「同一步多跳」機率趨零；remasking 會再付一次。</text>
+    </g>
+
+    <!-- Endpoint -->
+    <g transform="translate(1300,578)">
+      <rect width="580" height="190" rx="20" fill="#f7f7fa" stroke="#b9bec9" stroke-width="2"/>
+      <rect x="18" y="17" width="101" height="30" rx="15" fill="#65718a"/>
+      <text x="68.5" y="38" text-anchor="middle" class="small" font-weight="800" fill="#ffffff">輸出端</text>
+      <text x="135" y="40" class="error-title ink">端點處理偏差</text>
+      <text x="20" y="80" class="body ink">u<tspan baseline-shift="sub" font-size="13">t</tspan> = 1/t 在 t → 0 發散；殘留 MASK 必須被人工收尾。</text>
+      <rect x="20" y="100" width="540" height="45" rx="12" fill="#ffffff" stroke="#d3d6dd" stroke-width="1.5"/>
+      <text x="290" y="130" text-anchor="middle" class="math body ink">clamp(t<tspan baseline-shift="sub" font-size="13">min</tspan>)  或  最後一步強制填完</text>
+      <text x="20" y="174" class="small muted">這項偏差與步數無關：是水平的 error floor。</text>
+    </g>
+
+    <!-- Conclusion -->
+    <rect x="40" y="786" width="1840" height="34" rx="17" fill="#eaf1fb"/>
+    <text x="960" y="810" text-anchor="middle" font-size="19" font-weight="750" fill="#2a4ea3">τ → 0 時，時間離散與因子化都會消失；代價是更多步。端點偏差要另外處理。</text>
+  </g>
+</svg>

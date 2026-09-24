@@ -8,7 +8,7 @@ title: "快篩陽性：Bayes 與 Posterior"
 category: "courses"
 group: "M1 · 機率與 Conditional Expectation"
 status: "available"
-updated: 2026-09-12
+updated: 2026-09-21
 summary: "快篩準確率 95%、結果陽性，真的有病的機率是多少？答案約 16%，直覺錯一個數量級的原因是忘了盛行率。Bayes 定理把 prior、likelihood 乘起來再正規化得到 posterior；posterior 不只是一個數，它是「對所有可能真相取加權平均」時該用的權重。連續版最常用的特例是 prior 與 likelihood 都取 Gaussian：配方之後 posterior 仍是 Gaussian，變異數不含觀測值，平均則是兩邊按精確度加權。"
 demos: []
 references:
@@ -25,7 +25,6 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Details from '../../../components/Details.astro';
 import Try from '../../../components/Try.astro';
 import Bridge from '../../../components/Bridge.astro';
@@ -35,14 +34,14 @@ import Ref from '../../../components/Ref.astro';
 # 快篩陽性：Bayes 與 Posterior
 
 <Objectives>
-- 寫出 Bayes 定理的三個成分——prior、likelihood、posterior——並用「一萬個人」的數法把快篩陽性後的機率真的算出來。
-- 說出 posterior 為什麼是「加權平均的權重」：對所有可能的真相取 conditional expectation 時，用的就是它；並在 prior 與 likelihood 都是 Gaussian 的情形下配方算出 posterior，看到那組權重就是兩邊的精確度。
-- 對「準確率 95% 所以陽性就是 95% 有病」這個直覺，說出它漏掉哪個假設、在什麼情況下反而接近正確；並用模擬驗證，包括重複檢測的錯誤不獨立時結論如何改變。
+- **寫出 Bayes 定理的三個成分——prior、likelihood、posterior。** 用「一萬個人」的數法把快篩陽性後的機率真的算出來。
+- **說出 posterior 為什麼是「加權平均的權重」：對所有可能的真相取 conditional expectation 時，用的就是它。** 在 prior 與 likelihood 都是 Gaussian 的情形下配方算出 posterior，看到那組權重就是兩邊的精確度。
+- **對「準確率 95% 所以陽性就是 95% 有病」這個直覺，說出它漏掉哪個假設、在什麼情況下反而接近正確。** 用模擬驗證，包括重複檢測的錯誤不獨立時結論如何改變。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 起點：一條線
+## 一條線
 
 某種疾病在一般人口的盛行率是 1%。有一種快篩：有病的人 95% 會驗出陽性（sensitivity），沒病的人 95% 會驗出陰性（specificity）。你在一次全民篩檢裡被抽到，結果：**陽性**。
 
@@ -87,13 +86,9 @@ $$
 
 畫面是這樣的：陽性那一排 590 人裡，有病的只佔一小段。原因不是檢測差——5% 的誤判率不高——而是**沒病的人太多**，5% 乘上 9,900 仍然是 495 人，把 95 個真陽性淹掉了。「準確率 95%」這句話讓你盯著檢測，忘了排隊的人裡有病的本來就只有 1%。
 
-<VizPlan id="m1-3-icon-array" title="一萬個人的篩檢：陽性的人裡有多少真的有病" type="static">
-- **檔名**：`m1-probability/imgs/m1-3-1.svg`（16:9）。
-- **左半**：$100\times100$ 的小方格陣列代表一萬人。有病的 100 格（左上角一小塊）著深色，沒病的 9,900 格淺色。在每一塊裡把「驗出陽性」的格子打上一個 $+$ 記號：深色塊裡 95 格有 $+$，淺色塊裡 495 格有 $+$（隨機散佈）。
-- **右半**：只把有 $+$ 的格子抽出來排成一排（590 格），深色 95 格集中在左端、淺色 495 格在右。上方一個大括號寫「陽性的人」，深色段上方標 $95/590\approx16\%$。
-- **底部一行**：「sensitivity 與 specificity 說的是**每一塊裡**打 $+$ 的比例；你想知道的是**打了 $+$ 的那一排**裡深色的比例。分母不同。」
-- **圖說**：「95% 的準確率沒有錯；錯的是忘了淺色那一塊有 9,900 人，5% 就是 495 個假陽性。」
-</VizPlan>
+![一萬人的篩檢 icon array，區分真陽性、假陽性與陰性。](./imgs/m1-3-1.svg)
+
+*圖：posterior 不能只看測試準確度；低盛行率會產生大量假陽性。*
 
 ## 把數人寫成式子
 
@@ -145,7 +140,7 @@ $$
 
 方括號裡是 $x$ 的一個二次式。按次數收好：$x^2$ 的係數是 $-\tfrac12\big(\tfrac{a^2}{\sigma^2}+\tfrac{1}{\sigma_0^2}\big)$，$x$ 的係數是 $\tfrac{a y}{\sigma^2}+\tfrac{\mu_0}{\sigma_0^2}$。把它配成完全平方（配方法），剩下的常數項不含 $x$、可再次無視，對照 Gaussian 密度就讀得出平均與變異數。
 
-值得把方法本身記起來：**這裡乘除的是機率密度，不是隨機變數**（兩個 Gaussian 隨機變數相乘不會是 Gaussian）。而 Gaussian 的密度是「$\exp$（一個 $x$ 的二次式）」，相乘相除只是把指數上的二次式加加減減，加減完還是二次式——所以「配出來還是 Gaussian」這件事不必逐次驗算，看指數是不是 $x$ 的二次式就知道。
+方法本身可以直接記成：**這裡乘除的是機率密度，不是隨機變數**（兩個 Gaussian 隨機變數相乘不會是 Gaussian）。而 Gaussian 的密度是「$\exp$（一個 $x$ 的二次式）」，相乘相除只是把指數上的二次式加加減減，加減完還是二次式——所以「配出來還是 Gaussian」這件事不必逐次驗算，看指數是不是 $x$ 的二次式就知道。
 </Try>
 
 配出來的 posterior 仍然是 Gaussian：
@@ -166,7 +161,7 @@ $$
 
 這正是 <Ref to="math-gaussian"/> 那兩台體重計的 **inverse-variance weighting**，只是其中一台換成了 prior：prior 越尖（$\sigma_0$ 小）就越拉向 $\mu_0$，觀測越乾淨（$\sigma$ 小）就越拉向 $y$。
 
-## 回到情境：直覺什麼時候會對
+## 直覺什麼時候會對
 
 **結論。** 全民篩檢中隨機被抽到、快篩陽性，有病的機率約 16%。直覺的 95% 錯在**把 likelihood 當成 posterior**，也就是隱含假設 prior 是 50/50——只有在「一半的人有病」時，$P(D\mid+)$ 才會等於 $P(+\mid D)$ 附近。
 
@@ -178,7 +173,7 @@ $$
 
 **重複檢測。** odds 形式說第二次陽性再乘 19、機率到 78%——但這**假設兩次檢測的錯誤獨立**。如果第一次假陽性的原因是你體內某個持續存在的干擾物質，第二次也會因為同一個原因陽性，第二次的結果**沒有新資訊**，posterior 停在 16%。這是 Bayes 最常被誤用的地方之一：把相關的證據當成獨立的，一直乘下去。
 
-## 回到情境：模擬一百萬人
+## 模擬一百萬人
 
 ```python
 import numpy as np
@@ -201,16 +196,9 @@ print(f"兩次陽性（相關）  → {screen(0.01, second='corr'):.1%}")
 
 前三行印出約 16%、68%、89%，與公式一致。最後兩行是重點：獨立時兩次陽性把機率推到約 78%，相關時留在約 15%（有病的人第二次仍有 5% 機率漏掉，沒病的假陽性卻一個都沒被剔除）——第二次檢測白做。
 
-<VizPlan id="m1-3-bayes" title="拖盛行率、拖準確率、再測一次：posterior 怎麼動" type="interactive">
-- **位置**：本節之後。**檔名**：`site/public/notes/research_areas/mathematical-foundations/m1-probability/m1-3-2.html`。這是本篇的核心互動。
-- **版面**：左格是 $100\times100$ 的人口方格（對應靜態圖），依當前參數即時重畫有病／沒病與 $+$ 記號；右格上方是「陽性的人那一排」的長條（深淺兩段，標出 posterior 的百分比），右格下方是一條曲線：posterior 對盛行率（橫軸對數，$0.1\%$–$50\%$），一個游標標出目前的盛行率。
-- **控制項**：滑桿「盛行率」（$0.1\%$–$50\%$）、「sensitivity」、「specificity」（各 $50\%$–$99.9\%$）；開關「用 odds 顯示」：右上改成 prior odds × likelihood ratio ＝ posterior odds 的算式；按鈕「再測一次（獨立）」：對陽性的人再做一次，長條更新為兩次皆陽性者的組成；按鈕「再測一次（相關：假陽性者必再陽性）」：長條幾乎不變並標紅「沒有新資訊」；按鈕「重置」。
-- **Hover** 右下曲線任一點顯示該盛行率下的 posterior，並在曲線上標出「posterior $=$ sensitivity」發生的盛行率（約 50%）——直覺答案正確的地方。
-- **底部觀察句**：「觀察：posterior $\propto$ likelihood × prior。同一支快篩，prior 從 1% 拉到 30%，陽性後有病的機率從 16% 變成 89%。重複檢測只有在錯誤獨立時才能一直乘。」
-- **匯出 PNG**：兩格併成 16:9，含當前參數。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m1-probability/m1-3-2.html" class="demo-frame" title="Bayes posterior：盛行率、準確率與再次檢測" style="height: 760px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m1-3-a">
 一封信被垃圾郵件過濾器標成「垃圾」。過濾器對垃圾信的偵測率 99%、對正常信的誤判率 1%。你收到的信裡有 20% 是垃圾信。這封信真的是垃圾信的機率約是：
@@ -245,7 +233,7 @@ posterior 是 prior 與 likelihood 的**乘積**再正規化，不是算術平�
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-tweedie">
-本篇把「陽性後有病的機率」算成 16%，看到直覺的 95% 是忘了 prior，並確認 posterior 是「對看不見的真相取平均」時的權重。現在手上有三件東西：最佳猜測是 conditional expectation、conditional expectation 是用 posterior 加權的平均、而微分可以穿過積分。下一篇把它們接在一起，處理一個看似平凡的問題——體重計讀 72.3 kg、雜訊 ±1 kg，最佳猜測真的是 72.3 嗎？
+本篇把「陽性後有病的機率」算成 16%，看到直覺的 95% 是忘了 prior，並確認 posterior 是「對看不見的真相取平均」時的權重。現在手上有三件東西：最佳猜測是 conditional expectation、conditional expectation 是用 posterior 加權的平均、而微分可以穿過積分。接著把它們接在一起，處理一個看似平凡的問題——體重計讀 72.3 kg、雜訊 ±1 kg，最佳猜測真的是 72.3 嗎？
 </Bridge>
 
 ## 參考文獻

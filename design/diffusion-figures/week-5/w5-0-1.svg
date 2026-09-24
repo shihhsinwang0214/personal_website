@@ -1,0 +1,267 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1920" height="1200" viewBox="0 0 1920 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Stochastic interpolant：一個式子裡的路徑、配對與噪聲</title>
+  <desc id="desc">上方是 x_t 等於 alpha_t x_0 加 beta_t x_1 加 gamma_t z。中間三格依序比較 linear 與 VP schedule、交叉與近乎平行的 coupling，以及 gamma_t 在兩端為零的條件路徑管。下方表格列出線性 FM、Rectified flow、VP diffusion 與 Albergo 預設。</desc>
+
+  <defs>
+    <style><![CDATA[
+      .sans { font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", Arial, sans-serif; }
+      .math { font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif; }
+      .ink { fill: #10214a; }
+      .muted { fill: #5f6b7d; }
+      .label { font-size: 25px; font-weight: 700; letter-spacing: .02em; }
+      .small { font-size: 21px; font-weight: 600; }
+      .tiny { font-size: 18px; font-weight: 600; }
+      .axis { stroke: #7d8795; stroke-width: 2.2; fill: none; }
+      .grid { stroke: #dfe5ec; stroke-width: 1.5; fill: none; }
+      .panel { stroke: #d6deea; stroke-width: 2.2; }
+    ]]></style>
+
+    <marker id="arrow-indigo" viewBox="0 0 10 10" refX="8.2" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#2a4ea3"/>
+    </marker>
+    <marker id="arrow-gray" viewBox="0 0 10 10" refX="8.2" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#7d8795"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="8.2" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#3d9460"/>
+    </marker>
+
+    <clipPath id="dog-clip">
+      <rect x="1733" y="512" width="104" height="104" rx="18"/>
+    </clipPath>
+  </defs>
+
+  <!-- Warm U1 paper base: deliberately flat, with no shadow or gradient. -->
+  <rect width="1920" height="1200" fill="#fffdfb"/>
+
+  <!-- ================================================================ -->
+  <!-- Equation: the three terms are the visual legend for the figure. -->
+  <!-- ================================================================ -->
+  <rect x="48" y="34" width="1824" height="186" rx="28" fill="#f8fbff" stroke="#cddbed" stroke-width="2.5"/>
+  <text x="91" y="82" class="sans muted small">STOCHASTIC INTERPOLANT</text>
+
+  <text x="91" y="166" class="math ink" font-size="63" font-weight="700">xₜ =</text>
+
+  <rect x="245" y="101" width="266" height="86" rx="18" fill="#e5f2fd" stroke="#4a90e2" stroke-width="2.5"/>
+  <text x="378" y="163" text-anchor="middle" class="math" fill="#174f91" font-size="53" font-weight="700">αₜ x₀</text>
+
+  <text x="529" y="164" class="math ink" font-size="56" font-weight="700">+</text>
+
+  <rect x="579" y="101" width="266" height="86" rx="18" fill="#fff0e5" stroke="#f0803c" stroke-width="2.5"/>
+  <text x="712" y="163" text-anchor="middle" class="math" fill="#b74d13" font-size="53" font-weight="700">βₜ x₁</text>
+
+  <text x="864" y="164" class="math ink" font-size="56" font-weight="700">+</text>
+
+  <rect x="914" y="101" width="266" height="86" rx="18" fill="#eaf6ee" stroke="#60ba82" stroke-width="2.5"/>
+  <text x="1047" y="163" text-anchor="middle" class="math" fill="#277548" font-size="53" font-weight="700">γₜ z</text>
+
+  <text x="1210" y="151" class="math ink" font-size="43">,</text>
+  <rect x="1244" y="101" width="344" height="86" rx="18" fill="#f2effb" stroke="#8268b2" stroke-width="2.5"/>
+  <text x="1416" y="157" text-anchor="middle" class="math" fill="#493477" font-size="39" font-weight="700">(x₀, x₁) ∼ π</text>
+
+  <text x="1622" y="139" class="math ink" font-size="31">z ∼ 𝒩(0, I)</text>
+  <text x="1622" y="174" class="sans muted" font-size="22" font-weight="650">且與端點獨立</text>
+
+  <!-- Three explicit guide lines: coefficients -> path; pi -> pairing; gamma -> tube. -->
+  <path d="M545 188 L545 236 L340 236 L340 276" fill="none" stroke="#2a4ea3" stroke-width="3" marker-end="url(#arrow-indigo)"/>
+  <circle cx="545" cy="188" r="5" fill="#2a4ea3"/>
+  <path d="M1416 188 L1416 238 L960 238 L960 276" fill="none" stroke="#8268b2" stroke-width="3" marker-end="url(#arrow-indigo)"/>
+  <circle cx="1416" cy="188" r="5" fill="#8268b2"/>
+  <path d="M1047 188 L1047 250 L1580 250 L1580 276" fill="none" stroke="#3d9460" stroke-width="3" marker-end="url(#arrow-green)"/>
+  <circle cx="1047" cy="188" r="5" fill="#3d9460"/>
+
+  <!-- ================================================================ -->
+  <!-- Panel 1: coefficient schedules are a genuine plot, not a knob. -->
+  <!-- ================================================================ -->
+  <g id="path-schedule-panel">
+    <rect x="48" y="278" width="572" height="448" rx="28" fill="#f3f9fe" class="panel"/>
+    <circle cx="88" cy="322" r="22" fill="#2a4ea3"/>
+    <text x="88" y="331" text-anchor="middle" class="sans" fill="#fff" font-size="22" font-weight="800">1</text>
+    <text x="125" y="333" class="sans ink" font-size="31" font-weight="800">路徑：選 αₜ、βₜ 的形狀</text>
+    <text x="78" y="371" class="sans muted small">端點固定，中間怎麼走可以自己挑</text>
+
+    <!-- Linear schedule chart. -->
+    <rect x="76" y="399" width="247" height="238" rx="17" fill="#fffdfb" stroke="#cbd8e8" stroke-width="2"/>
+    <text x="199.5" y="433" text-anchor="middle" class="sans ink small">線性</text>
+    <path d="M113 584 H292 M113 584 V459" class="axis" marker-end="url(#arrow-gray)"/>
+    <path d="M113 584 L292 459" stroke="#f0803c" stroke-width="5.5" fill="none"/>
+    <path d="M113 459 L292 584" stroke="#4a90e2" stroke-width="5.5" fill="none"/>
+    <path d="M113 522 H292 M202 459 V584" class="grid" stroke-dasharray="5 6"/>
+    <text x="106" y="607" class="math muted tiny">0</text>
+    <text x="285" y="607" class="math muted tiny">1</text>
+    <text x="299" y="606" class="math ink tiny">t</text>
+    <text x="119" y="480" class="math" fill="#174f91" font-size="20" font-weight="700">αₜ=1−t</text>
+    <text x="203" y="509" class="math" fill="#b74d13" font-size="20" font-weight="700">βₜ=t</text>
+
+    <!-- VP schedule chart. -->
+    <rect x="345" y="399" width="247" height="238" rx="17" fill="#fffdfb" stroke="#cbd8e8" stroke-width="2"/>
+    <text x="468.5" y="433" text-anchor="middle" class="sans ink small">VP cosine</text>
+    <path d="M382 584 H561 M382 584 V459" class="axis" marker-end="url(#arrow-gray)"/>
+    <path d="M382 584 C412 584 468 568 507 529 C542 494 559 465 561 459" stroke="#f0803c" stroke-width="5.5" fill="none"/>
+    <path d="M382 459 C417 461 464 479 507 521 C541 555 557 580 561 584" stroke="#4a90e2" stroke-width="5.5" fill="none"/>
+    <path d="M382 522 H561 M471 459 V584" class="grid" stroke-dasharray="5 6"/>
+    <text x="375" y="607" class="math muted tiny">0</text>
+    <text x="554" y="607" class="math muted tiny">1</text>
+    <text x="568" y="606" class="math ink tiny">t</text>
+    <text x="388" y="482" class="math" fill="#174f91" font-size="18" font-weight="700">αₜ=cos(πt/2)</text>
+    <text x="460" y="556" class="math" fill="#b74d13" font-size="18" font-weight="700">βₜ=sin(πt/2)</text>
+
+    <rect x="126" y="658" width="416" height="44" rx="22" fill="#e7eefb"/>
+    <text x="334" y="688" text-anchor="middle" class="sans" fill="#2a4ea3" font-size="22" font-weight="750">相同端點，不同 marginal path</text>
+  </g>
+
+  <!-- ================================================================ -->
+  <!-- Panel 2: pi changes who is paired with whom. -->
+  <!-- ================================================================ -->
+  <g id="coupling-panel">
+    <rect x="674" y="278" width="572" height="448" rx="28" fill="#faf7fd" class="panel"/>
+    <circle cx="714" cy="322" r="22" fill="#8268b2"/>
+    <text x="714" y="331" text-anchor="middle" class="sans" fill="#fff" font-size="22" font-weight="800">2</text>
+    <text x="751" y="333" class="sans ink" font-size="31" font-weight="800">配對：π 決定「誰配誰」</text>
+    <text x="704" y="371" class="sans muted small">邊際相同，coupling 可以讓線交叉或對齊</text>
+
+    <!-- Crossing / independent pairing. -->
+    <rect x="702" y="399" width="247" height="246" rx="17" fill="#fffdfb" stroke="#d9d0ea" stroke-width="2"/>
+    <text x="825.5" y="433" text-anchor="middle" class="sans ink small">獨立配對</text>
+    <text x="825.5" y="615" text-anchor="middle" class="sans muted tiny">連線交叉，路徑較彎</text>
+    <path d="M748 476 C792 476 846 557 902 557" stroke="#a7aeb9" stroke-width="3" fill="none"/>
+    <path d="M748 503 C800 503 850 476 902 476" stroke="#a7aeb9" stroke-width="3" fill="none"/>
+    <path d="M748 530 C804 530 846 503 902 503" stroke="#a7aeb9" stroke-width="3" fill="none"/>
+    <path d="M748 557 C796 557 850 530 902 530" stroke="#a7aeb9" stroke-width="3" fill="none"/>
+    <g fill="#4a90e2" stroke="#fff" stroke-width="3">
+      <circle cx="748" cy="476" r="9"/><circle cx="748" cy="503" r="9"/><circle cx="748" cy="530" r="9"/><circle cx="748" cy="557" r="9"/>
+    </g>
+    <g fill="#f0803c" stroke="#fff" stroke-width="3">
+      <circle cx="902" cy="476" r="9"/><circle cx="902" cy="503" r="9"/><circle cx="902" cy="530" r="9"/><circle cx="902" cy="557" r="9"/>
+    </g>
+    <text x="748" y="586" text-anchor="middle" class="math" fill="#174f91" font-size="20" font-weight="700">x₀</text>
+    <text x="902" y="586" text-anchor="middle" class="math" fill="#b74d13" font-size="20" font-weight="700">x₁</text>
+
+    <!-- Near-parallel / coupled pairing. -->
+    <rect x="971" y="399" width="247" height="246" rx="17" fill="#fffdfb" stroke="#d9d0ea" stroke-width="2"/>
+    <text x="1094.5" y="433" text-anchor="middle" class="sans ink small">結構化 coupling</text>
+    <text x="1094.5" y="615" text-anchor="middle" class="sans muted tiny">連線近乎平行，路徑較直</text>
+    <path d="M1017 476 C1064 476 1115 478 1171 480" stroke="#2a4ea3" stroke-width="3.5" fill="none"/>
+    <path d="M1017 503 C1064 503 1115 505 1171 507" stroke="#2a4ea3" stroke-width="3.5" fill="none"/>
+    <path d="M1017 530 C1064 530 1115 532 1171 534" stroke="#2a4ea3" stroke-width="3.5" fill="none"/>
+    <path d="M1017 557 C1064 557 1115 559 1171 561" stroke="#2a4ea3" stroke-width="3.5" fill="none"/>
+    <g fill="#4a90e2" stroke="#fff" stroke-width="3">
+      <circle cx="1017" cy="476" r="9"/><circle cx="1017" cy="503" r="9"/><circle cx="1017" cy="530" r="9"/><circle cx="1017" cy="557" r="9"/>
+    </g>
+    <g fill="#f0803c" stroke="#fff" stroke-width="3">
+      <circle cx="1171" cy="480" r="9"/><circle cx="1171" cy="507" r="9"/><circle cx="1171" cy="534" r="9"/><circle cx="1171" cy="561" r="9"/>
+    </g>
+    <text x="1017" y="586" text-anchor="middle" class="math" fill="#174f91" font-size="20" font-weight="700">x₀</text>
+    <text x="1171" y="590" text-anchor="middle" class="math" fill="#b74d13" font-size="20" font-weight="700">x₁</text>
+
+    <rect x="752" y="658" width="416" height="44" rx="22" fill="#eee9f7"/>
+    <text x="960" y="688" text-anchor="middle" class="sans" fill="#493477" font-size="22" font-weight="750">π 改 coupling，不改 p₀、p₁</text>
+  </g>
+
+  <!-- ================================================================ -->
+  <!-- Panel 3: gamma makes a conditional path into a tube. -->
+  <!-- ================================================================ -->
+  <g id="noise-tube-panel">
+    <rect x="1300" y="278" width="572" height="448" rx="28" fill="#f4faf6" class="panel"/>
+    <circle cx="1340" cy="322" r="22" fill="#60ba82"/>
+    <text x="1340" y="331" text-anchor="middle" class="sans" fill="#fff" font-size="22" font-weight="800">3</text>
+    <text x="1377" y="333" class="sans ink" font-size="31" font-weight="800">噪聲：γₜ 撐開條件路徑</text>
+    <text x="1330" y="371" class="sans muted small">額外 Gaussian 只在中間出現</text>
+
+    <!-- Conditional tube; thickness is proportional to gamma_t. -->
+    <path d="M1385 545
+             C1460 544 1500 467 1585 466
+             C1668 465 1713 543 1779 553
+             C1713 563 1668 641 1585 640
+             C1500 639 1460 546 1385 545 Z"
+          fill="#dcefe3" stroke="#60ba82" stroke-width="2.5"/>
+    <path d="M1390 545 C1478 545 1512 521 1585 521 C1661 521 1705 547 1776 553" fill="none" stroke="#2a4ea3" stroke-width="4" marker-end="url(#arrow-indigo)"/>
+    <path d="M1390 545 C1474 527 1524 492 1588 488 C1654 485 1707 522 1776 553" fill="none" stroke="#7fbd95" stroke-width="2" stroke-dasharray="7 7"/>
+    <path d="M1390 545 C1474 563 1524 598 1588 618 C1654 610 1707 578 1776 553" fill="none" stroke="#7fbd95" stroke-width="2" stroke-dasharray="7 7"/>
+
+    <circle cx="1385" cy="545" r="16" fill="#4a90e2" stroke="#fff" stroke-width="4"/>
+    <text x="1385" y="584" text-anchor="middle" class="math" fill="#174f91" font-size="23" font-weight="700">x₀</text>
+
+    <!-- Generated dog is a data sample, never a lecturer/mascot. -->
+    <rect x="1728" y="507" width="114" height="114" rx="21" fill="#fff0e5" stroke="#f0803c" stroke-width="4"/>
+    <text x="1785" y="562" text-anchor="middle" class="sans" fill="#b74d13" font-size="18" font-weight="750">x₁</text>
+    <text x="1785" y="588" text-anchor="middle" class="sans" fill="#b74d13" font-size="16" font-weight="650">data</text>
+    <image x="1733" y="512" width="104" height="104" href="asset://dog-data-sample" xlink:href="asset://dog-data-sample" preserveAspectRatio="xMidYMid slice" clip-path="url(#dog-clip)"/>
+    <rect x="1728" y="507" width="114" height="114" rx="21" fill="none" stroke="#f0803c" stroke-width="4"/>
+    <text x="1785" y="650" text-anchor="middle" class="math" fill="#b74d13" font-size="23" font-weight="700">x₁ ∼ p₁</text>
+
+    <!-- Width measurement and endpoint constraints. -->
+    <path d="M1585 474 V632" stroke="#3d9460" stroke-width="2.5" marker-start="url(#arrow-green)" marker-end="url(#arrow-green)"/>
+    <rect x="1501" y="438" width="168" height="40" rx="20" fill="#fffdfb" stroke="#b9dcc6" stroke-width="1.8"/>
+    <text x="1585" y="466" text-anchor="middle" class="math" fill="#277548" font-size="23" font-weight="700">width ∝ γₜ</text>
+
+    <rect x="1378" y="660" width="410" height="42" rx="21" fill="#e5f3ea"/>
+    <text x="1583" y="688" text-anchor="middle" class="math" fill="#277548" font-size="24" font-weight="750">γ₀ = γ₁ = 0 ｜ 中間可 γₜ &gt; 0</text>
+  </g>
+
+  <!-- ================================================================ -->
+  <!-- Four special cases: the three knobs are columns, not slogans. -->
+  <!-- ================================================================ -->
+  <g id="special-cases-table">
+    <text x="48" y="765" class="sans ink" font-size="28" font-weight="800">前面學過的方法，都是三個旋鈕的特例</text>
+    <rect x="48" y="786" width="1824" height="296" rx="23" fill="#fffdfb" stroke="#cfd8e6" stroke-width="2.5"/>
+
+    <!-- Header -->
+    <path d="M48 809 Q48 786 71 786 H1849 Q1872 786 1872 809 V848 H48 Z" fill="#e9f0fa"/>
+    <text x="84" y="827" class="sans ink label">模型</text>
+    <text x="485" y="827" text-anchor="middle" class="sans ink label">路徑 (αₜ, βₜ)</text>
+    <text x="1087" y="827" text-anchor="middle" class="sans ink label">配對 π</text>
+    <text x="1600" y="827" text-anchor="middle" class="sans ink label">額外噪聲 γₜ</text>
+
+    <!-- Alternating flat rows. -->
+    <rect x="50" y="848" width="1820" height="58" fill="#fffdfb"/>
+    <rect x="50" y="906" width="1820" height="58" fill="#f9fbfe"/>
+    <rect x="50" y="964" width="1820" height="58" fill="#fffdfb"/>
+    <path d="M50 1022 H1870 V1058 Q1870 1080 1848 1080 H72 Q50 1080 50 1058 Z" fill="#f9fbfe"/>
+
+    <!-- Grid -->
+    <path d="M360 786 V1080 M785 786 V1080 M1388 786 V1080" stroke="#d9e0e9" stroke-width="2"/>
+    <path d="M48 848 H1872 M48 906 H1872 M48 964 H1872 M48 1022 H1872" stroke="#d9e0e9" stroke-width="2"/>
+
+    <!-- Row 1 -->
+    <text x="84" y="886" class="sans ink" font-size="25" font-weight="750">線性 FM</text>
+    <text x="572" y="886" text-anchor="middle" class="math ink" font-size="28">(1−t, t)</text>
+    <text x="1087" y="886" text-anchor="middle" class="sans ink" font-size="24" font-weight="650">獨立</text>
+    <text x="1600" y="886" text-anchor="middle" class="math ink" font-size="28">0</text>
+
+    <!-- Row 2 -->
+    <text x="84" y="944" class="sans ink" font-size="25" font-weight="750">Rectified flow</text>
+    <text x="572" y="944" text-anchor="middle" class="math ink" font-size="28">(1−t, t)</text>
+    <text x="1087" y="944" text-anchor="middle" class="sans ink" font-size="23" font-weight="650">上一輪 ODE 誘導</text>
+    <text x="1600" y="944" text-anchor="middle" class="math ink" font-size="28">0</text>
+
+    <!-- Row 3 -->
+    <text x="84" y="1002" class="sans ink" font-size="25" font-weight="750">VP diffusion</text>
+    <text x="572" y="1002" text-anchor="middle" class="math ink" font-size="27">(cos(πt/2), sin(πt/2))</text>
+    <text x="1087" y="1002" text-anchor="middle" class="sans ink" font-size="24" font-weight="650">獨立；p₀ = 𝒩(0,I)</text>
+    <text x="1600" y="1002" text-anchor="middle" class="math ink" font-size="28">0</text>
+
+    <!-- Row 4 -->
+    <text x="84" y="1060" class="sans ink" font-size="25" font-weight="750">Albergo 預設</text>
+    <text x="572" y="1060" text-anchor="middle" class="math ink" font-size="28">(1−t, t)</text>
+    <text x="1087" y="1060" text-anchor="middle" class="sans ink" font-size="24" font-weight="650">獨立</text>
+    <rect x="1463" y="1030" width="274" height="42" rx="21" fill="#e5f3ea"/>
+    <text x="1600" y="1060" text-anchor="middle" class="math" fill="#277548" font-size="27" font-weight="750">√(2t(1−t))</text>
+  </g>
+
+  <!-- ================================================================ -->
+  <!-- Inference: a compact causal chain, not a promotional headline. -->
+  <!-- ================================================================ -->
+  <g id="inference">
+    <rect x="48" y="1104" width="1824" height="70" rx="24" fill="#e9f0fa" stroke="#c9d8ed" stroke-width="2"/>
+    <rect x="73" y="1117" width="224" height="44" rx="22" fill="#dcefe3"/>
+    <text x="185" y="1147" text-anchor="middle" class="math" fill="#277548" font-size="29" font-weight="800">γₜ &gt; 0</text>
+    <text x="324" y="1148" class="sans ink" font-size="29" font-weight="750">買到 score</text>
+    <path d="M516 1139 H607" stroke="#2a4ea3" stroke-width="4" marker-end="url(#arrow-indigo)"/>
+    <text x="642" y="1148" class="sans ink" font-size="28" font-weight="650">conditional path 變成管子</text>
+    <path d="M1074 1139 H1165" stroke="#2a4ea3" stroke-width="4" marker-end="url(#arrow-indigo)"/>
+    <text x="1200" y="1148" class="sans ink" font-size="28" font-weight="650">速度要跨管子平均</text>
+    <path d="M1502 1139 H1593" stroke="#2a4ea3" stroke-width="4" marker-end="url(#arrow-indigo)"/>
+    <text x="1627" y="1148" class="sans" fill="#b74d13" font-size="28" font-weight="800">軌跡會彎一點</text>
+  </g>
+</svg>

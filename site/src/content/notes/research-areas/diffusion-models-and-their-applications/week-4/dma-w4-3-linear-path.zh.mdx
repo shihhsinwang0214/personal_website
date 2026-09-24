@@ -9,8 +9,8 @@ title: "代入最簡單的一條路：直線插值"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-09-13
-summary: "取 α_t=t、σ_t=1−t，條件速度就是「終點減起點」；換到 ε 座標會看到它其實帶了 1/t² 的加權。條件路徑是直的，邊際軌跡卻是彎的——彎來自交叉，交叉來自配對。"
+updated: 2026-09-21
+summary: "把端點直接連成直線，條件速度只是終點減起點；但交錯的配對會在同一位置互相平均，讓真正的 ODE 軌跡重新彎起來。"
 demos: []
 references:
   - label: "Liu, Gong & Liu, Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow (ICLR 2023)"
@@ -36,9 +36,9 @@ import Ref from '../../../components/Ref.astro';
 # 代入最簡單的一條路：直線插值
 
 <Objectives>
-- **寫出線性條件路徑的訓練目標，並說出程式碼要改的是哪一行。** 條件速度是常數 $x_1-x_0$，`target` 那一行而已。
-- **說出邊際軌跡為什麼是彎的，並把「彎」一路追到「配對方式」。** 用兩組配對就能把交叉點上的平均速度算出來，而那個方向沒有任何一條條件直線在走。
-- **把 FM 的 loss 換到 $\epsilon$ 座標，看出它隱含一個 $1/t^2$ 的加權。** 並說出它和 DDPM 的 $\mathcal L_{\text{simple}}$（均勻加權）差的就是這個權重。
+- **寫出直線插值的條件速度與訓練目標。** $x_t=t x_1+(1-t)x_0$，所以目標只是 $x_1-x_0$。
+- **用兩組相交配對算出邊際速度。** 說明條件路徑雖直，平均後的 ODE 軌跡仍可能彎。
+- **把 velocity MSE 換成 noise MSE。** 看出均勻時間的線性 FM 隱含 $1/t^2$ 權重，和 DDPM 的 $\mathcal L_{\text{simple}}$ 不同。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -141,16 +141,9 @@ $$
 
 <Ref to="dma-denoising-regression"/> 說過 forward process 與 weighting 可以分開設計，這裡是它最乾淨的例子：兩個模型可以只差加權，訓出來的結果卻不一樣。<Ref to="dma-fm-vs-diffusion"/> 會把這兩軸攤在同一張表上。
 
-<VizPlan id="w4-3-crossing-static" title="交叉點上的平均：一張圖" type="static">
-- 檔名 `imgs/w4-3-1.png`，放在「直不直，決定要走幾步」之後、「消化一下」之前。
-- 版面：左右兩塊，共用同一組四個團（左下、右下為藍色起點；左上、右上為橘色資料）。
-  - **左「隨機配對」**：兩條綠色直線交叉成一個 X，交叉點畫一個小白圈；從白圈出發畫兩支細綠箭頭 $(2,2)$ 與 $(-2,2)$，再疊一支垂直向上的粗靛藍箭頭標 $u_t=(0,2)$；旁註「水平分量抵消，剩下往上」。再用兩條靛藍曲線畫實際的邊際軌跡：先向中間靠攏、再分岔到左上與右上，明顯是彎的。
-  - **右「依位置配對」**：左下→左上、右下→右上兩條平行的綠色直線，完全不交叉；邊際軌跡與條件直線重合，兩條直的靛藍線。
-- 兩塊下方各標一個數字：左「彎曲度 1.59 · 4 步誤差 1.49」、右「彎曲度 1.00 · 4 步誤差 0.03」。
-- 底部一句：「兩邊的 $p_0$ 與 $p_1$ 完全相同；差別只在誰配誰。」
-- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、噪聲藍 `#4a90e2`／資料橘 `#f0803c`／強調靛 `#2a4ea3`／路徑綠 `#60ba82`）。
-- 長寬比：約 16:8。
-</VizPlan>
+![交叉點上的平均：一張圖](./imgs/w4-3-1.png)
+
+*圖：相同端點分布下，隨機配對會在交叉處互相抵消並產生先聚再分的彎路；依位置配對則留下平行直線。*
 
 ## 消化一下
 
@@ -185,7 +178,7 @@ $$
 </QuizBlock>
 
 <Bridge to="dma-fm-vs-diffusion">
-FM 的標準形式有了，軌跡為什麼彎也知道了。下一篇把 FM 和 <Ref week="dma-week-diffusion"/> 的 diffusion 正式放在一起：哪些真的是同一件事、哪些只是看起來像。
+直線插值沒有自動帶來直軌跡，改寫成 noise prediction 後也不是 DDPM 的均勻 MSE。那兩個框架究竟在哪裡相同、又從哪裡開始分開？下一篇把路徑與回歸目標放到同一組公式裡比較。
 </Bridge>
 
 ## 參考文獻

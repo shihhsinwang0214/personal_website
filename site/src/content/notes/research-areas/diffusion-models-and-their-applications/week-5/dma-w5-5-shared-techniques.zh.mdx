@@ -4,13 +4,14 @@ label: "dma-shared-techniques"
 prereqs:
   - math-higher-order
   - math-kl
+  - ml-conditioning
 lang: "zh"
 title: "共用技巧：guidance、高階 solver、時間加權"
 category: "courses"
 group: "Unit 3 · Stochastic Interpolants 與共用技巧"
 status: "available"
-updated: 2026-09-13
-summary: "把 classifier-free guidance、高階 solver 與時間加權用曲率的語言重看一次：它們是同一個物件在不同座標下的寫法，而且各自在動哪一個旋鈕、付什麼代價都算得出來。"
+updated: 2026-09-21
+summary: "Guidance、solver 與時間取樣都會改變有限預算下的結果，但動的位置不同：一個改向量場、一個改積分誤差、一個改訓練權重。"
 demos: []
 references:
   - label: "Ho & Salimans, Classifier-Free Diffusion Guidance (NeurIPS 2021 Workshop)"
@@ -41,18 +42,18 @@ import Ref from '../../../components/Ref.astro';
 # 共用技巧：guidance、高階 solver、時間加權
 
 <Objectives>
-- 寫出 classifier-free guidance 在 score 與速度兩種座標下的形式，並說出它真正生成的是哪一個分布。
-- 說出高階 solver 從曲率的觀點做了什麼、又付了什麼。
-- 把時間取樣與加權連回 <Ref to="dma-denoising-regression"/> 與 <Ref to="dma-linear-path"/> 的 SNR 討論。
+- **寫出 classifier-free guidance 的 score／velocity 形式。** 說出 $w>1$ 是刻意改變生成動力，不是更精確地取樣原條件分布。
+- **用 NFE 比較 Euler、Heun 與 DPM-Solver。** 說出高階方法降低哪一項誤差，又多付幾次網路評估。
+- **分清時間取樣與 loss weighting。** 沒有 importance correction 時會改 objective；有 correction 時只改 Monte Carlo estimator。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 為什麼可以一次理解三個技巧
+## 路徑決定了，有限預算還能花在哪裡？
 
-這一篇的三個技巧在 diffusion 與 FM 的論文裡各有各的寫法，看起來像三套東西。但 <Ref to="dma-fm-vs-diffusion"/> 已經說過：在 Gaussian 路徑上兩邊是**同一個物件的兩套座標**。所以這些技巧也只需要理解一次，然後在兩套座標之間換來換去。
+配對與路徑決定「理想上要走哪裡」，但真正生成時還有三種常見需求：條件要更明顯、步數要更少、有限訓練預算要放在更有用的時刻。它們分別帶出 guidance、solver 與時間取樣。
 
-而 <Ref to="dma-error-theory"/> 又給了我們一個共同的度量：曲率積分。有了它，「這個技巧在做什麼」就有了統一的答案。
+在 Gaussian 路徑上，score 與 velocity 只是兩套座標，所以同一個技巧不必解釋兩次；<Ref to="dma-error-theory"/> 的誤差式則讓我們看出，每個選擇究竟改了哪一項成本。
 
 <Ask>
 這三個技巧在三份不同的論文裡、用三套不同的語言寫，<br />
@@ -76,7 +77,7 @@ $$
 \propto p_t(x\mid c)^{w}\,p_t(x\mid\varnothing)^{1-w}
 $$
 
-正規化之後的分布——把條件分布**銳化**。這不是任何一條合法的邊際路徑，$\tilde u_t$ 也不生成任何從 $p_0$ 出發的 $p_t$。
+正規化之後的分布——把條件分布**銳化**。但要小心一步：$\tilde s_t$ 是這一族分布的 score，不代表 $\tilde u_t$ 會把 $p_0$ 搬成這一族。一個速度場要生成某條邊際路徑，得滿足那條路徑的 continuity equation（<Ref to="dma-sampler-family"/> 那兩行證明檢查的正是這件事）；$\tilde u_t$ 只是兩個速度的線性外推，沒有理由滿足它。所以 $w \gt 1$ 跑出來的終點，**既不是 $p_1(\cdot\mid c)$、也不是那個銳化的分布**。
 
 > **$w=1$ 已經是正確答案了。$w \gt 1$ 是刻意把分布改掉，換一個「更像那一類」的樣子。**
 
@@ -115,7 +116,7 @@ $$
 
 等於說：**先把已經知道的彎曲扣掉，剩下要近似的部分本來就更直。** 通用的 Heun 對這個線性部分一樣要用近似，白花了精度。
 
-值得注意這和這個單元的兩種拉直是同一個目標的三種做法：
+這和這個單元的兩種拉直，剛好是同一個目標的三種做法：
 - <Ref to="dma-rectified-flow"/>：改**配對**，讓真正的軌跡變直。
 - <Ref to="dma-minibatch-ot"/>：也是改配對，但在訓練當下改。
 - DPM-Solver：不改軌跡，改**用什麼座標去看它**——在那個座標裡它比較直。
@@ -131,7 +132,16 @@ $$
 | DDPM 實際在跑的 $\mathcal L_{\text{simple}}$ | **均勻**——那是把上面整個 $w(t)$ 刻意丟掉的結果 |
 | <Ref to="dma-linear-path"/> 的線性 FM、均勻抽 $t$ | 換到 $\epsilon$ 座標是 $1/t^2$ |
 
-所以「加權」從來不是一個新旋鈕，它一直都在，只是常常沒被寫出來：訓練時 $t$ 的分布，和目標的 parametrization 一起決定了每個 noise level 的有效權重。
+（第一列沿用 <Ref week="dma-week-diffusion"/> 的**離散**記號：$\alpha_t=1-\beta_t$、$\bar\alpha_t=\prod_{s\le t}\alpha_s$。它和本篇其他地方那個連續時間的 $\alpha_t$——$x_t=\alpha_tx_0+\sigma_t\epsilon$ 裡的振幅，在 VP 下等於 $\sqrt{\bar\alpha_t}$——不是同一個東西。）
+
+所以「加權」一直都在，只是常常沒被寫出來。更精確地說，要先分兩種情況。若直接抽 $t\sim q(t)$ 並平均 loss，$q(t)$ 會和 parametrization 一起改變每個 noise level 的**有效權重**，也就是改變 objective。若原本想保留權重 $w(t)$，改從 $q(t)$ 抽樣後乘回 $w(t)/q(t)$，那只是 importance sampling：objective 不變，改的是梯度估計的變異數。
+
+$$
+\int w(t)\,\ell(t)\,dt
+=\mathbb E_{t\sim q}\!\left[\frac{w(t)}{q(t)}\ell(t)\right].
+$$
+
+白話說：**不補權重，改抽樣就是改題目；補回去，才只是換一種比較省樣本的算法。**
 
 那哪一段 $t$ 最值得花訓練預算？**兩端都太容易。** $t\approx0$ 時 $x_t$ 幾乎就是噪聲，速度幾乎是常數 $\mathbb E[x_1]-x_0$；$t\approx1$ 時 $x_t$ 幾乎就是 $x_1$，去噪幾乎是恆等映射。困難全部在**中段**——那裡 $p_t$ 的結構正在形成、條件直線交叉最密、速度場最彎。
 
@@ -145,19 +155,19 @@ $$
 
 最後這一條把散在 <Ref to="dma-denoising-regression"/>、<Ref to="dma-linear-path"/> 和這裡的三處加權討論收成一句話：
 
-> **選 $t$ 的分布，就是選 $\log\mathrm{SNR}$ 上的權重。**
+> **沒有 importance correction 時，選 $t$ 的分布就是選 $\log\mathrm{SNR}$ 上的權重；有 correction 時，改的是估計效率，不是 objective。**
 
 回到 <Ref to="dma-lab-flow-matching"/> 作業 2 問的那個二選一（換 $t$ 的分布，動的是 log-log 線的**斜率**還是**高度**）：答案是**高度**。斜率是取樣器的階數，換訓練時的 $t$ 分布動不了它；動的是同一個步數下的誤差水準。
 
 <Question id="Q1">
-把這個單元的技巧排在一起，會發現它們動的是不同的旋鈕，但衝的是同一個量。
+把這個單元的技巧排在一起，會發現它們動的是不同的設定，但衝的是同一個量。
 
 **如果只能挑一個技巧來改善「10 步取樣的品質」，該挑哪一個？為什麼其他的不行？**
 
 <Answer>
-先把它們攤開，各自動什麼、對誤差做什麼：
+沒有一個技巧在所有情況都先贏。先把它們攤開，看目前是哪種誤差佔上風：
 
-| 技巧 | 動的旋鈕 | 對誤差的影響 |
+| 技巧 | 動的設定 | 對誤差的影響 |
 |---|---|---|
 | ODE → SDE（$\varepsilon \gt 0$） | 取樣器 | 加自我修正，代價是每一步都注入噪聲 |
 | Reflow | 配對 | 壓 $\int\|\ddot x\|$，代價是重訓與失去多樣性 |
@@ -166,32 +176,15 @@ $$
 | Guidance | 速度場 | **放大** $\int\|\ddot x\|$，需要更多步 |
 | 時間加權 | 訓練時的 $t$ 分布 | 把模型容量放在曲率大的 $t$ |
 
-10 步是**很少**的步數，所以逐項刪：
+若精確向量場的 10 步結果就很差，主因是離散化；這時改配對或 reflow 直接壓曲率，通常最有效，高階 solver 則在軌跡夠光滑時再省一截。若精確場走得好、學到的模型卻偏離，問題是模型誤差；時間加權可能更重要，SDE 的修正也可能在只有 10 步時就值得用。Guidance 則是在改任務本身，強度越大，通常越需要替 solver 留更多預算。
 
-- **SDE 不行。** <Ref to="dma-sampler-family"/> 的 demo 量過：修正需要足夠大的 $\varepsilon$ 和足夠的剩餘時間。10 步之下每一步注入的噪聲很大，修正根本來不及生效。
-- **高階 solver 幫助有限。** 相同 NFE 下 Heun 的步長是兩倍，10 NFE 等於 5 步，而 $\int\|\dddot x\|$ 在彎的軌跡上不小。它是加分項，不是主力。
-- **Guidance 是反方向的。** 如果任務需要高 guidance，那更該先把軌跡拉直。
-- **時間加權有幫助但間接。** 它改善的是「網路在中段學得多好」，不是「軌跡有多直」。
-
-剩下的就是**改配對**：minibatch OT 或 reflow。它們直接壓 <Ref to="dma-error-theory"/> 那條 log-log 線的高度，而在 10 步這種區間，高度就是一切。<Ref to="dma-rectified-flow"/> 的 demo 也給了數字：一輪 reflow 讓 1 步 Euler 的誤差從約 1.4 掉到 0.1。
-
-不過要補一句誠實的話：**這個排序是針對「少步數」這個目標的。** 如果目標換成「不限步數的最佳品質」，答案會反過來——那時候多步的 SDE 取樣往往贏，而確定性配對失去 score 反而變成缺點。<Ref to="dma-lab-interpolants"/> 會把這個交叉點實際量出來。
+所以答案不是固定選項，而是一個診斷順序：**先用精確場或高精度解把模型誤差與離散化誤差分開，再選直接作用在主因上的方法。** 本課 toy 裡精確場已知、曲率又是主因，因此會優先選 minibatch OT 或 reflow；換到真實模型，排序可能改變。
 </Answer>
 </Question>
 
-<VizPlan id="w5-5-one-target-many-knobs" title="六個技巧，一個共同的靶" type="static">
-- 檔名 `imgs/w5-5-1.png`，放在 Q1 之後、「消化一下」之前。
-- 版面：中央一個大靶心寫「Euler 誤差 ≲ $C_L\,h\int\|\ddot x\|\,dt$」，把式子裡的三個部分分別用不同顏色標示（$C_L$ 灰、$h$ 靛、積分綠）。四周六個方塊，各用一條箭頭指向它真正影響的那個部分：
-  - 「Reflow」→ 積分（綠），箭頭標「壓小」，向下的箭頭。
-  - 「Minibatch OT」→ 積分（綠），「壓小」。
-  - 「Guidance」→ 積分（綠），箭頭標「放大 ≈ w 倍」，**向上**的箭頭，用紅色。
-  - 「高階 solver」→ $h$（靛），標「$h\to h^2$，但被積函數升階」。
-  - 「ODE→SDE」→ 靶心外面畫一個小圈，標「不是壓這個量：改成『錯不會全留下』」。
-  - 「時間加權」→ 靶心外面另一個小圈，標「不是壓這個量：改成『中段學得更好』」。
-- 底部一句：「六個技巧、四種可以轉的東西（取樣器／配對／訓練時的 $t$ 分布／$\varepsilon_t$），但只有一個共同的靶。」
-- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、強調靛 `#2a4ea3`／路徑綠 `#60ba82`／放大用紅 `#d94f4f`）。
-- 長寬比：約 16:10。
-</VizPlan>
+![六個技巧，一個共同的靶](./imgs/w5-5-1.png)
+
+*圖：六個技巧，一個共同的靶。它們分別改動配對、取樣器、速度場或訓練權重，最後都要用終點誤差衡量得失。*
 
 ## 消化一下
 
@@ -218,10 +211,10 @@ Heun 相對 Euler 的優勢在什麼情況下會消失？
 <QuizBlock id="w5-5-c">
 訓練時把 $t$ 集中在中段的理由是什麼？
 <Option>中段的 loss 數值最大。</Option>
-<Option correct>中段是 $p_t$ 結構正在形成、速度場最彎、模型誤差對終點影響最大的區域。</Option>
+<Option correct>若不做 importance correction，這會把有效訓練權重移到中段；它是常見的實務選擇，不是曲率定理自動推出的結論。</Option>
 <Option>兩端的資料太少。</Option>
 <Explanation>
-loss 數值大不等於重要——$t\approx0$ 的 $\epsilon$-loss 很大，但那裡的目標幾乎是常數，很容易學。重要性由「誤差怎麼傳到終點」決定。
+抽樣分布與加權必須一起看：不補 $1/q(t)$ 就會改 objective，補回去則只改估計變異數。本課沒有推導逐時刻的曲率分布，所以不能把「中段最好」當成定理。
 </Explanation>
 </QuizBlock>
 
@@ -231,12 +224,12 @@ loss 數值大不等於重要——$t\approx0$ 的 $\epsilon$-loss 很大，但�
 <Option>$w$ 越大，終點的散布越小。</Option>
 <Option correct>$w$ 越大，終點分布越接近該類別的真實分布，只是需要更多步。</Option>
 <Explanation>
-恰好相反：$w \gt 1$ 生成的是 $p_t(\cdot\mid c)^w p_t(\cdot\mid\varnothing)^{1-w}$，是被**刻意銳化**的分布。demo 量到「終點分布與該類資料的距離」在 $w=1$ 最小、之後單調變大。多步數只會讓你更精確地取樣到那個被改掉的分布。
+恰好相反。$w \gt 1$ 瞄準的是被**刻意銳化**的 $p_t(\cdot\mid c)^w p_t(\cdot\mid\varnothing)^{1-w}$——而正文說過，實際跑出來的連它都不是。demo 量到「終點分布與該類資料的距離」在 $w=1$ 最小、之後單調變大。多步數只會讓你更精確地解那條被改掉的 ODE。
 </Explanation>
 </QuizBlock>
 
 <Bridge to="dma-lab-interpolants">
-最後一篇動手：在同一個 toy 上跑四種配對、把曲率積分算出來、驗證它和 Euler 誤差落在一條線上，並實測 ODE 與 SDE 取樣在幾步的時候交叉。
+現在每個方法都對應到一個可檢查的量：配對改曲率、solver 改離散化階數、$\varepsilon_t$ 改修正與噪聲的平衡、時間取樣改訓練權重。最後一篇把它們放回同一個 toy，先分辨誤差來源，再看哪個選擇真的有效。
 </Bridge>
 
 ## 參考文獻

@@ -6,6 +6,7 @@ prereqs:
   - ml-maximum-likelihood
   - ml-evaluating-generative-models
   - math-kl
+  - ml-latent-variables-elbo
 lang: "zh"
 title: "生成到底在學什麼？"
 category: "courses"
@@ -55,9 +56,8 @@ import Remark from '../../../components/Remark.astro';
 # 生成到底在學什麼？
 
 <Objectives>
-- **把「生成」翻成一個機率的問題。** 說明「生成一張新圖」就是「從看不見的 distribution $p_{\text{data}}$ 再抽一個點」，並分清樣本、mode 與 distribution 的關係。
-- **說明直接學密度可能會遇到什麼問題。** 訓練卡在 $Z_\theta$ 的梯度（要估它就得先從 $p_\theta$ 抽樣），取樣則卡在「密度學得近，不代表 score 也學得近」——而取樣真正需要的物件正是 score。
-- **說明「換成學一個生成函數（transport map）」的想法，為什麼會把我們推向自己指定路徑。** 沒有配對的 $L_2$ 最佳解是一張平均圖；normalizing flow 把 likelihood 換回來了，但代價是每一步都要可逆、要算得動 log-det——而那個代價是為一個本來就不唯一的選擇付的。
+- **生成模型到底在學什麼？** 「生成一張新圖」不是找回某一筆資料，也不是只覆蓋幾個 mode，而是學到一個接近 $p_{\text{data}}$ 的 distribution，讓我們可以再從中抽樣。
+- **為什麼我們最後會想自己指定一條路徑？** 直接學 density 會卡在 normalizing constant 與 sampling；直接學 transport map，沒有 pairing 的 $L_2$ 會塌成平均，normalizing flow 又必須用可逆性與 log-det 換取 likelihood。Diffusion 的選擇，是把原本不唯一的生成方式改成一條自己知道怎麼走的路。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -444,7 +444,11 @@ FFJORD 允許 $v_\theta$ 是任意網路，付出的代價是：
 </QuizBlock>
 
 <Bridge to="dma-forward-process">
-本篇把「生成」翻成「學一個把 $\mathcal N(0,I)$ 搬成 $p_{\text{data}}$ 的 $G$」，然後看到兩件事：逐樣本的 $L_2$ 會塌成一張平均圖，而 normalizing flow 拿到精確 likelihood 的代價是可逆性與 Jacobian。最後我們換了一個想法：自己把路徑定下來，讓每一步都變成回歸。下一篇說明這條路為什麼選「加噪聲」，以及它會把 $x_0$ 帶到哪裡。
+這一篇先把「生成新樣本」翻成「學會從 $p_{\text{data}}$ 再抽一個點」。直接學 density 會卡在 normalizing constant；直接學一個 transport map，沒有 pairing 的 $L_2$ 會塌成平均，而 normalizing flow 又必須用可逆性與 Jacobian 換取 likelihood。
+
+這些困難把我們帶到另一個問題：**如果起點到資料之間的路不只一條，我們能不能自己選一條容易學的？**
+
+DDPM 的答案，是先把方向反過來：從資料出發，一步一步加入 Gaussian noise，親手造出一條通往簡單分布的路。下一篇會把這條 forward process 定下來，並看見為什麼它的任意時刻都可以直接抽樣。
 </Bridge>
 
 ## 參考文獻

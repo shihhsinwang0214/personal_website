@@ -9,8 +9,8 @@ title: "實作：Parity 與 Markov Toy 上的 Masked Diffusion"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion I"
 status: "available"
-updated: 2026-09-07
-summary: "在長度 8 的 parity 序列與長度 16 的 Markov 序列上訓 masked diffusion：實作 absorbing forward、加權 masked cross-entropy、跳步取樣；畫出「每步翻開幾個 vs 合法率」曲線，並比較 absorbing 與 uniform。這組 toy 下一個單元會以連續時間重寫。"
+updated: 2026-09-21
+summary: "用 parity 與 Markov toy 分開量模型誤差、factorization error 與修正能力，並實作 absorbing／uniform 兩條離散 forward chain。"
 demos: []
 references:
   - label: "Sahoo et al., Simple and Effective Masked Diffusion Language Models (NeurIPS 2024)"
@@ -27,7 +27,6 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
@@ -35,9 +34,9 @@ import Ref from '../../../components/Ref.astro';
 # 實作：Parity 與 Markov Toy 上的 Masked Diffusion
 
 <Objectives>
-- 建立這兩個單元共用的離散 toy：parity 序列（相依集中在一個自由度）與 Markov 序列（相依散在相鄰位置），並能精確算出所有 conditional marginal 當標準答案。
-- 親手實作 absorbing forward、<Ref to="dma-masked-diffusion"/> 的加權 masked cross-entropy、以及跳步取樣。
-- 產出三張圖：訓練 loss 與精確 conditional 的差距、「每步翻開幾個 vs 合法率」曲線、absorbing 與 uniform 的修正實驗。
+- **建立 parity 與 Markov 兩個離散 toy。** 前者把相依藏在全域 parity，後者把相依放在相鄰位置，兩者都能算精確 conditional marginal。
+- **實作 masked diffusion 的訓練與跳步取樣。** 包含 absorbing forward 與加權 masked cross-entropy。
+- **用三張圖分辨三種誤差。** 比較模型逼近、每步翻開數造成的 factorization，以及 uniform chain 的修正能力。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -51,11 +50,9 @@ import Ref from '../../../components/Ref.astro';
 
 網路：小型 transformer（2 層、寬 64、雙向 attention），輸入 $x_t$（含 `[MASK]` 符號的 $K+1=3$ 類 embedding）與 $t$ 的 embedding，對每個位置輸出 $K=2$ 個 logits。若採用 <Ref to="dma-masked-diffusion"/> 說的「網路不需要看 $t$」，可以把 $t$ 拿掉當作業 4 的對照。$T=32$，線性 schedule $\bar\alpha_t=1-t/T$。
 
-<VizPlan id="w6-5-notebook" title="Discrete Diffusion 單元實作 notebook" type="notebook">
-- 單一 notebook，四個 section 對應下面四個步驟，每個 section 有 TODO 骨架與參考解答（折疊）。
-- 提供 `toy_discrete.py`：兩個資料生成器、`exact_conditional(xt)`（查表算出每個被遮位置的真實 marginal）、`legal(x)`（parity 合法性）、`kl_to_data(samples)`（Markov toy 的樣本分佈與資料分佈之 KL 估計）。<Ref week="dma-week-discrete-ii"/> 的 notebook 沿用同一份檔案。
-- 所有曲線圖用與 <Ref to="dma-lab-flow-matching"/> 圖 b 相同的座標慣例（橫軸步數對數刻度）。
-</VizPlan>
+[下載 Week 6：Discrete diffusion 與 factorization error notebook（.ipynb）](/personal_website/notes/notebooks/diffusion-models-applications/dma-w6-lab.ipynb)
+
+**Notebook 內容。** 在長度 8 的偶數 parity 狀態上實作 absorbing forward，列舉精確 conditional marginal，再把 exact joint reverse 與 factorized reverse 的合法率分開比較。狀態空間可完整列舉，所以標準答案不來自網路。
 
 ## 步驟 1：forward 與訓練
 
@@ -101,7 +98,7 @@ for step in range(n_steps):                   # 加權 masked cross-entropy
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w6-5-decompose.html" class="demo-frame" title="兩種誤差分開看：互動 demo" style="height: 760px; width: 100%; border: none;"></iframe>
 
-**互動 demo：兩種誤差分開看。** 這是圖 a 的「標準答案版」：Markov toy、conditional marginal 用前向後向精確算，模型誤差用一個旋鈕 $\epsilon$ 模擬（把 marginal 往均勻拉 $\epsilon$）。縱軸用一個好懂的統計量——**樣本的切換率**（相鄰兩格不同的比例），資料的真值是 **0.10**。讀法就兩句話：**三條線在 $k=1$ 的高低差是模型誤差**（完美網路實測 0.09～0.11，$\epsilon=0.15$ 是 0.17～0.18），**同一條線隨 $k$ 爬升的那一段是因子化誤差**（完美網路一路爬到 $k=16$ 的 **0.50**，也就是「每格獨立擲硬幣」）。
+**互動 demo：兩種誤差分開看。** 這是圖 a 的「標準答案版」：Markov toy、conditional marginal 用前向後向精確算，模型誤差用一個設定 $\epsilon$ 模擬（把 marginal 往均勻拉 $\epsilon$）。縱軸用一個好懂的統計量——**樣本的切換率**（相鄰兩格不同的比例），資料的真值是 **0.10**。讀法就兩句話：**三條線在 $k=1$ 的高低差是模型誤差**（完美網路實測 0.09～0.11，$\epsilon=0.15$ 是 0.17～0.18），**同一條線隨 $k$ 爬升的那一段是因子化誤差**（完美網路一路爬到 $k=16$ 的 **0.50**，也就是「每格獨立擲硬幣」）。
 
 <Remark label="補充" summary="為什麼用切換率，而不是直接算 KL">
 Markov toy 的狀態空間是 $2^{16}$，理論上可以查表算精確的 KL，但用有限樣本估 KL 會有很大的偏差（沒出現過的序列該算多少？），在 $k$ 小的時候那個偏差會蓋掉真正的訊號。
@@ -166,16 +163,9 @@ $L=N=8$ 代進去，$q=0.5723$、合法率 **78.6%**。所以量到 78–79% 不
 </Answer>
 </Question>
 
-<VizPlan id="w6-5-two-toys" title="兩個 toy，兩種相依" type="static">
-- 檔名 `imgs/w6-5-1.png`，放在 Q1 之後、「作業」之前。
-- 版面：左右兩塊，各一個 toy；每塊上層畫資料、下層畫「步數 vs 誤差」的示意曲線。
-  - **左「parity（$L=8$）」**：上層畫四條合法序列與一條不合法序列（後者打叉），旁註「相依全部藏在最後一個自由度」。下層一條**階梯狀**的曲線：$k=1$ 在 100%、$k\ge2$ 全部掉到 50% 一條水平線；旁註「誤差是**全有全無**的」。
-  - **右「Markov（$L=16$，相鄰以 0.9 相同）」**：上層畫三條資料（長長的 0 串與 1 串）與一條 $k$ 大時生出的樣本（出現 `0101` 這種碎片，用醒目色框出）。下層一條**漸變**下降的曲線（切換率從 0.50 降到 0.10）；旁註「相依處處都有，誤差是連續的」。
-- 兩塊下方一條共用橫幅：「$k=1$ 這一欄兩邊都沒有因子化誤差——那裡是 autoregressive。」
-- 底部一句：「挑 toy 的標準只有一個：所有 conditional marginal 都要能查表算出來，這樣『網路學得好不好』才有標準答案。」
-- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、原字橘 `#f0803c`／不合法用紅 `#d94f4f`／曲線靛 `#2a4ea3`）。
-- 長寬比：約 16:8。
-</VizPlan>
+![兩個 toy，兩種相依](./imgs/w6-5-1.png)
+
+*圖：Parity toy 把全域相依集中在最後一個自由位元；Markov toy 則把相依分散到每一對相鄰 token。*
 
 ## 作業
 
@@ -205,7 +195,7 @@ Parity toy 上 8 步取樣的合法率是 78–79%，而不是接近 100%。最�
 </QuizBlock>
 
 <Bridge to="dma-why-continuous-time">
-這個單元把 <Ref week="dma-week-diffusion"/> 翻譯到離散狀態空間：已知的 Markov chain、$x_0$-parametrization、加權 masked cross-entropy、因子化誤差當曲率。留下的問題是「翻錯的字能不能改、要付什麼代價」。下一個單元換成連續時間的語言——rate——這個問題會有一個短答案，score 與 sampler 的語言也會被重建回來。
+U4 已經能訓練與取樣，但「修正多少」仍只能靠換掉整條 transition matrix 來回答。U5 把時間步縮小到只剩瞬間跳轉的 rate，讓 forward process、反向 score 與取樣時的 remasking 可以分開設計。
 </Bridge>
 
 ## 參考文獻

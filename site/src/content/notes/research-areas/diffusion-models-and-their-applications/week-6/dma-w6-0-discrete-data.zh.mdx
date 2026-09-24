@@ -9,8 +9,8 @@ title: "資料是 Token 的時候，噪聲是什麼？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion I"
 status: "available"
-updated: 2026-09-07
-summary: "文字、蛋白質序列、分子圖都是 token，沒有「加一點 Gaussian noise」這件事。盤點前三個單元哪些環節壞了、哪些還活著，把「加噪聲」換成一條已知的 Markov chain，並釐清：discrete 指的是狀態空間，不是時間。"
+updated: 2026-09-21
+summary: "Token 沒有半個字，也不能加一點 Gaussian noise。離散擴散保留已知 forward process 與反向學習，只把連續加噪換成一條 Markov chain。"
 demos: []
 references:
   - label: "Austin et al., Structured Denoising Diffusion Models in Discrete State-Spaces (NeurIPS 2021)"
@@ -41,14 +41,14 @@ import Ref from '../../../components/Ref.astro';
 # 資料是 Token 的時候，噪聲是什麼？
 
 <Objectives>
-- 說出 <Ref week="dma-week-diffusion"/> 的框架裡，哪些環節依賴「狀態是連續的」、哪些只依賴「forward process 是已知的 Markov chain」。
-- 把「加噪聲」在離散狀態空間上換成一條合法的 forward chain，並說出兩個標準選擇（uniform 與 absorbing / mask）各自的終點分佈。
-- 分清「discrete」指的是**狀態空間**離散，不是時間離散，並說出為什麼這件事容易混。
+- **指出 Gaussian diffusion 搬到 token 時壞在哪裡。** 分清哪些推導需要連續空間，哪些只需要已知的 Markov forward process。
+- **設計一條離散 forward chain。** 說出 uniform 與 absorbing／mask 兩種選擇如何破壞資訊，以及各自走向什麼終點分布。
+- **分清狀態離散與時間離散。** Token 是離散狀態；forward process 仍可用離散時間或連續時間描述。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 換一種資料
+## Token 沒有「半個字」
 
 前三個單元的資料一直是一堆 $\mathbb R^d$ 裡的點：一張圖是 3072 個實數，一個 toy 樣本是平面上的一個座標。這個單元把資料換掉。
 
@@ -56,7 +56,7 @@ import Ref from '../../../components/Ref.astro';
 
 於是 <Ref week="dma-week-diffusion"/> 的第一步就出問題了。那個單元的起點是「把 $x_0$ 一點一點加 Gaussian noise，直到變成 $\mathcal N(0,I)$」。對一串 token，$x_0+\sigma\epsilon$ 根本不是一個合法的物件。
 
-先別急著找替代品。值得先做的是**盤點**：前三個單元的框架裡，哪些東西真的用到了「狀態是連續的」，哪些只是用到了「forward process 是一條我們自己寫好的、邊際好算的鏈」。盤點完會發現，壞掉的比想像中少。
+先別急著找替代品，先**盤點**一次：前三個單元的框架裡，哪些東西真的用到了「狀態是連續的」，哪些只是用到了「forward process 是一條我們自己寫好的、邊際好算的鏈」。盤點完會發現，壞掉的比想像中少。
 
 ## 盤點：哪些壞了，哪些還活著
 
@@ -120,17 +120,9 @@ import Ref from '../../../components/Ref.astro';
 
 代價也有，而且和 <Ref to="dma-sampler-family"/> 那個「ODE 沒有自我修正」的觀察是同一件事：被遮的 token 一旦被還原，就**永遠固定**，之後的步驟沒有機會改它。這個單元先只給直覺，<Ref week="dma-week-discrete-ii"/> 有了 rate 的語言之後會把它量化。
 
-<VizPlan id="w6-0-two-chains" title="兩條鏈，兩個終點" type="static">
-- 檔名 `imgs/w6-0-1.png`，放在「為什麼 mask 值得特別看」之後、「先消化一下」之前。
-- 版面：上下兩條「時間軸」，橫軸都是 $t$（左 $t=0$、右 $t=T$），每條軸上放五個時刻的十二格序列縮圖。
-  - **上「uniform」**：格子從全部橘（原字）逐漸混入藍格（隨機字），最後整排都是藍的、每格一個不同的隨機字。右端一個小方框寫「終點：每個位置獨立均勻」。
-  - **下「absorbing」**：格子從全部橘逐漸變灰（`[MASK]`），最後整排全灰。右端小方框寫「終點：整串 `[MASK]`（一個確定的狀態）」。
-- 兩條軸中間畫一條共用的 $\bar\alpha_t$ 曲線（從 1 掉到 0），並用引導線標出「$\bar\alpha_t$＝還是原字的機率，兩條鏈共用同一個意思」。
-- 下方一個小框對照 diffusion：`√ᾱ_t x_0 + σ_t ε` 與 `ᾱ_t·原字 + (1−ᾱ_t)·終點`，標「同一個角色：還剩多少原始訊號」。
-- 底部一句：「兩條鏈都是我們自己寫好的、每一步規則已知的 Markov chain；差別只在終點，以及被動過的 token 還能不能回來。」
-- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、原字橘 `#f0803c`／隨機字藍 `#4a90e2`／`[MASK]` 灰）。
-- 長寬比：約 16:9。
-</VizPlan>
+![兩條鏈，兩個終點](./imgs/w6-0-1.png)
+
+*圖：兩條鏈，兩個終點。Uniform 會把 token 推向均勻的亂字；absorbing 則把不確定性集中到同一個 `[MASK]` 吸收態。*
 
 ## 先消化一下
 
@@ -175,7 +167,7 @@ absorbing 的終點是一個確定狀態（全 `[MASK]`），比 uniform 簡單�
 </QuizBlock>
 
 <Bridge to="dma-d3pm">
-本篇把「加噪聲」換成一條已知的 Markov chain，並選定 uniform 與 absorbing 兩條標準路徑。下一篇把它們寫成 transition matrix，算出 $q(x_t\mid x_0)$ 的 closed form，並看 <Ref to="dma-denoising-regression"/> 的回歸目標在類別世界裡長什麼樣。
+「加噪聲」已經被換成已知的 Markov chain，但訓練還需要像 DDPM 一樣直接抽任意時刻的 $x_t$。下一篇把兩條鏈寫成 transition matrix，問同一個關鍵問題：$q(x_t\mid x_0)$ 還能不能一步算出來？
 </Bridge>
 
 ## 參考文獻

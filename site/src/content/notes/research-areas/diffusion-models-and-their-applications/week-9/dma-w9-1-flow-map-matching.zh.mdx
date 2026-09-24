@@ -10,8 +10,8 @@ title: "Flow Map Matching：三條恆等式，三種損失"
 category: "courses"
 group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "available"
-updated: 2026-09-06
-summary: "把 flow map 的條件寫成三條可微分的恆等式——Lagrangian（沿目標時間微分，速度在輸出點）、Eulerian（沿起始時間微分，速度在輸入點）、progressive（半群，兩小步等於一大步）——每一條都能當損失。差別在「速度場在哪裡被需要」，這決定了能不能拿掉 teacher。上一個單元與本單元的所有方法排進同一張表。"
+updated: 2026-09-21
+summary: "把 flow map 的條件改寫成 Lagrangian、Eulerian 與 progressive 三條恆等式；速度場出現在哪裡，決定訓練是否需要 teacher。"
 demos: []
 references:
   - label: "Boffi, Albergo & Vanden-Eijnden, Flow Map Matching (2024)"
@@ -38,9 +38,9 @@ import Answer from '../../../components/Answer.astro';
 # Flow Map Matching：三條恆等式，三種損失
 
 <Objectives>
-- 寫出 flow map 的 Lagrangian、Eulerian、progressive 三條恆等式，並說出每一條在幾何上是什麼畫面。
-- 對每一條說出「速度場在哪一個點被需要」，並由此判斷能不能用條件速度代替、能不能拿掉 teacher。
-- 把 <Ref week="dma-week-consistency"/> 與本單元的方法填進「哪條恆等式 + 哪個估計量」的表，認出它們是同一個物件的不同訓練方式。
+- **寫出 flow map 的三條恆等式。** 分別用粒子、場與兩段合成的畫面解釋 Lagrangian、Eulerian、progressive。
+- **判斷速度場在哪裡被需要。** 由輸入點或輸出點的差別，決定條件速度能否代替、teacher 能否拿掉。
+- **用同一張表定位各種方法。** 將 consistency、CTM、MeanFlow 與 Shortcut 看成「恆等式＋估計量」的不同組合。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -120,15 +120,9 @@ $$
 
 代價是**誤差累積**：每一級大步都以上一級小步為目標，小步的誤差會一級一級往上帶。<Ref to="dma-progressive-distillation"/> 的逐輪退化與 <Ref to="dma-rectified-flow"/> reflow 的多輪誤差是同一件事。
 
-<VizPlan id="w9-1-three-identities" title="三條恆等式的幾何：速度場各在哪裡被需要" type="static">
-- **位置**：本節之後。**檔名**：`week-9/imgs/w9-1-1.svg`（16:9，三欄）。每欄同一條彎曲軌跡（灰色細線，從左下噪聲端到右上資料端），軌跡上標 $t$、$s$、$r$ 三個時刻的點。
-- **左欄「Lagrangian」**：固定 $(x_t,t)$，畫 $\psi_{t\to s}(x_t)$ 的輸出點在 $s$ 附近沿軌跡滑動（三個淡到深的位置），輸出點上畫速度箭頭 $v_s$，箭頭與軌跡相切。**速度箭頭畫在輸出點**，並用醒目色框住輸出點，旁邊小字「$v$ 在這裡：網路算出來的位置，手上沒有配對 → 要 teacher」。
-- **中欄「Eulerian」**：固定目標 $s$，輸入點在 $t$ 附近沿軌跡滑動（三個位置），三條箭頭全部指向**同一個**輸出點 $\psi_{\cdot\to s}$；速度箭頭 $v_t$ 畫在**輸入點**。輸入點旁畫出它的條件直線 $(x_0,x_1)$（虛線），小字「$v$ 在這裡：$x_t$ 是自己造的，$x_1-x_0$ 現成 → 可以不要 teacher」。
-- **右欄「progressive」**：三個點 $t\to s\to r$，兩條短弧（$t\to s$、$s\to r$）與一條長弧（$t\to r$）畫成兩條路線在 $r$ 處會合，中間一個等號。**沒有速度箭頭**；底部一個極小的放大鏡圖示，指向兩個非常近的時刻，小字「速度只在最小的那一步進來：teacher 或 FM」。
-- **三欄下方一行**：「同一個 $\psi_{t\to s}$，三種微分方式，差別只在 $v$ 出現在哪裡。」
-- **圖說（.mdx 內）**：「**圖：三條恆等式。** Lagrangian 跟著輸出點走，速度在輸出點——只能 distillation；Eulerian 固定輸出、讓輸入沿軌跡動，速度在輸入點——可以用條件速度、不要 teacher；progressive 不碰速度，兩小步等於一大步，動力學從最小的一步進來。」
-- 術語一律英文（Lagrangian、Eulerian、progressive、teacher、flow map）；配色沿用 <Ref to="dma-what-are-we-learning"/> 圖 1 的基準色。
-</VizPlan>
+![Lagrangian、Eulerian 與 progressive 三條 flow-map 恆等式，以及速度各自出現的位置。](./imgs/w9-1-1.svg)
+
+**圖：三條恆等式。** Lagrangian 的速度在輸出點，因此需要 teacher；Eulerian 的速度在自己造出的輸入點，可以使用條件速度；progressive 只要求兩小步等於一大步。
 
 ## 三條恆等式，各自要什麼
 
@@ -192,7 +186,7 @@ Progressive 損失完全不含速度場 $v$。那一個只用 progressive 損失
 </QuizBlock>
 
 <Bridge to="dma-meanflow">
-本篇把 flow map 的條件寫成三條恆等式，並用「$v$ 在哪裡被需要」把上一個單元與本單元的方法排成一張表：不要 teacher 的路只有 Eulerian（或 progressive 配 FM 底層）。下一篇看 MeanFlow 怎麼把 Eulerian 恆等式換到「平均速度」座標，得到一條精確、可以從頭訓練的式子。
+若速度只在自己造出的輸入點上出現，就能用條件速度把 teacher 拿掉；Eulerian 恆等式正好有這個性質。但直接學一個幾乎等於輸入的位置映射，訊號很弱。<Ref to="dma-meanflow"/> 因此把輸出改成一段路的平均速度。
 </Bridge>
 
 ## 參考文獻

@@ -9,7 +9,7 @@ title: "從一片葉子到一群葉子：Flow Map 與 Pushforward"
 category: "courses"
 group: "M2 · Deterministic Dynamics"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "一群葉子同時放進河裡，一分鐘後它們的分佈長什麼樣？把「每個起點送到終點」打包成 flow map，把「分佈被映射搬走」寫成 pushforward；由 ODE 的唯一性得到 flow map 可逆，於是密度可以用 change of variables 精確算出——而不是靠數很多片葉子。"
 demos: []
 references:
@@ -24,7 +24,6 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
@@ -33,9 +32,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 # 從一片葉子到一群葉子：Flow Map 與 Pushforward
 
 <Objectives>
-- 把「每個起點在時刻 $t$ 被送到哪」打包成 flow map $\Phi_t$，並說出它為什麼是可逆的。
-- 把「一群葉子的分佈被水流搬走」寫成 pushforward $p_t=(\Phi_t)_\#p_0$，並用 change of variables 寫出密度的公式。
-- 對「一群葉子一分鐘後的分佈」這類情境，判斷「數一千片葉子畫直方圖」與「用公式算密度」各自依賴什麼假設、誤差在哪，並用一個小模擬對照兩者。
+- **把「每個起點在時刻 $t$ 被送到哪」打包成 flow map $\Phi_t$。** 說出它為什麼是可逆的。
+- **把「一群葉子的分佈被水流搬走」寫成 pushforward $p_t=(\Phi_t)_\#p_0$。** 用 change of variables 寫出密度的公式。
+- **對「一群葉子一分鐘後的分佈」這類情境，判斷「數一千片葉子畫直方圖」與「用公式算密度」各自依賴什麼假設、誤差在哪。** 用一個小模擬對照兩者。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -68,22 +67,17 @@ $\Phi_t:\mathbb R^d\to\mathbb R^d$ 叫 **flow map**：它不是一片葉子的�
 </Answer>
 </Question>
 
-## 先看畫面：一塊會變形的果凍
+## 一塊會變形的果凍
 
 把橋下那團葉子想成一塊軟果凍，每一小塊果凍就是一小群葉子。水流帶著果凍往下游走，同時把它揉變形：流速在前進方向變快的地方，果凍被**拉長**，同樣多的葉子占了更大的面積，變稀；水流往中央匯合的地方，果凍被**壓扁**，變密。
 
 但有兩件事水流做不到。第一，它不能讓兩塊不同的果凍**融成一塊**——那需要兩片不同的葉子在同一時刻到達同一點，上一篇說這不會發生。第二，它不能把果凍**撕開**——軌跡是連續的。所以一分鐘後的果凍，是原本那塊被連續、不重疊地變形的結果：每一小塊有多少葉子沒變，只是占的面積變了。密度 = 葉子數 ÷ 面積，所以密度的變化**完全由面積的伸縮決定**。
 
-<VizPlan id="m2-1-jelly" title="一團葉子被水流搬走並變形" type="static">
-- **檔名**：`m2-deterministic-dynamics/imgs/m2-1-1.svg`，16:9。
-- **版面**：左中右三格，同一條河（俯視），vector field 用淡灰短箭頭鋪底。場選一個會「先加速再匯合」的：$u(x,y)=(1+0.5x/\ell,\;-0.5\,y)$（$\ell$ 是一個空間尺度，和 Lipschitz 常數 $L$ 無關）（往右越流越快，同時往中線收攏）。
-- 左格 $t=0$：橋下一個圓形的點雲（$\mathcal N(0,\sigma^2 I)$ 抽 300 點），畫出五個等密度的同心圓（等高線），並在點雲上疊一個 $3\times3$ 的方格網。
-- 中格 $t=20$、右格 $t=40$：同一批點被 $\Phi_t$ 送到的位置；方格網跟著變形——橫向被拉長（加速）、縱向被壓扁（匯合）；等高線變成拉長的橢圓。每個格子裡的**點數不變**（在角落標出其中一格的點數，三格都是同一個數字），但面積變了。
-- 三格之間用箭頭連接，箭頭上寫 $\Phi_{20}$、$\Phi_{40}$。
-- **圖說**：「水流不會讓兩片葉子重合，也不會把葉子群撕開，所以每一小塊裡的葉子數守恆；密度的變化完全來自那一小塊面積的伸縮。這就是 pushforward 的畫面。」
-</VizPlan>
+![同一團葉子與格網被 flow map 拉長並壓扁。](./imgs/m2-1-1.svg)
 
-## 寫成數學：flow map、pushforward、change of variables
+*圖：小塊中的點數不變；面積伸縮透過 Jacobian 改變密度。*
+
+## flow map、pushforward、change of variables
 
 **Flow map 的性質。** 由 <Ref to="math-vector-field-ode"/> 的存在唯一（Lipschitz 條件下）：
 
@@ -116,13 +110,13 @@ p_t(y) = p₀(e^t y)·e^t = (2π)^(−1/2) e^t exp(−e^(2t) y²/2)，
 也就是 N(0, e^(−2t))：所有葉子往原點收攏，分佈越來越窄，但總質量不變（積分仍是 1，因為多出來的 e^t 正好補償變窄）。這個例子在下一篇會再用一次，用另一條路算出同一個答案。
 </Details>
 
-## 回到河面：直覺的一半對、一半漏
+## 直覺的一半對、一半漏
 
 起點問題的直覺答案是「那團葉子的形狀被搬到下游」。對的部分：每片葉子確實各走各的，所以整群的分佈就是 $p_0$ 經 $\Phi_t$ 的 pushforward——不多不少，沒有葉子憑空出現或消失。漏掉的部分：「形狀不變」隱含假設了 $|\det\nabla\Phi_t|\equiv1$，也就是水流處處**保體積**。一般的水流不是這樣；只有 $\nabla\cdot u=0$ 的場（<Ref to="math-divergence"/>）才會保體積。所以正確的說法是：**葉子的數目守恆，密度按 Jacobian 反比縮放。**
 
 這個判斷依賴什麼？依賴 $\Phi_t$ 可逆——也就是上一篇的 Lipschitz 條件。若河面某處水流不是 Lipschitz 的，兩片葉子可能在同一點分道揚鑣，或者反過來說「哪些起點會被送到這裡」不再唯一，pushforward 的集合定義仍然成立（它不需要可逆），但密度公式失效：可能在一個點堆出無限大的密度。
 
-## 回到河面：數葉子，還是算公式
+## 數葉子，還是算公式
 
 兩種方法都能得到 $p_t$：**數葉子**是抽 $N$ 個 $X_0$、各自解 ODE、畫直方圖，誤差來自有限樣本，大約隨 $1/\sqrt N$ 縮小（<Ref to="math-gaussian"/> 那類 variance 相加的算法）；**算公式**是對每個 $y$ 反解 $\Phi_t^{-1}(y)$ 並算 Jacobian，沒有取樣誤差，但每個 $y$ 都要解一次反向 ODE。
 
@@ -137,18 +131,9 @@ hist, edges = np.histogram(xt, bins=40, range=(-2, 2), density=True)
 # 直方圖與 p_formula 應重合；N 改成 100 看直方圖變毛
 ```
 
-<VizPlan id="m2-1-pushforward" title="撒一千片葉子 vs. 用 change of variables 算密度" type="interactive">
-- **位置**：本節之後。**檔名**：`m2-deterministic-dynamics/m2-1-1.html`。
-- **版面**：上半是俯視的河（2D），下半是沿中線的 1D 密度圖。上半畫 vector field 的短箭頭；點雲從 $p_0=\mathcal N(0,\sigma^2I)$ 抽出，隨時間滑桿 $t\in[0,40]$ 被 $\Phi_t$ 送走（每片葉子用 ODE 數值積分）。
-- **控制項**：滑桿 $t$；滑桿「葉子數 $N$」（$100,\,1000,\,10000$，對數）；下拉選單「水流地圖」：(a) 保體積的旋轉場 $u=(-y,x)$，(b) 收攏場 $u=(1,-0.5y)$，(c) 加速場 $u=(1+0.5x/\ell,\,0)$，(d) **非 Lipschitz** 的收攏場 $u=(1,-\mathrm{sign}(y)\sqrt{|y|})$。
-- **下半**：兩條曲線疊在一起——葉子位置在 $y$ 方向的直方圖（柱狀）、以及公式 $p_0(\Phi_t^{-1}(y))\,|\det\nabla\Phi_t^{-1}(y)|$ 算出的密度（實線，用反向 ODE 加數值 Jacobian）。右上角顯示兩者的最大差距。
-- **行為**：場 (a) 等高線只旋轉不變形，直方圖與公式重合；(b)、(c) 等高線被壓扁或拉長，公式曲線變高變窄或變低變寬，直方圖跟著走；$N$ 越大兩者越貼合，$N=100$ 時直方圖明顯毛躁但公式曲線不變。場 (d) 拉到 $t$ 夠大時，所有葉子在有限時間內被收到中線 $y=0$（$\sqrt{|y|}$ 場會在有限時間到達零），直方圖在 $y=0$ 堆成一根極高的柱子，公式曲線在中線發散、顯示「Jacobian → 0，密度公式失效」的警示字。
-- **Hover** 上半任一片葉子：畫出它的整條軌跡與起點，並在下半標出它的起點密度 $p_0(x_0)$ 與終點密度 $p_t(y)$、以及比值 $=1/|\det\nabla\Phi_t|$。
-- **底部觀察句**：「觀察：數葉子與算公式給的是同一個 $p_t$；前者的誤差是有限樣本，後者沒有取樣誤差但要可逆。保體積的場只搬形狀不改密度；一般的場按 Jacobian 反比改密度；非 Lipschitz 的場能把葉子擠成一點，公式在那裡失效。」
-- **匯出 PNG**：上下兩半併成 16:9，含當前 $t$、$N$ 與場的名字。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m2-deterministic-dynamics/m2-1-1.html" class="demo-frame" title="Pushforward：粒子 histogram 與 change-of-variables 密度" style="height: 850px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m2-1-a">
 你把一張照片的每個像素座標經過同一個可逆的幾何變形（例如魚眼鏡頭效果）。「原圖中某區域的像素密度」與「變形後對應區域的像素密度」之間的關係，該用哪個工具？
@@ -183,7 +168,7 @@ pushforward 的定義是「落在 $A$ 的機率 = 會被送進 $A$ 的起點的�
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-continuity-equation">
-本篇把所有起點的終點打包成 flow map $\Phi_t$，把分佈的搬運寫成 pushforward，並由可逆性得到密度的 change of variables 公式。但這條公式要先算出整個 $\Phi_t$；下一篇換一條路：不追葉子，直接寫下密度 $p_t$ 自己滿足的方程式。
+本篇把所有起點的終點打包成 flow map $\Phi_t$，把分佈的搬運寫成 pushforward，並由可逆性得到密度的 change of variables 公式。但這條公式要先算出整個 $\Phi_t$；接著換一條路：不追葉子，直接寫下密度 $p_t$ 自己滿足的方程式。
 </Bridge>
 
 ## 參考文獻

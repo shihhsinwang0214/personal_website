@@ -9,7 +9,7 @@ title: "導航每 30 秒更新一次：Euler 法與它的誤差"
 category: "courses"
 group: "M2 · Deterministic Dynamics"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "導航每 30 秒才更新一次位置，中間假設車子直走；追一條彎路，終點會偏多遠？直路呢？把「假設直走」寫成 Euler 法，用 Taylor 算出每一步的局部誤差 (h²/2)‖ẍ‖，用 Grönwall 不等式把它們累積成全域誤差——結果是一階的 h，乘上整條路的「加速度積分」，再乘上一個會放大的常數。"
 demos: []
 references:
@@ -27,7 +27,6 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
@@ -36,9 +35,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 # 導航每 30 秒更新一次：Euler 法與它的誤差
 
 <Objectives>
-- 把「每隔 $h$ 秒看一次方向、中間直走」寫成 Euler 法，並用 Taylor 展開算出一步的局部誤差 $\tfrac{h^2}{2}\|\ddot x\|$。
-- 用 Grönwall 不等式把 $N$ 步的局部誤差累積成全域誤差 $\le \tfrac{h}{2}\,e^{LT}\!\int_0^T\|\ddot x\|\,dt$，說出每個因子從哪來、哪個是你不知道大小的常數。
-- 對「導航追一條彎路會偏多遠」這類情境，用這個界判斷更新頻率夠不夠、說出它依賴的假設（Lipschitz、$\ddot x$ 有界），並用一個小模擬對照理論預測。
+- **把「每隔 $h$ 秒看一次方向、中間直走」寫成 Euler 法。** 用 Taylor 展開算出一步的局部誤差 $\tfrac{h^2}{2}\|\ddot x\|$。
+- **用 Grönwall 不等式把 $N$ 步的局部誤差累積成全域誤差 $\le \tfrac{h}{2}\,e^{LT}\!\int_0^T\|\ddot x\|\,dt$。** 說出每個因子從哪來、哪個是你不知道大小的常數。
+- **對「導航追一條彎路會偏多遠」這類情境，用這個界判斷更新頻率夠不夠、說出它依賴的假設（Lipschitz、$\ddot x$ 有界）。** 用一個小模擬對照理論預測。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -69,7 +68,7 @@ $$
 </Answer>
 </Question>
 
-## 先看畫面：切線離開了圓
+## 切線離開了圓
 
 把彎道畫成一段圓弧，車在圓弧上。Euler 的一步是沿著**切線**往前走 500 公尺（30 秒 × 16.7 m/s）。切線是直的、圓弧是彎的，走完這一步，導航的點落在圓的外側——這是**一步**的誤差，叫**局部誤差**。
 
@@ -77,15 +76,11 @@ $$
 
 直路上切線就是路本身，一步的誤差是零，帶著走的也是零。這就是「直路完全不會錯」的畫面版。
 
-<VizPlan id="m2-3-tangent" title="沿切線走一步：局部誤差與它被帶著走" type="static">
-- **檔名**：`m2-deterministic-dynamics/imgs/m2-3-1.svg`，16:9。
-- **版面**：左格一段半徑 $R$ 的圓弧（真實路徑），從弧上一點畫一段長 $h v$ 的切線（Euler 一步），切線終點與弧上真正的終點之間用雙箭頭標出「局部誤差 $\approx\tfrac{h^2}{2}\tfrac{v^2}{R}$」；並畫出 Taylor 的兩項：切線是一階項，弧與切線的差距畫成一段小小的拋物線標「二階項」。
-- 中格：連續六步的 Euler 折線（每步 500 m）疊在四分之一圓弧上，折線像一個多邊形外接在圓上、逐步往外偏；每個頂點旁標當前偏離半徑的距離：$62,\;125,\;\dots,\;375$ m。
-- 右格：同一條路改成直線，Euler 折線與路完全重合，標「$\ddot x=0$，誤差 $=0$」。
-- **圖說**：「Euler 每步沿切線直走，離開彎路的量是 Taylor 二階項 $\tfrac{h^2}{2}\|\ddot x\|$；一步一步累積，還會被場的變化放大。直路上 $\ddot x=0$，一步都不錯。」
-</VizPlan>
+![Euler 沿切線走一步、逐步累積誤差，以及直線等速的精確情況。](./imgs/m2-3-1.svg)
 
-## 寫成數學：一步的錯、多步的累積
+*圖：局部誤差為二階，累積後全域誤差為一階；直線等速時誤差為零。*
+
+## 一步的錯、多步的累積
 
 **局部誤差。** 假設第 $n$ 步從**正確**的位置 $x(t_n)$ 出發。真實的下一個位置用 Taylor 展開（<Ref to="math-taylor"/>）：
 
@@ -130,7 +125,7 @@ $\square$（最後一步把黎曼和換成積分。）三個因子各有意思�
 用法：兩條從相距 δ 的起點出發的軌跡，其距離 φ(t) = ‖x(t) − y(t)‖ 滿足 φ(t) ≤ δ + L∫₀ᵗ φ，所以 φ(t) ≤ δ e^(Lt)——起點的差距至多指數放大。Euler 的舊誤差被「帶著走」時放大的就是這個倍數；離散版只是把積分換成和、把 e^(Lh) 換成 (1+hL)。
 </Details>
 
-## 回到彎道：直覺對了一半，數字對不上
+## 直覺對了一半，數字對不上
 
 用界估一次。$v=16.7$ m/s、$R=2000$ m，$\|\ddot x\|=v^2/R\approx0.139$ m/s²，全程 $T\approx188$ s，所以 $\int\|\ddot x\|dt\approx26$ m/s。$h=30$：$\tfrac{h}{2}\times26\approx390$ m。$L$ 是場對位置的敏感度：方向隨位置改變的速率約 $v/R\approx0.008$ /s，$LT\approx1.6$，$e^{LT}\approx4.8$，上界約 1900 m。
 
@@ -140,7 +135,7 @@ $\square$（最後一步把黎曼和換成積分。）三個因子各有意思�
 
 還有一件容易忘的假設：$\ddot x$ 是**加速度**，不只是轉彎。直路上如果你一直在加減速，$\ddot x\ne0$，Euler 也會錯——只是錯在沿路的前後位置，不是偏出路面。
 
-## 回到彎道：跑一次，再把 $h$ 調到壞掉
+## 跑一次，再把 $h$ 調到壞掉
 
 ```python
 import numpy as np
@@ -157,19 +152,9 @@ for h in [30, 10, 3, 1]: print(h, round(euler(h)))
 
 四個數字每次縮三倍，符合「一階」。再把 $h$ 往另一邊推：對 $\dot x=-kx$（往路中央拉回的修正力，$k$ 大表示拉得急），Euler 一步是 $x_{n+1}=(1-hk)x_n$。$hk<1$ 時單調收斂；$1<hk<2$ 時來回震盪但仍收斂；**$hk>2$ 時 $|1-hk|>1$，每步放大，發散**——這對應到界裡的 $(1+hL)^N$ 真的爆掉，界不再「太悲觀」，而是老實地預告了災難。步長不只影響精度，還影響穩定。
 
-<VizPlan id="m2-3-euler" title="導航追彎路：步長、曲率、與發散" type="interactive">
-- **位置**：本節之後。**檔名**：`m2-deterministic-dynamics/m2-3-1.html`。
-- **版面**：左格俯視的道路與兩條軌跡（真實路徑實線、Euler 折線帶頂點）；右格是 log–log 的「$h$ 對全域誤差」圖，理論斜率 1 的參考線用虛線畫出。
-- **控制項**：滑桿「更新間隔 $h$」（$1$–$60$ 秒）；滑桿「彎道半徑 $R$」（$500$ m–$\infty$，最右端變成直路）；滑桿「車速 $v$」；下拉「路型」：等速圓弧、S 形彎（$\ddot x$ 變號）、直路但加減速（$\ddot x\ne0$ 卻不偏出路面）。按鈕「跑一次」逐步畫出 Euler 折線（不自動循環）。
-- **右上角數字**：實測全域誤差；理論的 $\tfrac{h}{2}\int\|\ddot x\|dt$（不含 $e^{LT}$）與含 $e^{LT}$ 的上界，三個數字並排，讓讀者看到「不含放大因子的估計通常最接近、上界最保守」。
-- **Hover** 折線任一頂點：顯示該步的局部誤差 $\tfrac{h^2}{2}\|\ddot x\|$、到此為止累積的誤差、以及累積 ÷ 局部誤差之和的比值（放大倍數）。
-- **拖 $R\to\infty$**：折線與直路重合、誤差歸零；再切到「直路但加減速」，誤差重新出現、但方向沿著路。
-- **穩定性子面板**：一維 $\dot x=-kx$，滑桿 $hk\in[0,3]$，畫 $x_n$ 的序列；$hk<1$ 單調、$1<hk<2$ 震盪收斂、$hk>2$ 發散並亮紅。
-- **底部觀察句**：「觀察：Euler 每步偏 $\tfrac{h^2}{2}\|\ddot x\|$，全程約偏 $\tfrac{h}{2}\int\|\ddot x\|dt$ 再乘上一個放大因子——$h$ 縮一半誤差縮一半。直路且等速時一步都不錯；步長太大時誤差不只變大，還會發散。」
-- **匯出 PNG**：兩格併成 16:9，含當前 $h$、$R$、$v$ 與誤差數字。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m2-deterministic-dynamics/m2-3-1.html" class="demo-frame" title="Euler：步長、曲率、速度與穩定性" style="height: 800px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m2-3-a">
 一台掃地機器人每 0.5 秒讀一次自己的速度、中間假設等速直走，藉此估計自己的位置。哪種情況下它的位置估計會最準？
@@ -204,7 +189,7 @@ $L$ 不進局部誤差（那只看 $\ddot x$），它控制的是「站錯位置
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-higher-order">
-本篇把「中間假設直走」寫成 Euler 法，用 Taylor 得到局部誤差 $\tfrac{h^2}{2}\|\ddot x\|$、用 Grönwall 累積成一階的全域誤差，並看到它由步長、路的加速度積分、與場的敏感度三者決定。要縮小誤差，最直接的做法是縮小 $h$——但每縮一次就多讀一次方向。下一篇問：如果在 30 秒的中點多看一眼方向，能不能用同樣的讀取次數換到更小的誤差？
+本篇把「中間假設直走」寫成 Euler 法，用 Taylor 得到局部誤差 $\tfrac{h^2}{2}\|\ddot x\|$、用 Grönwall 累積成一階的全域誤差，並看到它由步長、路的加速度積分、與場的敏感度三者決定。要縮小誤差，最直接的做法是縮小 $h$——但每縮一次就多讀一次方向。接著問：如果在 30 秒的中點多看一眼方向，能不能用同樣的讀取次數換到更小的誤差？
 </Bridge>
 
 ## 參考文獻

@@ -10,8 +10,8 @@ title: "Discrete Flow Matching：條件路徑、Rate 與配對"
 category: "courses"
 group: "Unit 5 · Discrete Diffusion II"
 status: "available"
-updated: 2026-09-07
-summary: "把 flow matching 的建構搬到離散空間：逐 token 的條件路徑 p_t(x|x₀,x₁)=(1−κ_t)δ_{x₀}+κ_tδ_{x₁}，條件 rate 一行算出，邊際 rate 是條件 rate 的後驗平均——CFM 定理 1 的證明逐字成立，只是 continuity equation 換成 forward equation。配對旋鈕在離散空間裡剩下什麼，是這一篇的問題。"
+updated: 2026-09-21
+summary: "離散 flow matching 讓每個 token 在起點與終點之間跳一次。條件 rate 可以直接監督，後驗平均後便得到生成正確邊際路徑的 rate。"
 demos: []
 references:
   - label: "Gat et al., Discrete Flow Matching (NeurIPS 2024)"
@@ -42,9 +42,9 @@ import Ref from '../../../components/Ref.astro';
 # Discrete Flow Matching：條件路徑、Rate 與配對
 
 <Objectives>
-- 寫出逐 token 的條件路徑 $p_t(x\mid x_0,x_1)=(1-\kappa_t)\delta_{x_0}+\kappa_t\delta_{x_1}$，算出生成它的條件 rate，並認出 absorbing / uniform 是「$x_1$ 取什麼分佈」的兩個特例。
-- 敘述並證明 <Ref to="dma-conditional-flow-matching"/> 定理 1 的離散版：邊際 rate 是條件 rate 的後驗平均；指出證明與連續版逐字相同。
-- 回答「配對旋鈕在離散空間還有意義嗎」：拉直的意義消失、對齊的意義留下。
+- **寫出逐 token 的條件路徑與條件 rate。** 認出 absorbing／uniform 是 source distribution 不同的特例。
+- **證明 conditional flow matching 的離散版。** 條件 rate 的後驗平均生成邊際路徑，只是 continuity equation 換成 forward equation。
+- **說出離散空間裡配對還控制什麼。** 沒有幾何直線可拉直，但資料與 source 的對齊方式仍會改變學習難度。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -148,15 +148,17 @@ $$
 2. **schedule 與 source 可以逐位置不同。** 每個位置有自己的 $\kappa_t^\ell$、自己的 source 分佈——例如一部分位置走 mask、一部分走 uniform 的混合路徑（Gat et al. 的實驗顯示這種混合對某些任務有幫助）。
 3. **取樣器的 stochasticity。** 上一篇說的 $\eta$（Campbell et al.）與 corrector（Gat et al.）：在生成 rate 上加一對流量相反的管子，邊際不變。
 
-第 1 點把我們帶到 <Ref to="dma-linear-path"/> 遺留的旋鈕。
+第 1 點把我們帶到 <Ref to="dma-linear-path"/> 遺留的設定。
 
 <Question id="Q1">
-<Ref to="dma-unified-equation"/> 說 stochastic interpolant 上有三個可以轉的東西：路徑、配對、$\gamma_t$。路徑在這裡是 $\kappa_t$；$\gamma_t$ 沒有在這裡出現——條件路徑只是 $x_0$ 與 $x_1$ 兩點的混合，沒有第三個獨立抽的噪聲項。（**上一篇的 $\sigma_t$ 不是 $\gamma_t$。** 那是取樣時注入的噪聲，也就是 <Ref to="dma-sampler-family"/> 的第五個旋鈕；$\gamma_t$ 是訓練時的路徑寬度，<Ref to="dma-unified-equation"/> 特別把兩者分開過。）**配對 $\pi(x_0,x_1)$ 呢？在離散空間裡，把獨立配對換成別的配對，還有 <Ref to="dma-minibatch-ot"/> 那種「拉直軌跡」的意義嗎？**
+<Ref to="dma-unified-equation"/> 把設計拆成路徑、配對與訓練噪聲。這裡的路徑是 $\kappa_t$，也沒有獨立的 $\gamma_t z$；還留下配對 $\pi(x_0,x_1)$。
+
+**Token 之間沒有幾何直線可拉直，那麼把獨立配對換成別的配對，還有什麼作用？**
 
 <Answer>
 常見的答案分三類：「有，用 Hamming 距離做 OT 配對」、「沒有，因為離散空間沒有直線」、「要看 source 是什麼」。第三類是對的起點。
 
-**mask source：沒有東西可以配對。** $x_1$ 是全 `[MASK]`，一個確定的狀態。$\pi$ 只能是 $p_{\text{data}}\otimes\delta_{\text{all-mask}}$，配對旋鈕根本不存在。這是 absorbing 鏈的另一個乾淨之處。
+**mask source：沒有東西可以配對。** $x_1$ 是全 `[MASK]`，一個確定的狀態。$\pi$ 只能是 $p_{\text{data}}\otimes\delta_{\text{all-mask}}$，配對設定根本不存在。這是 absorbing 鏈的另一個乾淨之處。
 
 **uniform source：可以配對，但拉直的意義沒了。** 連續世界裡配對之所以重要，是 <Ref to="dma-linear-path"/> Q1 那條鏈：獨立配對 → 條件直線交叉 → 邊際速度是交叉處的平均 → 軌跡彎 → Euler 有限步誤差大；OT 配對讓直線不交叉、軌跡變直、$\int\|\ddot x\|dt$ 變小。離散世界裡這條鏈的每一環都換了東西：條件路徑不是直線而是「每個 token 跳一次」；「交叉」沒有定義（沒有 ODE 軌跡，只有跳躍）；有限步誤差的來源不是曲率而是 <Ref to="dma-factorization-error"/> 的因子化——**一步內同時跳的多個位置被獨立抽**。而因子化誤差取決於**給定 $x_t$ 下各位置之間的條件相依**，這是資料分佈本身的性質；換配對改變的是「哪個噪聲配哪個資料」，改不了資料裡「牛肉」和「麵」的相依。所以「配對 → 拉直 → 少步」這條路在離散世界沒有對應。
 
@@ -168,16 +170,9 @@ $$
 </Answer>
 </Question>
 
-<VizPlan id="w7-4-same-construction" title="同一個建構，兩個世界" type="static">
-- 檔名 `imgs/w7-4-1.png`，放在 Q1 之後、「先消化一下」之前。
-- 版面：上下兩排，各自是「左：一對端點的**條件**物件 → 右：後驗平均之後的**邊際**物件」；右邊兩塊的排版刻意做成一樣，讓讀者看出是同一張圖。
-  - **上排「連續（CFM）」**：左邊四條連接 $x_1$（藍點）與 $x_0$（橘點）的直線，每條線上畫一支箭頭標「條件速度」。右邊在同一個位置 $x_t$ 上，把與它相容的那幾支箭頭疊起來、加權平均成一支較粗的箭頭，標「邊際速度 $u_t(x_t)$」。
-  - **下排「離散（DFM）」**：左邊四組「一個 token 跳一次」：每組是一條橫向時間軸，軸上一個點標跳躍時刻，左端寫 $x_1^\ell$ 的字、右端寫 $x_0^\ell$ 的字，旁邊標「條件 rate $\dot\kappa_t/\kappa_t$」。右邊在同一個 $x_t$（一排格子、第 3 格是 `[MASK]`）上，把相容的那幾條路徑「要跳回哪個字」畫成幾根長短不同的柱，加權平均成一組柱，標「邊際 rate $\bar R_t(x_t\to\cdot)$」。
-- 兩排之間橫跨一句：「**兩邊用到的性質只有一個：分佈的演化方程式對 $p$ 是線性的。**」左側分別標「continuity equation」與「forward equation」。
-- 底部一句：「連續世界平均的是向量，離散世界平均的是每根管子的流量；證明的每一步都一樣。」
-- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註；資料橘 `#f0803c`／噪聲藍 `#4a90e2`／強調靛 `#2a4ea3`）。
-- 長寬比：約 4:3。
-</VizPlan>
+![同一個建構，兩個世界](./imgs/w7-4-1.png)
+
+*圖：連續與離散 flow matching 都由端點配對、條件路徑與後驗平均三步構成；差別在中間用速度場還是跳躍 rate。*
 
 ## 先消化一下
 
@@ -202,7 +197,7 @@ DFM 的條件路徑 $p_t(x\mid x_0,x_1)=(1-\kappa_t)\delta_{x_0}+\kappa_t\delta_
 </QuizBlock>
 
 <QuizBlock id="w7-4-c">
-用 mask 當 source 時，配對旋鈕 $\pi(x_0,x_1)$：
+用 mask 當 source 時，配對設定 $\pi(x_0,x_1)$：
 <Option>對應 OT 配對，可以拉直路徑。</Option>
 <Option correct>不存在——$x_1$ 是一個確定的狀態（全 `[MASK]`），$\pi$ 只能是 $p_{\text{data}}$ 與一個點的乘積。</Option>
 <Option>決定哪些位置先被遮。</Option>
@@ -222,7 +217,7 @@ DFM 的條件路徑 $p_t(x\mid x_0,x_1)=(1-\kappa_t)\delta_{x_0}+\kappa_t\delta_
 </QuizBlock>
 
 <Bridge to="dma-discrete-applications">
-本篇把 flow matching 的建構搬進離散空間：條件路徑是「每個 token 跳一次」，邊際 rate 是條件 rate 的後驗平均，absorbing 與 uniform 是 source 的兩個選擇，配對留下對齊的意義。這個單元的語言到此齊備：path、target、sampler 三個槽位。下一篇用這三個槽位去讀真實的系統——語言模型、蛋白質、圖。
+離散生成現在也能拆成三個問題：中間怎麼破壞資訊、網路預測什麼、取樣器如何安排跳轉。下一篇用這三個問題讀語言、蛋白質與圖模型，看看不同應用真正改動的是哪一部分。
 </Bridge>
 
 ## 參考文獻
@@ -231,4 +226,4 @@ DFM 的條件路徑 $p_t(x\mid x_0,x_1)=(1-\kappa_t)\delta_{x_0}+\kappa_t\delta_
 2. Campbell, A., Yim, J., Barzilay, R., Rainforth, T., Jaakkola, T. [*Generative Flows on Discrete State-Spaces: Enabling Multimodal Flows and Applications to Protein Co-Design.*](https://arxiv.org/abs/2402.04997) ICML 2024.（CTMC 版的 flow matching、stochasticity $\eta$、連續與離散共用框架。）
 3. Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., Le, M. [*Flow Matching for Generative Modeling.*](https://arxiv.org/abs/2210.02747) ICLR 2023.（連續版定理 1、2。）
 4. Sahoo, S. S. et al. [*Simple and Effective Masked Diffusion Language Models.*](https://arxiv.org/abs/2406.07524) NeurIPS 2024.（mask source 下 DFM 與 MDLM 的等價。）
-5. Tong, A., Fatras, K., Malkin, N., Huguet, G., Zhang, Y., Rector-Brooks, J., Wolf, G., Bengio, Y. [*Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport.*](https://arxiv.org/abs/2302.00482) TMLR 2024.（連續世界的配對旋鈕，Q1 的對照。）
+5. Tong, A., Fatras, K., Malkin, N., Huguet, G., Zhang, Y., Rector-Brooks, J., Wolf, G., Bengio, Y. [*Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport.*](https://arxiv.org/abs/2302.00482) TMLR 2024.（連續世界的配對設定，Q1 的對照。）

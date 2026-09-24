@@ -10,8 +10,8 @@ title: "另一條路：分佈匹配"
 category: "courses"
 group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "available"
-updated: 2026-09-06
-summary: "前面所有方法都是回歸：學生的輸出要等於某個目標點。DMD 改要求學生生成的分佈等於 teacher 的分佈——最小化各 noise level 上的 KL，梯度是兩個 score 的差 s_real − s_fake，s_fake 用另一個 denoiser 即時估計。回歸式蒸餾的失敗模式是「平均到中間」（配對交叉在蒸餾裡的樣子），分佈匹配繞開了它，換來 score 估計、mode collapse 與不穩定。"
+updated: 2026-09-21
+summary: "DMD 不替每個輸入指定答案，只要求學生與 teacher 的輸出分佈相同；它避開多值回歸的平均，代價是即時估計兩個 score。"
 demos: []
 references:
   - label: "Yin et al., One-step Diffusion with Distribution Matching Distillation (CVPR 2024)"
@@ -40,9 +40,9 @@ import Ref from '../../../components/Ref.astro';
 # 另一條路：分佈匹配
 
 <Objectives>
-- 說出到目前為止所有蒸餾方法共同的「回歸」形狀，以及回歸在目標多值時的必然結果。
-- 寫出 DMD 的目標與它的梯度 $s_{\text{real}}-s_{\text{fake}}$，說出每個 score 從哪裡來、為什麼要在所有 noise level 上做。
-- 對比回歸式與分佈匹配式蒸餾各自的失敗模式，並把前者連回配對交叉。
+- **指出逐點回歸的限制。** 說明同一輸入有多個合理目標時，squared loss 為什麼會輸出平均。
+- **推出 DMD 的 score-difference 梯度。** 寫出 $s_{\text{real}}-s_{\text{fake}}$ 的來源，並解釋為什麼要跨 noise level 比較。
+- **比較兩類蒸餾的失敗模式。** 將回歸的模糊連回配對交叉，也說出分佈匹配的 score 誤差與 mode collapse。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -53,7 +53,7 @@ import Ref from '../../../components/Ref.astro';
 
 這個形狀有一個 <Ref to="dma-tweedie-and-score"/> 就講過的性質：squared loss 的最小值是**條件期望**。目標若給定輸入是唯一的，回歸學到它；目標若給定輸入有好幾個可能，回歸學到它們的**平均**。前幾個單元這件事一直是幫手——正是靠它，條件目標才能在期望上等於邊際目標。但在蒸餾裡，它有另一面。
 
-想像 teacher 從噪聲 $x_0$ 出發，會走到哪一個資料點。若 teacher 是 ODE，這是一個確定的函數，目標唯一。但只要下面任何一件事發生，目標就變成多值：teacher 用的是 SDE 取樣器（同一個 $x_0$ 走出不同終點）；學生用的是條件配對 $(x_0,x_1)$ 而網路還沒學好；或者 consistency training 的時間網格太粗，目標退化成「$x_t$ 對應的 $x_1$」而不是「軌跡的終點」。這時回歸給出的是幾個可能終點的平均——**落在兩個 mode 中間、不像任何一個樣本的點**。<Ref to="dma-linear-path"/> Q1 說邊際速度是交叉直線方向的平均，於是軌跡彎；同一件事在蒸餾裡，是輸出變成終點的平均，於是**模糊**。交叉問題在蒸餾裡換了一身裝。
+想像 teacher 從噪聲 $x_0$ 出發，會走到哪一個資料點。若 teacher 是 ODE，這是一個確定的函數，目標唯一。但只要下面任何一件事發生，目標就變成多值：teacher 用的是 SDE 取樣器（同一個 $x_0$ 走出不同終點）；學生用的是條件配對 $(x_0,x_1)$ 而網路還沒學好；或者 consistency training 的時間網格太粗，目標退化成「$x_t$ 對應的 $x_1$」而不是「軌跡的終點」。就像兩個正確地址的座標取平均，可能落在兩者之間一條誰也不住的馬路上；回歸會輸出幾個可能終點的平均——**落在兩個 mode 中間、不像任何一個樣本的點**。<Ref to="dma-linear-path"/> Q1 說邊際速度是交叉直線方向的平均，於是軌跡彎；同一件事在蒸餾裡，是輸出變成終點的平均，於是**模糊**。
 
 有沒有辦法完全不要求逐點對應？
 
@@ -97,7 +97,7 @@ $$
 
 兩個 score 都是**denoiser**：$s_{\text{real}}(x_t,t)$ 由 teacher 的 denoiser 經 Tweedie 換算——這是 teacher 本來就會的事，任何 $t$ 都給得出來；$s_{\text{fake}}(x_t,t)$ 由一個「fake denoiser」給，它用 <Ref to="dma-denoising-regression"/> 那五行程式碼訓練，只是資料換成學生的輸出 $G_\theta(z)$。因為學生一直在變，fake denoiser 要**同步更新**——交替訓練：一步更新生成器、一步（或幾步）更新 fake denoiser。這個「一個生成器、一個追著它的 score 網路」的結構最早出現在 ProlificDreamer 的 variational score distillation（VSD，Wang et al. [3]），那裡用來做 text-to-3D；DMD 把它搬到蒸餾上。
 
-$w(t)$ 是 <Ref to="dma-fm-vs-diffusion"/> 那第四個旋鈕、訓練端的加權（<Ref to="dma-shared-techniques"/> 有它和 SNR 的換算）——DMD 用一個依樣本正規化的權重讓各 noise level 的梯度量級相當。DMD 原版還加了一個小的回歸項（用少量 teacher 的 $(z,x)$ 配對），DMD2 [2] 把它拿掉、讓 fake denoiser 更新得比生成器頻繁（two time-scale update）、加一個 GAN 判別器補品質，並把一步推廣到少步。主線只需要記住：**DMD 的訓練訊號是兩個 score 的差，其中一個 score 要即時估計。**
+$w(t)$ 是 <Ref to="dma-fm-vs-diffusion"/> 那第四個設定、訓練端的加權（<Ref to="dma-shared-techniques"/> 有它和 SNR 的換算）——DMD 用一個依樣本正規化的權重讓各 noise level 的梯度量級相當。DMD 原版還加了一個小的回歸項（用少量 teacher 的 $(z,x)$ 配對），DMD2 [2] 把它拿掉、讓 fake denoiser 更新得比生成器頻繁（two time-scale update）、加一個 GAN 判別器補品質，並把一步推廣到少步。主線只需要記住：**DMD 的訓練訊號是兩個 score 的差，其中一個 score 要即時估計。**
 
 <Question id="Q1">
 回歸式蒸餾（consistency、MeanFlow、Shortcut……）與分佈匹配式蒸餾（DMD），**各自的失敗模式是什麼？** 請分別說出它壞掉時樣本長什麼樣、以及病根在哪一個數學性質上。
@@ -109,21 +109,13 @@ $w(t)$ 是 <Ref to="dma-fm-vs-diffusion"/> 那第四個旋鈕、訓練端的加�
 
 **分佈匹配式：估不準 score，或塌到少數 mode。** DMD 完全不要求逐點對應——同一個 $z$ 送到哪裡都可以，只要整體分佈對——所以交叉問題不存在，樣本不會落在 mode 之間。代價有三層。第一，$s_{\text{fake}}$ 是一個**正在移動的目標的估計**：fake denoiser 永遠在追學生，追不上時梯度方向就是錯的，訓練會震盪甚至發散——這是 GAN 裡判別器與生成器互相追逐的老問題換了一個形式。第二，$\mathrm{KL}(p_\theta\|p_{\text{real}})$ 這個**方向**是 mode-seeking 的：它重罰「學生把質量放在 teacher 沒有的地方」，卻只輕罰「學生漏掉 teacher 的某個 mode」——學生把所有樣本放進 teacher 的一個 mode 裡，KL 可以很小。實務上表現為 **mode collapse**、多樣性下降，DMD2 加 GAN 項與 two time-scale update 主要就是在對付這兩件事。第三，DMD 需要 teacher（$s_{\text{real}}$），沒有從頭訓練的版本；學生也不是 flow map，多步取樣要另外設計。
 
-一句話總結：**回歸式的錯是「平均」，分佈匹配式的錯是「塌縮」或「追不上」。** 前者來自 conditional expectation，後者來自要估一個移動中的 score。下一篇的表把這兩種誤差來源與曲率 bias、累積並列。
+兩條路的差別可以收成一句話：**回歸式的錯是「平均」，分佈匹配式的錯是「塌縮」或「追不上」。** 前者來自 conditional expectation，後者來自要估一個移動中的 score。下一篇的表把這兩種誤差來源與曲率 bias、累積並列。
 </Answer>
 </Question>
 
-<VizPlan id="w9-4-crossing-onestep" title="兩 Gaussian 交叉例子：回歸式一步 vs 分佈匹配式一步" type="interactive">
-- **位置**：Q1 之後。**檔名**：`week-9/w9-4-1.html`。
-- **資料**：<Ref to="dma-linear-path"/> 那個交叉例子——$p_0$ 是左下、右下兩個小 Gaussian，$p_1$ 是右上、左上兩個小 Gaussian，獨立配對下條件直線在中間交叉。teacher 用解析邊際速度的 ODE。
-- **左右兩格並排，同一批 400 個 $z\sim p_0$。** 左格「回歸式」：一個小網路用 consistency training 訓一步生成器，**時間網格 $N$ 用滑桿控制**（$N\in\{2,4,8,32\}$）。右格「DMD」：一個小生成器加一個 fake denoiser，用 DMD 梯度訓。兩格都畫出一步樣本（實心點）疊在 $p_1$ 的等高線上。
-- **左格的重點畫面**：$N=2$ 時大量樣本落在兩個上方 mode **之間**（平均到中間），用醒目色標出「落在等高線之外」的樣本並顯示比例；拉大 $N$ 比例下降但不歸零。hover 任一顆樣本顯示它的 $z$ 與 teacher ODE 真正的終點，讀者看到它落在幾個終點的平均位置。
-- **右格的重點畫面**：樣本落在兩個 mode 上，中間幾乎沒有點。**開關「關掉 $s_{\text{fake}}$」**：只用 $s_{\text{real}}$ 推，看樣本全部擠到 mode 的峰頂（沒有排斥項就塌縮）。**滑桿「fake denoiser 更新頻率」**（每步生成器更新配 1、2、5 步 fake 更新）：頻率低時樣本分佈震盪、兩個 mode 的比例來回擺——「追不上」。
-- **右下角小格**：兩格樣本對 $p_1$ 的 $W_2$，以及「落在單一 mode 的比例」（mode collapse 指標）。
-- **底部觀察句**：「觀察：回歸式一步的錯是平均——樣本落在兩個 mode 中間；分佈匹配一步不會，因為它不要求 $z$ 對到哪裡。但它的錯換成了塌縮與追不上：關掉排斥項就擠到峰頂，fake score 更新太慢就震盪。」
-- **匯出 PNG**：兩格併成 16:9，含當前 $N$、開關與頻率設定。
-- **註記**：<Ref to="dma-lab-flow-maps"/> 的作業會親手做出這張圖。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/week-9/w9-4-1.html" class="demo-frame" title="回歸式一步與分佈匹配式一步：互動 demo" style="height: 900px; width: 100%; border: none;"></iframe>
+
+**互動 demo：平均錯誤換成分佈匹配的工程錯誤。** CT 網格控制回歸樣本落在兩個 mode 中間的比例；DMD surrogate 可關掉 fake-score 排斥項或降低更新頻率，分別看到 mode collapse 與比例震盪。
 
 ## 延伸閱讀：同一族的其他成員
 
@@ -172,7 +164,7 @@ $\mathbb E_{x\sim p_\theta}\big[\log\frac{p_\theta}{p_{\text{real}}}\big]$ 只�
 </QuizBlock>
 
 <Bridge to="dma-unified-table">
-本篇換了訓練訊號：從「輸出等於目標點」到「分佈等於分佈」，梯度是兩個 score 的差。回歸式的失敗是平均（交叉問題的最終形態），分佈匹配的失敗是塌縮與追不上。下一篇把兩個單元的方法沿著幾個軸排成一張表——學什麼、要不要 teacher、能否多步、誤差從哪裡來——並給一份選擇指南。
+分佈匹配避開逐點答案，卻需要估計學生與 teacher 的 score。至此每條路都解掉一種限制、換來另一種代價。<Ref to="dma-unified-table"/> 用「學什麼、要不要 teacher、能否多步、誤差在哪裡」把它們放回同一張圖。
 </Bridge>
 
 ## 參考文獻

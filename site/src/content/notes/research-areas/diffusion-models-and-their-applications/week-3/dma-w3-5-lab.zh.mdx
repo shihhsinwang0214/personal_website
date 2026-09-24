@@ -36,16 +36,14 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 
 # 實作：建立這個單元的 Toy
 
 <Objectives>
-- **建立之後三個單元共用的 2D toy 與小 MLP。** 說出為什麼要在這麼小的問題上做——真實的 $p_t$、score、後驗均值全部精確算得出來，網路學得好不好不用猜。
-- **親手實作 $\epsilon$-prediction 訓練、DDPM 與 DDIM 取樣，並產出三張圖。** score field、$\hat x_0$ 的換算誤差對 $t$、DDPM／DDIM 軌跡；順手驗一次三種 parametrization 真的等價。
-- **看懂「loss 停在某個非零的數字」不是 bug，而是 <Ref to="dma-tweedie-and-score"/> 算出來的地板 $\mathbb E[\operatorname{tr}\operatorname{Var}(\epsilon\mid x_t)]$。** 並知道該看的是它隨 $t$ 的形狀，不是那個平均值。
+- **為什麼要先在一個 2D toy 上實作？** 因為這裡的 $p_t$、score 與 posterior mean 都可以精確算出來；網路學到了什麼、在哪些 timestep 出錯，都能直接和 ground truth 比較。
+- **這個 toy 應該讓你親眼確認什麼？** 親手完成 $\epsilon$-prediction、DDPM 與 DDIM，並用三張圖檢查 learned score、$\hat x_0$ 的誤差和兩種 sampler 的軌跡。同時確認不同 parametrization 表示相同資訊，以及非零的 loss floor 來自不可消除的 posterior uncertainty，而不是程式的 bug。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -62,11 +60,9 @@ import Ref from '../../../components/Ref.astro';
 
 設定：資料是兩個月牙（`sklearn.datasets.make_moons`，$n=2000$，噪聲 0.05），標準化到零均值單位變異數。網路是三層 MLP、寬 128，輸入 $(x_t,t)$，$t$ 用 sinusoidal embedding。$T=1000$，linear schedule $\beta_1=10^{-4}\to\beta_T=0.02$。
 
-<VizPlan id="w3-5-notebook" title="Diffusion 單元實作 notebook" type="notebook">
-- 單一 notebook，四個 section 對應下面四個步驟；每個 section 給 TODO 骨架與參考解答（折疊）。
-- 所有圖用同一組色系與座標範圍。<Ref week="dma-week-flow-matching"/>、<Ref week="dma-week-interpolants"/> 的 notebook 沿用同一份 `toy.py`（資料、網路、schedule、精確 score）。
-- 提供 `exact_score(x, t)` 與 `exact_posterior_mean(x, t)` 兩個以混合 Gaussian 精確計算的函數當 ground truth。
-</VizPlan>
+[下載 Week 3：Gaussian diffusion 與解析 score notebook（.ipynb）](/personal_website/notes/notebooks/diffusion-models-applications/dma-w3-lab.ipynb)
+
+**Notebook 內容。** 用可解析的 2D Gaussian mixture 實作 forward noising、精確 score 與 Tweedie posterior mean；內含固定 seed、三組可重跑視覺化與改變 mixture 重疊程度的 TODO。這是解析 toy，不依賴任何 checkpoint。
 
 ## 步驟 1：forward 與訓練
 
@@ -107,20 +103,20 @@ $$
 
 加寬網路只會讓你更快走到這條地板，不會穿過它。而且這個下界**隨 $t$ 變**，兩端剛好相反：
 
-- $t$ 很小：$x_t$ 幾乎就是 $x_0$，所以看到 $x_t$ 就幾乎知道 $\epsilon$ 是多少——條件變異數接近 0，loss 下界接近 0。
-- $t$ 很大：$x_t$ 幾乎不含 $x_0$ 的資訊，$\epsilon$ 給定 $x_t$ 之後幾乎還是 $\mathcal N(0,I)$——loss 下界接近 1。
+- $t$ 很小：$x_t$ 幾乎就是 $x_0$。看到 $x_t$ 等於看到原圖——但那**不會**告訴你當初抽到的是哪一個 $\epsilon$，因為它的貢獻被 $\sigma_t$ 壓到幾乎看不見。條件變異數接近 1，loss 下界接近 1。
+- $t$ 很大：$x_t$ 幾乎就是 $\sigma_t\epsilon$ 本身，$\epsilon$ 幾乎可以直接讀出來。條件變異數接近 0，loss 下界接近 0。
 
-把所有 $t$ 平均起來，就是那個停住的非零數字。
+$x_0$ 是 Gaussian 時這個下界算得出精確值：$\operatorname{Var}(\epsilon\mid x_t)=\bar\alpha_t$。所以那條曲線就是 $\bar\alpha_t$ 本身，而把所有 $t$ 平均起來就是那個停住的非零數字——DDPM 的 linear schedule 下 $\overline{\bar\alpha_t}\approx0.28$。
 
 > **該看的不是 loss 停在多少，而是它隨 $t$ 長什麼形狀。**
 
-**實作建議：** 把 loss 依 $t$ 分箱畫出來（例如每 100 個 $t$ 一箱），你會看到一條從 ~0 爬到 ~1 的曲線。這條曲線比單一個平均 loss 有用得多——它讓你看得出模型是在哪一段 $t$ 沒學好。
+**實作建議：** 把 loss 依 $t$ 分箱畫出來（例如每 100 個 $t$ 一箱），你會看到一條從 ~1 掉到 ~0 的曲線。這條曲線比單一個平均 loss 有用得多——它讓你看得出模型是在哪一段 $t$ 沒學好。
 </Answer>
 </Question>
 
-![示意圖：折線圖，橫軸 t 從 0 到 1000、縱軸 loss 從 0 到 1.1；橘色實線是理論下界（由接近 0 爬到接近 1），藍色散點是依 t 分箱的實際訓練 loss，水平虛線標「所有 t 平均起來 ≈ 0.3」；左右各一個小插圖，t 小時 x_t 幾乎等於原圖、t 大時 x_t 幾乎是純噪聲。](./imgs/w-3-5-1.png)
+![示意圖：折線圖，橫軸 t 從 0 到 1000、縱軸 loss 從 0 到 1.1；橘色實線是理論下界（由接近 1 掉到接近 0），藍色散點是依 t 分箱的實際訓練 loss，水平虛線標「所有 t 平均起來 ≈ 0.3」；左右各一個小插圖，t 小時 x_t 幾乎等於原圖、t 大時 x_t 幾乎是純噪聲。](./imgs/w-3-5-1.png)
 
-**圖：loss 的下界隨 $t$ 走。** 橘線是理論下界（$t$ 小趨近 0、$t$ 大趨近 1），藍點是依 $t$ 分箱的實測值。虛線那個 $\approx 0.3$ 就是你在 log 裡看到「停住」的那個數字——**它是所有 $t$ 平均出來的，不是模型學不動。**
+**圖：loss 的下界隨 $t$ 走。** 橘線是理論下界 $\bar\alpha_t$（$t$ 小趨近 1、$t$ 大趨近 0），藍點是依 $t$ 分箱的實測值。虛線那個 $\approx 0.3$ 就是你在 log 裡看到「停住」的那個數字——**它是所有 $t$ 平均出來的，不是模型學不動。**
 
 ## 步驟 2：畫 score field（圖 a）
 
@@ -184,10 +180,10 @@ $\eta=0$ 是 DDIM，$\eta=1$ 是 DDPM——一支函數就夠，這正是 <Ref t
 <QuizBlock id="w3-5-a">
 訓練 loss 的下界隨 $t$ 怎麼變？
 <Option>與 $t$ 無關，是一個常數。</Option>
-<Option correct>$t$ 小時接近 0、$t$ 大時接近 1，因為那是 $\epsilon$ 給定 $x_t$ 的條件變異數。</Option>
-<Option>$t$ 小時接近 1、$t$ 大時接近 0。</Option>
+<Option>$t$ 小時接近 0、$t$ 大時接近 1。</Option>
+<Option correct>$t$ 小時接近 1、$t$ 大時接近 0，因為那是 $\epsilon$ 給定 $x_t$ 的條件變異數。</Option>
 <Explanation>
-$t$ 小時 $x_t$ 幾乎就是 $x_0$，看到 $x_t$ 幾乎就知道 $\epsilon$；$t$ 大時 $x_t$ 幾乎不含 $x_0$ 的資訊，$\epsilon$ 給定 $x_t$ 仍接近 $\mathcal N(0,I)$。把 loss 依 $t$ 分箱畫出來就能看到這條曲線。
+$t$ 大時 $x_t$ 幾乎就是 $\sigma_t\epsilon$，$\epsilon$ 幾乎可以直接讀出來，條件變異數接近 0；$t$ 小時 $x_t$ 幾乎就是 $x_0$，而知道原圖完全不告訴你當初抽到哪一個 $\epsilon$，條件變異數接近 1。$x_0$ 是 Gaussian 時這條曲線就是 $\bar\alpha_t$。
 </Explanation>
 </QuizBlock>
 
@@ -212,7 +208,11 @@ $t$ 小時 $x_t$ 幾乎就是 $x_0$，看到 $x_t$ 幾乎就知道 $\epsilon$；
 </QuizBlock>
 
 <Bridge to="dma-why-not-diffusion">
-這個單元把「生成」翻成了 denoising 回歸，證明 denoiser 就是 score，並得到 DDPM 與 DDIM 兩種取樣器。留下來的問題有兩個：forward process 一定要是 Gaussian 嗎？DDIM 的軌跡為什麼是彎的？下一個單元從第一個問題開始。
+到這裡，我們走完了 DDPM 的整條推導鏈：選擇 Gaussian forward process、建立 denoising regression、用 Tweedie 連到 score，再用 DDPM、DDIM、SDE 或 ODE 把樣本帶回 data distribution。
+
+但這條推導也同時固定了三項設計：起點是 Gaussian、中間路徑由 noise schedule 決定，資料與 noise 的 pairing 也不能自由選擇。**這些真的是生成模型必須接受的限制，還是只有 diffusion 做出的選擇？**
+
+下一個單元會把起點、路徑與配對分開來看。Flow matching 的出發點，就是讓這三項設計可以被獨立選擇。
 </Bridge>
 
 ## 參考文獻

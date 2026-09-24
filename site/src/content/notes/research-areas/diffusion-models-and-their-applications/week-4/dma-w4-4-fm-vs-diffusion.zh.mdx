@@ -9,8 +9,8 @@ title: "把 Flow Matching 和 Diffusion 放在一起看"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-09-13
-summary: "Gaussian 路徑上速度場與 score 只是同一個物件的兩套座標，寫出精確的轉換式並代 VP 驗一次；再從四個旋鈕（起點、路徑、配對、加權）把兩個框架的差異分開來看，likelihood 與取樣器則是後果。"
+updated: 2026-09-21
+summary: "在同一條 Gaussian 路徑上，score、noise 與 velocity 可以互相換算；真正造成 DDPM 與 flow matching 實務差異的，是起點、路徑、配對與加權。"
 demos: []
 references:
   - label: "Song, Sohl-Dickstein, Kingma, Kumar, Ermon & Poole, Score-Based Generative Modeling through SDEs (ICLR 2021)"
@@ -40,16 +40,16 @@ import Ref from '../../../components/Ref.astro';
 # 把 Flow Matching 和 Diffusion 放在一起看
 
 <Objectives>
-- **寫出 Gaussian 路徑下速度場與 score 的精確轉換式，並代 VP 進去驗出它就是 PF-ODE。** 兩個係數各化簡一次，都會變成 $-\beta/2$。
-- **把 FM 與 diffusion 的差異分到四個旋鈕上**：<Ref to="dma-why-not-diffusion"/> 的三個 forward 旋鈕（起點／路徑／配對）加上訓練端的加權。likelihood 與取樣器不是旋鈕，是後果。
-- **說出「條件路徑是直的」不等於「邊際軌跡是直的」，並知道要判斷哪一條比較好走只能量。**
+- **推導 Gaussian 路徑上 velocity 與 score 的轉換式。** 再把 VP schedule 代入，驗出 DDPM 的 PF-ODE。
+- **把 DDPM 與 flow matching 的差異拆成四項。** 起點、路徑、配對與訓練加權要分開比較。
+- **判斷一句「兩者等價」究竟保證了什麼。** 同一個 oracle 可以換座標，不代表換路徑後仍能沿用同一個模型。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 這兩個框架到底是不是同一件事
+## 長得不一樣，可能只是座標不同
 
-<Ref week="dma-week-diffusion"/> 和這個單元看起來差很多：一邊是 SDE、score、Tweedie，一邊是 ODE、速度場、回歸。但兩邊的中間分布都是「縮小的資料加上 Gaussian noise」，這實在太像了。
+<Ref week="dma-week-diffusion"/> 用 SDE、score 與 Tweedie；這個單元用 ODE、速度場與回歸。可是只要兩邊採用同一條 Gaussian 路徑，中間點都是「縮小的資料加上 Gaussian noise」。研究上最自然的下一步不是再替方法取名字，而是問：**它們會不會只是在預測同一個東西？**
 
 <Ask>
 如果中間分布是同一族，<br />
@@ -120,10 +120,10 @@ $$
 
 同一個交集之外，兩邊能動的東西差很多。整理的時候要分兩層：
 
-- <Ref to="dma-why-not-diffusion"/> 的**三個 forward 旋鈕**——起點分布、路徑、配對。它們決定 $p_t$ 長什麼樣。
-- 再加一個**訓練端的旋鈕：加權**。它不改 $p_t$、也不改最佳解，只改「有限預算下先學好哪一段 $t$」。<Ref to="dma-why-not-diffusion"/> 那三個旋鈕沒有涵蓋它，因為它根本不在 forward process 裡。
+- <Ref to="dma-why-not-diffusion"/> 的**三個 forward 設定**——起點分布、路徑、配對。它們決定 $p_t$ 長什麼樣。
+- 再加一個**訓練端的設定：加權**。它不改 $p_t$、也不改最佳解，只改「有限預算下先學好哪一段 $t$」。<Ref to="dma-why-not-diffusion"/> 那三個設定沒有涵蓋它，因為它根本不在 forward process 裡。
 
-下面四段就是這四個。其餘的（likelihood 怎麼算、能不能用 SDE 取樣）都是**這四個選完之後的後果**，不是可以獨立轉的旋鈕。
+下面四段就是這四個。其餘的（likelihood 怎麼算、能不能用 SDE 取樣）都是**這四個選完之後的後果**，不是可以獨立選擇的項目。
 
 **路徑。** Diffusion 綁在 VP（或 VE）；FM 的 $(\alpha_t,\sigma_t)$ 任選，例如線性路徑 $(t,\,1-t)$ 就不滿足 $\alpha^2+\sigma^2=1$。中間分布 $p_t$ 不同，速度場、軌跡、彎曲程度就全部不同。
 
@@ -149,10 +149,10 @@ $\nabla\cdot u_\theta$ 是 Jacobian 的跡。直接算要 $d$ 次反向傳播，
 
 | | Diffusion | Flow Matching |
 |---|---|---|
-| **旋鈕**：起點 | forward SDE 的平穩分布 | 任意 |
-| **旋鈕**：路徑 | VP／VE，固定 | 任意 $(\alpha_t,\sigma_t)$ |
-| **旋鈕**：配對 | 獨立 | 任意耦合 |
-| **旋鈕**：加權 | 由 $\epsilon$-loss 與 schedule 隱含 | 由目標與 $t$ 的分布隱含 |
+| **設定**：起點 | forward SDE 的平穩分布 | 任意 |
+| **設定**：路徑 | VP／VE，固定 | 任意 $(\alpha_t,\sigma_t)$ |
+| **設定**：配對 | 獨立 | 任意耦合 |
+| **設定**：加權 | 由 $\epsilon$-loss 與 schedule 隱含 | 由目標與 $t$ 的分布隱含 |
 | 後果：訓練目標的語意 | 逐步 KL ＋ 等價定理（是等式） | 純回歸 |
 | 後果：likelihood | 沿 PF-ODE 精確積分 | 沿 ODE 精確積分 |
 | 後果：取樣器 | SDE 或 ODE | Gaussian 路徑上兩者皆可（上面那條式子就給出 score）；一般的路徑或耦合只剩 ODE，見 <Ref week="dma-week-interpolants"/> |
@@ -182,20 +182,12 @@ $$
 <Details summary="那為什麼文獻裡的影像實驗常說線性路徑少步數更好">
 那些比較是在高維、用訓練出來的網路、而且往往同時換了加權與時間取樣。幾件事會一起改變結論：維度越高，獨立配對造成的方向抵消在單位長度上的影響越小；學出來的場比精確場平滑，彎曲度會被低估；而 $1/t^2$ 那種加權本身就會改變網路在哪一段時間學得好。
 
-這正是上面那四個旋鈕的用處：一個實驗結果要歸因到哪一個，得把其他三個控制住才說得清。上面那個 2D 的反例不是要說線性路徑不好，而是要說**這件事不能用框架的名字來推論。**
+這正是上面那四個設定的用處：一個實驗結果要歸因到哪一個，得把其他三個控制住才說得清。上面那個 2D 的反例不是要說線性路徑不好，而是要說**這件事不能用框架的名字來推論。**
 </Details>
 
-<VizPlan id="w4-4-one-object-two-coords" title="同一個物件的兩套座標" type="static">
-- 檔名 `imgs/w4-4-1.png`，放在四個旋鈕的表格之後、Q1 之前。
-- 版面：中間一個大方塊寫「$p_t$ 的同一個物件」，左右各一組符號，用雙向箭頭連到中間。
-  - **左（diffusion 座標）**：$\epsilon_\theta(x,t)\ \approx\ \mathbb E[\epsilon\mid x_t]$、$\nabla\log p_t=-\epsilon_\theta/\sigma_t$；下方小字「學噪聲、走 SDE 或 PF-ODE」。
-  - **右（FM 座標）**：$u_\theta(x,t)\ \approx\ \dot\alpha_t\mathbb E[x_1\mid x_t]+\dot\sigma_t\mathbb E[\epsilon\mid x_t]$；下方小字「學速度、解 ODE」。
-  - 雙向箭頭上標「只是 affine transformation，不用重訓」，並把那個框起來的轉換式寫在箭頭下方。
-- 右側再掛一個小標註：「這個等價**只在 Gaussian 路徑上**成立；路徑、加權、配對三個軸換掉之後就不是同一個物件了。」
-- 底部一句：「兩邊學的是同一件事；差別在你允許自己換掉哪幾樣東西。」
-- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、噪聲藍 `#4a90e2`／資料橘 `#f0803c`／強調靛 `#2a4ea3`）；數學符號用簡單上下標，不要試著排 LaTeX。
-- 長寬比：約 16:7。
-</VizPlan>
+![同一個物件的兩套座標](./imgs/w4-4-1.png)
+
+*圖：在 Gaussian path 上，noise／score 與 velocity 是描述同一個中間分布 p_t 的兩套 affine 座標。*
 
 ## 消化一下
 
@@ -215,7 +207,7 @@ Gaussian 路徑上速度場是位置與 score 的線性組合，而 score 由 $\
 <Option correct>比較的時候有沒有把路徑與加權分開控制——差異可能來自加權，而不是框架。</Option>
 <Option>有沒有用 EMA。</Option>
 <Explanation>
-兩者在 Gaussian 路徑上是同一個 ODE，所以差異只能來自那四個旋鈕（起點、路徑、配對、加權）之一。沒有分開控制的比較，說不出是哪一個造成的。
+兩者在 Gaussian 路徑上是同一個 ODE，所以差異只能來自那四個設定（起點、路徑、配對、加權）之一。沒有分開控制的比較，說不出是哪一個造成的。
 </Explanation>
 </QuizBlock>
 
@@ -230,7 +222,7 @@ demo 量得出來：這個 2D toy 裡線性路徑的彎曲度比 VP 還大。要
 </QuizBlock>
 
 <Bridge to="dma-lab-flow-matching">
-理論到這裡告一段落。下一篇動手把 FM 加進 <Ref week="dma-week-diffusion"/> 的那個 toy，順便把這一篇「不用重訓就能換取樣器」的說法親手驗一次。
+公式說同一路徑上的 noise 與 velocity 可以互換，但它也警告我們：換座標不等於換路徑。下一篇沿用同一個 toy，把「可互換」與「不能混用」各跑一次，讓差別不只停在代數上。
 </Bridge>
 
 ## 參考文獻

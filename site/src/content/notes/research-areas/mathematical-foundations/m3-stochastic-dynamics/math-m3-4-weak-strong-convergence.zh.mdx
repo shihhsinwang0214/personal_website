@@ -10,7 +10,7 @@ title: "每條路徑對，還是最後的分佈對：Weak 與 Strong Convergence
 category: "courses"
 group: "M3 · Stochastic Dynamics"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "模擬一百次股價，你關心的是「每一條路徑都跟真實走法一樣」還是「一年後價格的分佈一樣」？兩種要求對應兩種誤差：strong error 逐路徑比、weak error 只比分佈的平均。Euler–Maruyama 的 strong order 只有 1/2，weak order 卻是 1——同一個方法，換一個問題就快一倍。只要目標是「抽樣本」，看的永遠是 weak error。"
 demos: []
 references:
@@ -39,9 +39,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 # 每條路徑對，還是最後的分佈對：Weak 與 Strong Convergence
 
 <Objectives>
-- 分清 strong error（逐路徑、同一組噪聲下比終點）與 weak error（只比終點分佈的平均），並寫出兩者的定義。
-- 說出 Euler–Maruyama 的 strong order 是 $1/2$、weak order 是 $1$，並解釋為什麼同一個方法會有兩個不同的速率。
-- 對一個模擬情境判斷該用哪一種誤差來衡量「模擬夠不夠準」、說出這個判斷依賴的假設（是否共用噪聲、被比較的量是否光滑），並用實驗驗證階數。
+- **分清 strong error（逐路徑、同一組噪聲下比終點）與 weak error（只比終點分佈的平均）。** 寫出兩者的定義。
+- **說出 Euler–Maruyama 的 strong order 是 $1/2$、weak order 是 $1$。** 解釋為什麼同一個方法會有兩個不同的速率。
+- **對一個模擬情境判斷該用哪一種誤差來衡量「模擬夠不夠準」、說出這個判斷依賴的假設（是否共用噪聲、被比較的量是否光滑）。** 用實驗驗證階數。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -81,7 +81,7 @@ $$
 </Answer>
 </Question>
 
-## 先看畫面：兩把尺
+## 兩把尺
 
 想像兩位評審在看你的模擬。
 
@@ -91,15 +91,11 @@ $$
 
 第二位評審寬鬆得多：只要你的路徑「在統計上」走得像，就算每一條都跟真實的錯開，她也給滿分。而寬鬆的尺會給出**更快的收斂**——同樣的步長縮小一半，weak 誤差減半，strong 誤差只減到原來的 $1/\sqrt2$。
 
-<VizPlan id="m3-4-two-rulers" title="兩把尺：逐路徑比，還是比直方圖" type="static">
-- **檔名**：`m3-stochastic-dynamics/imgs/m3-4-1.svg`，16:9，左右兩格。
-- **左格「strong」**：同一條 Brownian motion 下，真實路徑（細實線，用步長極小算）與 Euler–Maruyama 路徑（粗虛線，$h$ 明顯較大），兩條線起點相同、大致同向、局部錯開；終點之間畫一段標 $|x_T-\hat x_T|$ 的紅色距離；下方小字「共用同一條 $W_t$，逐條相減，再取平均」。
-- **右格「weak」**：兩個並排的直方圖（真實 vs 模擬各 $10^4$ 個終點），形狀幾乎重合，中央一條標 $\mathbb E[\varphi(x_T)]-\mathbb E[\varphi(\hat x_T)]$ 的細箭頭；下方小字「不共用噪聲，只比分佈的平均」。
-- **中間**一條大箭頭「strong ⟹ weak」與反向劃掉的箭頭「weak ⇏ strong」。
-- **圖說**：「strong error 逐路徑比、weak error 只比分佈。路徑對了分佈一定對；分佈對了路徑可以完全對不上。寬鬆的尺會給出更快的收斂速度。」
-</VizPlan>
+![兩把尺：逐路徑比，還是比直方圖](./imgs/m3-4-1.svg)
 
-## 寫成數學：一個方法，兩個階數
+*圖：strong error 共用噪聲逐路徑比較；weak error 只比較終點分布的期望。*
+
+## 一個方法，兩個階數
 
 <Ref to="math-euler-error"/> 對 ODE 說 Euler 的全域誤差是 $O(h)$。對 SDE，Euler–Maruyama 的結論是 [1, 2]：
 
@@ -130,7 +126,7 @@ Strong：這一項的 L² 大小是 O(h)，各步近乎獨立，N = T/h 步以�
 Weak：對光滑的 φ，令 u(t,x) = E[φ(x_T) | x_t = x]（它滿足向後的 Kolmogorov 方程）。單步的 weak 誤差是 E[u(t+h, x̂_\{t+h\})] − E[u(t+h, x_\{t+h\})]；把 u 對 x 展開，零均值的隨機項全部被期望消掉，剩下的首項是 O(h²)；N 步累積成 O(h)。條件：φ、f、g 要夠光滑（一般要求 φ 有四階以上的有界導數）；φ 是不光滑的指標函數時，weak order 可能掉到 1/2。這門課只用結論，證明見 Kloeden & Platen [1] 第 10 與 14 章、Milstein & Tretyakov [4]。
 </Details>
 
-## 回到股價：該拿哪把尺
+## 該拿哪把尺
 
 回答老闆。「準不準」取決於他要拿模擬做什麼：
 
@@ -141,7 +137,7 @@ Weak：對光滑的 φ，令 u(t,x) = E[φ(x_T) | x_t = x]（它滿足向後的 
 
 這個判斷依賴兩個假設。第一，**被比較的統計量夠光滑**——weak order $1$ 是對光滑 $\varphi$ 說的，若你要的是「價格恰好超過 100 的機率」這種階梯函數，階數會掉。第二，**你不需要共用噪聲**——一旦你的用途要求「同一組隨機數下模擬與真實對上」（例如把模擬拿去和真實資料逐日對比），你就回到了 strong 的世界。
 
-## 回到股價：把兩條斜率量出來
+## 把兩條斜率量出來
 
 ```python
 import numpy as np
@@ -168,17 +164,9 @@ for h in [1/16, 1/64, 1/256]:
 
 **刻意違反一個假設。** 把 $\varphi(x)=x$ 換成 $\varphi(x)=\mathbf 1[x>1]$（超過起始價的機率）。weak error 的斜率會從 1 掉下來——階梯函數不光滑，展開框裡「把 $u$ 對 $x$ 展開」的步驟失效。再把 $dW$ 換成模擬與真實**各自獨立抽**的噪聲：strong error 不再隨 $h$ 下降（兩條路徑本來就不該對上），只剩 weak error 有意義。
 
-<VizPlan id="m3-4-orders" title="兩條斜率：strong 1/2、weak 1" type="interactive">
-- **位置**：本節之後。**檔名**：`m3-stochastic-dynamics/m3-4-1.html`。
-- **版面**：左格是路徑圖：一條 Brownian motion 下的真實路徑（極細步長）與 Euler–Maruyama 路徑，共 8 對，同色配對；右格是 log–log 的誤差圖，橫軸 $h$、縱軸誤差，兩條線 strong / weak，旁邊畫參考斜率 $\tfrac12$ 與 $1$。
-- **控制項**：滑桿「步長 $h$」（$2^{-2}$–$2^{-10}$，拖動時左格的粗路徑即時重算、右格亮出對應的兩個點）；下拉「SDE」：$dx=\sigma x\,dW$（multiplicative）、$dx=-x\,dt+dW$（additive，Ornstein–Uhlenbeck）；下拉「測試函數 $\varphi$」：$x$、$x^2$、$\mathbf 1[x>1]$；開關「共用噪聲」（關掉後 strong 的線變成一條不下降的水平線並標「不共用噪聲時 strong error 沒有意義」）。
-- **行為**：切到 additive noise，strong 的斜率從 $\tfrac12$ 變成 $1$（$g'=0$，Milstein 修正項消失），畫面標「additive noise：Euler 的 strong order 也是 1」；切到 $\varphi=\mathbf 1[x>1]$，weak 的斜率下降並標「不光滑的 $\varphi$，weak order 掉」。
-- **Hover** 右格任一點：顯示該 $h$ 下的路徑數、Monte Carlo 標準誤差（灰色誤差棒），讓讀者看到 weak error 很快小於抽樣誤差。
-- **底部觀察句**：「觀察：Euler 每步漏掉的首項是零均值的隨機量——逐路徑比它累積成 $\sqrt h$，只比分佈它平均掉、剩 $h$。要的是樣本就看 weak；要逐路徑對上才需要 strong。」
-- **匯出 PNG**：左右併成 16:9，含當前 $h$、SDE、$\varphi$ 與兩個誤差值。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m3-stochastic-dynamics/m3-4-1.html" class="demo-frame" title="Weak 與 strong convergence 的收斂階" style="height: 820px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m3-4-a">
 氣象局用 SDE 模擬明天氣溫，跑一萬次，只發布「明天氣溫超過 30 度的機率」。衡量這個模擬準不準，該看：
@@ -213,7 +201,7 @@ strong order $\tfrac12$ 來自噪聲係數 $g(x)$ 隨 $x$ 變化那一項；$g$ 
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-markov-chain">
-本篇把「模擬準不準」拆成兩把尺：strong 逐路徑比、weak 只比分佈；Euler–Maruyama 每步漏掉的首項是零均值的隨機量，所以 strong 只有 $\tfrac12$ 階、weak 有 $1$ 階——要的是樣本就看 weak。到這裡，連續狀態的隨機動力學（random walk → SDE → Fokker–Planck → Langevin → 誤差）走完了。下一個 class 把狀態空間換成有限個格子：明天的天氣只跟今天有關，矩陣乘法就能算出一百天後晴天的比例。
+本篇把「模擬準不準」拆成兩把尺：strong 逐路徑比、weak 只比分佈；Euler–Maruyama 每步漏掉的首項是零均值的隨機量，所以 strong 只有 $\tfrac12$ 階、weak 有 $1$ 階——要的是樣本就看 weak。到這裡，連續狀態的隨機動力學（random walk → SDE → Fokker–Planck → Langevin → 誤差）走完了。接下來的單元 把狀態空間換成有限個格子：明天的天氣只跟今天有關，矩陣乘法就能算出一百天後晴天的比例。
 </Bridge>
 
 ## 參考文獻

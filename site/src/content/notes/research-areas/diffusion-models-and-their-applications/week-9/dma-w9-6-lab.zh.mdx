@@ -10,8 +10,8 @@ title: "實作：MeanFlow、半群檢查，與交叉問題的最終回收"
 category: "courses"
 group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "available"
-updated: 2026-09-06
-summary: "在 2D toy 上用 torch.func.jvp 訓 MeanFlow，做一步與兩步取樣；與 consistency training、reflow×2 放進同一張 W₂ 圖；數值檢查半群性質。作業：用 fake denoiser 實作 DMD，並在兩 Gaussian 交叉例子上比較回歸式與分佈匹配式的一步樣本——前者平均到中間，後者不會。這是整門課的最後一篇。"
+updated: 2026-09-21
+summary: "實作 MeanFlow 與半群檢查，比較多種一步模型的 $W_2$；再用交叉 toy 看見逐點回歸與分佈匹配的差別。"
 demos: []
 references:
   - label: "Geng, Deng, Bai, Kolter & He, Mean Flows for One-step Generative Modeling (2025)"
@@ -26,7 +26,6 @@ import Prereq from '../../../components/Prereq.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 import Question from '../../../components/Question.astro';
@@ -35,9 +34,9 @@ import Answer from '../../../components/Answer.astro';
 # 實作：MeanFlow、半群檢查，與交叉問題的最終回收
 
 <Objectives>
-- 用 `torch.func.jvp` 實作 <Ref to="dma-meanflow"/> 的損失，訓出一個可以一步、也可以多步的平均速度網路。
-- 把 MeanFlow 與 <Ref to="dma-lab-consistency"/> 的 consistency training、<Ref to="dma-lab-interpolants"/> 的 reflow×2 放進同一張 $W_2$ 對步數的圖，並數值驗證半群性質。
-- 作業：實作 DMD 的 fake denoiser 與 score 差梯度，在兩 Gaussian 交叉例子上做出「回歸式平均到中間、分佈匹配式不會」的對照。
+- **實作 MeanFlow。** 用 `torch.func.jvp` 寫出 identity loss，並完成一步與多步取樣。
+- **分開量一步品質與多步能力。** 比較 MeanFlow、CT、reflow×2 的 $W_2$ 曲線，並數值檢查半群性質。
+- **重現交叉平均。** 實作 DMD 的 score-difference 更新，對照逐點回歸與分佈匹配的一步樣本。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -48,11 +47,9 @@ import Answer from '../../../components/Answer.astro';
 
 需要從前幾個單元帶進來的東西：<Ref to="dma-lab-interpolants"/> 的 reflow×2 模型與 $W_2$ 函數、<Ref to="dma-lab-consistency"/> 的 consistency training 一步生成器，以及那一張「三種一步方法」的 $W_2$ 圖——這一篇要在上面疊新的線。
 
-<VizPlan id="w9-6-notebook" title="Flow Maps 單元實作 notebook" type="notebook">
-- 單一 notebook，三個步驟加作業，每個 section 有 TODO 骨架與參考解答（折疊）。
-- 沿用 `toy.py`；新增 `toy_crossing.py`：<Ref to="dma-linear-path"/> 那個兩 Gaussian 到兩 Gaussian 的交叉資料、解析邊際速度場 `exact_velocity(x, t)`、與真實 ODE 積分器 `exact_flow_map(x, t, s)`（作業 2 的標準答案）。
-- 所有 $W_2$ 對步數的圖沿用 <Ref to="dma-lab-flow-matching"/> 圖 b 的座標慣例（橫軸步數對數刻度）。
-</VizPlan>
+[下載 Week 9：Flow maps 與 MeanFlow identity notebook（.ipynb）](/personal_website/notes/notebooks/diffusion-models-applications/dma-w9-lab.ipynb)
+
+**Notebook 內容。** 在解析平移 flow 上直接驗證 identity 與 semigroup，用向量圖關閉 MeanFlow 的「弦−切線−修正」關係，並比較一步平均速度和多步 Euler。`mean_velocity` 是公式 oracle，不是網路 checkpoint。
 
 ## 步驟 1：MeanFlow 的損失
 
@@ -169,7 +166,9 @@ def sample(model, n, steps):
 </QuizBlock>
 
 <Bridge>
-這是整門課的最後一篇。回頭看，我們從 <Ref to="dma-what-are-we-learning"/> 出發——把「生成」翻成學一個從噪聲到資料的映射——中間換過資料型態（<Ref week="dma-week-discrete-i"/>、<Ref week="dma-week-discrete-ii"/>）、換過時間刻度、換過學的物件（速度、終點、flow map、分佈），但每個單元都靠同樣三件工具站穩：**conditional trick**（<Ref to="dma-denoising-regression"/>）讓我們永遠能用自己造的配對當目標；**曲率積分壓住有限步誤差**（<Ref to="dma-error-theory"/>）讓我們知道每個方法的誤差從哪裡來、什麼時候消失；**訓練噪聲與取樣噪聲是兩個旋鈕**（<Ref to="dma-sampler-family"/>）讓我們分得清什麼是模型的性質、什麼是取樣器的性質。再加上一個一路跟到最後的問題——<Ref to="dma-linear-path"/> 的配對交叉——它在 reflow 裡是彎曲、在多步 consistency 裡是重加噪、在蒸餾裡是模糊，本單元的作業 2 再做它一次。往後讀任何一篇新的論文，先問它動了哪個旋鈕、誤差落在哪一格；通常，那就是它全部的新意。
+這門課從「生成到底在學什麼」出發，最後得到一套讀新方法的問法：它學的是速度、終點、flow map，還是整個分佈？它靠 conditional trick、teacher，還是自己的 bootstrap 取得訓練訊號？有限步誤差來自曲率、累積、交叉平均，還是 score 估計？訓練噪聲與取樣噪聲又各自扮演什麼角色？
+
+方法名稱會繼續增加，這幾個問題不會。先找出新方法改了哪個物件、拿掉哪個假設，又把代價移到哪裡；通常就已經抓到它真正的新意。
 </Bridge>
 
 ## 參考文獻

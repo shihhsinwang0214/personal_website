@@ -5,13 +5,15 @@ prereqs:
   - math-total-derivative
   - math-ema
   - math-euler-error
+  - ml-moving-targets-ema
+  - ml-loss-declaration
 lang: "zh"
 title: "讓 CT 訓得起來：iCT 與連續時間的 sCM"
 category: "courses"
 group: "Unit 6 · Consistency Models"
 status: "available"
-updated: 2026-09-06
-summary: "同一個 consistency 目標，怎麼訓得穩？iCT 拿掉 EMA target、換 pseudo-Huber、lognormal 時間取樣、N 指數 curriculum；sCM 把 Δt 推到零——自我一致性變成「沿軌跡全導數為零」，用 JVP 算，用 TrigFlow 參數化與 tangent normalization 穩住。每一項技術都對到一個誤差來源：bias、variance 或 boundary。"
+updated: 2026-09-21
+summary: "iCT 分別處理 boundary、bias 與 variance；sCM 再把時間間隔推到零，將相鄰點一致改寫成沿軌跡的全導數為零。"
 demos: []
 references:
   - label: "Song & Dhariwal, Improved Techniques for Training Consistency Models (ICLR 2024)"
@@ -38,9 +40,9 @@ import Answer from '../../../components/Answer.astro';
 # 讓 CT 訓得起來：iCT 與連續時間的 sCM
 
 <Objectives>
-- 對 iCT 的每一項改動（拿掉 EMA target、pseudo-Huber、$\lambda=1/\Delta t$、lognormal 時間取樣、$N$ 的指數 curriculum）說出它在對付上一篇的哪個誤差來源：bias、variance，還是 boundary。
-- 寫出連續時間的自我一致性條件——沿 PF-ODE 軌跡的全導數 $\frac{d}{dt}f(x_t,t)=0$——並說出為什麼它一次消掉離散化 bias 與 Jensen gap，以及怎麼用 JVP 算。
-- 說出 sCM 的 TrigFlow 參數化與 tangent normalization 各自穩住了什麼。
+- **把 iCT 的改動對回誤差來源。** 判斷 EMA、loss、時間取樣與 curriculum 各自在處理 boundary、bias 還是 variance。
+- **推出連續時間的一致性條件。** 從相鄰點一致得到 $\frac{d}{dt}f(x_t,t)=0$，並說明 JVP 如何計算全導數。
+- **說出 sCM 如何穩住訓練。** 分清 TrigFlow 參數化與 tangent normalization 的作用。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -56,7 +58,7 @@ import Answer from '../../../components/Answer.astro';
 這一篇不引入新的損失，**新的物件只有一個**：沿軌跡的全導數。前半是離散時間的修補（iCT [1]），後半是把 $\Delta t$ 推到零（連續時間 CM，sCM [2]）。
 
 <Question id="Q1">
-下一節的第一個改動是**把 target 網路的 EMA 拿掉**。這和一般的直覺相反：目標會動的訓練（bootstrapping）不是都要靠 EMA 才不發散嗎？
+iCT 的第一個改動是**把 target 網路的 EMA 拿掉**。這和一般直覺相反：目標會動的訓練（bootstrapping）不是都要靠 EMA 才不發散嗎？
 
 **拿掉之後，$f_\theta$ 為什麼不會直接崩掉？**
 
@@ -94,7 +96,7 @@ $$
 
 **三、時間權重 $\lambda(t_n)=\frac{1}{t_{n+1}-t_n}$（variance 的均衡）。** 相鄰兩點輸出的差距是 $O(\Delta t)$；用 EDM 的時間網格 [4]（$t$ 小處密、$t$ 大處疏）時，不同 $n$ 的 $\Delta t$ 差好幾個數量級，loss 的尺度也跟著差好幾個數量級。乘上 $1/\Delta t$ 把每一對的貢獻拉到同一尺度，等效於**對 $t$ 小的區域加重**——那裡 $x_t$ 接近資料、細節在那裡決定。
 
-**四、Lognormal 時間取樣（把預算放在有訊號的地方）。** 不再均勻抽 $n$，而是讓 $\log t_n$ 近似服從 $\mathcal N(P_{\text{mean}},P_{\text{std}}^2)$，$P_{\text{mean}}=-1.1$、$P_{\text{std}}=2.0$。這就是 <Ref to="dma-fm-vs-diffusion"/> 那第四個旋鈕——訓練端的加權（<Ref to="dma-shared-techniques"/> 把它換算成 $\log\text{SNR}$ 上的權重）：兩端的一致性條件太容易（$t$ 極小時 $f\approx$ 恆等、$t$ 極大時 $x_t$ 幾乎沒資訊），中段才是 $f$ 真正在變的地方，訊號在那裡。
+**四、Lognormal 時間取樣（把預算放在有訊號的地方）。** 不再均勻抽 $n$，而是讓 $\log t_n$ 近似服從 $\mathcal N(P_{\text{mean}},P_{\text{std}}^2)$，$P_{\text{mean}}=-1.1$、$P_{\text{std}}=2.0$。這就是 <Ref to="dma-fm-vs-diffusion"/> 那第四個設定——訓練端的加權（<Ref to="dma-shared-techniques"/> 把它換算成 $\log\text{SNR}$ 上的權重）：兩端的一致性條件太容易（$t$ 極小時 $f\approx$ 恆等、$t$ 極大時 $x_t$ 幾乎沒資訊），中段才是 $f$ 真正在變的地方，訊號在那裡。
 
 **五、$N$ 的指數 curriculum（bias 隨時間換 variance）。** 原版的 $N$ 線性地從 2 增加到 150；iCT 改成
 
@@ -172,13 +174,9 @@ $$
 
 （sCT 時 $\frac{dx_t}{dt}$ 用條件速度 $\cos t\,z-\sin t\,x_0$；sCD 時用 teacher。）兩個括號各是一個「該為零的東西」：第一個是 $F_\theta$ 與真實速度的差——這一項在 $F$ 從 teacher 初始化時本來就小；第二個含 $\frac{dF}{dt}$，是網路對時間的敏感度，**這是不穩定的來源**。
 
-<VizPlan id="w8-4-trigflow" title="TrigFlow 的 c_skip、c_out，與 EDM 的對照" type="static">
-- **位置**：本節之後。**檔名**：`week-8/imgs/w8-4-1.svg`（16:9，左右兩格）。
-- **左格「EDM / CM 原版」**：橫軸 $t$（對數刻度，$0.002$ 到 $80$），曲線 $c_{\text{skip}}(t)=\frac{\sigma_d^2}{(t-\varepsilon)^2+\sigma_d^2}$ 與 $c_{\text{out}}(t)=\frac{\sigma_d(t-\varepsilon)}{\sqrt{\sigma_d^2+t^2}}$，$\sigma_d=0.5$。標出 $c_{\text{skip}}$ 在 $t\gg\sigma_d$ 處以 $1/t^2$ 衰減、$c_{\text{out}}$ 趨於 $\sigma_d$ 的漸近線。
-- **右格「TrigFlow」**：橫軸 $t\in[0,\pi/2]$（線性），曲線 $\cos t$ 與 $-\sigma_d\sin t$（後者取絕對值畫，並標負號）。在 $t=0$ 與 $t=\pi/2$ 各標「恆等」與「全靠 $F_\theta$」。兩格之間一條虛線箭頭標 $t_{\text{EDM}}=\sigma_d\tan t$，並在右格的 $t$ 軸下方加一排對應的 $t_{\text{EDM}}$ 刻度（$0.05,\ 0.5,\ 5,\ 80$），讓讀者看到 TrigFlow 把 EDM 的對數尺度**均勻攤開**成有限區間。
-- **兩格下方各一行**：左「係數是比值，$t$ 大時一個趨零、一個趨常數」；右「係數是有界的三角函數，且同一個 $F_\theta$ 也是 PF-ODE 的速度」。
-- **圖說（.mdx 內）**：「**圖：兩種讓邊界自動成立的參數化。** EDM 的 $c_{\text{skip}},c_{\text{out}}$ 是 $t$ 的比值，TrigFlow 換成 $\cos t$、$-\sigma_d\sin t$，把噪聲尺度的對數軸攤成 $[0,\pi/2]$；兩者在 $t=0$ 都是恆等，差別在數值行為與是否能與 diffusion 模型共用網路。」
-</VizPlan>
+![EDM 的 c_skip、c_out 曲線與 TrigFlow 的 cos、sin 曲線，以及兩個時間座標的對應。](./imgs/w8-4-1.svg)
+
+**圖：EDM 與 TrigFlow 的邊界參數化。** 兩者在乾淨端都是恆等；TrigFlow 用有界三角函數把 EDM 的無界噪聲尺度攤到有限區間。
 
 **Tangent normalization（variance）。** 全導數 $\frac{d}{dt}f_{\theta^-}$ 的模在不同 $t$、不同樣本之間差很多個數量級，直接乘進損失會讓少數大 tangent 的樣本主導梯度。sCM 把它正規化：
 
@@ -194,16 +192,9 @@ $$
 
 **Adaptive weighting（variance 的均衡）。** 對不同 $t$ 的損失尺度，sCM 不再手選 $\lambda(t)$，而是學一個權重網路 $w_\phi(t)$，形式上是最大化一個「加權損失 $-$ 權重的 log」，等價於讓每個 $t$ 的損失被自己的尺度正規化。這是 iCT 第三項 $\lambda=1/\Delta t$ 的連續時間、自動化版本。
 
-<VizPlan id="w8-4-tangent" title="沿軌跡的全導數：它該是零，訓練中它長什麼樣" type="interactive">
-- **位置**：本節之後。**檔名**：`week-8/w8-4-2.html`。
-- **資料與座標**：2D toy（月牙），TrigFlow 座標 $x_t=\cos t\,x_0+\sin t\,z$，$\sigma_d=1$（toy 已標準化）。內嵌三組 $F_\theta$ 權重（初始化自 toy 的 diffusion 模型、sCT 訓 300 步、訓完）。
-- **左格**：一條 PF-ODE 軌跡（精確速度細步積分），選一個點 $(x_t,t)$，畫兩支箭頭：$\partial_tf_\theta$（藍）與 $\nabla_xf_\theta\cdot\dot x_t$（橘）。訓好的模型兩支箭頭等長反向、合力（紅、粗）接近零；初始化時合力明顯不為零。滑桿沿軌跡拖點。
-- **右格上**：沿這條軌跡畫 $\|\frac{d}{dt}f_\theta\|$ 對 $t$ 的曲線（三組權重三條），以及把它拆成兩個括號 $\|\cos t(\sigma_dF-\dot x_t)\|$ 與 $\|\sin t(x_t+\sigma_d\frac{dF}{dt})\|$ 的兩條淡線。讀者應看到：初始化時第一個括號已小、第二個括號大且抖——那就是 tangent warmup 要先關掉的項。
-- **右格下**：一批 256 個樣本的 $\|\frac{d}{dt}f_\theta\|$ 直方圖（對數橫軸），開關「tangent normalization」：開啟後直方圖被壓到 $[0,1)$，旁邊顯示梯度模的變異係數前後對比。
-- **開關「用條件速度 $\dot x_t=\cos t\,z-\sin t\,x_0$ ／ 用精確速度」**：切換後左格的橘色箭頭會在單一樣本上改變，但右格加一條「對經過同一點的 100 組 $(x_0,z)$ 平均後的合力」——它與精確速度版本重合（線性，精確）。
-- **底部觀察句**：「觀察：自我一致性在連續時間裡是『兩支箭頭相消』。訓練初期不穩的是含 $\frac{dF}{dt}$ 的那一項——網路對時間的敏感度；tangent normalization 壓的是它的尺度，warmup 壓的是它出現的時機。用條件速度代替精確速度，平均後完全一樣。」
-- **匯出 PNG**：左右併成 16:9，含當前 $t$ 與三組權重的曲線。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/week-8/w8-4-2.html" class="demo-frame" title="沿軌跡的全導數：兩支箭頭相消：互動 demo" style="height: 920px; width: 100%; border: none;"></iframe>
+
+**互動 demo：全導數是兩支箭頭的合力。** 沿解析軌跡拖動時間、切換 surrogate 訓練狀態與 tangent normalization；看 $\partial_t f_\theta$ 與 $\nabla_x f_\theta\cdot\dot x_t$ 如何由不平衡逐漸相消。
 
 ## 四個方法各站在哪裡
 
@@ -222,7 +213,7 @@ $$
 | Tangent normalization / clipping | sCM | variance | 只改權重不改方向 |
 | Tangent warmup、時間 embedding、double normalization | sCM | variance（$\frac{dF}{dt}$ 的穩定） | 讓 $f$ 對 $t$ 平滑 |
 
-三格都填滿了。值得注意的是最終那一格「$\Delta t\to0$」：它把 bias 整個消掉，代價是必須算全導數、必須面對 $\frac{dF}{dt}$ 的數值行為——sCM 的其餘技術幾乎都是為了付這個代價。Lu & Song 用這套方法把 CT 放大到十億級參數、在 ImageNet 512 上兩步取樣接近 teacher 的品質 [2]。
+三格都填滿了。最終那一格「$\Delta t\to0$」把 bias 整個消掉，代價是必須算全導數、必須面對 $\frac{dF}{dt}$ 的數值行為——sCM 的其餘技術幾乎都是為了付這個代價。Lu & Song 用這套方法把 CT 放大到十億級參數、在 ImageNet 512 上兩步取樣接近 teacher 的品質 [2]。
 
 ## 先消化一下
 
@@ -267,7 +258,7 @@ TrigFlow 只是換座標——三角時間與 EDM 時間差一個 $\tan$——�
 </QuizBlock>
 
 <Bridge to="dma-multistep-limit">
-本篇把讓 CT 訓得起來的技術逐一對到 bias、variance、boundary 三格，並引入了唯一的新物件——沿軌跡的全導數——把 $\Delta t$ 推到零。有了訓得好的 $f_\theta$，自然會問：一步不夠好，那多走幾步呢？下一篇看多步 CM 為什麼沒有「多走幾步就更好」的保證，並把病根指出來。
+iCT 與 sCM 讓 $f_\theta$ 更接近正確終點；但一步仍可能不完美。最自然的補救是多走幾步。問題是 consistency function 每次只會回到終點，它真的能像 ODE 一樣靠縮小步長持續變準嗎？<Ref to="dma-multistep-limit"/> 檢查這件事。
 </Bridge>
 
 ## 參考文獻

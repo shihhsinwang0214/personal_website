@@ -10,8 +10,8 @@ title: "不走了，直接學那一步"
 category: "courses"
 group: "Unit 6 · Consistency Models"
 status: "available"
-updated: 2026-09-06
-summary: "曲率積分壓小了誤差，但只要它不是零，一步 Euler 就有誤差。這個單元換一個目標：不學速度場，直接學把噪聲送到資料的那個映射。先看最笨的做法——用 teacher 跑 ODE 造配對、直接回歸終點——哪裡好、哪裡不好，發現它和 reflow 是同一個操作；再用半頁把時間方向切換到本單元的慣例。"
+updated: 2026-09-21
+summary: "把路拉直仍不等於一步走完。這一篇改問：能不能略過數值積分，直接學會把噪聲送到資料的 flow map？"
 demos: []
 references:
   - label: "Luhman & Luhman, Knowledge Distillation in Iterative Generative Models for Improved Sampling Speed (2021)"
@@ -40,20 +40,20 @@ import Ref from '../../../components/Ref.astro';
 # 不走了，直接學那一步
 
 <Objectives>
-- 說出為什麼「壓小曲率積分」這條路有天花板，以及「直接學 flow map」這個新目標到底在學什麼物件。
-- 分析最直接的做法（teacher 跑 ODE 造配對、學生直接回歸終點）的成本與誤差，並認出它與 <Ref to="dma-rectified-flow"/> 的 reflow 是同一個操作、只差在學速度還是學終點。
-- 把時間方向從 <Ref week="dma-week-flow-matching"/>、<Ref week="dma-week-interpolants"/> 的 FM 慣例切換到本單元的慣例（$t=0$ 是資料、$t$ 大是噪聲），並能在兩套座標之間來回翻譯。
+- **說出速度場路線的一步天花板。** 用曲率積分解釋：只要軌跡還有彎，一步 Euler 就仍有誤差。
+- **說出直接學 flow map 的做法與代價。** 分析 teacher 造 ODE 配對後回歸終點，並與 <Ref to="dma-rectified-flow"/> 的 reflow 對照。
+- **在兩套時間座標間翻譯。** 分清 FM 的「噪聲 $\to$ 資料」與本單元 $t=0$ 為資料、$t$ 大為噪聲的慣例。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 回到那條不等式
+## 路已經拉直，為什麼一步還是不準？
 
 <Ref to="dma-error-theory"/> 把三個單元的主線收在一條不等式上：Euler 取樣的全域誤差 $\lesssim C_L\,h\int_0^1\|\ddot x_t\|\,dt$。步長 $h$ 是預算，積分是軌跡有多彎。<Ref to="dma-rectified-flow"/> 與 <Ref to="dma-minibatch-ot"/> 接著做了一件事：改配對，把積分壓小。<Ref to="dma-lab-interpolants"/> 的圖 b 上，四個模型落在一條斜線上——積分小的，同樣步數誤差就小。
 
 現在把這條斜線往左看到底。積分**恰好是零**只有一種情形：所有粒子沿等速直線走，$S(\pi)=0$。reflow 迭代的極限逼近它，但每一輪都在累積上一輪的模型誤差，實務上一到兩輪就停；停下來的時候積分還不是零。而只要它不是零，$h=1$——一步——就一定有誤差，不等式只告訴你誤差有多小，沒有辦法讓它消失。
 
-換句話說，前三個單元的做法都是**先學速度場、再用數值方法積分它**，「一步生成」在這條路上是一個永遠只能逼近的極限。這個單元換一個問題：我們真正想要的是「從噪聲一步到資料」的那個映射。
+這就像導航已經替你挑了一條很直的路，但你仍得沿路開過去；把彎道變少，不等於車子能瞬間出現在終點。前三個單元都是**先學速度場、再用數值方法積分它**，一步生成在這條路上只能逼近。既然真正要的是「從噪聲到資料」，問題應該反過來問：
 
 > **能不能不學速度場，直接學那個映射？**
 
@@ -96,15 +96,9 @@ reflow 學的是**速度**，所以產物仍然是要積分的東西，只是軌
 
 這個對照給了一個很有用的座標：這個單元的所有方法，都可以問「配對從哪裡來、學速度還是學終點、要不要 teacher」三個問題。
 
-<VizPlan id="w8-0-reflow-vs-regress" title="同一份配對，兩種用法" type="static">
-- **位置**：本節表格之後。**檔名**：`week-8/imgs/w8-0-1.svg`（16:9，三欄）。
-- **左欄「配對從哪來」**：2D toy（<Ref to="dma-lab-diffusion"/> 的月牙），灰色 $\mathcal N(0,I)$ 點雲在左、月牙在右；畫 8 條 teacher 的 ODE 軌跡（彎曲、不交叉），每條軌跡兩端標 $(x_0,x_1)$。標題「teacher 跑 ODE → 配對」。
-- **中欄「reflow：學速度」**：同樣 8 對端點，改畫**弦**（直線），弦上等距 3 個小點標 $x_t$，每個旁邊一支小箭頭 $x_1-x_0$；下方一行「目標：$u_\theta(x_t,t)\approx x_1-x_0$，仍需積分（但軌跡直了）」。
-- **右欄「直接回歸：學終點」**：同樣 8 對端點，只畫一支從 $x_0$ 直達 $x_1$ 的粗箭頭、中間沒有任何點；下方一行「目標：$G_\theta(x_0)\approx x_1$，一步，但只看過 $t=0$」。
-- 三欄之間用相同的 8 個 $x_0$ 顏色編碼，讓讀者對得上「同一份資料」。
-- **圖說（.mdx 內）**：「**圖：同一份配對，兩種用法。** reflow 與直接回歸終點都用 teacher 的 ODE 造配對；前者用配對的直線插值重訓速度場，後者直接把起點回歸到終點。差別不在資料，在學的物件。」
-- 配色沿用 <Ref to="dma-what-are-we-learning"/> 圖 1 的基準色。
-</VizPlan>
+![同一份 teacher 配對，reflow 用它學沿途速度；直接回歸則用它學一步終點。](./imgs/w8-0-1.svg)
+
+**圖：同一份配對，兩種用法。** reflow 與直接回歸終點都用 teacher 的 ODE 造配對；前者在整條弦上學速度場，後者直接學起點到終點。差別不在資料，而在學的物件。
 
 ## 切換時間方向
 
@@ -194,7 +188,7 @@ ODE 的速度定義是「$t$ 增加時 $x_t$ 怎麼變」，而 $t$ 增加是往
 </QuizBlock>
 
 <Bridge to="dma-progressive-distillation">
-本篇把目標從「學速度場再積分」換成「直接學 flow map」，分析了最笨的做法：好在 ODE 配對不交叉、回歸不會糊；不好在資料貴、只看過 $t=0$、上限是 teacher。並且切換了時間方向：從現在起 $t=0$ 是資料。下一篇對付第一個「不好」——不事先生成資料，讓學生每一輪只學 teacher 的兩步。
+直接回歸 flow map 不必積分，而且 ODE 配對是一對一，不會被 MSE 平均成模糊答案；問題是每筆資料都要 teacher 先走完整條路。能不能別先走完全程，只讓學生一次模仿 teacher 的兩小步？<Ref to="dma-progressive-distillation"/> 從這個問題出發。
 </Bridge>
 
 ## 參考文獻

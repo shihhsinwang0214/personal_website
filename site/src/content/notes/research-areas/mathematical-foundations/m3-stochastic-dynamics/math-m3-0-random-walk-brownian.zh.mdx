@@ -8,7 +8,7 @@ title: "醉漢一小時後在哪：Random Walk 到 Brownian Motion"
 category: "courses"
 group: "M3 · Stochastic Dynamics"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "一個人每秒隨機往左或往右走一步，一小時後大概離起點多遠？不是 3600 步、而是約 60 步——因為獨立的步伐互相抵消，累加的是 variance 而不是距離。把步長縮小、步頻加快取極限，就得到 Brownian motion：時間 h 內的位移是 √h 尺度的 Gaussian。這個 √h 是接下來整個 class 的地基。"
 demos: []
 references:
@@ -35,9 +35,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 # 醉漢一小時後在哪：Random Walk 到 Brownian Motion
 
 <Objectives>
-- 算出 $n$ 步獨立 random walk 的 expectation 與 variance，說出「典型距離是 $\sqrt n$ 而不是 $n$」的原因是獨立步伐的交叉項為零。
-- 說出把步長縮成 $\sqrt h$、步頻加快到 $1/h$ 取極限得到的 Brownian motion 有哪三個性質，並解釋為什麼步長必須是 $\sqrt h$ 而不是 $h$。
-- 對「隨機走一段時間後大概離起點多遠」這類情境判斷 $\sqrt t$ 規律是否適用、說出它依賴的假設（獨立、有限 variance），並用模擬驗證與破壞它。
+- **算出 $n$ 步獨立 random walk 的 expectation 與 variance。** 說出「典型距離是 $\sqrt n$ 而不是 $n$」的原因是獨立步伐的交叉項為零。
+- **說出把步長縮成 $\sqrt h$、步頻加快到 $1/h$ 取極限得到的 Brownian motion 有哪三個性質。** 解釋為什麼步長必須是 $\sqrt h$ 而不是 $h$。
+- **對「隨機走一段時間後大概離起點多遠」這類情境判斷 $\sqrt t$ 規律是否適用、說出它依賴的假設（獨立、有限 variance）。** 用模擬驗證與破壞它。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -66,21 +66,17 @@ $S_n$ 是隨機變數，這個過程叫 **random walk**（隨機漫步）。「�
 </Answer>
 </Question>
 
-## 先看畫面：抵消的不是距離，是方向
+## 抵消的不是距離，是方向
 
 想像把一小時的 3600 步分成兩段，各 1800 步。第一段走完他在某處，第二段從那裡重新開始。第二段有一半機率往回走、一半機率繼續往外——所以第二段**平均而言既不把他帶遠、也不把他帶回**。兩段合起來的距離，不是兩段距離相加（那是「一直往同一邊」才會有的事），也不是互相抵消（那是「第二段剛好反向」才會有的事），而是介於中間：像直角三角形的兩條邊，合起來的長度是**平方和再開根號**。
 
 $n$ 段這樣「互相垂直」的小位移疊起來，總長度是 $\sqrt{n}$ 倍的單步長度。3600 步的平方根是 60——這就是 60 公尺的來源。
 
-<VizPlan id="m3-0-paths" title="一百個醉漢的軌跡與 √t 的包絡線" type="static">
-- **檔名**：`m3-stochastic-dynamics/imgs/m3-0-1.svg`，16:9。
-- **版面**：橫軸時間 $t$（0 到 3600 秒），縱軸位置。畫 100 條隨機漫步的軌跡（細線、半透明）。疊上兩條粗虛線 $\pm\sqrt t$，標「典型距離 $\sqrt t$」；再疊兩條淡色的直線 $\pm t$，標「若每步都同方向」——大部分軌跡貼在 $\pm\sqrt t$ 的包絡內，沒有任何一條靠近 $\pm t$。
-- 右側一個窄格：$t=3600$ 時 100 個終點的直方圖（垂直），疊上 $\mathcal N(0,3600)$ 的密度曲線，標「60 m」的刻度。
-- 角落小圖：兩段位移畫成直角三角形的兩邊，斜邊標 $\sqrt{a^2+b^2}$，小字「獨立的位移像垂直的邊」。
-- **圖說**：「獨立的步伐不會相加、也不會抵消，而是像垂直的邊一樣平方相加。3600 步之後典型距離是 $\sqrt{3600}=60$ 步，終點的分佈接近 Gaussian。」
-</VizPlan>
+![一百個醉漢的軌跡與 √t 的包絡線](./imgs/m3-0-1.svg)
 
-## 寫成數學：variance 相加、極限、$\sqrt h$
+*圖：獨立、有限 variance 的步伐在 √t 尺度內擴散；3600 步的終點標準差是 60，並逐漸接近 Gaussian。*
+
+## variance 相加、極限、$\sqrt h$
 
 **定理。** 若 $\xi_1,\dots,\xi_n$ independent、$\mathbb E[\xi_i]=0$、$\mathrm{Var}(\xi_i)=\sigma^2$，則 $\mathbb E[S_n]=0$、$\mathrm{Var}(S_n)=n\sigma^2$。
 
@@ -110,7 +106,7 @@ $$
 順帶一提，√h 尺度意味著 Brownian motion 的軌跡處處連續但處處不可微：位移 √h 除以時間 h 是 1/√h → ∞。「速度」不存在，所以下一篇的 SDE 不能寫成 ẋ = …，只能寫成增量的形式 dx = …。
 </Details>
 
-## 回到長街：兩派都錯，錯在同一個地方
+## 兩派都錯，錯在同一個地方
 
 「幾公尺內」那一派隱含的假設是「左右抵消得很乾淨」——那是**期望值**的行為，不是**典型值**的行為；期望值是 0，但典型偏差是 60。「幾百公尺」那一派隱含的假設是「會偏向一邊」——那要求步伐**相關**（走了一步左就更可能再走左），與題目的獨立假設矛盾。
 
@@ -122,7 +118,7 @@ Var(Sₙ) = Σᵢ E[ξᵢ²] + 2Σᵢ\<ⱼ E[ξᵢξⱼ] = n + 2Σₖ₌₁ⁿ�
 ρ = 0 回到 n；ρ → 1（永遠同向）時因子發散，對應 Var ~ n² 的「等速前進」；ρ \< 0（傾向折返）因子小於 1，走得比獨立更近。指數仍是 √n，改變的只是常數——除非 ρ 本身隨 n 趨近 1。
 </Details>
 
-## 回到長街：模擬一次，再把假設弄壞
+## 模擬一次，再把假設弄壞
 
 ```python
 import numpy as np
@@ -139,17 +135,9 @@ for rho in [0.0, 0.5, 0.9]:
 
 獨立時模擬與 $\sqrt{3600}=60$ 吻合；加入相關，均方根距離按 $\sqrt{(1+\rho)/(1-\rho)}$ 放大，理論預測與模擬一致——而且指數仍是 $\tfrac12$（把 $n$ 改成 14400 再跑，距離變兩倍）。最後把步長換成重尾分佈（例如 Cauchy），均方根距離會隨 trials 增加而不收斂：這時 variance 不存在，$\sqrt n$ 規律與 Gaussian 極限都失效。
 
-<VizPlan id="m3-0-walk" title="醉漢的 √t：改步頻、加相關、換重尾" type="interactive">
-- **位置**：本節之後。**檔名**：`m3-stochastic-dynamics/m3-0-1.html`。
-- **版面**：左格畫 200 條軌跡（時間對位置），疊 $\pm c\sqrt t$ 包絡線與 $\pm t$ 參考線；右格是 log–log 的「時間 $t$ 對均方根距離」曲線，斜率 $\tfrac12$ 與 $1$ 的參考虛線。
-- **控制項**：滑桿「每步時間 $h$」（$1,\,0.1,\,0.01$ 秒），並有三個互斥選項決定步長怎麼隨 $h$ 縮：「$\delta=\sqrt h$」「$\delta=h$」「$\delta=1$ 不縮」；滑桿「相鄰步相關 $\rho\in[-0.9,0.9]$」；下拉「單步分佈」：$\pm1$、標準 Gaussian、Cauchy（重尾）。按鈕「重抽」。
-- **行為**：$\delta=\sqrt h$ 時不論 $h$ 多小，左格的包絡與右格的曲線**完全不變**（這就是極限存在）；$\delta=h$ 時 $h$ 越小軌跡越貼近零、右格曲線整體往下掉；$\delta=1$ 時軌跡爆開。拖 $\rho$：右格曲線斜率不變、整條平移，旁邊即時顯示因子 $\sqrt{(1+\rho)/(1-\rho)}$ 與實測比值。選 Cauchy：右格曲線斜率變成 $1$ 附近且隨重抽劇烈跳動，顯示「variance 不存在，$\sqrt t$ 失效」。
-- **Hover** 右格任一 $t$：顯示該時刻終點的直方圖小圖與疊上的 Gaussian，Cauchy 時 Gaussian 明顯不合。
-- **底部觀察句**：「觀察：獨立且 variance 有限的步伐，典型距離按 $\sqrt t$ 長，且只有步長取 $\sqrt h$ 的極限會存活。相關只改常數，重尾才改指數。」
-- **匯出 PNG**：兩格併成 16:9，含當前 $h$、$\delta$ 規則、$\rho$ 與單步分佈。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m3-stochastic-dynamics/m3-0-1.html" class="demo-frame" title="醉漢的平方根時間：步長、相關與重尾" style="height: 820px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m3-0-a">
 一個投資組合每天的報酬率獨立、期望為零、標準差 1%。一年（250 個交易日）後總報酬的典型波動大約是：
@@ -184,7 +172,7 @@ for rho in [0.0, 0.5, 0.9]:
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-sde">
-本篇用「variance 相加、交叉項為零」解釋了為什麼隨機漫步的距離按 $\sqrt t$ 長，並取極限得到 Brownian motion：時間 $h$ 內的位移是 $\sqrt h\,\varepsilon$。下一篇把這個隨機成分加回河裡——水流是確定的、亂流是隨機的，葉子怎麼漂、電腦怎麼模擬。
+本篇用「variance 相加、交叉項為零」解釋了為什麼隨機漫步的距離按 $\sqrt t$ 長，並取極限得到 Brownian motion：時間 $h$ 內的位移是 $\sqrt h\,\varepsilon$。接著把這個隨機成分加回河裡——水流是確定的、亂流是隨機的，葉子怎麼漂、電腦怎麼模擬。
 </Bridge>
 
 ## 參考文獻

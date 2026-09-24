@@ -218,7 +218,7 @@ export const publications: PublicationGroup[] = [
       {
         title: 'Improving the Efficacy of Test-Time Steering in Masked Diffusion Models with Parallel Tempering',
         url: 'https://openreview.net/pdf?id=RdCA2rtWXR',
-        authors: 'Lu, P. Y., Lin H. T., <span class="me">Wang, S. H</span>.',
+        authors: 'Lu, P. Y., Lin, H. T., <span class="me">Wang, S. H</span>.',
         venue: 'ICML 2026 GenBio [Spotlight]',
         bibtex: `@inproceedings{lu2026improving,
   title={Improving the Efficacy of Test-Time Steering in Masked Diffusion Models with Parallel Tempering},
@@ -245,7 +245,7 @@ export const publications: PublicationGroup[] = [
       {
         title: 'RMFlow: Refined Mean Flow by a Noise-Injection Step for Multimodal Generation',
         url: 'https://openreview.net/forum?id=p072J56yo4',
-        authors: 'Huang, Y., <span class="me">Wang, S. H.</span>, C., Bertozzi, A. L., Wang, B.',
+        authors: 'Huang, Y., <span class="me">Wang, S. H.</span>, Bertozzi, A. L., Wang, B.',
         venue: 'ICLR 2026',
         bibtex: `@inproceedings{huang2026rmflow,
   title={RMFlow: Refined Mean Flow by a Noise-Injection Step for Multimodal Generation},
@@ -271,7 +271,7 @@ export const publications: PublicationGroup[] = [
       {
         title: 'Plug-and-Play Image Restoration with Flow Matching: A Continuous Viewpoint',
         authors: 'Jia, F., Huang, Y., <span class="me">Wang, S. H.</span>, Garcia-Cardona, C., Bertozzi, A. L., Wang, B.',
-        venue: 'Under Review',
+        venue: 'SIAM Journal on Imaging Sciences, 2026',
       },
       {
         title: 'Improving Flow Matching by Aligning Flow Divergence',
@@ -307,12 +307,12 @@ export const publications: PublicationGroup[] = [
 }`,
       },
       {
-        title: 'Learning to Control the Smoothness of Graph Convolutional Network Features',
+        title: 'Rethinking Smoothness in Node Features Learned by Graph Convolutional Networks',
         url: 'https://arxiv.org/abs/2410.14604',
         authors: '<span class="me">Wang, S. H.*</span>, Baker, J.*, Hauck, C. D., Wang, B.',
-        venue: 'Under Review',
+        venue: 'Inverse Problems and Imaging [Accepted]',
         bibtex: `@article{wang2024smoothness,
-  title={Learning to Control the Smoothness of Graph Convolutional Network Features},
+  title={Rethinking Smoothness in Node Features Learned by Graph Convolutional Networks},
   author={Wang, S. H. and Baker, J. and Hauck, C. D. and Wang, B.},
   journal={arXiv preprint arXiv:2410.14604},
   year={2024},
@@ -408,13 +408,15 @@ export const experience = {
     '<strong>Research Intern, Los Alamos National Lab</strong> (May – Aug 2024)<br>Developed a sparse, rigid, and hyperparameter-free graph representation for molecular structures, supervised by Qi Tang.',
   ],
   talks: [
+    '<strong>NTU INM 2025</strong> – "Building Geometric Foundations for AI in Molecular Modeling"',
+    '<strong>NTU CSIE 2025</strong> – "Trustworthy and Efficient AI Through Mathematics – Insights from Geometric Deep Learning and Flow Matching"',
     '<strong>ICLR 2025</strong> – Oral presentation on "A Theoretically-Principled Sparse, Connected, and Rigid Graph Representation of Molecules" (Singapore)',
     '<strong>JMM 2025</strong> – "Expanding the Mathematical Horizons of Machine Learning"',
     '<strong>SIAM GL 2023</strong> – "Leveraging Geometric Symmetries with GNNs"',
     '<strong>NCTS Algebraic Geometry Seminar 2023</strong> – "Families of Jets on Du Val Singularities"',
   ],
   service: [
-    '<strong>Conference Reviewer:</strong> ICLR 2025-2026, ICML 2024–26, NeurIPS 2024–25, AISTATS 2025',
+    '<strong>Conference Reviewer:</strong> ICLR 2025–2026, ICML 2024–2026, NeurIPS 2024–2026, AISTATS 2025–2026',
     '<strong>Journal Reviewer:</strong> TMLR, SIAM J. on Applied Algebra and Geometry, ACM TOSN',
   ],
 };

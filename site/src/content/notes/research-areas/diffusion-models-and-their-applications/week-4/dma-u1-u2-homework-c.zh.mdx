@@ -1,0 +1,85 @@
+---
+slug: "dma-u1-u2-homework-c"
+label: "dma-homework-c"
+prereqs:
+  - dma-lab-diffusion
+  - dma-lab-flow-matching
+  - ml-evaluating-generative-models
+lang: "zh"
+title: "作業候選 C：短訓練預算分診"
+category: "courses"
+group: "作業 · Unit 1–2"
+status: "available"
+updated: 2026-09-19
+summary: "固定 VP path、獨立 pairing 與 sampler，在三千步訓練預算內選擇 parametrization、time sampling 或 weighting，讓有限能力花在真正壞掉的時間區段。"
+demos: []
+references: []
+---
+import Prereq from '../../../components/Prereq.astro';
+
+# 作業候選 C：短訓練預算分診
+
+<Prereq items={frontmatter.prereqs} />
+
+> **評分原則：未達數字門檻、但診斷與失敗分析完整的作業，分數高於達標卻無法說明原因的作業。** 數字達標只占總分 5%。
+
+## 任務
+
+固定 VP path、獨立 pairing 與 16-step deterministic VP sampler，但你只有 **3,000 optimizer steps**。Baseline 的平均 loss 看似正常；把誤差依時間分箱後，才會看到模型把有限能力花錯地方。
+
+你要先找出真正壞掉的時間區段，再只從 prediction target、time sampling 或 loss weighting 選一類介入。這不是無限制調參競賽；你必須說出有限預算下，為什麼這個選擇應該比 baseline 更划算。
+
+[下載共用 starter notebook](/personal_website/notes/notebooks/diffusion-models-applications/dma-homework/dma-u1-u2-homework-starter.ipynb) · [下載 Python starter](/personal_website/notes/notebooks/diffusion-models-applications/dma-homework/dma_hw_starter.py)
+
+## 硬限制
+
+- 個人作業；資料由 `make_case(student_id)` 產生。
+- 固定 VP path、獨立 pairing、16-step deterministic DDIM family sampler。
+- 主模型固定 width 128、batch size 256，最多 3,000 optimizer steps。
+- 750／1,500／3,000 checkpoints 必須來自同一次訓練。
+- 只能選一類：prediction target、$q(t)$、或 $w(t)$。
+- 不得改 path、pairing、sampler、網路容量、資料量或 seed。
+- limitation micro-toy 固定 width 32、最多 1,000 steps。
+
+## 三類合法介入
+
+1. **Prediction target**：$\epsilon$、$x_1$ 或 $v$ prediction；取樣前一律轉成同一個 velocity 座標。
+2. **Time sampling**：修改 $q(t)$；必須說明有沒有做 importance correction。
+3. **Loss weighting**：修改 $w(t)$；必須寫出它如何改變有效 objective。
+
+無論選哪一類，都要寫出實際被最佳化的 loss：
+
+$$
+\mathcal L=\mathbb E_{t\sim q(t),x_t}
+\left[w(t)\,\lVert y_\theta(x_t,t)-y_t\rVert^2\right].
+$$
+
+如果你聲稱只改 optimization variance、沒有改最佳解，必須把 importance weight 寫出來；如果沒有修正，就要承認你改了 objective。
+
+## W4.5 前：押注單
+
+用 200–300 字回答：哪兩個 time bins 最需要預算？你準備動哪一類設定？哪一段的 error 會先下降？你預測 precision 與 coverage 哪一個先受益？代價會落在哪一端？
+
+## 必做實驗
+
+1. **八個 time bins。** 以 common-coordinate velocity error 比較 baseline 與方法，不能拿不同 target 自己的 raw MSE 直接比。
+2. **單次 training curve。** 報 750／1,500／3,000 steps 的 validation error、precision 與 coverage。
+3. **終點證據。** 說明哪一段 prediction error 的改善真的傳到 16-step 終點，哪一段沒有。
+4. **Compute ledger。** 報參數量、optimizer steps、看過的 examples、wall time 與 sampler NFE。
+5. **最小反例。** 造一個把困難區段移到另一端的 micro-toy；若原本的 weighting／sampling 在新 toy 上傷害另一端，即為有效 limitation。
+
+## 你必須分清楚的三件事
+
+- Parametrization 在代數上等價，不代表有限 capacity 與有限步數下 optimization 一樣。
+- 改 $q(t)$ 不一定只改抽樣效率；少了 importance correction，它同時改了 objective。
+- 某個 time bin 的 loss 下降，不保證終點分布改善；你仍然需要 precision 與 coverage。
+
+## 交件與 U3 接口
+
+固定六格：押注、驗屍、方法、結果、limitation、U3 接口列。
+
+| source | path | pairing | prediction target | $q(t)$ | $w(t)$ | sampler | 代價 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Gaussian | VP | independent |  |  |  | deterministic VP, 16 NFE |  |
+
+評分：問題診斷 25%、方法與理由 25%、實驗證據 30%（數字達標 5%）、limitation 與反例 20%。課堂上另有兩分鐘圖表口頭檢核。

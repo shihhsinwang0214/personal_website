@@ -8,6 +8,7 @@ prereqs:
   - math-bayes-posterior
   - math-gaussian
   - math-kl
+  - ml-latent-variables-elbo
 lang: "zh"
 title: "Denoising：倒著走一步，要怎麼學？"
 category: "courses"
@@ -42,9 +43,8 @@ import Ref from '../../../components/Ref.astro';
 # Denoising：倒著走一步，要怎麼學？
 
 <Objectives>
-- **把「想從 $q(x_{t-1}\mid x_t)$ 抽樣」改寫成一個可以最小化的 training objective。** 說明為什麼 training 時可以把 $x_0$ 放進條件裡，寫出兩個 objective 之間的關係，並解釋為什麼它們有相同的最佳解。
-- **說出 DDPM 的訓練方式與生成方式。** 說明我們如何選擇 $p_\theta(x_{t-1}\mid x_t)$ 的 parametrization，把上面的 objective 轉成可以實際訓練的 regression loss；並在訓練完成後，利用學到的模型一步一步從 $x_T$ 生成到 $x_0$。
-- **說出不同 prediction parametrization 在表示上等價，但會改變 training 的 weighting。** 寫出 $x_0$-、$\epsilon$-、$v$-prediction 之間的轉換，並解釋它們雖然表達相同資訊，使用相同形式的 MSE 訓練時，卻會因為不同的 timestep／SNR weighting 而形成不同的 training objective。
+- **倒著走一步，怎麼變成一個可以訓練的 regression？** 真正的 $q(x_{t-1}\mid x_t)$ 算不出來，但 training 時我們知道 $x_0$。把它放進條件後，新的 objective 只和原本相差一個與模型參數無關的常數；再選擇固定變異數的 Gaussian parametrization，原本難以直接計算的 KL objective，就會化成可以輕鬆計算的 weighted MSE。
+- **模型學完後，怎麼真的從 $x_T$ 走回 $x_0$？** 網路可以預測 $x_0$、$\epsilon$ 或 $v$：三者能互相轉換，但相同形式的 MSE 會給不同 timestep／SNR 不同權重。把預測結果換回 reverse Gaussian 的平均值，就能一步一步完成生成。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -717,17 +717,11 @@ DDPM 原文用的 $\mathcal L_{\text{simple}}$ 和這一篇推導出來的目標
 </QuizBlock>
 
 <Bridge to="dma-tweedie-and-score">
-我們從 $q(x_{t-1}\mid x_t)$ 出發，把原本不好算的 reverse problem 轉成可以實際訓練的 MSE，也看到了 $x_0$-、$\epsilon$-、$v$-prediction 之間的關係，以及不同 parametrization 帶來的 weighting 差異。
+我們把原本不好算的 reverse problem，變成了可以實際訓練的 weighted MSE；也看到網路可以預測 $x_0$、$\epsilon$ 或 $v$。三者表示相同資訊，但相同形式的 MSE 會給不同 timestep 不同的權重。
 
-不過還有一件事沒有動搖過：DDPM 一開始把 forward process 切成很多小步，reverse 時我們也只能照著**同一套步伐**一步一步走回去。生成的時候，真的需要走完全一樣的路嗎？如果模型其實知道「現在應該往哪個方向走」，那我們是不是可以依照自己的算力，決定要走幾步、每一步走多遠？
+可是 DDPM 實際使用的 $\mathcal L_{\text{simple}}$，偏偏把理論推導出的 weighting 拿掉了。**這樣訓練出來的網路，到底在學什麼？為什麼改掉 weighting 之後仍然有效？**
 
-要做到這件事，得先弄清楚一件更基本的事：
-
-**那個 simple MSE，到底在學什麼？為什麼把原本的 weighting 拿掉之後，好像還是可以？**
-
-下一篇我們會把 simple MSE 在每一個 noise level 上分開來看。會發現每一項的最佳解都是一個 conditional expectation——$\mathcal L_{\text{simple}}$ 練的是 $\epsilon$，所以那個量是 $\mathbb E[\epsilon\mid x_t]$。這一篇提過的 $\mathbb E[x_0\mid x_t]$ 是它的另一種寫法，而這次的理由完全不必用到 Gaussian，所以加權換掉也動不了它。而透過 Tweedie formula，這個 conditional expectation 可以直接和 noisy distribution $p_t$ 的 score function $\nabla_{x_t}\log p_t(x_t)$ 連起來。
-
-有了這個 formulation，到了 <Ref to="dma-reverse-process"/>，我們就可以進一步把 discrete reverse process 寫成 SDE，並看到對應的 ODE。
+下一篇會固定一個 noise level，直接找出這個 regression 的最佳解。答案是 $\mathbb E[\epsilon\mid x_t]$；而 Tweedie formula 會進一步告訴我們，這個 conditional expectation 正是 noisy distribution $p_t$ 的 score。
 </Bridge>
 
 ## 參考文獻

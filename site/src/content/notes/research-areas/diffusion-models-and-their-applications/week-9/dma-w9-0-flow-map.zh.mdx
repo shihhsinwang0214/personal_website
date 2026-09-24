@@ -9,8 +9,8 @@ title: "不回到終點，能不能直接跳到中間？"
 category: "courses"
 group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "available"
-updated: 2026-09-06
-summary: "多步 consistency model 做不好，病根是每一步都得跳回資料端再重新加噪。改成學一個雙時間映射 ψ_{t→s}：從任何時刻直接跳到任何時刻。推出它必須滿足的四個條件——恆等、端點、半群、與速度場的相容——並看第一個具體實作 CTM 怎麼把 consistency 的損失推廣到任意一對時間。"
+updated: 2026-09-21
+summary: "Consistency function 只會直達終點；flow map 再多學一個目標時間，讓模型能從任何 $t$ 沿同一條軌跡直接跳到任意 $s$。"
 demos: []
 references:
   - label: "Kim et al., Consistency Trajectory Models (ICLR 2024)"
@@ -36,18 +36,18 @@ import Ref from '../../../components/Ref.astro';
 # 不回到終點，能不能直接跳到中間？
 
 <Objectives>
-- 說出多步 consistency model 的病根在哪一個動作上，並提出「從 $t$ 直接跳到 $s$」這個替代方案。
-- 自己推出雙時間映射 $\psi_{t\to s}$ 必須滿足的四個條件，並認出其中兩個分別就是 consistency function 與 flow matching。
-- 說出 CTM 怎麼把 consistency 的損失推廣到任意一對時間，以及它為什麼仍需要 teacher。
+- **說出 consistency model 的多步病根。** 指出「先回終點再重加噪」為什麼不是沿同一條路前進。
+- **定義雙時間 flow map。** 推出 $\psi_{t\to s}$ 的恆等、端點、半群與速度相容四個條件。
+- **解釋 CTM 如何訓練任意時間跳躍。** 寫出它的 consistency 目標，並說明 teacher 如何換成網路自己的對角線速度。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 上一個單元留下的病根
+## 只會直達終點，反而走不了中途
 
 <Ref to="dma-multistep-limit"/> 收在一個問題上。Consistency model 學到的是 $f(x_t,t)$：把軌跡上任何一點直接送到資料端。一步生成就是 $f(x_T,T)$。想多花幾步換品質，唯一的辦法是：跳到資料端、**重新加噪聲**到某個中間時刻、再跳一次。實驗上多花步數的增益很快就小下去，而且 ODE 那個「多走幾步誤差就小」的保證在那裡不成立。那一篇給了三個理由——每次重新加噪都是一次獨立配對，把 <Ref to="dma-linear-path"/> Q1 的交叉問題重新請回來，所以整個程序不在逼近任何連續極限；每一跳的誤差都是**滿的**，最後一跳的誤差不會因為前面多跳了幾次而變小；而 $f$ 是確定映射、沒有 score，所以也沒有 <Ref to="dma-sampler-family"/> 那種把偏掉的樣本拉回來的機制。
 
-把三個理由並排看，會發現它們指向同一個動作：**「回到終點再加噪」**。跳回終點是浪費——我們本來只想前進一小段；重新加噪是有害——它把已經走對的路徑打亂。如果有一個東西能從 $x_t$ **直接**送到 $x_s$（$s$ 是任何我們想去的中間時刻），不經過終點、不加噪，那兩個問題同時消失。
+把三個理由並排看，會發現它們指向同一個動作：**「回到終點再加噪」**。這就像一班車只會開到總站：想在中途站下車，竟得先坐到總站，再換車折返。我們真正缺的不是更多次「直達總站」，而是能從 $x_t$ **直接**到 $x_s$ 的方法；$s$ 可以是任何想停下來的中間時刻。
 
 這個單元就是這個東西。
 
@@ -62,6 +62,8 @@ $u$ 這個單元會出現兩次，靠**它吃不吃參數**分辨：
 - **$u(z,r,t)$ 帶參數**，是 <Ref to="dma-meanflow"/> 的**平均速度**。
 
 邊際速度場則一律寫 $v_t(x)$，不再用 $u_t(x)$。
+
+還有一個翻書時會踩到的地方：flow map 我們寫 $\psi_{t\to s}$（從 $t$ 到 $s$），書寫 $\Psi_{s\to t}$（從 $s$ 到 $t$）——**下標的時間方向是反的**。所以書上 CTM 的中間時刻寫成 $u\sim U[t,s)$，換到我們這邊就是 $u\in[s,t)$；兩邊說的是同一件事——$u$ 貼著出發點是走一小步，貼著目的地是走完整段。
 </Remark>
 
 ## 這個東西該長什麼樣
@@ -104,17 +106,9 @@ $$
 </Answer>
 </Question>
 
-<VizPlan id="w9-0-flow-map" title="兩個時間滑桿：ψ_{t→s} 把一群粒子送到哪" type="interactive">
-- **位置**：Q1 之後。這是本單元的**核心互動**。**檔名**：`week-9/w9-0-1.html`。
-- **資料與場**：2D toy，$p_0=\mathcal N(0,I)$、$p_1=$ two moons，速度場用 <Ref to="dma-lab-interpolants"/> 那個 reflow×2 模型預先算好的網格（和 <Ref to="dma-lab-consistency"/>、本單元 lab 沿用的是同一個）（軌跡有可見的彎曲、但不亂），或直接用混合 Gaussian 的解析邊際速度。畫布上淡淡畫出 $p_1$ 的等高線。
-- **兩支時間滑桿**：$t$（起始時刻）與 $s$（目標時刻），各在 $[0,1]$，**互不牽制**（$s<t$ 也允許）。畫布顯示 24 顆粒子在時刻 $t$ 的位置（沿真實軌跡從 $x_0$ 積分到 $t$），以及 $\psi_{t\to s}$ 把它們送到的位置；每顆粒子用一條細線連接起點與終點，線上畫一個小箭頭指向 $s$。拖 $s$ 時終點沿軌跡滑動，拖 $t$ 時起點滑動。
-- **開關「顯示完整軌跡」**：畫出每顆粒子從 0 到 1 的完整軌跡（灰色），讀者看到 $\psi_{t\to s}$ 的終點永遠落在**自己那條**灰線上。
-- **按鈕「驗證半群」**：出現第三支滑桿 $r$。畫布同時顯示兩組終點——「先 $t\to s$ 再 $s\to r$」（空心圓）與「直接 $t\to r$」（實心點）；右上角顯示兩組之間的最大距離（理想值 0，用真實 ODE 積分時應在 $10^{-3}$ 以下）。
-- **開關「對照：多步 consistency model」**：用同一批粒子，改成「先 $\psi_{t\to1}$ 跳到資料端、再用 $x_s=(1-s)\,\epsilon+s\,x_1$ 重新加噪回 $s$」（$\epsilon$ 新抽）。畫出這條路：跳到資料端的直線、再從資料端回到 $s$ 的另一條直線。**重點畫面**：重加噪之後的位置，與 $\psi_{t\to s}$ 給的位置不同，而且多顆粒子的「回 $s$」直線互相**交叉**，用醒目色標出交叉點。右側顯示「經過重加噪後，落在別條軌跡上的粒子比例」（幾乎 100%）。
-- **底部觀察句**：「觀察：$\psi_{t\to s}$ 的終點永遠在自己的軌跡上，分兩段跳與一次跳落在同一點。多步 consistency model 每一步都要回到資料端再重新加噪，加噪那一段就是新的獨立配對——直線交叉、粒子換軌。」
-- **匯出 PNG**：畫布 16:9，含當前 $t,s$（與 $r$）數值與三個開關狀態。
-- **註記**：真實模型的 $\psi_\theta$ 有誤差，半群只近似成立；這裡用真實 ODE 積分是為了先看清「應該」長什麼樣。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/week-9/w9-0-1.html" class="demo-frame" title="任意兩個時間之間的 flow map 與半群：互動 demo" style="height: 930px; width: 100%; border: none;"></iframe>
+
+**互動 demo：任意 $t\to s$ 的 flow map。** 兩個時間滑桿控制起點與終點；半群模式比較直接跳與分段跳，多步 consistency 對照則把「回資料端再重加噪」造成的換軌畫出來。
 
 ## 第一個具體實作：CTM
 
@@ -132,20 +126,15 @@ $u$ 怎麼選很有意思。$u$ 貼著 $t$（只走一小步）時，這就是 c
 
 CTM 回答了起點問題——有了 $G_\theta(x,t,s)$，多步取樣就是 $0\to s_1\to s_2\to\cdots\to1$，不回終點、不加噪。CTM 的實驗確實看到步數增加時品質**持續**改善，而不是像 consistency model 那樣很快停住。
 
-<Details summary="CTM 為什麼仍然需要 teacher？可以拿掉嗎？">
-CTM 的損失裡 teacher 出現在「先走一段」那裡：$\tilde x_u$ 是用 teacher 的速度場解 ODE 得到的。沒有 teacher，我們就不知道 $x_t$ 的軌跡往哪裡走——這是所有 distillation 方法共同的依賴。
+<Details summary="CTM 的 teacher 可以換成網路自己的對角線">
+CTM 的損失裡 teacher 出現在「先走一段」那裡：$\tilde x_u$ 是用 teacher 的速度場解 ODE 得到的。沒有 teacher，我們就不知道 $x_t$ 的軌跡往哪裡走。
 
-<Ref to="dma-cd-vs-ct"/> 的 consistency training 示範過怎麼拿掉 teacher：不真的走一步，改用同一組 $(x_0,x_1)$ 重新插值出 $x_{t'}$，靠 <Ref to="dma-denoising-regression"/> 的 **conditional trick**（條件目標在期望上等於邊際目標），代價是 $O(\Delta t)$ 的曲率 bias。同樣的替換原則上可以搬到 CTM 上，但要處理的細節更多：$s$ 不再固定，網路的輸出空間從「資料」變成「任何時刻的中間狀態」。這個單元接下來的三篇，本質上就是在回答「flow map 能不能像 consistency training 那樣**從頭訓練**、而且不帶曲率 bias」——答案是可以，而且方法不只一種。
+但 Q1 的條件四已經給了出路：$\partial_s\psi_{t\to s}$ 在 $s=t$ 取值就是 $v_t$——**flow map 網路自己的對角線就是一個速度場**。CTM 原文正是這樣用它的：把 $G_\theta$ 寫成「輸入 ＋ 殘差」的形式，讓殘差在 $s=t$ 時退化成「一步猜出乾淨資料」的那個量，也就是 denoiser；於是那條對角線可以用 <Ref to="dma-denoising-regression"/> 的 loss 直接監督，一個字都不用改。對角線訓得動之後，就拿它解出一條**自己誘導的 ODE**，$\tilde x_u$ 從那裡來——外部 teacher 換成自己的 stop-gradient 版本，半群那一條損失完全不動。
+
+所以「CTM 需要 teacher」是實作上的選擇，不是定義上的必要。代價只是換了位置：目標現在 bootstrap 在自己的對角線上，對角線有多準，$\tilde x_u$ 就有多準。<Ref to="dma-cd-vs-ct"/> 的 consistency training 是另一條拿掉 teacher 的路——用同一組 $(x_0,x_1)$ 重新插值，靠 **conditional trick**，代價是 $O(\Delta t)$ 的曲率 bias。
+
+兩條路都還停在「拿一個近似的東西當目標」。接下來三篇問的是更強的一件事：有沒有辦法寫出一條**精確**的恆等式，讓目標不再是近似？
 </Details>
-
-## 這個單元的路線
-
-現在手上有一個新物件（flow map）與一個第一版實作（CTM，需要 teacher、用半群條件）。接下來：
-
-- 下一篇把四個條件裡的三個各寫成一個損失函數，並把上一個單元和這個單元所有方法排進同一張表——每個方法都是「哪一條恆等式 + 哪一個估計量」。
-- 再一篇看 MeanFlow：用「平均速度」重新參數化 flow map，得到一條**精確**的恆等式，讓它能像 flow matching 一樣從頭訓練、一步就有競爭力。
-- 然後是 Shortcut、Align Your Flow 這些同一張表上的其他格子。
-- 最後換一條完全不同的路：不再要求「學生輸出等於某個目標點」，改要求「學生的**分佈**等於 teacher 的分佈」。
 
 ## 先消化一下
 
@@ -190,7 +179,7 @@ $u=s$ 時右邊是 $G_{\theta^-}(\tilde x_s,s\to s)=\tilde x_s$（恆等條件�
 </QuizBlock>
 
 <Bridge to="dma-flow-map-matching">
-本篇把「不回終點、直接跳到中間」寫成 flow map $\psi_{t\to s}$，推出它的四個條件，並看 CTM 用半群條件加 teacher 做出第一版。下一篇把條件三、四各自微分成不同形式，得到三種損失；每一種都對應一個已知方法——上一個單元和這個單元的所有方法會排進同一張表。
+Flow map 解決了「能不能停在中途」的定義問題，還沒回答怎麼訓練。<Ref to="dma-flow-map-matching"/> 把這四個條件改寫成三條可微分的恆等式；關鍵差別是速度場要在哪裡取得，這也決定了 teacher 能不能拿掉。
 </Bridge>
 
 ## 參考文獻

@@ -4,13 +4,14 @@ label: "dma-factorization-error"
 prereqs:
   - math-kl
   - math-conditional-expectation
+  - ml-autoregressive
 lang: "zh"
 title: "因子化誤差：離散世界的曲率"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion I"
 status: "available"
-updated: 2026-09-07
-summary: "網路輸出的是逐 token 獨立的 marginal，一步同時翻開多個 token 就等於假設它們條件獨立。用 parity toy 精確算出這個誤差、寫成 KL，並指出它與連續世界「曲率造成有限步誤差」是同一個角色；與 autoregressive 模型的取捨也由此而來。"
+updated: 2026-09-21
+summary: "一次生成多個 token，等於用 marginal 的乘積近似真正的 conditional joint。這個 factorization error 是離散生成少步取樣的主要結構性成本。"
 demos: []
 references:
   - label: "Ou et al., Your Absorbing Discrete Diffusion Secretly Models the Conditional Distributions of Clean Data (ICLR 2025)"
@@ -43,9 +44,9 @@ import Ref from '../../../components/Ref.astro';
 # 因子化誤差：離散世界的曲率
 
 <Objectives>
-- 說出「一步同時翻開多個 token」到底假設了什麼，並在 parity toy 上精確算出它造成的錯誤率。
-- 把這個誤差寫成一個 KL（被翻開的那組位置的 conditional joint 與 marginal 乘積之間），並說出它何時為零。
-- 對照 <Ref to="dma-error-theory"/>：連續世界有限步誤差的來源是曲率，離散世界的是因子化假設；並由此說出 masked diffusion 與 autoregressive 模型的取捨。
+- **說出同時翻開多格隱含的獨立假設。** 並在 parity toy 上算出完美 marginal 仍會產生多少非法序列。
+- **把 factorization error 寫成 KL。** 比較真正的 conditional joint 與各位置 conditional marginal 的乘積，並說出它何時為零。
+- **對照離散與連續的少步誤差。** 連續模型怕曲率，離散模型怕相依 token 被拆開生成；autoregressive 則用速度換掉這項誤差。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -55,7 +56,7 @@ import Ref from '../../../components/Ref.astro';
 那同時翻開很多格，代價是什麼？
 </Ask>
 
-## 網路給的是什麼
+## 每格都猜對，不代表整句合理
 
 上一篇結尾留了一個問題：步數越少、每步同時翻開的格子越多，會出什麼問題？先把「網路給的是什麼」說精確。
 
@@ -100,7 +101,7 @@ $$
 <Details summary="為什麼是 KL、以及它和 loss 的關係">
 取樣程序真正生成的分佈是把每一步的乘積分佈串起來得到的 $\tilde p(x_0)$。用 chain rule 把 $\log\frac{p(x_0)}{\tilde p(x_0)}$ 沿著翻開的順序拆開，每一步貢獻的正是 $\log\frac{p(x_0^{S}\mid x_t)}{\prod_\ell p(x_0^\ell\mid x_t)}$，取期望就是上面的 KL。所以 $\mathrm{KL}(p\,\|\,\tilde p)=\sum_{\text{steps}}\mathbb E\,\mathrm{FE}(S\mid x_t)$——**生成分佈與真實分佈的差距，就是所有步的因子化誤差之和**（網路完美時）。
 
-值得注意的是這個誤差**不在訓練 loss 裡**。<Ref to="dma-masked-diffusion"/> 的 ELBO 是對「每步翻開一個位置」的鏈算的（$T\to\infty$ 時每步幾乎只翻開零或一個位置），它的最小值是完美的 marginal。因子化誤差純粹是取樣時「一步走太大」造成的——這和 <Ref to="dma-error-theory"/> 的情形一模一樣：訓練目標是精確的速度場，Euler 誤差是離散化造成的。
+這個誤差**不在訓練 loss 裡**。<Ref to="dma-masked-diffusion"/> 的 ELBO 是對「每步翻開一個位置」的鏈算的（$T\to\infty$ 時每步幾乎只翻開零或一個位置），它的最小值是完美的 marginal。因子化誤差純粹是取樣時「一步走太大」造成的——這和 <Ref to="dma-error-theory"/> 的情形一模一樣：訓練目標是精確的速度場，Euler 誤差是離散化造成的。
 </Details>
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w6-3-parity.html" class="demo-frame" title="marginal 的乘積 vs 真實的 joint：互動 demo" style="height: 810px; width: 100%; border: none;"></iframe>
@@ -132,16 +133,9 @@ $$
 
 這是 <Ref to="dma-error-theory"/> 那個「步數 vs 誤差」的取捨換了一套詞。Zheng et al. [5] 提醒了一件實務上的事：比較 masked diffusion 與 AR 的 perplexity 時，若取樣步數不夠、或類別抽樣的數值實作不精確，會把因子化誤差誤讀成別的東西；比較時要把「每步翻開幾個」當成明確的實驗變數。
 
-<VizPlan id="w6-3-two-worlds" title="一步之內假設了太簡單的結構" type="static">
-- 檔名 `imgs/w6-3-1.png`，放在「與 autoregressive 的取捨」之後、「先消化一下」之前。
-- 版面：左右兩塊，各是一個世界，中間一條垂直虛線分隔，上方橫跨兩塊寫一句大標「有限步的誤差，都來自一步之內假設了太簡單的結構」。
-  - **左「連續」**：一條彎曲的軌跡（綠），上面疊一條 Euler 的割線（靛），兩者之間的落差用陰影標出；下方寫「假設：這一步內是**直線**」與「誤差：$\int\|\ddot x_t\|\,dt$」。
-  - **右「離散」**：兩個相鄰的 `[MASK]` 格子，左邊畫真實 joint 的 2×2 表（兩格有值、兩格灰），右邊畫 marginal 乘積的 2×2 表（四格都有值），兩表之間畫一個「≠」；下方寫「假設：這一步翻開的位置**條件獨立**」與「誤差：$\mathrm{KL}$（joint ‖ 乘積）」。
-- 兩塊下方各一行「何時為零」：左「軌跡是直線」、右「每步只翻開一個位置（＝autoregressive）」。
-- 底部一句：「連續世界假設直線，離散世界假設獨立；兩邊都是多走幾步就會變好，但把假設本身變便宜的手段不一樣。」
-- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、路徑綠 `#60ba82`／強調靛 `#2a4ea3`／不合法的格子用灰）。
-- 長寬比：約 16:8。
-</VizPlan>
+![一步之內假設了太簡單的結構](./imgs/w6-3-1.png)
+
+*圖：逐格揭露會讓後一步看見更新後的 context；同時揭露多格若把 joint 拆成 marginals，就可能違反 parity 約束。*
 
 ## 先消化一下
 
@@ -186,7 +180,7 @@ $|S|=1$ 時 total correlation 恆為零。差別只剩順序（任意 vs 固定�
 </QuizBlock>
 
 <Bridge to="dma-absorbing-vs-uniform">
-本篇把「一步翻開太多」的代價寫成 total correlation，並把它放到與曲率同一個位置上。還有一個上一篇就埋下的問題沒有處理：翻錯的字能不能改？absorbing 說不能，uniform 說可以——下一篇比較這兩條鏈在「修正」上的差別，並把它連回 <Ref to="dma-sampler-family"/> 的 ODE 與 SDE。
+Factorization error 解釋了為什麼少步會錯，卻沒有回答錯了之後能不能補救。Absorbing chain 把翻開的字固定；uniform chain 則允許任何字再次改動。下一篇比較這兩種走法，看看「可以反悔」會買到什麼、又犧牲什麼。
 </Bridge>
 
 ## 參考文獻

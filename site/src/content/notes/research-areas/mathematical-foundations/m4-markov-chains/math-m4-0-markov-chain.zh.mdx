@@ -7,7 +7,7 @@ title: "明天的天氣只看今天：Markov Chain 與 Transition Matrix"
 category: "courses"
 group: "M4 · Markov Chains"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "把「明天天氣只跟今天有關」寫成一個 transition matrix，用矩陣乘法算連續三天晴的機率與一百天後晴的比例；stationary distribution 是矩陣的一個 fixed point，而「忘掉初始條件」的速度由第二個 eigenvalue 決定。"
 demos: []
 references:
@@ -33,9 +33,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 # 明天的天氣只看今天：Markov Chain 與 Transition Matrix
 
 <Objectives>
-- 把「下一步只依賴現在」這句話寫成 transition matrix $P$，並用矩陣乘法算出「走 $n$ 步後在哪裡」的分佈 $p_n=p_0P^n$。
-- 定義 stationary distribution $\pi$、手算一個 2 狀態的例子，並說出「一百天後的分佈跟今天無關」是在什麼條件下成立、多快成立。
-- 對一個生活情境（天氣、排隊、網頁點擊）判斷「用 Markov chain 建模」是否合理、說出它依賴的假設（只看現在、規則不隨時間變），並用模擬驗證理論給的數字。
+- **把「下一步只依賴現在」這句話寫成 transition matrix $P$。** 用矩陣乘法算出「走 $n$ 步後在哪裡」的分佈 $p_n=p_0P^n$。
+- **定義 stationary distribution $\pi$、手算一個 2 狀態的例子。** 說出「一百天後的分佈跟今天無關」是在什麼條件下成立、多快成立。
+- **對一個生活情境（天氣、排隊、網頁點擊）判斷「用 Markov chain 建模」是否合理、說出它依賴的假設（只看現在、規則不隨時間變）。** 用模擬驗證理論給的數字。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -75,12 +75,9 @@ $$
 
 現在不放一顆棋子，放**一千顆**，全部從「晴」格出發。第一天結束後約八百顆留在「晴」、兩百顆到了「雨」。第二天，「晴」格裡的八百顆有八成留下（640），「雨」格裡的兩百顆有四成回來（80），所以「晴」格有 720 顆。第三天再算一次……你會看到「晴」格的數量往某個值靠過去，然後不再動。**那個不再動的分配，就是這一篇要找的東西。** 而「往它靠過去」的速度，決定了「一百天後跟今天有沒有關係」。
 
-<VizPlan id="m4-0-walker" title="一千顆棋子在兩個格子之間跳" type="static">
-- **檔名**：`m4-markov-chains/imgs/m4-0-1.svg`（16:9）。
-- **版面**：左右兩個大格子，左標 S（晴）、右標 R（雨）。格子之間四支弧形箭頭：S→S 標 0.8、S→R 標 0.2、R→R 標 0.6、R→S 標 0.4，箭頭粗細與機率成比例。
-- **下方一排小圖**：$n=0,1,2,3,\infty$ 五個時刻，每格用點陣畫出棋子數量（1000、800/200、720/280、688/312、667/333），數字寫在格子下方。$n=\infty$ 那格用虛線框並標「不再變動」。
-- **圖說**：「一千顆棋子全從 S 出發，每天按箭頭上的機率跳。三天後 S 格從 1000 掉到 688，之後越來越慢地靠向 667；停下來的那個分配跟出發點無關。」
-</VizPlan>
+![一千顆棋子在兩個格子之間跳](./imgs/m4-0-1.svg)
+
+*圖：反覆套用同一個 transition matrix 會忘掉起點，並靠向流量平衡的 stationary distribution。*
 
 ## 把畫面寫成矩陣
 
@@ -174,17 +171,9 @@ for n in range(1, 6):
 # 違反 Markov：連晴兩天後轉雨機率升到 0.5（二階規則）
 ```
 
-<VizPlan id="m4-0-mixing" title="改規則、加記憶、看多快忘掉今天" type="interactive">
-- **位置**：本節之後。**檔名**：`site/public/notes/research_areas/mathematical-foundations/m4-markov-chains/m4-0-1.html`。
-- **版面**：左格是 2 狀態的 transition 圖（兩個圓、四支箭頭，箭頭粗細隨機率變），下方兩支滑桿 $a=P(\text{S},\text{S})\in[0,1]$、$b=P(\text{R},\text{R})\in[0,1]$（預設 0.8、0.6）。右格是折線圖：橫軸 $n=0,\dots,30$，縱軸 $p_n(\text{S})$，畫兩條線——從「今天晴」出發與從「今天雨」出發——以及一條水平虛線 $\pi_\text{S}=\frac{1-b}{2-a-b}$。右上角即時顯示 $\pi_\text{S}$、$\lambda_2=a+b-1$、以及「差距縮到 1% 需要的天數 $\lceil\ln 0.01/\ln|\lambda_2|\rceil$」。
-- **拖滑桿**：把 $a,b$ 都拉高（例如 0.98、0.97），兩條線靠近虛線的速度明顯變慢、$\lambda_2$ 靠近 1——「越黏的天氣，今天的影響留得越久」。把 $a,b$ 都拉到 0，$\lambda_2=-1$，兩條線永遠交錯不收斂——這就是 periodic 的情形，虛線還在但沒有意義。
-- **按鈕「模擬一條 1000 天的紀錄」**：在右格下方畫一條晴雨色帶，並顯示晴天比例；讀者看到單一軌跡的時間平均與 $\pi_\text{S}$ 一致（差在 $\pm0.03$ 內）。
-- **開關「加入記憶（違反 Markov）」**：規則改成「已經連續晴兩天（含今天）時，明天留晴的機率降為 $a-0.3$」（模擬從「今天晴、之前未知」開始，只算今天這一天）。開啟後，畫面多一條由模擬得到的 $p_n(\text{S})$ 曲線（灰色），與用 $P$ 算的理論線分開；右上角顯示「理論預測連續三天晴 $=a^3$ vs 模擬值」，兩者明顯不同（預設參數下約 $0.512$ vs $0.8\times0.5\times0.5=0.2$）。註記：「把（昨天, 今天）合成一個狀態就又是 Markov chain——狀態數變四個。」
-- **底部觀察句**：「觀察：長期比例只由流量平衡 $\pi_\text{S}(1-a)=\pi_\text{R}(1-b)$ 決定，跟出發點無關；忘掉出發點的速度由 $|\lambda_2|=|a+b-1|$ 決定。加入記憶後，用 $P$ 算的『連續三天晴』就錯了——因為相乘那一步用掉了 Markov property。」
-- **匯出 PNG**：左右兩格併成 16:9，含當前 $a,b$ 與開關狀態。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m4-markov-chains/m4-0-1.html" class="demo-frame" title="Markov chain：stationary distribution 與 mixing" style="height: 820px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m4-0-a">
 一個網站有三個頁面，紀錄顯示使用者「下一個點哪一頁」只跟「現在在哪一頁」有關。你想知道使用者長期停留在各頁的時間比例。該用什麼工具？
@@ -219,7 +208,7 @@ for n in range(1, 6):
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-absorbing-state">
-這一篇把「只看今天」寫成 transition matrix $P$，用 $p_n=p_0P^n$ 算任何時刻的分佈，並找出不再變動的 $\pi$ 與忘掉出發點的速度 $|\lambda_2|$。下一篇看一種特別的格子：跳進去就出不來。那時「長期比例」變得無趣（全部被吸進去），有趣的問題換成「平均多久被吸進去」。
+這一篇把「只看今天」寫成 transition matrix $P$，用 $p_n=p_0P^n$ 算任何時刻的分佈，並找出不再變動的 $\pi$ 與忘掉出發點的速度 $|\lambda_2|$。接著看一種特別的格子：跳進去就出不來。那時「長期比例」變得無趣（全部被吸進去），有趣的問題換成「平均多久被吸進去」。
 </Bridge>
 
 ## 參考文獻

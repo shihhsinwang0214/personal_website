@@ -8,7 +8,7 @@ title: "天氣預報該報幾度：MSE 的最小值是 Conditional Expectation"
 category: "courses"
 group: "M1 · 機率與 Conditional Expectation"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "每天只能報一個溫度，什麼策略讓長期平方誤差最小？三行證明說答案是 E[Y|X]——即使那個數字幾乎不會真的發生。換成絕對誤差，答案變成中位數；換成不對稱的懲罰，答案變成某個 quantile。「最佳猜測」取決於你怎麼被扣分。"
 demos: []
 references:
@@ -25,7 +25,6 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import UsedBy from '../../../components/UsedBy.astro';
@@ -34,14 +33,14 @@ import Ref from '../../../components/Ref.astro';
 # 天氣預報該報幾度：MSE 的最小值是 Conditional Expectation
 
 <Objectives>
-- 寫出「用 $X$ 猜 $Y$、以平方誤差計分」的最佳策略是 $\mathbb E[Y\mid X]$，並給出三行證明；說出剩下的誤差是什麼。
-- 說出為什麼換成絕對誤差時答案變成中位數、換成不對稱懲罰時變成 quantile——「最佳」永遠相對於計分方式。
-- 對「報最可能發生的溫度」這個直覺策略，判斷它在哪種計分下輸、輸多少、依賴什麼假設，並用模擬在一個雙峰的例子上驗證。
+- **寫出「用 $X$ 猜 $Y$、以平方誤差計分」的最佳策略是 $\mathbb E[Y\mid X]$。** 給出三行證明；說出剩下的誤差是什麼。
+- **說出換一種計分方式，最佳答案就會跟著換。** 解釋絕對誤差為什麼選中位數、不對稱懲罰為什麼選 quantile。
+- **對「報最可能發生的溫度」這個直覺策略，判斷它在哪種計分下輸、輸多少、依賴什麼假設。** 用模擬在一個雙峰的例子上驗證。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 起點：一天只能報一個數字
+## 一天只能報一個數字
 
 你是氣象主播。每天早上，根據手上的資料，你必須報**一個**明天的最高溫。年底，電視台把你每天的預報減掉實際溫度、平方、加起來算平均——這個數字越小，年終獎金越高。
 
@@ -81,12 +80,9 @@ $$
 
 如果改問「到所有砝碼的**距離**（不平方）加權總和最小」，答案就變了：那是中位數——把砝碼的重量從兩端往中間數，數到一半的位置。這裡就是 30。
 
-<VizPlan id="m1-2-seesaw" title="重心、最重的砝碼、與中位數：三個不同的「中心」" type="static">
-- **檔名**：`m1-probability/imgs/m1-2-1.svg`（16:9，上下兩排）。
-- **上排**：一根刻度 20–32 的木尺，在 22 放一顆「0.4」的砝碼、在 30 放一顆「0.6」的砝碼。三支箭頭從下方指向三個位置：$26.8$（標「重心＝mean，平方距離最小」）、$30$（標「最重的砝碼＝mode」）、$30$ 的另一支（標「中位數，絕對距離最小」）。
-- **下排**：兩張小圖並排。左：橫軸是候選預報 $a$，縱軸是 $\mathbb E[(Y-a)^2]$，一條拋物線最低點在 $26.8$、值 $15.36$；在 $a=30$ 標出 $25.6$、$a=22$ 標出 $38.4$。右：縱軸換成 $\mathbb E|Y-a|$，一條折線在 $22$ 到 $30$ 之間線性遞減，最低點在 $30$、值 $3.2$；在 $26.8$ 標出 $3.84$。
-- **圖說**：「同一組砝碼，三個『中心』：平方距離選重心，絕對距離選中位數，『最可能』選最重的那顆。計分方式決定哪一個是最佳。」
-</VizPlan>
+![同一個兩點分布的 mean、mode、median，以及平方與絕對誤差曲線。](./imgs/m1-2-1.svg)
+
+*圖：平方誤差選 mean，絕對誤差選 median，最大機率選 mode。*
 
 ## 為什麼最小值一定落在條件期望
 
@@ -111,7 +107,7 @@ $$
 若低估一度罰 $c_u$、高估一度罰 $c_o$（例如低估讓民眾沒帶外套，罰得重），同樣的微分給 $c_o\,P(Y<a)=c_u\,P(Y>a)$，最佳 $a$ 是 $Y$ 的 $\frac{c_u}{c_u+c_o}$ quantile——懲罰越不對稱，最佳預報越往被罰重的那一側偏。平方誤差是 $c_u=c_o$ 且懲罰隨距離加速的特例，所以它選的是 mean 而不是任何 quantile。
 </Details>
 
-## 回到情境：報 26.8，還是報 30？
+## 報 26.8，還是報 30？
 
 **平方誤差計分。** 這一天 $X$ 已知，桶內分佈是「30 佔 60%、22 佔 40%」，$\mathbb E[Y\mid X]=26.8$。三種做法的期望平方誤差：
 
@@ -127,7 +123,7 @@ $$
 
 **這個結論依賴什麼。** 第一，桶內分佈（60/40、30/22）要對——它來自你的資料與模式，錯了兩個答案都錯。第二，$Y$ 的 variance 要有限；碰到極端厚尾的量（偶爾出現離譜的值），mean 會被那幾天拖著跑，平方誤差的最佳策略本身變得不穩，中位數反而穩。第三，證明用到 $g$ 可以是**任何**函數——實務上你用一個模型逼近 $m$，逼不到的部分就是第二項，不為零。
 
-## 回到情境：模擬三千天
+## 模擬三千天
 
 ```python
 import numpy as np
@@ -145,16 +141,9 @@ for k in (100, 1000, 3000):
 
 前兩行印出 MSE 最佳在 26.8、MAE 最佳在 30，兩個數字與表格一致。最後三行是刻意違反「variance 有限」：厚尾之下，累積的 mean 隨著天數**不收斂**（一個離譜值就把它拉走幾度），median 卻穩穩停在 26 附近——這時「MSE 最佳＝mean」在數學上仍成立，但那個 mean 已經不是一個能從資料穩定估出來的量。
 
-<VizPlan id="m1-2-forecast" title="拖一個預報值，看長期平方誤差與絕對誤差各自的最低點" type="interactive">
-- **位置**：本節之後。**檔名**：`site/public/notes/research_areas/mathematical-foundations/m1-probability/m1-2-2.html`。這是本篇的核心互動。
-- **版面**：左格是明天溫度的分佈（可編輯的長條或連續曲線），右格兩條曲線：$\mathbb E[(Y-a)^2]$ 與 $\mathbb E|Y-a|$（各自正規化到同一高度）對候選預報 $a$；一條可拖動的垂直線是「你報的溫度」，右上角即時顯示兩種計分的長期平均與排名。
-- **控制項**：左格可拖動兩個尖峰的位置與高度（預設 30/60%、22/40%），或切換為「單峰 Gaussian」「偏斜」「厚尾（$t$ 分佈，$\nu$ 可調到 1）」；滑桿「低估／高估懲罰比」$c_u/c_o$（$0.2$–$5$）：加上第三條曲線（不對稱絕對誤差），其最低點在對應的 quantile 上移動；按鈕「模擬 3000 天」：用抽樣而非公式畫曲線，讓讀者看到有限樣本的抖動；厚尾時 mean 的游標會在不同次模擬間大幅跳動並標紅。
-- **Hover** 曲線上任一點顯示 $a$、兩種計分的數值，以及「這個 $a$ 是 mean／median／某個 quantile」的標籤。
-- **底部觀察句**：「觀察：平方誤差的最低點永遠在桶內平均（mean），即使那裡機率為零；絕對誤差的最低點在中位數；不對稱懲罰把它推向 quantile。計分方式決定最佳預報，而厚尾會讓 mean 難以從資料穩定估出。」
-- **匯出 PNG**：兩格併成 16:9，含當前分佈與懲罰比。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m1-probability/m1-2-2.html" class="demo-frame" title="拖動預報值：MSE、MAE 與 quantile loss 的最低點" style="height: 800px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m1-2-a">
 一家快遞公司要對每個包裹報一個「預計送達時間」，客戶的不滿意程度與「實際減預計」的**平方**成正比。給定包裹的資訊 $X$，最佳的報法是：
@@ -189,7 +178,7 @@ for k in (100, 1000, 3000):
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-bayes-posterior">
-本篇用三行證明把「平方誤差最小的策略」釘在 $\mathbb E[Y\mid X]$ 上，並看到換計分就換答案：絕對誤差選中位數、不對稱懲罰選 quantile。「最可能的」是另一種計分的答案，不是平方誤差的。到這裡，「猜」的目標已經清楚——桶內平均。下一篇處理「桶」本身怎麼算：看到一個觀測結果之後，各種可能的真相各佔多少比例？快篩陽性是最好的例子。
+本篇用三行證明把「平方誤差最小的策略」釘在 $\mathbb E[Y\mid X]$ 上，並看到換計分就換答案：絕對誤差選中位數、不對稱懲罰選 quantile。「最可能的」是另一種計分的答案，不是平方誤差的。到這裡，「猜」的目標已經清楚——桶內平均。接著處理「桶」本身怎麼算：看到一個觀測結果之後，各種可能的真相各佔多少比例？快篩陽性是最好的例子。
 </Bridge>
 
 ## 參考文獻

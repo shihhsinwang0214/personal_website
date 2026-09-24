@@ -9,7 +9,7 @@ title: "保險為什麼存在：Convex Function 與 Jensen 不等式"
 category: "courses"
 group: "M5 · Optimization、Convexity 與距離"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "保險公司平均一定賺、你平均一定虧，為什麼你還買？因為「損失的平均」和「平均的損失」不是同一件事，差多少由一條曲線的彎度決定。把彎度寫成 convex，這個差距就是 Jensen 不等式：φ(E[X]) ≤ E[φ(X)]。等號何時成立、彎度怎麼量化差距、以及當 φ 不是 convex 時結論會怎麼反過來。"
 demos: []
 references:
@@ -37,9 +37,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 # 保險為什麼存在：Convex Function 與 Jensen 不等式
 
 <Objectives>
-- 說出 convex function 的定義（弦在曲線上方），並用它寫出 Jensen 不等式 $\varphi(\mathbb E[X])\le\mathbb E[\varphi(X)]$ 與等號成立的條件。
-- 用「損失的平均 vs 平均的損失」解釋為什麼兩邊會差、差距由什麼決定（$\varphi$ 的彎度 $\times$ $X$ 的散佈）。
-- 對一個生活情境（保險、分散投資、排隊）判斷該把 Jensen 用在哪個方向、說出它依賴的假設（$\varphi$ 真的 convex、期望存在），並用模擬驗證與破壞它。
+- **說出 convex function 的定義（弦在曲線上方）。** 用它寫出 Jensen 不等式 $\varphi(\mathbb E[X])\le\mathbb E[\varphi(X)]$ 與等號成立的條件。
+- **分清「損失的平均」與「平均的損失」。** 解釋兩者的差距如何由 $\varphi$ 的彎度與 $X$ 的散佈共同決定。
+- **對一個生活情境（保險、分散投資、排隊）判斷該把 Jensen 用在哪個方向、說出它依賴的假設（$\varphi$ 真的 convex、期望存在）。** 用模擬驗證與破壞它。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -66,7 +66,7 @@ import UsedBy from '../../../components/UsedBy.astro';
 </Answer>
 </Question>
 
-## 先抓住這個畫面：弦在曲線上方
+## 弦在曲線上方
 
 畫 $\varphi$ 的圖：橫軸是損失，縱軸是痛苦。「越虧越痛、痛得越來越快」讓這條曲線**往上彎**，像一個碗。
 
@@ -76,15 +76,11 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 你願意多付的那 2,000 元，就是把這段垂直距離換成錢：只要 $\varphi(6{,}000)\le\mathbb E[\varphi(X)]$，買保險就是理性的。保險公司呢？它同時承保十萬個人，它的 $X$ 是十萬個獨立損失的平均，散佈小到幾乎是一個定點——弦與曲線的距離趨近零，它的曲線在這個尺度上幾乎是直的。**它不怕，因為它的 $X$ 幾乎不隨機。**
 
-<VizPlan id="m5-0-chord" title="弦在曲線上方：損失的平均 vs 平均的損失" type="static">
-- **檔名**：`m5-optimization/imgs/m5-0-1.svg`，16:9。
-- **左格**：一條往上彎的曲線 $\varphi$（痛苦 vs 損失），標兩個端點 $x=0$ 與 $x=200{,}000$，畫弦；在 $x=\mathbb E[X]=4{,}000$ 處畫一條垂直線，與曲線交於 $\varphi(\mathbb E[X])$（標「確定損失 4,000 的痛苦」）、與弦交於 $\mathbb E[\varphi(X)]$（標「不買保險的期望痛苦」）；兩點之間的紅色線段標「Jensen gap」。再在曲線上標 $x=6{,}000$ 的點 $\varphi(6{,}000)$，用虛線顯示它低於弦上的點——「多付 2,000 仍划算」。
-- **右格**：同一條曲線，但 $X$ 換成保險公司的「十萬人平均損失」：兩個端點擠在 $4{,}000$ 附近很窄的區間裡，弦幾乎貼著曲線，Jensen gap 小到看不見；小字「$X$ 幾乎不隨機 → 弦與曲線重合 → 不怕」。
-- **底部一行**：「gap $\approx\tfrac12\varphi''\cdot\mathrm{Var}(X)$：彎度 $\times$ 散佈」。
-- **圖說**：「convex 的曲線，弦永遠在上方。$\mathbb E[\varphi(X)]$ 是弦上的點、$\varphi(\mathbb E[X])$ 是曲線上的點，兩者的差由彎度與 $X$ 的散佈決定。你怕、保險公司不怕，差在 $X$ 的散佈。」
-</VizPlan>
+![Jensen gap：凸曲線的弦、期望與保險池的散佈](./imgs/m5-0-1.svg)
 
-## 寫成數學：Convex 與 Jensen
+*圖：凸曲線的弦在曲線上方；Jensen gap 同時由曲線彎度與隨機量散佈決定。*
+
+## Convex 與 Jensen
 
 **定義。** 函數 $\varphi$ 是 **convex**（往上彎）的，若對任意兩點 $a,b$ 與任意 $\lambda\in[0,1]$，
 
@@ -124,7 +120,7 @@ concave 的 φ（例如 log、√）把不等式反過來：φ(E[X]) ≥ E[φ(X)
 條件版本：對任何 σ-代數（任何「已知資訊」）Y，φ(E[X|Y]) ≤ E[φ(X)|Y] 逐點成立——證明一字不改，只要把期望換成 conditional expectation，支撐線的斜率 c 可以依 Y 而變。對兩邊再取期望就回到原式。這個版本在後面比較「先平均再算」與「先算再平均」的各種情境時都會用到。
 </Details>
 
-## 回到保險：直覺對了，數字現在有了
+## 直覺對了，數字現在有了
 
 回答起點問題。你買保險不是因為算錯，而是因為你比較的是 $\varphi(6{,}000)$ 與 $\mathbb E[\varphi(X)]$，不是 6,000 與 4,000。只要你的痛苦函數夠彎——$\tfrac12\varphi''(4{,}000)\cdot\mathrm{Var}(X)$ 大於 $\varphi(6{,}000)-\varphi(4{,}000)$——多付 2,000 就是理性的。$\mathrm{Var}(X)=0.02\times0.98\times200{,}000^2\approx7.8\times10^8$，很大；一個存款 30 萬的人在 20 萬那一端的 $\varphi''$ 也很大。
 
@@ -135,7 +131,7 @@ concave 的 φ（例如 log、√）把不等式反過來：φ(E[X]) ≥ E[φ(X)
 - **$\varphi$ 真的 convex。** 如果一個人的痛苦函數在某段是 concave 的——例如「反正欠債超過 50 萬就宣告破產，再多欠也一樣」——那在那一段 Jensen 反向，這個人對大額損失反而**不在意**，保險對他沒有吸引力。這不是理論錯，是假設不成立。
 - **期望存在。** 若損失分佈的尾巴太厚（例如 $\mathbb E[X]=\infty$ 的分佈），兩邊都沒有定義，「平均」這個詞本身失去意義。
 
-## 回到保險：跑一次，再把 φ 翻成 concave
+## 跑一次，再把 φ 翻成 concave
 
 ```python
 import numpy as np
@@ -154,17 +150,11 @@ print(phi_c(np.array([4000.])).item(), phi_c(loss).mean())         # φ(E[X]) > 
 
 前三行：$\mathbb E[X]\approx4{,}000$；$\varphi(6{,}000)$ 小於 $\mathbb E[\varphi(X)]$，確定付 6,000 比冒險舒服。保險公司那兩個「年度」的平均損失都在 4,000 附近，Jensen gap 幾乎是零。最後把 $\varphi$ 換成 concave 的 $\sqrt x$：$\varphi(\mathbb E[X])=63.2$，$\mathbb E[\varphi(X)]=0.02\times447=8.9$——不等式整個反過來，這樣的人寧願賭。理論預告了方向，數字確認了大小。
 
-<VizPlan id="m5-0-jensen" title="拖動 φ 的彎度與 X 的散佈，看 Jensen gap" type="interactive">
-- **位置**：本節之後。**檔名**：`m5-optimization/m5-0-1.html`。
-- **版面**：左格是 $\varphi$ 的曲線與弦；$X$ 的分佈畫成橫軸上的若干根柱子（高度 = 機率），$\mathbb E[X]$ 處一條垂直線，線上標出 $\varphi(\mathbb E[X])$（曲線上）與 $\mathbb E[\varphi(X)]$（弦／加權平均，用一個空心點）。兩點間的紅色線段即時顯示 gap 數值，旁邊顯示 $\tfrac12\varphi''(m)\mathrm{Var}(X)$ 的估計值以資對照。右格是「保費 vs 買不買」的一條橫軸：標 $\mathbb E[X]$、以及「使 $\varphi(\text{保費})=\mathbb E[\varphi(X)]$ 的最高可接受保費」，兩者之間的區間著色標「理性溢價」。
-- **控制項**：滑桿「彎度」（$\varphi(x)=x+\kappa x^2$ 的 $\kappa$，可以拉到負值——變成 concave）；滑桿「散佈」：把 $X$ 的兩個取值拉開或收攏（保持 $\mathbb E[X]$ 不變）；滑桿「保單池大小 $n$」（1 到 $10^5$，對數）：$X$ 換成 $n$ 個獨立損失的平均，柱子向 $\mathbb E[X]$ 收攏。
-- **行為**：$\kappa\to0$ 時弦與曲線重合、gap 歸零、右格的理性溢價區間消失；$\kappa<0$ 時空心點落到曲線**下方**、gap 變號、右格顯示「不等式反向：這個人寧願賭」；$n$ 增大時 gap 隨 $1/n$ 縮小，畫面標「保險公司的視角」。
-- **Hover** 曲線任一點：顯示該點的切線（支撐線），以及「整條曲線都在切線上方」的高亮——證明的核心畫面。
-- **底部觀察句**：「觀察：convex 時弦在曲線上方，$\mathbb E[\varphi(X)]\ge\varphi(\mathbb E[X])$；gap 約等於彎度乘散佈。$X$ 不隨機時 gap 為零——這就是保險公司不怕的原因。彎度反向，結論也反向。」
-- **匯出 PNG**：左右併成 16:9，含當前 $\kappa$、散佈、$n$ 與 gap 數值。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m5-optimization/m5-0-1.html" class="demo-frame" title="Jensen gap：彎度與散佈互動示範" style="height: 900px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+**互動 demo：拖動彎度、散佈與保單池大小，直接比較 E[φ(X)] 與 φ(E[X])。**
+
+## 檢查理解
 
 <QuizBlock id="m5-0-a">
 你有 100 萬要投資，兩個選擇：全部押一支股票（一年後翻倍或歸零各半），或分散到 100 支互相獨立、每支同樣「翻倍或歸零各半」的股票。兩者的期望財富都是 100 萬。若你的滿足感是財富的 $\log$，哪個選擇的期望滿足感高？
@@ -199,7 +189,7 @@ Jensen 的等號 $\varphi(\mathbb E[X])=\mathbb E[\varphi(X)]$，在 $\varphi$ s
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-kl">
-本篇把「怕」寫成一條往上彎的曲線，「弦在曲線上方」就是 Jensen 不等式：$\varphi(\mathbb E[X])\le\mathbb E[\varphi(X)]$，gap 由彎度乘散佈決定，$X$ 不隨機時等號成立。下一篇把 Jensen 用在 $\varphi=-\log$ 上：用一張錯的機率表下注一年，平均會多輸多少——那個「多輸的量」有一個名字，而它永遠非負的證明只有兩行。
+本篇把「怕」寫成一條往上彎的曲線，「弦在曲線上方」就是 Jensen 不等式：$\varphi(\mathbb E[X])\le\mathbb E[\varphi(X)]$，gap 由彎度乘散佈決定，$X$ 不隨機時等號成立。接著把 Jensen 用在 $\varphi=-\log$ 上：用一張錯的機率表下注一年，平均會多輸多少——那個「多輸的量」有一個名字，而它永遠非負的證明只有兩行。
 </Bridge>
 
 ## 參考文獻

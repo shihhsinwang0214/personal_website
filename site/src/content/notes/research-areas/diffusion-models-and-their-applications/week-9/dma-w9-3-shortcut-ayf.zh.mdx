@@ -9,8 +9,8 @@ title: "Shortcut 與 Align Your Flow：同一張表的其他格子"
 category: "courses"
 group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "available"
-updated: 2026-09-06
-summary: "Shortcut model 也用平均速度當輸出，但走的是 progressive 恆等式：兩個 d 步的平均等於一個 2d 步，d=0 時退化成 flow matching，從小步一級一級 bootstrap 到大步，不需要 JVP 但誤差沿階梯累積。Align Your Flow 則在 distillation 設定下同時用 Eulerian 與 Lagrangian 兩條連續時間恆等式。最後回頭確認 CTM 坐在哪一格：progressive，第一段交給 teacher。"
+updated: 2026-09-21
+summary: "Shortcut 用「兩小步合成一大步」從 flow matching 逐級學到長跳躍；省下 JVP，卻讓小步誤差沿著階梯傳上去。"
 demos: []
 references:
   - label: "Frans, Hafner, Levine & Abbeel, One Step Diffusion via Shortcut Models (ICLR 2025)"
@@ -39,9 +39,9 @@ import Answer from '../../../components/Answer.astro';
 # Shortcut 與 Align Your Flow：同一張表的其他格子
 
 <Objectives>
-- 寫出 Shortcut model 的自我一致性條件，認出它是 progressive 恆等式在平均速度座標下的樣子，並說出 $d=0$ 為什麼是 flow matching。
-- 對照 Shortcut 與 MeanFlow：同一個輸出物件、不同的恆等式，各付什麼代價。
-- 說出 Align Your Flow 在表上的位置，並回頭確認 CTM 用的是哪一條恆等式。
+- **寫出 Shortcut 的兩步合成條件。** 將它辨認成平均速度座標下的 progressive 恆等式，並說明 $d=0$ 如何接回 flow matching。
+- **比較 Shortcut 與 MeanFlow。** 說出不用 JVP 換來的階梯式 bootstrapping 與誤差累積。
+- **定位 AYF 與 CTM。** 判斷兩者使用哪一條恆等式、速度訊號又從哪裡來。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -76,14 +76,9 @@ $$
 
 訓練把兩種樣本混在一個 batch 裡：大部分（原文約四分之三）是 $d=0$ 的 FM 樣本，其餘是 self-consistency 樣本——抽一個 $d$，用網路自己算右邊、stop-gradient、當成 $s_\theta(x_t,t,2d)$ 的目標。步長取離散的網格 $d\in\{0,\tfrac1{128},\tfrac1{64},\dots,\tfrac12,1\}$，$t$ 也落在對應的格點上；每一級 $2d$ 的目標由 $d$ 那一級提供，資訊從 FM 底層一級一級往上 **bootstrap**。取樣時選一個 $d$，走 $1/d$ 步；$d=1$ 就是一步。
 
-<VizPlan id="w9-3-ladder" title="Shortcut 的階梯：從 d=0 一級一級 bootstrap 到 d=1" type="interactive">
-- **位置**：本節之後。**檔名**：`week-9/w9-3-1.html`。
-- **上半：階梯圖。** 橫軸時間 $t\in[0,1]$（格點 $1/8$），縱軸是步長等級 $d\in\{0,\tfrac18,\tfrac14,\tfrac12,1\}$。每一級畫出「從 $t$ 跳 $d$」的弧。點選任一個 $d\ge\tfrac14$ 的弧，高亮它的目標：下一級的兩條半長弧，以及第一條弧終點 $x'$ 處的接續，旁邊顯示 $s(\cdot,2d)=\tfrac12[s(\cdot,d)+s(x',d)]$。點選 $d=\tfrac18$ 的弧，目標是 $d=0$ 那一排的 FM 箭頭（條件速度）。一支箭頭從底層往上畫，標「資訊只從這裡進來」。
-- **下半：誤差沿階梯累積。** 用 2D toy（混合 Gaussian，真實 $\psi$ 可精確算），對每一級 $d$ 顯示「一步跳 $d$」的終點與真實 $\psi_{t\to t+d}$ 的平均距離。用一個**人為注入**的底層誤差滑桿 $\varepsilon$（把 $d=0$ 那層的速度加上 $\varepsilon$ 倍的雜訊擺動）：拖大 $\varepsilon$，看每一級的誤差如何逐級增加——$d=1$ 那一級最大。
-- **開關「對照 MeanFlow」**：把離散階梯換成連續的 $(r,t)$ 平面（一個三角形區域 $0\le t\le r\le1$），任何一點都直接由 identity 訓練，沒有階梯；同樣注入 $\varepsilon$，誤差不隨 $|r-t|$ 逐級放大（但每一點都含 $\tfrac{du}{dt}$ 的 bootstrapping）。
-- **底部觀察句**：「觀察：Shortcut 的每一級以下一級為目標，動力學只從 $d=0$ 的 FM 進來；小步的誤差沿階梯往上帶，是 progressive distillation 的逐輪累積換了寫法。MeanFlow 沒有階梯，代價是每一步要算 JVP。」
-- **匯出 PNG**：上下兩半併成 16:9，含當前選中的弧與 $\varepsilon$。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/week-9/w9-3-1.html" class="demo-frame" title="Shortcut bootstrap 階梯與誤差傳遞：互動 demo" style="height: 870px; width: 100%; border: none;"></iframe>
+
+**互動 demo：Shortcut 的階梯。** 選取步長層級並注入底層誤差，看兩個半步如何教一個大步、誤差如何逐級上傳；MeanFlow 對照把離散階梯換成連續的 $(t,r)$ 區域。
 
 ## Shortcut 與 MeanFlow 並排
 
@@ -114,7 +109,7 @@ $$
 
 前兩個方法都從頭訓練。若手上**有** teacher，<Ref to="dma-flow-map-matching"/> 的表多出一條可用的路：Lagrangian——$v$ 在輸出點，只有 teacher 能給。Align Your Flow（AYF，Sabour, Fidler & Kreis [2]）就在這個設定下，把 Eulerian 與 Lagrangian 兩條恆等式都寫成**連續時間**的 distillation 目標（原文稱 AYF-EMD 與 AYF-LMD），全導數同樣用 JVP 算，$v$ 一律由 teacher 提供。
 
-AYF 有兩個觀察值得記下來。第一，它明確指出 consistency model 是 flow map 把目標時刻釘在資料端的特例，並且**證明**（對 Gaussian 資料）存在一個次佳的 consistency model，使得步數變多之後 $W_2$ 反而上升——這就是 <Ref to="dma-multistep-limit"/> 說的「ODE 那個 $O(1/N)$ 的保證在多步 CM 上沒有」，而 AYF 把「沒有保證」補成了一個具體的反例。flow map 沒有這個問題，因為多步不需要回到資料端再加噪。第二，它不單押一條恆等式，而是把 EMD 與 LMD 搭配使用，並加上 tangent normalization 這類 <Ref to="dma-ict-scm"/> 談過的穩定手段。至於兩條各自在哪個區域比較不穩、為什麼要搭配，我沒有核對到原文的具體敘述，這裡只記結構——**要照著做之前，先讀原文 [2] 的實驗那一節**。此外 AYF 在蒸餾時對 teacher 用 autoguidance、在最後階段加 adversarial finetuning——這兩項屬於工程加料，放進表上時只記主線：**AYF = Eulerian + Lagrangian，連續時間，要 teacher。**
+AYF 明確指出 consistency model 是 flow map 把目標時刻釘在資料端的特例，並且**證明**（對 Gaussian 資料）存在一個次佳的 consistency model，使得步數變多之後 $W_2$ 反而上升——這就是 <Ref to="dma-multistep-limit"/> 說的「ODE 那個 $O(1/N)$ 的保證在多步 CM 上沒有」，而 AYF 把「沒有保證」補成了一個具體的反例。flow map 沒有這個問題，因為多步不需要回到資料端再加噪。另一個觀察是它不單押一條恆等式，而是把 EMD 與 LMD 搭配使用，並加上 tangent normalization 這類 <Ref to="dma-ict-scm"/> 談過的穩定手段。至於兩條各自在哪個區域比較不穩、為什麼要搭配，我沒有核對到原文的具體敘述，這裡只記結構——**要照著做之前，先讀原文 [2] 的實驗那一節**。此外 AYF 在蒸餾時對 teacher 用 autoguidance、在最後階段加 adversarial finetuning——這兩項屬於工程加料，放進表上時只記主線：**AYF = Eulerian + Lagrangian，連續時間，要 teacher。**
 
 <Question id="Q1">
 Shortcut 與 MeanFlow 都不用 teacher。但 MeanFlow 的恆等式對**任何**一對 $(r,t)$ 直接成立，Shortcut 卻要從 $d=0$ 一級一級 bootstrap 上來，還多付 $\log_2(1/d_{\min})$ 級的誤差放大。
@@ -140,15 +135,9 @@ Shortcut 與 MeanFlow 都不用 teacher。但 MeanFlow 的恆等式對**任何**
 
 另一個差別是輸出物件：CTM 的 $G_\theta$ 輸出**位置**，用 <Ref to="dma-consistency-function"/> 那套 $c_{\text{skip}}$、$c_{\text{out}}$ 參數化保證恆等條件；Shortcut 與 MeanFlow 輸出**平均速度**，恆等條件自動成立。這是兩種座標的選擇，不影響用哪條恆等式。
 
-<VizPlan id="w9-3-grid" title="三條恆等式 × 兩種底層：本單元方法的格子圖" type="static">
-- **位置**：本節之後。**檔名**：`week-9/imgs/w9-3-2.svg`（16:9）。
-- **版面**：$3\times2$ 的格子。橫向三欄是恆等式：Lagrangian、Eulerian、progressive；縱向兩列是「$v$ 從哪裡來」：teacher、自己造的點（條件速度）。
-- **格子內容**：Lagrangian × teacher：AYF-LMD；Lagrangian × 條件速度：打叉、小字「$v$ 在輸出點，沒有配對」。Eulerian × teacher：consistency distillation、AYF-EMD；Eulerian × 條件速度：consistency training（離散）、sCM、**MeanFlow**（連續）。progressive × teacher：progressive distillation、**CTM**；progressive × 條件速度：**Shortcut**（$d=0$ 底層）。
-- **一條弧線**從 CTM 的格子指向 Eulerian × teacher 的格子，標「$u\to t$：soft consistency matching 的另一端」。
-- **一條虛線**把 Shortcut 與 MeanFlow 圈在一起，標「同一個輸出：平均速度」。
-- **圖說（.mdx 內）**：「**圖：本單元方法的格子。** 三條恆等式乘上兩種速度來源。條件速度那一列只有 Eulerian 與 progressive 兩格有人——不要 teacher 的方法只能住在這裡。CTM 在 progressive 與 Eulerian 之間滑動。」
-- 術語一律英文；配色沿用 <Ref to="dma-what-are-we-learning"/> 圖 1 的基準色，MeanFlow、Shortcut、CTM 三格加粗。
-</VizPlan>
+![三條 flow-map 恆等式乘上 teacher 與條件速度兩種來源的六格方法分類。](./imgs/w9-3-2.svg)
+
+**圖：本單元方法的格子。** 不要 teacher 的方法只能落在 Eulerian 或 progressive × 條件速度；MeanFlow 與 Shortcut 輸出同一種平均速度，但訓練路線不同。
 
 ## 先消化一下
 
@@ -193,7 +182,7 @@ CTM 的損失 $G_\theta(x_t,t\to s)\approx G_{\theta^-}(\tilde x_u,u\to s)$ 用�
 </QuizBlock>
 
 <Bridge to="dma-distribution-matching">
-本篇把 Shortcut、Align Your Flow、CTM 放進三條恆等式的格子裡：不要 teacher 的方法只能住在 Eulerian 或 progressive 配 FM 底層。到這裡為止，所有方法都是**回歸**——學生的輸出要等於某個目標點。下一篇換一條完全不同的路：不要求逐點對應，只要求學生生成的**分佈**等於 teacher 的分佈。
+MeanFlow、Shortcut、AYF 與 CTM 雖用不同恆等式，仍共享一個前提：學生輸出必須對準某個目標點。若同一輸入可能對到多個合理答案，MSE 只會取平均。<Ref to="dma-distribution-matching"/> 因此放棄逐點配對，只要求整體分佈相同。
 </Bridge>
 
 ## 參考文獻

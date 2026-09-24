@@ -10,8 +10,8 @@ title: "一個式子裝下前面兩個單元"
 category: "courses"
 group: "Unit 3 · Stochastic Interpolants 與共用技巧"
 status: "available"
-updated: 2026-09-13
-summary: "x_t = α_t x₀ + β_t x₁ + γ_t z 一個式子裝下 diffusion、線性 FM 與 rectified flow；分清速度 b_t 與 denoiser η_t 兩個回歸目標，並看清 γ_t 這個旋鈕買到的是什麼。"
+updated: 2026-09-21
+summary: "用 x_t = α_t x₀ + β_t x₁ + γ_t z 統一 diffusion、flow matching 與 rectified flow；再分清 prediction、objective、particle path 與 marginal path 四種不同的等價。"
 demos: []
 references:
   - label: "Albergo, Boffi & Vanden-Eijnden, Stochastic Interpolants: A Unifying Framework for Flows and Diffusions (2023)"
@@ -20,6 +20,8 @@ references:
     href: "https://arxiv.org/abs/2209.15571"
   - label: "Ma et al., SiT: Exploring Flow and Diffusion-Based Generative Models with Scalable Interpolant Transformers (ICCV 2023)"
     href: "https://arxiv.org/abs/2401.08740"
+  - label: "Lai et al., The Principles of Diffusion Models (2025)"
+    href: "https://arxiv.org/abs/2510.21890"
 ---
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
@@ -38,22 +40,18 @@ import Ref from '../../../components/Ref.astro';
 # 一個式子裝下前面兩個單元
 
 <Objectives>
-- **寫出 stochastic interpolant 的一般式，並把線性 FM 與 VP diffusion 各自代進去。** 並說出這條式子上的三個東西（路徑、配對、$\gamma_t$）和 <Ref to="dma-why-not-diffusion"/> 的三個 forward 旋鈕**不是**同一組。
-- **分清速度 $b_t$ 與 denoiser $\eta_t$ 這兩個回歸目標，並說出 score 是從哪一項冒出來的。** 兩者都是同一個 conditional trick 的產物。
-- **說出 $\gamma_t=0$ 的時候會失去什麼，以及為什麼那件事和「配對」綁在一起。** 確定性配對之下沒有後驗可以平均，回歸就拿不到 score。
+- **寫出 stochastic interpolant，並代入線性 FM 與 VP diffusion。** 說出路徑、配對與額外 Gaussian noise 各控制什麼。
+- **分清四種「等價」。** 預測量、加權 objective、粒子路徑與邊際分布相同，保證的事情並不一樣。
+- **推導速度 $u_t$ 與 denoiser $\eta_t$ 的回歸目標。** 並說出 $\gamma_t z$ 何時讓我們拿到 score、何時拿不到。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 前面兩個單元留下三個問題
+## 方法越來越多，問題反而更難問
 
-到目前為止有三件事還沒有交代，而且它們不是同一篇留下來的：
+U2 把 DDPM 與 flow matching 放在一起後，我們知道 score、noise 與 velocity 有時只是同一個 oracle 的不同寫法。但方法名稱一多，很容易把幾件不同的事混成一句「它們等價」：有時只是預測量能換算，有時是粒子走同一條路，有時只剩每個時刻的分布相同。
 
-1. **軌跡彎多少，怎麼變成一個數？** <Ref to="dma-fm-vs-diffusion"/> 已經寫出 $h\int_0^1\|\ddot x_t\|\,\mathrm dt$ 這個量，但沒有證明它真的控制得住誤差。
-2. **怎麼把軌跡拉直？** <Ref to="dma-linear-path"/> 把「彎」追到了「配對」，但沒有給任何具體做法。
-3. **取樣的時候該不該把噪聲加回去？** 這一題其實是 <Ref to="dma-reverse-process"/> 留下來的——那裡給了判準（模型誤差與離散化誤差誰佔上風），但沒有給一個可以連續調的旋鈕。
-
-前兩題動的是 <Ref to="dma-why-not-diffusion"/> 的 forward 旋鈕裡的**路徑**與**配對**；第三題動的是取樣器，是一個新的旋鈕。這一節先給一個把前兩個寫在臉上的式子，取樣那一個留到 <Ref to="dma-sampler-family"/>。
+如果連「哪裡相同」都沒分清楚，就無法回答後面的實際問題：軌跡怎麼拉直？取樣要不要加噪聲？改了配對之後 score 還在不在？先把方法寫進同一個式子，才看得出每一步究竟改了什麼。
 
 <Ask>
 有沒有一個式子，<br />
@@ -70,13 +68,13 @@ $$
 
 邊界條件是 $\alpha_0=\beta_1=1$、$\alpha_1=\beta_0=0$、$\gamma_0=\gamma_1=0$——也就是「$t=0$ 時人在 $x_0$、$t=1$ 時人在 $x_1$，而額外的噪聲在兩端都要消失」。
 
-這條式子上有三個可以轉的東西：
+這條式子上有三項選擇：
 
 - **路徑**：$(\alpha_t,\beta_t)$ 的形狀。
 - **配對**：$\pi$ 是 $p_0$ 與 $p_1$ 的**任意**耦合，不必是獨立乘積。
 - **$\gamma_t$**：一項與端點無關的額外 Gaussian，在兩端被掐掉。
 
-**注意這三個不等於 <Ref to="dma-why-not-diffusion"/> 的那三個旋鈕。** 那裡的是「起點分布／路徑／配對」，講的是 forward process 的設計；這裡的起點被吸收進 $\pi$ 的一個邊際，換上來的是 $\gamma_t$。而 $\gamma_t$ 是**訓練時**的路徑寬度，和取樣時要注入多少噪聲又是兩回事——<Ref to="dma-sampler-family"/> 會把後者獨立出來，那是第五個旋鈕。
+**注意這三個不等於 <Ref to="dma-why-not-diffusion"/> 的那三個設定。** 那裡的是「起點分布／路徑／配對」，講的是 forward process 的設計；這裡的起點被吸收進 $\pi$ 的一個邊際，換上來的是 $\gamma_t$。而 $\gamma_t$ 是**訓練時**的路徑寬度，和取樣時要注入多少噪聲又是兩回事——<Ref to="dma-sampler-family"/> 會把後者獨立出來，那是第五個設定。
 
 $x_0$ 和 $z$ 是**兩個不同的東西**，這點很容易看漏。$x_0$ 是起點分布的樣本，可以是任何分布；$z$ 是硬加進來的標準 Gaussian，在兩端被 $\gamma_t$ 掐掉。
 
@@ -102,18 +100,35 @@ $x_0$ 和 $z$ 是**兩個不同的東西**，這點很容易看漏。$x_0$ 是�
 
 Diffusion 落在 $\gamma=0$ 那一行，第一眼會覺得寫錯了——它明明整篇都在加噪聲。但 diffusion 的噪聲**就是 $x_0$ 本身**：起點分布恰好是 Gaussian，所以那個 Gaussian 成分本來就在式子裡了。一旦把 $x_0$ 換成別的分布，想保留「中間有 Gaussian 成分」這個性質，就得自己掏 $\gamma_t z$ 來買。
 
+## 「一樣」究竟是哪一種一樣？
+
+把方法放進同一條式子，不代表它們在所有意義下都相同。《The Principles of Diffusion Models》把常見的說法分成四層：
+
+| 層次 | 相同的是什麼 | 不保證什麼 |
+|---|---|---|
+| 預測量 | 給定同一個 $x_t$ 與 schedule，noise、clean、score、velocity 可代數換算 | 四種網路一樣好訓 |
+| Objective | 換座標後的 MSE 只差時間權重，逐個 $t$ 的 oracle 相同 | 有限資料與有限模型下的訓練結果相同 |
+| 粒子路徑 | 某些 affine path 可經縮放與時間重參數化逐粒子對應 | 離散化誤差相同 |
+| 邊際分布 | 不同 ODE／SDE 在每個 $t$ 都可以有同一個 $p_t$ | 同一顆粒子走同一條路 |
+
+層次越往下，保留的資訊越少。所以看到「DDPM、DDIM、FM 其實一樣」，先問一句：**在哪一層一樣？** 本篇先處理預測量與路徑；下一篇的一族 ODE／SDE，則只保證最下面那層的邊際相同。
+
+可以把最下面那層想成捷運統計：每一站的總人數都相同，不代表同一位乘客坐在同一節車廂、走過同一條路。
+
 ## $\gamma_t$ 到底買到了什麼？
 
 對一般式微分：$\dot x_t=\dot\alpha_t x_0+\dot\beta_t x_1+\dot\gamma_t z$。這是給定 $(x_0,x_1,z)$ 之後就算得出來的東西，所以照 <Ref to="dma-denoising-regression"/> 那個 **conditional trick**（條件目標好算，平均交給 $L_2$ 回歸自己做；<Ref to="dma-conditional-flow-matching"/> 剛用過速度場的版本），可以定義兩個量：
 
 $$
-b_t(x)=\mathbb E[\dot x_t\mid x_t=x]\quad\text{（速度）},\qquad
+u_t(x)=\mathbb E[\dot x_t\mid x_t=x]\quad\text{（速度）},\qquad
 \eta_t(x)=\mathbb E[z\mid x_t=x]\quad\text{（denoiser）}.
 $$
 
 兩個都用 MSE 學，目標分別是 $\dot x_t$ 和 $z$。訓練迴圈跟 <Ref to="dma-conditional-flow-matching"/> 那五行幾乎一樣，只是多抽一個 $z$。
 
-**$b_t$ 生成邊際 $p_t$。** 證明和 <Ref to="dma-conditional-flow-matching"/> 的定理 1 逐字相同，只是條件變數從 $(x_0,x_1)$ 變成 $(x_0,x_1,z)$，多一個積分變數而已。
+$u_t$ 就是 <Ref week="dma-week-flow-matching"/> 的邊際速度場，只是路徑多帶了一項：把 $\gamma_t$ 設成 0、$(\alpha_t,\beta_t)=(1-t,t)$，$\dot x_t$ 退回 $x_1-x_0$，兩個定義逐字相同。
+
+**$u_t$ 生成邊際 $p_t$。** 證明和 <Ref to="dma-conditional-flow-matching"/> 的定理 1 逐字相同，只是條件變數從 $(x_0,x_1)$ 變成 $(x_0,x_1,z)$，多一個積分變數而已。
 
 **$\eta_t$ 給出 score。** 這一步是 $\gamma_t$ 的全部價值所在。給定 $(x_0,x_1)$，$x_t$ 是一個**均值 $\alpha_t x_0+\beta_t x_1$、變異數 $\gamma_t^2$ 的 Gaussian**——注意這裡沒有用到 $p_0$ 是什麼、也沒有用到配對獨不獨立。對這個條件 Gaussian 套 <Ref to="dma-tweedie-and-score"/> 的 Tweedie，再對 $(x_0,x_1)$ 取後驗平均：
 
@@ -143,9 +158,9 @@ $$
 這又是同一個 **conditional trick**：難算的邊際量、好算的條件量、一個 $L_2$ 回歸。<Ref to="dma-conditional-flow-matching"/> 那張三欄的對照表可以直接再加一欄。
 </Details>
 
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-0-gamma.html" class="demo-frame" title="γ_t 這個旋鈕在做什麼：互動 demo" style="height: 950px; width: 100%; border: none;"></iframe>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-0-gamma.html" class="demo-frame" title="γ_t 這個設定在做什麼：互動 demo" style="height: 950px; width: 100%; border: none;"></iframe>
 
-**互動 demo：$\gamma_t$ 這個旋鈕在做什麼。** 起點和終點刻意設成**同一個環**，所以任何差別都只來自配對。選「對徑配對」（$x_1=-x_0$，這是一個合法的確定性耦合）、$\gamma=0$，把 $t$ 拉到 0.5：整個環**塌成一個點**，兩個主方向的標準差都變成 0.000。把 $\gamma$ 幅度推上去，同一個 $t$ 就變成一團有厚度的雲。再按「同位配對」（$x_1=x_0$）：一樣是確定性配對，卻從頭到尾都是那個環。
+**互動 demo：$\gamma_t$ 這個設定在做什麼。** 起點和終點刻意設成**同一個環**，所以任何差別都只來自配對。選「對徑配對」（$x_1=-x_0$，這是一個合法的確定性耦合）、$\gamma=0$，把 $t$ 拉到 0.5：整個環**塌成一個點**，兩個主方向的標準差都變成 0.000。把 $\gamma$ 幅度推上去，同一個 $t$ 就變成一團有厚度的雲。再按「同位配對」（$x_1=x_0$）：一樣是確定性配對，卻從頭到尾都是那個環。
 
 ## $\gamma_t=0$ 的時候會失去什麼
 
@@ -165,7 +180,7 @@ $$
 
 先分清楚兩個東西各自需要什麼：
 
-- **速度 $b_t$ 只需要條件期望。** 條件期望對退化的分布一樣定義得好（極端情況下，「後驗」只有一個點，那平均就是它自己）。所以確定性配對之下 $b_t$ 照樣存在、照樣可以用回歸學。這就是為什麼 rectified flow 明明用確定性配對，訓練起來卻毫無障礙。
+- **速度 $u_t$ 只需要條件期望。** 條件期望對退化的分布一樣定義得好（極端情況下，「後驗」只有一個點，那平均就是它自己）。所以確定性配對之下 $u_t$ 照樣存在、照樣可以用回歸學。這就是為什麼 rectified flow 明明用確定性配對，訓練起來卻毫無障礙。
 - **score 需要密度。** 而且要用回歸拿到它，還需要「給定條件變數之後 $x_t$ 是非退化 Gaussian」這個結構。這兩件事確定性配對都不保證。
 
 所以取捨長這樣：
@@ -173,23 +188,15 @@ $$
 > **想要直的軌跡 → 動配對 → 失去 score → 只能用 ODE 取樣。** <br />
 > **想要 score（也就是想用 SDE 取樣）→ 要嘛保留獨立配對，要嘛付 $\gamma_t z$ 這筆錢。**
 
-而 $\gamma_t z$ 這筆錢也不是白付的：它把中間分布撐開，讓每一組配對的路徑都變成一個有寬度的管子，管子互相重疊，於是 $b_t$ 又變回一個平均——**軌跡會被弄彎回來一點**。
+而 $\gamma_t z$ 這筆錢也不是白付的：它把中間分布撐開，讓每一組配對的路徑都變成一個有寬度的管子，管子互相重疊，於是 $u_t$ 又變回一個平均——**軌跡會被弄彎回來一點**。
 
-三個旋鈕不是各轉各的。<Ref to="dma-error-theory"/> 會把「彎多少」寫成一個算得出來的量，<Ref to="dma-sampler-family"/> 會說明有了 score 之後多出哪些取樣器可以選，然後 <Ref to="dma-rectified-flow"/> 與 <Ref to="dma-minibatch-ot"/> 各自選一邊站。
+這三項設計彼此不是獨立的。<Ref to="dma-error-theory"/> 會把「彎多少」寫成一個算得出來的量，<Ref to="dma-sampler-family"/> 會說明有了 score 之後多出哪些取樣器可以選，然後 <Ref to="dma-rectified-flow"/> 與 <Ref to="dma-minibatch-ot"/> 各自選一邊站。
 </Answer>
 </Question>
 
-<VizPlan id="w5-0-three-knobs-one-equation" title="一個式子、三個旋鈕" type="static">
-- 檔名 `imgs/w5-0-1.png`，放在 Q1 之後、「消化一下」之前。
-- 版面：上方一行把式子 `x_t = α_t x₀ + β_t x₁ + γ_t z` 排得很大，**三個項各自用一個顏色的底色框起來**（$\alpha_t x_0$ 藍、$\beta_t x_1$ 橘、$\gamma_t z$ 灰綠）；每個框用一條引導線往下連到一個小圖：
-  - $(\alpha_t,\beta_t)$ → **「路徑」**：一張小的 $t$–係數曲線圖，畫兩組 schedule（線性的兩條直線；VP 的 $\cos$／$\sin$ 兩條弧線），標「形狀可以自己挑」。
-  - $\pi$ →**「配對」**：兩團點之間兩種連線方式並排，一種交叉、一種平行，標「誰配誰可以自己挑」。註：$\pi$ 這個符號要另外標在式子右邊的 $(x_0,x_1)\sim\pi$ 上，並用同一條引導線連下來。
-  - $\gamma_t$ → **「噪聲」**：一條被撐成管狀的條件路徑（中間胖、兩端收緊成點），標「兩端一定是 0」。
-- 下方一條橫的小表格，四列：`線性 FM`、`Rectified flow`、`VP diffusion`、`Albergo 預設`，每列只標三個旋鈕的值，讓讀者看到「前面學過的都是特例」。
-- 底部一句：「$\gamma_t \gt 0$ 買到的是 score；代價是路徑被撐成管子，軌跡會彎回來一點。」
-- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、噪聲藍 `#4a90e2`／資料橘 `#f0803c`／強調靛 `#2a4ea3`／路徑綠 `#60ba82`）；數學用簡單上下標，不要試著排 LaTeX。
-- 長寬比：約 16:10。
-</VizPlan>
+![一個式子、三個設定](./imgs/w5-0-1.png)
+
+*圖：一個式子、三個設定。路徑、配對與噪聲共同改變同一條 stochastic interpolant；設定彼此牽動，不是三個獨立設定。*
 
 ## 消化一下
 
@@ -215,8 +222,8 @@ score 公式 $\nabla\log p_t=-\eta_t/\gamma_t$ 的推導用到了什麼？
 
 <QuizBlock id="w5-0-c">
 $\gamma\equiv0$ 而且配對是確定性映射時，會發生什麼？
-<Option>$b_t$ 不存在。</Option>
-<Option correct>$b_t$ 照樣存在、照樣可以用回歸學；但沒有可回歸的 score，而且 $p_t$ 有可能連密度都沒有。</Option>
+<Option>$u_t$ 不存在。</Option>
+<Option correct>$u_t$ 照樣存在、照樣可以用回歸學；但沒有可回歸的 score，而且 $p_t$ 有可能連密度都沒有。</Option>
 <Option>兩者都不存在。</Option>
 <Explanation>
 速度只需要條件期望，對退化的分布也定義得好；score 需要密度，還需要條件 Gaussian 的結構才能用回歸拿到。這兩件事從這裡開始分道揚鑣。
@@ -234,11 +241,12 @@ $\gamma\equiv0$ 而且配對是確定性映射時，會發生什麼？
 </QuizBlock>
 
 <Bridge to="dma-sampler-family">
-有了 $b_t$ 和 score 兩樣東西，取樣就不只一種做法了。下一篇把它們組合起來，會得到一整族取樣器——而 <Ref to="dma-reverse-process"/> 的 DDPM 與 DDIM 只是其中兩個點。
+現在同一個模型可能同時給出速度 $u_t$ 與 score。只沿速度走會得到 ODE；DDPM 卻還會在反向過程加噪聲。這份隨機性是必要條件，還是可以連續調整的選擇？下一篇把兩個量組合成一整族取樣器。
 </Bridge>
 
 ## 參考文獻
 
-1. Albergo, M. S., Boffi, N. M., Vanden-Eijnden, E. [*Stochastic Interpolants: A Unifying Framework for Flows and Diffusions.*](https://arxiv.org/abs/2303.08797) 2023. （這一篇的一般式、$b_t$ 與 $\eta_t$ 兩個目標、以及 $\gamma_t$ 的角色。）
+1. Albergo, M. S., Boffi, N. M., Vanden-Eijnden, E. [*Stochastic Interpolants: A Unifying Framework for Flows and Diffusions.*](https://arxiv.org/abs/2303.08797) 2023. （這一篇的一般式、速度與 denoiser 兩個目標，以及 $\gamma_t$ 的角色。）
 2. Albergo, M. S., Vanden-Eijnden, E. [*Building Normalizing Flows with Stochastic Interpolants.*](https://arxiv.org/abs/2209.15571) ICLR 2023. （較早的版本，$\gamma_t=\sqrt{2t(1-t)}$ 這個預設出自這裡。）
-3. Ma, N., et al. [*SiT: Exploring Flow and Diffusion-Based Generative Models with Scalable Interpolant Transformers.*](https://arxiv.org/abs/2401.08740) ICCV 2023. （把這個框架的三個旋鈕在影像上一個一個掃過去的實驗。）
+3. Ma, N., et al. [*SiT: Exploring Flow and Diffusion-Based Generative Models with Scalable Interpolant Transformers.*](https://arxiv.org/abs/2401.08740) ICCV 2023. （把這個框架的三個設定在影像上一個一個掃過去的實驗。）
+4. Lai, C.-H., Song, Y., Kim, D., Mitsufuji, Y., Ermon, S. [*The Principles of Diffusion Models.*](https://arxiv.org/abs/2510.21890) 2025. （本篇「四種等價」與 prediction／objective 轉換的整理。）

@@ -6,13 +6,14 @@ prereqs:
   - math-absorbing-state
   - math-bayes-posterior
   - math-kl
+  - ml-latent-variables-elbo
 lang: "zh"
 title: "D3PM：Transition Matrix、Closed Form 與 x₀-Parametrization"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion I"
 status: "available"
-updated: 2026-09-07
-summary: "把 uniform 與 absorbing 兩條鏈寫成 transition matrix Q_t，算出 q(x_t|x_0) 的 closed form 與 posterior；離散版 ELBO 逐項是類別分佈的 KL，網路輸出 p_θ(x_0|x_t) 的 logits——這正是 x₀-prediction 的離散翻譯。"
+updated: 2026-09-21
+summary: "Transition matrix 讓離散 forward process 也能一步抽到任意時刻，並算出帶有 x₀ 的 posterior。離散版 denoiser 因此自然輸出乾淨 token 的類別分布。"
 demos: []
 references:
   - label: "Austin et al., Structured Denoising Diffusion Models in Discrete State-Spaces (NeurIPS 2021)"
@@ -41,9 +42,9 @@ import Ref from '../../../components/Ref.astro';
 # D3PM：Transition Matrix、Closed Form 與 x₀-Parametrization
 
 <Objectives>
-- 把 uniform 與 absorbing 鏈寫成 transition matrix $Q_t$，並推出 $q(x_t\mid x_0)$ 的 closed form $\bar Q_t$。
-- 寫出 posterior $q(x_{t-1}\mid x_t,x_0)$，並認出它是 <Ref to="dma-denoising-regression"/> 那個 Gaussian posterior 的類別版。
-- 說出離散版 ELBO 逐項是什麼，以及為什麼網路該輸出 $p_\theta(x_0\mid x_t)$ 的 logits 而不是直接輸出 $x_{t-1}$。
+- **把 uniform 與 absorbing chain 寫成 $Q_t$。** 推出 $\bar Q_t$，讓 $q(x_t\mid x_0)$ 不必逐步模擬。
+- **推導 $q(x_{t-1}\mid x_t,x_0)$。** 認出它是 Gaussian posterior 在類別空間的版本。
+- **寫出離散 ELBO 與 $x_0$-parametrization。** 解釋網路為什麼輸出 $p_\theta(x_0\mid x_t)$ 的 logits，而不是直接猜一個 $x_{t-1}$。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -53,7 +54,7 @@ import Ref from '../../../components/Ref.astro';
 那「$q(x_t\mid x_0)$ 有 closed form」在離散世界是什麼意思？
 </Ask>
 
-## 先只看一個 token
+## 先把它當成一格選字題
 
 一句話有很多 token，但 forward process 對每個位置是**獨立**地加噪聲，所以先只盯著一個位置。這個位置的狀態 $x\in\{1,\dots,K\}$，寫成 one-hot 的**列向量**（row vector）$x\in\{0,1\}^{K}$。
 
@@ -177,19 +178,9 @@ $$
 
 D3PM 實務上還在 ELBO 外面加了一項輔助的 cross-entropy $\lambda\,\mathbb E\big[-\log p_\theta(x_0\mid x_t)\big]$，讓網路直接對「預測 $x_0$」負責、訓練更穩。下一篇會看到：對 absorbing 鏈，ELBO 本身**就會塌成**這種形式的加權和，輔助項變得多餘。
 
-<VizPlan id="w6-1-x0-param" title="x₀-parametrization：網路只負責一件事" type="static">
-- 檔名 `imgs/w6-1-1.png`，放在 Q1 之後、「先消化一下」之前。
-- 版面：一條從左到右的流程，三個方塊，中間用粗箭頭連。
-  - 左「$x_t$」：一排十二格的序列，幾格是 `[MASK]`。
-  - 中「網路」：一個方塊寫 $p_\theta(\tilde x_0\mid x_t)$，下方標「**要學的只有這個**：每個位置 $K$ 個 logits」。方塊上方畫一個小的長條圖（$K$ 根柱子）示意輸出。
-  - 右「$x_{t-1}$」：另一排序列，比左邊少幾個 `[MASK]`。
-- 中到右的箭頭上標 $q(x_{t-1}\mid x_t,\tilde x_0)$，並在箭頭下方加一個灰底小框寫「**closed form，不用學**」。
-- 下方一條對照橫幅：左半寫連續世界 `網路預測 x̂₀ → 用 Gaussian posterior 走一步`，右半寫離散世界 `網路預測 p(x₀|x_t) → 用類別 posterior 走一步`，中間一個等號並標「同一招」。
-- 右下角一個小標註：把 $q(x_{t-1}\mid\cdot)$ 換成 $q(x_{t-k}\mid\cdot)$ 就能一次走 $k$ 步——標「跳步」。
-- 底部一句：「已知的結構交給公式，網路只學它必須學的那件事。」
-- 風格：與 `w-3-0-2.png` 一致（淺底、扁平、繁體中文標註、原字橘 `#f0803c`／`[MASK]` 灰／強調靛 `#2a4ea3`）。
-- 長寬比：約 16:8。
-</VizPlan>
+![x₀-parametrization：網路只負責一件事](./imgs/w6-1-1.png)
+
+*圖：x₀-parametrization 把責任分開：網路只預測乾淨的 $x_0$，已知 posterior 再把 $x_t$ 與預測合成 $x_{t-1}$。*
 
 ## 先消化一下
 
@@ -234,7 +225,7 @@ DDPM 那一項的 MSE 正是兩個等變異數 Gaussian 之間的 KL 算出來�
 </QuizBlock>
 
 <Bridge to="dma-masked-diffusion">
-本篇把兩條鏈寫成 $\bar Q_t=\bar\alpha_t I+(1-\bar\alpha_t)\times$終點，並確定網路輸出 $p_\theta(x_0\mid x_t)$。下一篇專注在 absorbing 鏈上，看 ELBO 怎麼塌成一個加權的 masked cross-entropy——以及它和 BERT 只差在哪裡。
+一般的 D3PM 已經能訓練，但每一步仍是一個類別分布的 KL。若 forward chain 只有一個吸收終點 `[MASK]`，這串 KL 會不會大幅簡化？下一篇把 absorbing chain 代到底，看看它為什麼最後只剩 masked cross-entropy。
 </Bridge>
 
 ## 參考文獻

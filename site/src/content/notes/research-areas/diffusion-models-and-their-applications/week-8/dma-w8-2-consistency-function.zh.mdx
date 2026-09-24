@@ -4,13 +4,14 @@ label: "dma-consistency-function"
 prereqs:
   - math-vector-field-ode
   - math-pushforward-flow-map
+  - ml-moving-targets-ema
 lang: "zh"
 title: "Consistency Function：同一條軌跡，同一個終點"
 category: "courses"
 group: "Unit 6 · Consistency Models"
 status: "available"
-updated: 2026-09-06
-summary: "定義 consistency function f(x_t, t)＝該點所在 PF-ODE 軌跡的終點。它有兩個性質：邊界處是恆等映射、沿同一條軌跡輸出不變。用 c_skip、c_out 的參數化讓邊界自動成立，用「相鄰兩個時間點輸出要一致」當損失——剩下的問題是那個相鄰點要從哪裡來。"
+updated: 2026-09-21
+summary: "同一條 PF-ODE 軌跡上的每個位置，都應認出同一個終點。這句話定義了 consistency function，也留下「相鄰點怎麼找」的問題。"
 demos: []
 references:
   - label: "Song, Dhariwal, Chen & Sutskever, Consistency Models (ICML 2023)"
@@ -33,9 +34,9 @@ import Answer from '../../../components/Answer.astro';
 # Consistency Function：同一條軌跡，同一個終點
 
 <Objectives>
-- 用一句話定義 consistency function，並說出它的兩個性質（邊界條件、自我一致性）以及為什麼少了邊界條件就有平凡解。
-- 寫出 $f_\theta=c_{\text{skip}}(t)\,x+c_{\text{out}}(t)\,F_\theta(x,t)$ 的參數化，說明它如何讓邊界條件自動成立，並認出它是 <Ref to="dma-denoising-regression"/> 那種 affine parametrization 的親戚。
-- 寫出「相鄰兩個時間點輸出要一致」的損失，說出為什麼只用相鄰點就夠、為什麼目標那一側要 stop-gradient。
+- **定義 consistency function。** 說出邊界條件、自我一致性，以及少了邊界條件時為什麼常數函數也能過關。
+- **把邊界寫進網路。** 解釋 $c_{\text{skip}},c_{\text{out}}$ 如何讓 $f_\theta(x,\varepsilon)=x$ 對所有參數都成立。
+- **寫出相鄰時間的一致性損失。** 說明為什麼局部一致足以傳遍整條軌跡，以及 target 端為什麼要 stop-gradient。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -74,23 +75,12 @@ $$
 
 這兩條合起來**唯一決定** $f$：從任何 $(x_t,t)$ 出發，沿軌跡走到 $\varepsilon$，自我一致性說值不變，邊界條件說那裡的值就是 $x_\varepsilon$。少了任何一條都不行，而且缺邊界條件時壞得很明顯——**常數函數 $f\equiv c$ 滿足自我一致性**（任何兩點輸出當然相同），卻什麼都沒學到。邊界條件是把這個平凡解排除掉的東西。這件事馬上會影響參數化與損失的設計。
 
-<VizPlan id="w8-2-consistency" title="點任一 (x_t, t)：沿軌跡拖動，輸出不動" type="interactive">
-- **位置**：本節之後。這是本單元的**核心互動**。**檔名**：`week-8/w8-2-1.html`。
-- **資料與座標**：2D toy（<Ref to="dma-lab-diffusion"/> 的月牙，標準化），本單元 VE 座標 $x_t=x_0+t\epsilon$，$t\in[\varepsilon,T]$、$\varepsilon=0.002$、toy 尺度取 $T=10$。真實 PF-ODE 用精確 score（混合 Gaussian 解析）細步積分；$f$ 的**真值**用「從該點積分到 $\varepsilon$」算，$f_\theta$ 用一個預先訓好、權重內嵌的小網路（<Ref to="dma-lab-consistency"/> 的 CD 模型），用 `c_skip`、`c_out` 參數化。
-- **版面**：左大格是平面 $[-3,3]^2$，底層淡淡畫 $p_t$ 的等高線（等高線隨當前 $t$ 更新，讀者看到 $t$ 大時分佈是一大團、$t$ 小時收成月牙）；右側上方一個 **時間軸條**（橫軸 $t$，對數刻度從 $\varepsilon$ 到 $T$）、下方一欄數字。
-- **基本互動**：在左格**點任一位置** $x$，並在時間軸條上選 $t$（或用滑桿）。畫面立刻：(1) 畫出經過 $(x,t)$ 的整條 PF-ODE 軌跡（從 $T$ 到 $\varepsilon$，顏色沿 $t$ 漸變），軌跡上用一個大圓點標當前 $(x,t)$；(2) 在乾淨端用星號標**真值終點** $x_\varepsilon$；(3) 用叉號標 $f_\theta(x,t)$。數字欄顯示 $\|f_\theta(x,t)-x_\varepsilon\|$。
-- **沿軌跡拖動**：抓住那個大圓點沿軌跡拖（或拖時間滑桿），點會沿軌跡移動、$t$ 同步變；**叉號應該幾乎不動**，星號完全不動。右側時間軸條下方畫一條曲線：橫軸 $t$、縱軸 $f_\theta(x_t,t)$ 的第一個座標（沿這條軌跡）——訓好的模型應是一條**平線**，並疊上一條真值的水平虛線。這條「平不平」的曲線就是自我一致性的可視化。
-- **開關「顯示邊界」**：把時間滑桿拉到 $t=\varepsilon$，叉號應與圓點重合（$f(x,\varepsilon)=x$），數字欄顯示 $c_{\text{skip}}(\varepsilon)=1$、$c_{\text{out}}(\varepsilon)=0$。
-- **開關「未訓練／訓練中／訓好」**：切換三組內嵌權重（初始化、訓 200 步、訓完）。未訓練時叉號隨拖動亂跑、右側曲線起伏；訓練中曲線在 $t$ 大處仍偏、在 $t$ 小處已平（**從邊界往外學會**的順序，對應下面損失一節的歸納論證）；訓好時整條平。
-- **開關「多條軌跡」**：一次畫 8 條軌跡（8 個不同起點），每條各自一個叉號與星號。讀者看到 $f$ 在每條軌跡上是常數、跨軌跡才換值——$f$ 把整條軌跡「壓」成一個點。
-- **hover 平面上任一點**（不點擊）：淡淡畫出經過那裡、當前 $t$ 的軌跡預覽，讓讀者感受「平面上每一點都在某條軌跡上、都有一個終點」——$f$ 是定義在整個 $(x,t)$ 空間上的函數，不只軌跡上。
-- **底部觀察句**：「觀察：沿同一條軌跡拖動，$f$ 的輸出不動——它回答的是『這個點最後會到哪裡』，答案在整條軌跡上是同一個。$t=\varepsilon$ 時輸出就是點本身。訓練時 $f_\theta$ 是從乾淨端開始學會不動的。」
-- **匯出 PNG**：左格 + 右側曲線併成 16:9，含當前 $(x,t)$、軌跡與三個標記。
-- **註記**：真實模型的 $x$ 是整張圖、$T=80$；2D 與 $T=10$ 是為了看得見。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/week-8/w8-2-1.html" class="demo-frame" title="沿軌跡拖動，consistency function 輸出不動：互動 demo" style="height: 930px; width: 100%; border: none;"></iframe>
+
+**互動 demo：沿軌跡輸出不動。** 在解析 toy 上選一條軌跡並拖動時間；真值終點保持固定。三種明確標示的 surrogate 狀態展示輸出曲線如何由起伏變平，不使用或冒充真實 checkpoint。
 
 <Question id="Q1">
-上一節說了，缺邊界條件時自我一致性有平凡解。下一節會把 $f_\theta(x,\varepsilon)=x$ **寫死在架構裡**。但看起來有更省事的做法：在損失裡多加一項 $\|f_\theta(x,\varepsilon)-x\|^2$，讓網路自己學會邊界就好。
+缺少邊界條件時，自我一致性有平凡解。最省事的補法似乎是在 loss 多加一項 $\|f_\theta(x,\varepsilon)-x\|^2$；另一種做法則把 $f_\theta(x,\varepsilon)=x$ **直接寫進架構**。
 
 **這兩種做法差在哪裡？**
 
@@ -128,13 +118,9 @@ $$
 
 這個形式應該很眼熟。<Ref to="dma-denoising-regression"/> 說 $x_0$-、$\epsilon$-、$v$-prediction 是同一個 denoiser 的三個 affine 座標；EDM 的 denoiser $D(x,t)=c_{\text{skip}}x+c_{\text{out}}F$ 是同一組座標的另一種寫法——讓網路預測「$x$ 與 $x_0$ 之間、尺度被正規化過的那個差量」。consistency model **借用了 denoiser 的參數化來表示一個不是 denoiser 的東西**：denoiser 輸出 $\mathbb E[x_0\mid x_t]$（後驗平均、一個 $x_t$ 對很多 $x_0$），$f$ 輸出 ODE 軌跡的終點（一對一）。兩者在 $t\to\varepsilon$ 時都趨近恆等，所以同一組 $c_{\text{skip}},c_{\text{out}}$ 兩邊都合用；這也是為什麼 CM 的網路可以直接從訓好的 diffusion 模型初始化。
 
-<VizPlan id="w8-2-param" title="c_skip 與 c_out：從恆等到網路" type="static">
-- **位置**：本節之後。**檔名**：`week-8/imgs/w8-2-2.svg`（16:9）。
-- **上半**：橫軸 $t$（對數刻度，$\varepsilon$ 到 $T=80$），畫兩條曲線 $c_{\text{skip}}(t)$（從 1 降到 $\approx0$）與 $c_{\text{out}}(t)$（從 0 升到 $\approx\sigma_d$），$\sigma_d=0.5$。三個垂直參考線 $t=\varepsilon$、$t=\sigma_d$、$t=T$，各標一行：「恆等」、「各半」、「幾乎全靠 $F_\theta$」。
-- **下半**：三個小格對應三條參考線。每格畫同一個 $x_t$（一個帶噪聲的 2D 點雲縮圖或月牙上的一點）、$F_\theta$ 的輸出、以及兩者按 $c_{\text{skip}}:c_{\text{out}}$ 混合後的 $f_\theta$；用兩支不同長度的箭頭表示兩項的貢獻。$t=\varepsilon$ 那格只有 $x$ 的箭頭；$t=T$ 那格只有 $F_\theta$ 的箭頭。
-- **圖說（.mdx 內）**：「**圖：參數化把邊界寫進架構。** $t=\varepsilon$ 時 $f_\theta=x$ 對任何 $\theta$ 成立，平凡解被排除；$t$ 大時 $f_\theta\approx\sigma_d F_\theta$，網路直接輸出終點。中間是兩者的混合，形式與 EDM 的 denoiser 相同。」
-- 術語一律英文（skip、output、identity、denoiser）。
-</VizPlan>
+![c_skip 從一降到零、c_out 從零升起，並在三個代表時刻混合輸入與網路輸出。](./imgs/w8-2-2.svg)
+
+**圖：參數化把邊界寫進架構。** 在 $t=\varepsilon$，$f_\theta=x$ 對任何參數都成立；噪聲變大後，輸出逐步交給 $F_\theta$。
 
 ## 損失：相鄰兩點要一致
 
@@ -205,7 +191,7 @@ CM 損失只要求**相鄰**兩個網格點一致，卻能學到整條網格上�
 </QuizBlock>
 
 <Bridge to="dma-cd-vs-ct">
-本篇定義了 consistency function——一端釘在乾淨端的 flow map——用參數化寫死邊界、用相鄰點的一致性當損失。損失裡有一個空格：從 $x_{t_{n+1}}$ 出發，「同一條軌跡上往乾淨端走一格的點」$\hat x_{t_n}$ 怎麼算。下一篇給兩個答案，第二個答案不需要 teacher，而它成立的理由是 <Ref to="dma-denoising-regression"/> 的 conditional trick。
+Consistency function 的定義很乾淨，真正難的是訓練資料：給定 $x_{t_{n+1}}$，怎麼找到同一條軌跡上更乾淨的 $\hat x_{t_n}$？<Ref to="dma-cd-vs-ct"/> 會比較兩個答案：請 teacher 帶路，或用 conditional trick 把 teacher 拿掉。
 </Bridge>
 
 ## 參考文獻

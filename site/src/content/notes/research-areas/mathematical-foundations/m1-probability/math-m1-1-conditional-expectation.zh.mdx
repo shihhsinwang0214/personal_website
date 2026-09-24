@@ -7,7 +7,7 @@ title: "從鞋子猜身高：Conditional Expectation"
 category: "courses"
 group: "M1 · 機率與 Conditional Expectation"
 status: "available"
-updated: 2026-09-06
+updated: 2026-09-21
 summary: "只知道鞋子尺寸怎麼猜身高？再知道性別，猜測怎麼變？E[Y|X] 是「同一個 X 的人分成一桶再取平均」，它是 X 的函數、也是一個隨機變數；tower property 說再細分的桶合併回來，平均不變。條件越多猜得越準，但從資料估時，桶越細、每桶的樣本越少。"
 demos: []
 references:
@@ -24,7 +24,6 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import UsedBy from '../../../components/UsedBy.astro';
@@ -33,14 +32,14 @@ import Ref from '../../../components/Ref.astro';
 # 從鞋子猜身高：Conditional Expectation
 
 <Objectives>
-- 說出 $\mathbb E[Y\mid X=x]$ 是「把 $X=x$ 的人分成一桶再取平均」，並區分 $\mathbb E[Y\mid X=x]$（一個數）與 $\mathbb E[Y\mid X]$（$X$ 的函數、一個隨機變數）。
-- 寫出 tower property $\mathbb E\big[\mathbb E[Y\mid X,G]\,\big|\,X\big]=\mathbb E[Y\mid X]$，用「細桶合併回粗桶」解釋它，並給出四行證明。
-- 對「多知道一個條件就會猜得更好」這個說法，判斷它在什麼意義下對、從資料估計時的代價是什麼，並用模擬驗證桶太細時會發生的事。
+- **說出 $\mathbb E[Y\mid X=x]$ 是「把 $X=x$ 的人分成一桶再取平均」。** 區分 $\mathbb E[Y\mid X=x]$（一個數）與 $\mathbb E[Y\mid X]$（$X$ 的函數、一個隨機變數）。
+- **寫出 tower property $\mathbb E\big[\mathbb E[Y\mid X,G]\,\big|\,X\big]=\mathbb E[Y\mid X]$，用「細桶合併回粗桶」解釋它。** 給出四行證明。
+- **對「多知道一個條件就會猜得更好」這個說法，判斷它在什麼意義下對、從資料估計時的代價是什麼。** 用模擬驗證桶太細時會發生的事。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 起點：只看鞋子
+## 只看鞋子
 
 朋友傳來一張照片，只拍到一雙鞋。你查到那是 25 公分的尺寸，然後被要求猜鞋主的身高。
 
@@ -72,13 +71,9 @@ import Ref from '../../../components/Ref.astro';
 
 第（二）點是這一篇的主角。它說「多一個條件」不會系統性地把猜測往某邊推——推上去的和推下去的，按人數加權後剛好抵消。
 
-<VizPlan id="m1-1-buckets" title="按鞋碼分桶，再按性別細分：小桶合併回大桶" type="static">
-- **檔名**：`m1-probability/imgs/m1-1-1.svg`（16:9）。
-- **上排**：六個桶，標鞋碼 23–28，每桶上方寫平均身高（例如 158、161、165.2、169、173、177——鞋碼 25 那一桶要和下排合併回來的數字**完全一致**），桶身高度＝人數。桶內用小點畫出身高的散佈（縱向），讓讀者看到每桶內仍有一整個範圍。
-- **下排**：把鞋碼 25 那一桶拆成兩個小桶——「男・25」（人數 40%，平均 170）與「女・25」（人數 60%，平均 162），各自的散佈比大桶窄。兩小桶之間一個 $\Rightarrow$ 指回大桶，旁邊寫 $0.4\times170+0.6\times162=165.2$。
-- **右側一句**：「猜測是一張表（每個鞋碼一格），不是一個數。細分再合併，平均不變；桶內的散佈變小。」
-- **圖說**：「$\mathbb E[Y\mid X]$ 是桶上的數字；tower property 是『小桶按人數加權平均＝大桶』。」
-</VizPlan>
+![鞋碼分桶後再依性別細分，小桶平均按人數加權會回到原桶。](./imgs/m1-1-1.svg)
+
+*圖：條件期望是每個桶上的平均；tower property 把細桶合併回粗桶。*
 
 ## 把桶寫成數學
 
@@ -110,7 +105,7 @@ $$
 中間那一步用了 $P(g\mid x)P(y\mid x,g)=P(y,g\mid x)$（條件機率的乘法），以及「對 $g$ 加總把 $g$ 邊際掉」。連續情形把和換成積分，一字不改。
 </Details>
 
-## 回到情境：兩個直覺，一個關係
+## 兩個直覺，一個關係
 
 **問題一。** 「猜 165」就是讀 $\mathbb E[Y\mid X=25]$。它是對的做法——不過「對」在這裡有一個很具體的意思：它是那一桶的中心，同桶的人身高散在它兩側。為什麼「中心」是好猜測、以及在哪種意義下最好，是 <Ref to="math-mse-conditional-expectation"/> 的事；這裡只確認它是有定義、可以算的量。
 
@@ -120,7 +115,7 @@ $$
 
 **這一切依賴什麼。** 第一，$\mathbb E[Y\mid X]$ 是對**母體的聯合分佈**定義的。鞋主如果不是從你腦中那個母體抽出來的（例如照片來自籃球隊聚會），表就用錯了——不是數學錯，是母體錯。第二，實務上這張表是**從資料估**出來的：每桶的平均由桶內的樣本算。桶分得越細，每桶樣本越少，桶上的數字越不穩。條件多到一定程度，「理論上更準」會被「估計上更抖」吃掉。
 
-## 回到情境：用一個合成母體跑一次
+## 用一個合成母體跑一次
 
 ```python
 import numpy as np
@@ -141,16 +136,9 @@ for n in (200_000, 60):                              # 大母體 vs 只有 60 �
 
 大母體那一行：三個平均按比例加權後與 $\mathbb E[Y\mid 25]$ **完全相同**（這是恆等式，不是近似），而桶內標準差從約 5.8 掉到約 5（男生桶平均約 170、女生桶約 164，兩桶各自散佈 5，混在一起多出「桶間差距」那一份）——多知道性別讓散佈變小、平均不變。$n=60$ 那一行：鞋碼 25 的桶裡可能只有幾個人，分性別後有的小桶只剩一兩個、甚至是空的，桶上的數字跳來跳去——這就是「條件太細、樣本太少」。
 
-<VizPlan id="m1-1-scatter" title="鞋碼 vs 身高：拖桶寬、開性別、縮樣本" type="interactive">
-- **位置**：本節之後。**檔名**：`site/public/notes/research_areas/mathematical-foundations/m1-probability/m1-1-2.html`。這是本篇的核心互動。
-- **版面**：主圖是鞋碼（橫軸）對身高（縱軸）的散佈圖，點依性別著色（預設不上色，開關後上色）。疊上一條階梯狀的曲線：每個桶的平均身高 $\mathbb E[Y\mid X\in\text{桶}]$。右側面板顯示滑鼠所在桶的：人數、平均、男女比例、男女各自的平均、以及「加權回來」的數字。
-- **控制項**：滑桿「桶寬」（$0.1$–$2$ 公分）；開關「依性別細分」：階梯曲線分裂成兩條（男、女），面板同時顯示 $0.4\times170+0.6\times162$ 這種算式並打勾「＝大桶平均」；滑桿「樣本數」$n$（$50$–$200{,}000$，對數）；按鈕「重新抽樣」；開關「顯示每桶的標準差」：在階梯上畫出 ±1 標準差的帶子，細分後帶子變窄。
-- **預期看到的事**：$n$ 大時階梯平滑、細分後兩條曲線各自平滑且加權回來完全吻合；$n$ 小或桶太窄時，階梯鋸齒、部分桶為空（畫成缺口）、細分後更糟——用紅字標「桶內 $<5$ 人」。
-- **底部觀察句**：「觀察：條件多一個，平均不會系統性移動（tower property），但每桶內的散佈變小；代價是每桶的樣本變少，估出來的表變抖。」
-- **匯出 PNG**：主圖 + 面板併成 16:9。
-</VizPlan>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m1-probability/m1-1-2.html" class="demo-frame" title="條件期望：拖桶寬、細分性別與縮小樣本" style="height: 820px; width: 100%; border: none;"></iframe>
 
-## 先消化一下
+## 檢查理解
 
 <QuizBlock id="m1-1-a">
 $\mathbb E[Y\mid X]$ 與 $\mathbb E[Y\mid X=25]$ 的差別是：
@@ -185,7 +173,7 @@ tower property 是母體分佈的恆等式，跟樣本數無關、永遠成立�
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-mse-conditional-expectation">
-本篇把「用已知條件猜」寫成 $\mathbb E[Y\mid X]$——分桶取平均的那張表——並用 tower property 說明多一個條件不會移動平均，只會縮小每桶的散佈；從資料估表時，桶太細是代價。還沒回答的是：為什麼「桶的平均」是好猜測？下一篇換一個情境問同一件事——天氣預報每天報一個數字，什麼策略讓長期的誤差最小？
+本篇把「用已知條件猜」寫成 $\mathbb E[Y\mid X]$——分桶取平均的那張表——並用 tower property 說明多一個條件不會移動平均，只會縮小每桶的散佈；從資料估表時，桶太細是代價。還沒回答的是：為什麼「桶的平均」是好猜測？接著換一個情境問同一件事——天氣預報每天報一個數字，什麼策略讓長期的誤差最小？
 </Bridge>
 
 ## 參考文獻

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>用訓練誤差選旋鈕，答案在看到資料之前就寫好了</title>
+<title>用訓練誤差選超參數，答案在看到資料之前就寫好了</title>
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
@@ -45,11 +45,11 @@
 </head>
 <body>
 <div class="card">
-  <p class="goal">學習目標：把一個旋鈕往一端推會讓訓練誤差<b>單調變好</b>，所以它不能用訓練誤差來選——那樣選出來的永遠是候選清單的上限，和資料沒有關係。這件事不是容量旋鈕的專利，<b>訓練步數也一樣</b>。</p>
+  <p class="goal">學習目標：如果一個超參數往某一端增加會讓訓練誤差<b>單調變好</b>，它就不能用訓練誤差來選——那樣選出來的永遠是候選清單的上限，和資料沒有關係。這不只發生在模型容量，<b>訓練步數也一樣</b>。</p>
   <canvas id="cap" style="aspect-ratio:5/3" aria-label="橫軸＝候選的多項式次數。三條線：訓練誤差、驗證誤差、真實風險（灰，實務上看不到）。兩個游標＝兩種選法挑到的位置"></canvas>
   <p class="cap">橫軸＝候選的多項式次數。三條線：訓練誤差、驗證誤差、真實風險（灰，實務上看不到）。兩個游標＝兩種選法挑到的位置</p>
-  <canvas id="step" style="aspect-ratio:5/2" aria-label="同一件事換成「訓練步數」這個旋鈕（橫軸 log）"></canvas>
-  <p class="cap">同一件事換成「訓練步數」這個旋鈕（橫軸 log）</p>
+  <canvas id="step" style="aspect-ratio:5/2" aria-label="同一件事換成訓練步數（橫軸 log）"></canvas>
+  <p class="cap">同一件事換成訓練步數（橫軸 log）</p>
   <div class="controls">
     <div class="row">
       <label for="dmax">候選上限</label><input id="dmax" type="range" min="5" max="30" step="1" value="20" />
@@ -93,7 +93,7 @@
     return R;
   }
 
-  /* 訓練步數當旋鈕：在標準化的 degree-14 基底上跑 GD */
+  /* 將訓練步數視為超參數：在標準化的 degree-14 基底上跑 GD */
   function steps() {
     var n = +el('n').value, nv = +el('nv').value, sg = +el('sg').value, d = 14;
     var t = MLF.toy1d(n, sg, 6), v = MLF.toy1d(nv, sg, 555), i, j, k;

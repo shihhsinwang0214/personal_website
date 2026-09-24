@@ -1,0 +1,24 @@
+<!doctype html><html lang="zh-TW"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>閘門對帳：flux 與 divergence</title>
+<style>:root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;padding:14px;font-family:system-ui,sans-serif;background:transparent;color:#1f2733}body[data-dark="1"]{color:#e9e6e1}.card{max-width:780px;margin:auto;padding:18px;border:1px solid #ddd5c9;border-radius:14px;background:#fffdfb}body[data-dark="1"] .card{background:#1f2126;border-color:#3a3b42}.goal,.observe{font-size:.88rem;line-height:1.55}.plot{width:100%;aspect-ratio:16/9;display:block}.controls{display:grid;gap:8px}.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}label{font-size:.78rem;font-weight:650}input[type=range]{width:105px}button{font:inherit;color:inherit;background:transparent;border:1px solid #aaa;border-radius:8px;padding:6px 10px}.stats{font-size:.8rem;font-variant-numeric:tabular-nums}.ok{color:#2d945b}.bad{color:#d05d55}</style></head><body><main class="card">
+<p class="goal"><b>學習目標：</b>四道閘門的邊界 flux 應精確對上站內人數變化；漏算的暗門會形成藍色 sink，讓兩本帳分開。</p>
+<canvas id="cv" class="plot" aria-label="站內密度、divergence 熱圖與兩條累積對帳曲線"></canvas>
+<div class="controls"><div class="row"><label>北門 <input id="n" type="range" min="-20" max="20" value="8"></label><label>東門 <input id="e" type="range" min="-20" max="20" value="-4"></label><label>南門 <input id="s" type="range" min="-20" max="20" value="3"></label><label>西門 <input id="w" type="range" min="-20" max="20" value="6"></label></div>
+<div class="row"><label><input id="heat" type="checkbox" checked> divergence 熱圖</label><label><input id="secret" type="checkbox"> 暗門</label><label>暗門 k <input id="k" type="range" min="0" max="20" value="7"></label><label><input id="train" type="checkbox"> 未計數列車門</label><button id="one">走 1 分鐘</button><button id="ten">走 10 分鐘</button><button id="reset">重置</button></div>
+<div class="stats">閘門帳：<b id="book"></b>　實際變化：<b id="actual"></b>　差額：<b id="gap"></b>　<span id="status"></span></div></div>
+<p class="observe">紅＝source／淨流出；藍＝sink／淨吸入。暗門帶走人，因此一定畫成藍色，與本文 legend 一致。</p>
+</main><script src="../../machine-learning-foundations/_demo-common.js"></script><script>
+(function(){var E=function(x){return document.getElementById(x)},D=MLF.hiDPICanvas(E('cv')),pal=MLF.palette(),t=0,book=[0],actual=[0];
+ function flux(){return +E('n').value + +E('e').value + +E('s').value + +E('w').value}
+ function advance(m){for(var q=0;q<m;q++){t++;var counted=flux(),hidden=E('secret').checked?+E('k').value:0;if(E('train').checked&&t%3===0)hidden+=60;book.push(book[book.length-1]+counted);actual.push(actual[actual.length-1]+counted-hidden)}draw()}
+ function reset(){t=0;book=[0];actual=[0];draw()}
+ function draw(){var z=D.resize(),c=D.ctx;c.clearRect(0,0,z.w,z.h);c.fillStyle=pal.bg;c.fillRect(0,0,z.w,z.h);var split=z.w*.58,L=20,T=28,W=split-40,H=z.h-58;
+  c.fillStyle=pal.dark?'#27313a':'#edf2f5';c.fillRect(L,T,W,H);var nx=20,ny=15,i,j;for(j=0;j<ny;j++)for(i=0;i<nx;i++){var base=.18+.14*Math.sin(i*.5)*Math.cos(j*.4),x=L+i*W/nx,y=T+j*H/ny;c.fillStyle=MLF.rgb(pal.b,.12+base);c.fillRect(x,y,W/nx+1,H/ny+1)}
+  c.fillStyle=pal.ink;c.font='12px system-ui';c.fillText('北 '+E('n').value,L+W/2-25,T-8);c.fillText('南 '+E('s').value,L+W/2-25,T+H+17);c.fillText('西 '+E('w').value,L-3,T+H/2);c.fillText('東 '+E('e').value,L+W-38,T+H/2);
+  if(E('heat').checked&&E('secret').checked){var x=L+W*.68,y=T+H*.58,g=c.createRadialGradient(x,y,2,x,y,45);g.addColorStop(0,'rgba(45,110,190,.9)');g.addColorStop(1,'rgba(45,110,190,0)');c.fillStyle=g;c.fillRect(x-50,y-50,100,100);c.fillStyle=pal.ink;c.fillText('暗門 sink',x-30,y+5)}
+  if(E('train').checked){c.fillStyle='rgba(45,110,190,.72)';c.fillRect(L+W-15,T+H*.18,15,H*.25)}
+  var x0=split+22,y0=z.h-38,w=z.w-split-38,h=z.h-72,mn=Math.min.apply(null,book.concat(actual,[0])),mx=Math.max.apply(null,book.concat(actual,[1])),span=mx-mn||1;c.strokeStyle=pal.axis;c.strokeRect(x0,25,w,h);
+  function line(a,col){c.strokeStyle=col;c.lineWidth=2.5;c.beginPath();a.forEach(function(v,i){var x=x0+i/Math.max(20,a.length-1)*w,y=y0-(v-mn)/span*h;if(!i)c.moveTo(x,y);else c.lineTo(x,y)});c.stroke()}line(book,MLF.rgb(pal.a));line(actual,MLF.rgb(pal.c));c.fillStyle=pal.muted;c.font='11px system-ui';c.fillText('金：閘門帳　綠：實際',x0+5,40);
+  var b=book[book.length-1],a=actual[actual.length-1],gap=b-a;E('book').textContent=b.toFixed(0);E('actual').textContent=a.toFixed(0);E('gap').textContent=gap.toFixed(0);E('status').className=gap?'bad':'ok';E('status').textContent=gap?'對帳失敗：漏掉內部 sink／邊界出口':'對帳成功';
+ }
+ E('one').onclick=function(){advance(1)};E('ten').onclick=function(){advance(10)};E('reset').onclick=reset;['n','e','s','w','heat','secret','k','train'].forEach(function(id){E(id).oninput=draw});function theme(){pal=MLF.palette();document.body.dataset.dark=pal.dark?'1':'0';draw()}MLF.onThemeChange(theme);addEventListener('resize',draw);reset();theme()})();
+</script></body></html>

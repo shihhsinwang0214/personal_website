@@ -1,0 +1,34 @@
+<!doctype html><html lang="zh-TW"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>霧中下山：gradient descent</title>
+<style>
+:root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;padding:14px;font-family:system-ui,sans-serif;background:transparent;color:#1f2733}body[data-dark="1"]{color:#e9e6e1}.card{max-width:760px;margin:auto;padding:18px;border:1px solid #ddd5c9;border-radius:14px;background:#fffdfb}body[data-dark="1"] .card{background:#1f2126;border-color:#3a3b42}.goal,.observe{font-size:.88rem;line-height:1.55}.plot{width:100%;aspect-ratio:16/10;display:block;border-radius:10px}.controls{display:grid;gap:9px;margin-top:12px}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}label{font-size:.82rem;font-weight:650}input[type=range]{width:170px;max-width:45vw}button,select{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid #aaa;background:transparent;color:inherit}button{cursor:pointer}.stats{font-size:.8rem;font-variant-numeric:tabular-nums}.warn{color:#c34f47;font-weight:700}
+</style></head><body><main class="card">
+<p class="goal"><b>學習目標：</b>gradient 是腳下的局部方向；步長太大、地形多谷或不可微時，「每一步方向正確」仍不保證順利抵達最低點。點圖可換起點。</p>
+<canvas id="cv" class="plot" aria-label="左邊是等高線與梯度下降軌跡，右邊是高度對步數"></canvas>
+<div class="controls">
+ <div class="row"><label>地形 <select id="terrain"><option value="bowl">碗</option><option value="double">雙窪地</option><option value="ridge">稜線 |x|</option></select></label><label>步長 η <input id="eta" type="range" min=".01" max="1.5" step=".01" value=".16"></label><b id="ve">0.16</b></div>
+ <div class="row"><label><input id="field" type="checkbox" checked> 顯示 −∇h</label><label><input id="fog" type="checkbox"> 霧（只看腳下）</label><button id="one">走一步</button><button id="many">走 50 步</button><button id="reset">重置</button></div>
+ <div class="stats">位置 <b id="pos"></b>　高度 <b id="height"></b>　‖∇h‖ <b id="norm"></b> <span id="msg"></span></div>
+</div><p class="observe">觀察：在碗上把 η 拉過 0.5，y 方向開始跨谷震盪；雙窪地會依起點停在不同谷底；稜線在 x=0 沒有普通 gradient。</p>
+</main><script src="../../machine-learning-foundations/_demo-common.js"></script><script>
+(function(){
+ var cv=document.getElementById('cv'),D=MLF.hiDPICanvas(cv),pal=MLF.palette(),path=[],heights=[],p=[1.45,1.15];
+ var E=function(x){return document.getElementById(x)};
+ function fg(x,y){var k=E('terrain').value;if(k==='bowl')return{x:x*x+2*y*y,g:[2*x,4*y]};if(k==='double')return{x:(x*x-1)*(x*x-1)+.7*y*y,g:[4*x*(x*x-1),1.4*y]};return{x:Math.abs(x)+.4*y*y,g:[x===0?0:(x>0?1:-1),.8*y]}}
+ function reset(){p=[1.45,1.15];path=[p.slice()];heights=[fg(p[0],p[1]).x];draw()}
+ function step(n){var e=+E('eta').value;for(var i=0;i<n;i++){var z=fg(p[0],p[1]);p=[p[0]-e*z.g[0],p[1]-e*z.g[1]];if(Math.abs(p[0])>12||Math.abs(p[1])>12){break}path.push(p.slice());heights.push(fg(p[0],p[1]).x)}draw()}
+ function draw(){var s=D.resize(),c=D.ctx;c.clearRect(0,0,s.w,s.h);c.fillStyle=pal.bg;c.fillRect(0,0,s.w,s.h);var split=s.w*.68,L=18,T=18,W=split-30,H=s.h-36;
+  var fog=E('fog').checked,k=E('terrain').value,max=0,vals=[],nx=48,ny=38,i,j;
+  for(j=0;j<ny;j++)for(i=0;i<nx;i++){var x=-2.2+4.4*i/(nx-1),y=1.8-3.6*j/(ny-1),v=fg(x,y).x;vals.push(v);max=Math.max(max,Math.min(v,8))}
+  for(j=0;j<ny;j++)for(i=0;i<nx;i++){var idx=j*nx+i,xp=L+i*W/nx,yp=T+j*H/ny,x=-2.2+4.4*i/(nx-1),y=1.8-3.6*j/(ny-1);var near=Math.hypot(x-p[0],y-p[1])<.45;if(fog&&!near){c.fillStyle=pal.dark?'#111318':'#d8d8d5'}else{var q=Math.min(vals[idx],8)/Math.max(max,1e-6);c.fillStyle=MLF.lerpColor(pal.dark?[35,54,72]:[226,240,250],pal.dark?[176,92,65]:[211,121,74],q)}c.fillRect(xp,yp,W/nx+1,H/ny+1)}
+  function X(x){return L+(x+2.2)/4.4*W}function Y(y){return T+(1.8-y)/3.6*H}
+  if(E('field').checked&&!fog){c.strokeStyle=MLF.rgb(pal.ink?pal.b:[70,120,180],.48);c.lineWidth=1;for(var yy=-1.5;yy<=1.5;yy+=.5)for(var xx=-2;xx<=2;xx+=.5){var g=fg(xx,yy).g,n=Math.hypot(g[0],g[1])||1,dx=-g[0]/n*10,dy=g[1]/n*10;c.beginPath();c.moveTo(X(xx),Y(yy));c.lineTo(X(xx)+dx,Y(yy)+dy);c.stroke()}}
+  c.strokeStyle=pal.accent;c.lineWidth=2.5;c.beginPath();path.forEach(function(q,n){if(!n)c.moveTo(X(q[0]),Y(q[1]));else c.lineTo(X(q[0]),Y(q[1]))});c.stroke();c.fillStyle=MLF.rgb(pal.d);c.beginPath();c.arc(X(p[0]),Y(p[1]),5,0,7);c.fill();
+  var x0=split+18,y0=s.h-35,w=s.w-split-32,h=s.h-60,mx=Math.max.apply(null,heights.concat([1]));c.strokeStyle=pal.axis;c.strokeRect(x0,20,w,h);c.strokeStyle=MLF.rgb(pal.c);c.lineWidth=2;c.beginPath();heights.forEach(function(v,n){var xx=x0+n/Math.max(50,heights.length-1)*w,yy=y0-Math.min(v,mx)/mx*h;if(!n)c.moveTo(xx,yy);else c.lineTo(xx,yy)});c.stroke();c.fillStyle=pal.muted;c.font='11px system-ui';c.fillText('高度 vs 步數',x0+5,34);
+  var z=fg(p[0],p[1]);E('ve').textContent=(+E('eta').value).toFixed(2);E('pos').textContent='('+p[0].toFixed(2)+', '+p[1].toFixed(2)+')';E('height').textContent=z.x.toFixed(3);E('norm').textContent=Math.hypot(z.g[0],z.g[1]).toFixed(3);E('msg').textContent=Math.abs(p[0])+Math.abs(p[1])>8?'　發散了：步長太大':'';
+ }
+ E('one').onclick=function(){step(1)};E('many').onclick=function(){step(50)};E('reset').onclick=reset;E('terrain').onchange=reset;['eta','field','fog'].forEach(function(id){E(id).oninput=draw});
+ cv.onclick=function(ev){var r=cv.getBoundingClientRect(),split=r.width*.68;if(ev.offsetX>split)return;p=[-2.2+4.4*(ev.offsetX-18)/(split-30),1.8-3.6*(ev.offsetY-18)/(r.height-36)];path=[p.slice()];heights=[fg(p[0],p[1]).x];draw()};
+ function theme(){pal=MLF.palette();document.body.dataset.dark=pal.dark?'1':'0';draw()}MLF.onThemeChange(theme);addEventListener('resize',draw);reset();theme();
+})();
+</script></body></html>
