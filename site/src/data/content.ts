@@ -216,6 +216,28 @@ export const publications: PublicationGroup[] = [
     group: 'Machine Learning',
     items: [
       {
+        title: 'FdAudio: MeanFlow-Anchored Fréchet-Distance Post-Training for One-Step Text-to-Audio Generation',
+        authors: 'Huang, K. P., Lu, B. R., Chung, H. L., <span class="me">Wang, S. H.</span>, Lee, H. Y.',
+        venue: 'SLT 2026',
+        bibtex: `@inproceedings{huang2026fdaudio,
+  title={FdAudio: MeanFlow-Anchored Fréchet-Distance Post-Training for One-Step Text-to-Audio Generation},
+  author={Huang, K. P. and Lu, B. R. and Chung, H. L. and Wang, S. H. and Lee, H. Y.},
+  booktitle={IEEE Spoken Language Technology Workshop (SLT)},
+  year={2026}
+}`,
+      },
+      {
+        title: 'Test-Time Sequential Steering of Diffusion Models via Preconditioned Crank-Nicolson',
+        authors: 'Keller, J. A., Transue, T., Li, Q., <span class="me">Wang, S. H.</span>, Wang, B.',
+        venue: 'NeurIPS 2026',
+        bibtex: `@inproceedings{keller2026pcn,
+  title={Test-Time Sequential Steering of Diffusion Models via Preconditioned Crank-Nicolson},
+  author={Keller, J. A. and Transue, T. and Li, Q. and Wang, S. H. and Wang, B.},
+  booktitle={Advances in Neural Information Processing Systems (NeurIPS)},
+  year={2026}
+}`,
+      },
+      {
         title: 'Improving the Efficacy of Test-Time Steering in Masked Diffusion Models with Parallel Tempering',
         url: 'https://openreview.net/pdf?id=RdCA2rtWXR',
         authors: 'Lu, P. Y., Lin, H. T., <span class="me">Wang, S. H</span>.',
