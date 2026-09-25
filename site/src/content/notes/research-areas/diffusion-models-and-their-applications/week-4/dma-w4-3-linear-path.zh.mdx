@@ -2,187 +2,220 @@
 slug: "dma-w4-3-linear-path"
 label: "dma-linear-path"
 prereqs:
-  - math-vector-field-ode
+  - math-tweedie
   - math-conditional-expectation
 lang: "zh"
-title: "代入最簡單的一條路：直線插值"
+title: "Gaussian 起點：DDIM 與 Flow Matching 的交集"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-09-21
-summary: "把端點直接連成直線，條件速度只是終點減起點；但交錯的配對會在同一位置互相平均，讓真正的 ODE 軌跡重新彎起來。"
+updated: 2026-09-25
+summary: "當起點是 Gaussian，denoiser、score 與 velocity 是同一組 conditional means 的不同寫法；代入 VP path 後，Flow ODE 就接回 DDIM 與 probability-flow ODE。"
 demos: []
 references:
-  - label: "Liu, Gong & Liu, Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow (ICLR 2023)"
-    href: "https://arxiv.org/abs/2209.03003"
-  - label: "Albergo & Vanden-Eijnden, Building Normalizing Flows with Stochastic Interpolants (ICLR 2023)"
-    href: "https://arxiv.org/abs/2209.15571"
-  - label: "Lipman, Chen, Ben-Hamu, Nickel & Le, Flow Matching for Generative Modeling (ICLR 2023)"
+  - label: "Song, Meng & Ermon, Denoising Diffusion Implicit Models (ICLR 2021)"
+    href: "https://arxiv.org/abs/2010.02502"
+  - label: "Song et al., Score-Based Generative Modeling through SDEs (ICLR 2021)"
+    href: "https://arxiv.org/abs/2011.13456"
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
     href: "https://arxiv.org/abs/2210.02747"
 ---
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
+import Try from '../../../components/Try.astro';
 import Remark from '../../../components/Remark.astro';
-import Question from '../../../components/Question.astro';
-import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 
-# 代入最簡單的一條路：直線插值
+# Gaussian 起點：DDIM 與 Flow Matching 的交集
 
 <Objectives>
-- **寫出直線插值的條件速度與訓練目標。** $x_t=t x_1+(1-t)x_0$，所以目標只是 $x_1-x_0$。
-- **用兩組相交配對算出邊際速度。** 說明條件路徑雖直，平均後的 ODE 軌跡仍可能彎。
-- **把 velocity MSE 換成 noise MSE。** 看出均勻時間的線性 FM 隱含 $1/t^2$ 權重，和 DDPM 的 $\mathcal L_{\text{simple}}$ 不同。
+- **寫出 Gaussian path 的 optimal velocity。** 它是 $\mathbb E[X_1\mid X_t=x]$ 與 $\mathbb E[\epsilon\mid X_t=x]$ 的線性組合。
+- **在 noise、score 與 velocity 之間轉換。** 說明為什麼 U1 訓練好的 denoiser 能直接提供 Flow ODE 所需的方向。
+- **說清楚 DDIM 與 Flow Matching 的關係。** 在同一條 VP Gaussian path 上，它們的連續極限是同一條 probability-flow ODE；換路徑則不再成立。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 最沒有花招的選法
+## 我們是不是早就學過這個 velocity？
 
-<Ref to="dma-conditional-flow-matching"/> 的框架可以代任何一對 $(\alpha_t,\sigma_t)$ 進去。最沒有花招的選法是兩點之間走直線：$\alpha_t=t$、$\sigma_t=1-t$。
-
-$$
-x_t=t\,x_1+(1-t)\,x_0,\qquad u_t(x\mid x_0,x_1)=x_1-x_0 .
-$$
-
-條件速度是一個**常數**——不隨 $t$ 變、也不隨位置變。所以網路的工作被講成了一句很短的話：**看到 $x_t$ 和 $t$，猜出「終點減起點」。**
-
-程式碼上，這只是把 <Ref to="dma-conditional-flow-matching"/> 那五行的目標換掉一行：`target = x1 - x0`。
-
-<Remark label="補充" summary="這條路在文獻裡有三個名字">
-同一條線性路徑在三篇論文裡各有講法：rectified flow [1] 從「把軌跡拉直」出發、stochastic interpolants [2] 從「把 $(\alpha_t,\sigma_t)$ 當設計變數」出發、Lipman et al. [3] 稱它為 OT path（在獨立配對下）。
-
-> **它們寫下來的訓練目標是同一個。**
-
-差別在動機與後續怎麼發展，不在這一行式子。
-</Remark>
+<Ref to="dma-flows-and-continuity" /> 的 Flow Matching 看起來像一套新方法：先造路徑，再回歸速度。但在 <Ref week="dma-week-diffusion">U1</Ref>，denoiser 已經學會從 noisy $x_t$ 預測資料或 noise。
 
 <Ask>
-條件路徑每一條都是直線。<br />
-那訓好之後，粒子會走直線嗎？
+如果 Flow Matching 的起點也是 Gaussian，<br />
+denoiser 給的答案能不能直接換成 velocity？
 </Ask>
 
-<Question id="Q1">
-有一個聽起來很順的推理：
-
-> 每一條條件路徑都是直的，而邊際速度是這些條件速度的**平均**。一堆直線方向平均起來還是一個方向，所以邊際軌跡當然也是直的。
-
-**這個推理錯在哪？**
-
-<Answer>
-錯在「平均起來的那個方向」**不必是其中任何一條在走的方向**。
-
-回到邊際速度的定義：$u_t(x)=\mathbb E[x_1-x_0\mid x_t=x]$。在位置 $x$、時刻 $t$，會有很多組配對的直線正好經過這裡，而它們的方向各不相同——邊際速度是這些方向的平均，不是其中任何一條。
-
-**用兩組配對就能算出來。** 令 $x_0\in\lbrace(-1,-1),(1,-1)\rbrace$、$x_1\in\lbrace(1,1),(-1,1)\rbrace$，配對方式是 $(-1,-1)\to(1,1)$ 與 $(1,-1)\to(-1,1)$，各佔一半。兩條直線都在 $t=\tfrac12$ 經過原點，而它們的條件速度分別是 $(2,2)$ 與 $(-2,2)$。所以
+沿用本單元的時間方向：$t=0$ 是 Gaussian、$t=1$ 是資料。令
 
 $$
-u_{1/2}\big((0,0)\big)=\tfrac12(2,2)+\tfrac12(-2,2)=(0,2).
+X_0=\epsilon\sim\mathcal N(0,I),\qquad X_1\sim p_{\mathrm{data}},
 $$
 
-正上方。這個方向**任何一條條件直線都沒有在走**——水平的分量互相抵消掉了。走到原點的粒子會被推著往上，然後才分岔到左上或右上。
-
-再往下一層，還有一個更硬的理由：<Ref to="dma-flows-and-continuity"/> 說 ODE 的軌跡不能交叉。條件直線會交叉（獨立配對之下幾乎一定會），所以邊際 ODE 的軌跡**不可能**就是那些直線——它只能是一組彼此不交叉的曲線，在分布層面給出同一個 $p_t$。
-
-理解它為什麼不會，是 <Ref week="dma-week-interpolants"/> 整個單元的起點。一句話串起來：**「彎」來自「交叉」，「交叉」來自「隨機配對」。** 這三個詞在 <Ref week="dma-week-interpolants"/> 分別長成 <Ref to="dma-error-theory"/>、<Ref to="dma-rectified-flow"/> 與 <Ref to="dma-minibatch-ot"/>。
-</Answer>
-</Question>
-
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w4-3-crossing.html" class="demo-frame" title="交叉、彎曲，與要走幾步：互動 demo" style="height: 940px; width: 100%; border: none;"></iframe>
-
-**互動 demo：交叉、彎曲，與要走幾步。** 起點與資料各是兩團，配對方式是唯一的變數。「隨機配對」下條件直線交出一個 X，邊際軌跡被迫繞開，實測彎曲度約 **1.59**；按「依位置配對」，兩邊各走各的，彎曲度掉到 **1.00**。再切 Euler 步數看終點誤差：隨機配對 4 步差 **1.49**、20 步 **0.26**、200 步才 **0.01**；依位置配對 4 步就只差 **0.03**。兩種配對的 $p_0$ 與 $p_1$ 一模一樣。（這裡的彎曲度是在**四團**的 toy 上量的；<Ref to="dma-fm-vs-diffusion"/> 比較線性與 VP 時用的是**雙月**，兩組數字不要直接對比。）
-
-## 直不直，決定要走幾步
-
-取樣就是解那條 ODE，而我們只能用有限步。最簡單的 Euler 是
+再選一條 Gaussian path
 
 $$
-x_{t+h}=x_t+h\,u_\theta(x_t,t),
+X_t=\alpha_tX_1+\sigma_t\epsilon,\qquad
+\alpha_0=0, \sigma_0=1, \alpha_1=1, \sigma_1=0.
 $$
 
-也就是**假設這一段時間內速度不變**——等於拿一條割線去代替真正的軌跡。軌跡本來就是直線時，一步到終點、誤差為零；軌跡越彎，割線和曲線差得越多。
-
-所以「軌跡有多直」不是美學問題，它直接決定**取樣需要幾步**。<Ref to="dma-reverse-process"/> 裡 DDIM 步數少的時候會掉品質，原因也是同一個。demo 裡那組數字就是這件事的量化版本：同樣的兩個分布，只換配對，4 步的誤差差了將近五十倍。
-
-## 換到 $\epsilon$ 座標看，其實不是同一個 loss
-
-把 $x_0$ 改叫 $\epsilon$（在 FM 慣例裡起點就是噪聲），$x_t=t\,x_1+(1-t)\epsilon$。給定 $x_t$ 與 $\epsilon$ 就能反解出 $x_1=(x_t-(1-t)\epsilon)/t$，代回去：
+給定一組 $(X_1,\epsilon)$，reference velocity 直接微分就有：
 
 $$
-u_t=x_1-\epsilon=\frac{x_t}{t}-\frac{\epsilon}{t}.
+\dot X_t=\dot\alpha_tX_1+\dot\sigma_t\epsilon.
 $$
 
-網路那一邊也照同一個關係讀：把 $u_\theta$ 寫成 $u_\theta=\dfrac{x_t-\epsilon_\theta}{t}$（這就是「把速度網路當成噪聲網路來看」的意思）。兩式相減，$x_t/t$ 消掉：
+依照 <Ref to="dma-flows-and-continuity" /> 的 L2 結論，把所有會產生同一個 $X_t=x$ 的路徑平均：
 
 $$
-\|u_\theta-u_t\|^2=\frac{1}{t^2}\,\|\epsilon_\theta-\epsilon\|^2 .
+v_t(x)
+=\dot\alpha_t\,\mathbb E[X_1\mid X_t=x]
++\dot\sigma_t\,\mathbb E[\epsilon\mid X_t=x].
 $$
 
-第一，**學速度和學噪聲仍然是同一件事**，兩者只差一個 affine transformation——這延續 <Ref to="dma-denoising-regression"/> 對三種 parametrization 的討論。（那裡把「預測資料」叫 $x_0$-prediction，因為 diffusion 的慣例裡 $x_0$ 是資料；在本單元的慣例下同一件事要叫 $x_1$-prediction。**這是最容易讀錯的一個術語。**）
+## 一個 denoiser 就夠了
 
-第二，注意那個 $1/t^2$。均勻抽 $t$ 的 FM loss，換到 $\epsilon$ 座標之後帶著 $1/t^2$ 的權重；而 $t$ 小是噪聲端，所以**FM 其實把噪聲端看得比均勻的 $\epsilon$-loss 重很多**。
+對 $X_t=\alpha_tX_1+\sigma_t\epsilon$ 取 conditional expectation：
 
-拿它跟 DDPM 比就看得很清楚。<Ref to="dma-denoising-regression"/> 最後那五行跑的是 $\mathcal L_{\text{simple}}$——**均勻**加權的 $\epsilon$-MSE，那是刻意把推導出來的 $w(t)$ 丟掉之後的版本。所以：
+$$
+x=\alpha_t\mathbb E[X_1\mid x]
++\sigma_t\mathbb E[\epsilon\mid x].
+$$
 
-| | 換到 $\epsilon$ 座標之後的權重 |
-| --- | --- |
-| DDPM 實際在跑的 $\mathcal L_{\text{simple}}$ | 均勻（$1$） |
-| 線性 FM、均勻抽 $t$ | $1/t^2$，$t$ 小的那一端被放大 |
+所以兩個 conditional means 不是兩個獨立的未知數。若網路估計
 
-**兩邊都是 $\epsilon$-MSE，差的就是這個權重。**
+$$
+\epsilon_\theta(x,t)\approx\mathbb E[\epsilon\mid X_t=x],
+$$
 
-> **FM 與 DDPM 的差別不只在路徑（線性 vs VP），還在那個沒有人明說的加權。**
+就能直接換成 velocity：
 
-<Ref to="dma-denoising-regression"/> 說過 forward process 與 weighting 可以分開設計，這裡是它最乾淨的例子：兩個模型可以只差加權，訓出來的結果卻不一樣。<Ref to="dma-fm-vs-diffusion"/> 會把這兩軸攤在同一張表上。
+$$
+\boxed{
+v_\theta(x,t)
+=\frac{\dot\alpha_t}{\alpha_t}x
++\left(
+\dot\sigma_t-
+\frac{\dot\alpha_t}{\alpha_t}\sigma_t
+\right)\epsilon_\theta(x,t).
+}
+$$
 
-![交叉點上的平均：一張圖](./imgs/w4-3-1.png)
+這不是重新訓練，也不是近似另一個模型，只是把同一組 conditional means 改寫成另一個座標。
 
-*圖：相同端點分布下，隨機配對會在交叉處互相抵消並產生先聚再分的彎路；依位置配對則留下平行直線。*
+再用 <Ref to="dma-tweedie-and-score" /> 的 Tweedie 公式
 
-## 消化一下
+$$
+\mathbb E[\epsilon\mid X_t=x]
+=-\sigma_t\nabla_x\log p_t(x),
+$$
+
+就得到 score 版本：
+
+$$
+v_t(x)
+=\frac{\dot\alpha_t}{\alpha_t}x
+-\sigma_t\left(
+\dot\sigma_t-
+\frac{\dot\alpha_t}{\alpha_t}\sigma_t
+\right)\nabla_x\log p_t(x).
+$$
+
+> **Noise、score 與 velocity 不是三個互不相關的學習目標；在同一條 Gaussian path 上，它們可以互相換算。**
+
+## 代入 VP path，就回到 probability-flow ODE
+
+為了和 U1 的時間方向對齊，這一小段改用 $\tau$：$\tau=0$ 是資料、$\tau=1$ 是 noise。寫成
+
+$$
+Y_\tau=a_\tau X_{\mathrm{data}}+s_\tau\epsilon.
+$$
+
+VP path 滿足 $a_\tau^2+s_\tau^2=1$，並令 $a_\tau^2=\bar\alpha_\tau$、$\dot{\bar\alpha}_\tau=-\beta(\tau)\bar\alpha_\tau$。
+
+<Try summary="把兩個係數化簡，就會看到 U1 的 PF-ODE">
+第一個係數是
+
+$$
+\frac{\dot a_\tau}{a_\tau}=-\frac12\beta(\tau).
+$$
+
+又因為 $s_\tau^2=1-a_\tau^2$，
+
+$$
+-s_\tau\left(
+\dot s_\tau-\frac{\dot a_\tau}{a_\tau}s_\tau
+\right)
+=-\frac12\beta(\tau).
+$$
+
+因此
+
+$$
+\frac{\mathrm dY_\tau}{\mathrm d\tau}
+=-\frac12\beta(\tau)Y_\tau
+-\frac12\beta(\tau)\nabla\log p_\tau(Y_\tau),
+$$
+
+正是 <Ref to="dma-reverse-process" /> 的 probability-flow ODE。生成時只要從 noise 端把 $\tau$ 反向積回資料端。
+</Try>
+
+## DDIM 在哪裡？
+
+<Ref to="dma-reverse-process" /> 已經看過，DDIM 保留每個 noise level 的 Gaussian marginal，卻把跨時間的 coupling 改成 non-Markovian。當 $\eta=0$ 時，不再加入新的 randomness，而是沿用同一份 predicted noise：
+
+$$
+Y_s
+=a_s\widehat X_{\mathrm{data}}(Y_\tau)
++s_s\widehat\epsilon(Y_\tau),\qquad s<\tau.
+$$
+
+這是一個 deterministic update。當時間格切得越來越細，它就是上面那條 probability-flow ODE 的離散化；DDIM 論文也把這個極限寫成 ODE form。
+
+所以關係可以整理成三層：
+
+1. **Training：** DDPM 與 DDIM 使用同一個 denoising objective，學到相同的 conditional mean。
+2. **Continuous dynamics：** 在同一條 VP Gaussian path 上，conditional mean 可以改寫成 Flow ODE 的 velocity，也就是 PF-ODE。
+3. **Discrete sampling：** DDIM 的 $\eta=0$ update 是這條 deterministic flow 的一種離散走法。
+
+<Remark label="注意" summary="可以換座標，不代表可以偷換路徑">
+上面的 $(\alpha_t,\sigma_t)$ 必須是模型 training 時使用的 Gaussian path。把 VP path 訓出的 $\epsilon_\theta$，直接配上線性 path $(\alpha_t,\sigma_t)=(t,1-t)$ 的係數，會把網路帶到它沒看過的 $p_t$ 上。
+
+**不用重訓能換的是 noise／score／velocity 的表示方式，不是中間的 probability path。**
+</Remark>
+
+## 快速回顧一下
 
 <QuizBlock id="w4-3-a">
-線性 FM 用均勻的 $t$ 訓練，等價於 $\epsilon$-prediction 配上什麼加權？
-<Option>均勻加權。</Option>
-<Option correct>$1/t^2$，噪聲端被加重。</Option>
-<Option>$t^2$，資料端被加重。</Option>
+在固定 Gaussian path 上，已知 $\epsilon_\theta\approx\mathbb E[\epsilon\mid X_t=x]$ 後，還需要另一個網路預測 velocity 嗎？
+<Option>需要，因為 velocity 與 noise 無關。</Option>
+<Option correct>不需要；利用 $X_t=\alpha_tX_1+\sigma_t\epsilon$ 就能做線性轉換。</Option>
+<Option>只有 $t=0.5$ 時不需要。</Option>
 <Explanation>
-由 $u_\theta-u_t=-(\epsilon_\theta-\epsilon)/t$ 直接得到。注意這是 FM 慣例的 $t$：$t$ 小的那一端是噪聲。
+位置本身提供了另一條線性關係，因此知道 noise mean 就知道 data mean，也就知道 velocity。
 </Explanation>
 </QuizBlock>
 
 <QuizBlock id="w4-3-b">
-在兩條條件直線的交叉點上，邊際速度是什麼？
-<Option>其中一條直線的方向。</Option>
-<Option correct>經過該點的所有條件直線方向的後驗加權平均。</Option>
-<Option>零向量。</Option>
+DDIM 與 Flow ODE 的關係，哪一個說法最準確？
+<Option>所有 Flow Matching 模型都是 DDIM。</Option>
+<Option correct>在同一條 VP Gaussian path 上，DDIM 的 deterministic sampling 與 Flow ODE 共享同一個連續 dynamics。</Option>
+<Option>DDIM 只能由 continuity equation 訓練。</Option>
 <Explanation>
-這就是 <Ref to="dma-conditional-flow-matching"/> 對邊際速度的定義。平均出來的方向通常不屬於任何一條條件直線，這正是彎曲的來源。
-</Explanation>
-</QuizBlock>
-
-<QuizBlock id="w4-3-c">
-下列哪一個改動最直接減少邊際軌跡的彎曲？
-<Option>把網路加大。</Option>
-<Option>把條件路徑的寬度 $\sigma_{\min}$ 調小。</Option>
-<Option correct>換掉 $(x_0,x_1)$ 的配對方式，讓條件直線不要交叉。</Option>
-<Explanation>
-彎曲的根源是交叉，交叉的根源是配對。網路大小只影響「有沒有學好目標速度場」，不會改變那個目標本身長什麼樣。
+等價需要「同一條 Gaussian path」這個前提；換掉 path 或 coupling 後，不能只靠座標轉換沿用原模型。
 </Explanation>
 </QuizBlock>
 
 <Bridge to="dma-fm-vs-diffusion">
-直線插值沒有自動帶來直軌跡，改寫成 noise prediction 後也不是 DDPM 的均勻 MSE。那兩個框架究竟在哪裡相同、又從哪裡開始分開？下一篇把路徑與回歸目標放到同一組公式裡比較。
+既然 DDIM 已經能寫成一條 flow，Flow Matching 真正多給了我們什麼？答案不是另一種 ODE，而是設計 reference paths 與起終點 coupling 的自由。但最自然的直線路徑，也藏著下一個問題：每條 reference path 都直，平均後的生成軌跡也會直嗎？
 </Bridge>
 
 ## 參考文獻
 
-1. Liu, X., Gong, C., Liu, Q. [*Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow.*](https://arxiv.org/abs/2209.03003) ICLR 2023. （從「把軌跡拉直」出發的版本；<Ref to="dma-rectified-flow"/> 會細講。）
-2. Albergo, M. S., Vanden-Eijnden, E. [*Building Normalizing Flows with Stochastic Interpolants.*](https://arxiv.org/abs/2209.15571) ICLR 2023. （把 $(\alpha_t,\sigma_t)$ 當成可以挑的東西。）
-3. Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., Le, M. [*Flow Matching for Generative Modeling.*](https://arxiv.org/abs/2210.02747) ICLR 2023. （線性路徑在這篇裡叫 OT path。）
+1. Song, J., Meng, C., Ermon, S. [*Denoising Diffusion Implicit Models.*](https://arxiv.org/abs/2010.02502) ICLR 2021. （Non-Markovian coupling、deterministic sampling 與 ODE form。）
+2. Song, Y., et al. [*Score-Based Generative Modeling through Stochastic Differential Equations.*](https://arxiv.org/abs/2011.13456) ICLR 2021. （Probability-flow ODE。）
+3. Lipman, Y., et al. [*Flow Matching for Generative Modeling.*](https://arxiv.org/abs/2210.02747) ICLR 2023. （Gaussian probability paths 與 velocity regression。）

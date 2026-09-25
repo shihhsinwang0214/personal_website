@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>已知兩端時：先畫出 reference paths</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; background: transparent; color: #333; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 700px; margin: 0 auto; padding: 20px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,.10); }
+  body[data-dark="1"] .card { background: #1f2126; box-shadow: 0 4px 15px rgba(0,0,0,.28); }
+  .goal { margin: 0 0 12px; font-size: .9rem; line-height: 1.55; }
+  .formula { color: #0056b3; font-weight: 750; white-space: nowrap; }
+  body[data-dark="1"] .formula { color: #66b9ff; }
+  canvas { width: 100%; max-width: 540px; aspect-ratio: 1 / 1; height: auto; display: block; margin: 0 auto; border-radius: 8px; background: #111; box-shadow: inset 0 0 10px rgba(0,0,0,.5); }
+  .cap { margin: 7px 0 0; text-align: center; color: #646c78; font-size: .73rem; line-height: 1.5; }
+  body[data-dark="1"] .cap { color: #aaa69c; }
+  .controls { display: grid; gap: 11px; margin-top: 15px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 9px; }
+  label { font-size: .82rem; font-weight: 700; }
+  input[type="range"] { width: 235px; max-width: 54vw; accent-color: #0056b3; }
+  input[type="checkbox"] { accent-color: #0056b3; }
+  button { padding: 8px 14px; border: 0; border-radius: 6px; cursor: pointer; font-weight: 750; background: #0056b3; color: #fff; }
+  body[data-dark="1"] button { background: #1877c9; color: #fff; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .observe { margin: 13px 0 0; color: #646c78; font-size: .81rem; line-height: 1.6; }
+  body[data-dark="1"] .observe { color: #aaa69c; }
+  @media (max-width: 520px) {
+    body { padding: 8px; }
+    .card { padding: 13px; }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">先把每個起點 <i>x</i><sub>0</sub> 與一個終點 <i>x</i><sub>1</sub> 隨機配對，再沿著 <span class="formula"><i>I</i><sub>t</sub>=(1−t)<i>x</i><sub>0</sub>+t<i>x</i><sub>1</sub></span> 直線前進。</p>
+
+  <canvas id="cv" width="600" height="600" aria-label="人群沿著隨機配對的直線 reference paths 前往三個捷運站"></canvas>
+  <p class="cap">青點＝起點　橘點＝終點　發光點＝目前位置　黃線＝隨機配對的 reference paths</p>
+
+  <div class="controls">
+    <div class="row">
+      <label for="time">搬運進度 t</label>
+      <input id="time" type="range" min="0" max="1000" step="1" value="0" />
+      <b id="time-value">0.00</b>
+    </div>
+    <div class="row">
+      <button id="back" class="ghost" aria-label="反向播放">◀ 反向</button>
+      <button id="pause" class="ghost">暫停</button>
+      <button id="forward">▶ 播放</button>
+      <label><input id="show-lines" type="checkbox" /> 顯示配對連線</label>
+      <button id="reshuffle" class="ghost">重新配對</button>
+    </div>
+  </div>
+
+  <p class="observe">勾選配對連線會看到：兩個 distributions 一旦配好對，每一組 (<i>x</i><sub>0</sub>, <i>x</i><sub>1</sub>) 的 path 與速度都能直接算出來；重新配對後，中間走法也會跟著改變。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  'use strict';
+  var N = 420, SOURCE_SIGMA = 1.15, TARGET_SIGMA = 0.48, GRID_SPAN = 12;
+  var centers = [
+    { x: 0, y: 4.25, label: '市政府站' },
+    { x: -3.55, y: -3.0, label: '101／世貿站' },
+    { x: 3.55, y: -3.0, label: '象山站' }
+  ];
+  var cv = document.getElementById('cv');
+  var display = NDFlow.hiDPICanvas(cv);
+  var timeEl = document.getElementById('time');
+  var timeValue = document.getElementById('time-value');
+  var showLinesEl = document.getElementById('show-lines');
+  var starts = [], targets = [], pairings = [];
+  var raf = null, direction = 0, previousTime = null;
+
+  function sampleData() {
+    starts = NDFlow.sampleNoise(N, SOURCE_SIGMA);
+    targets = [];
+    for (var i = 0; i < N; i++) {
+      var center = centers[i % centers.length];
+      targets.push([
+        center.x + NDFlow.randn() * TARGET_SIGMA,
+        center.y + NDFlow.randn() * TARGET_SIGMA
+      ]);
+    }
+    reshuffle(false);
+  }
+
+  function reshuffle(shouldReset) {
+    pairings = Array.from({ length: N }, function (_, i) { return i; });
+    for (var i = N - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var temporary = pairings[i];
+      pairings[i] = pairings[j];
+      pairings[j] = temporary;
+    }
+    if (shouldReset !== false) {
+      pause();
+      timeEl.value = 0;
+    }
+    draw();
+  }
+
+  function transform(size) {
+    var scale = Math.min(size.w, size.h) / GRID_SPAN;
+    return {
+      x: function (value) { return size.w / 2 + value * scale; },
+      y: function (value) { return size.h / 2 - value * scale; }
+    };
+  }
+
+  function dot(ctx, x, y, radius, color) {
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+
+  function drawLabels(ctx, tr) {
+    ctx.font = '700 12px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(234,88,12,.86)';
+    for (var i = 0; i < centers.length; i++) {
+      var offset = centers[i].y > 0 ? -34 : 38;
+      ctx.fillText(centers[i].label, tr.x(centers[i].x), tr.y(centers[i].y) + offset);
+    }
+    ctx.fillStyle = 'rgba(6,182,212,.34)';
+    ctx.fillText('台北 101 周圍', tr.x(0), tr.y(0) - 20);
+  }
+
+  function draw() {
+    var size = display.resize(), ctx = display.ctx, tr = transform(size);
+    var t = parseInt(timeEl.value, 10) / 1000;
+    var red = Math.round((1 - t) * 6 + t * 234);
+    var green = Math.round((1 - t) * 182 + t * 88);
+    var blue = Math.round((1 - t) * 212 + t * 12);
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, size.w, size.h);
+
+    if (showLinesEl.checked) {
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(234,179,8,.15)';
+      for (var i = 0; i < N; i++) {
+        var paired = targets[pairings[i]];
+        ctx.beginPath();
+        ctx.moveTo(tr.x(starts[i][0]), tr.y(starts[i][1]));
+        ctx.lineTo(tr.x(paired[0]), tr.y(paired[1]));
+        ctx.stroke();
+      }
+    }
+
+    for (var j = 0; j < N; j++) {
+      dot(ctx, tr.x(starts[j][0]), tr.y(starts[j][1]), 2.05, 'rgba(6,182,212,.28)');
+      dot(ctx, tr.x(targets[j][0]), tr.y(targets[j][1]), 2.1, 'rgba(234,88,12,.30)');
+    }
+
+    ctx.fillStyle = 'rgba(' + red + ',' + green + ',' + blue + ',.78)';
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = 'rgba(' + red + ',' + green + ',' + blue + ',.72)';
+    for (var k = 0; k < N; k++) {
+      var target = targets[pairings[k]];
+      var x = (1 - t) * starts[k][0] + t * target[0];
+      var y = (1 - t) * starts[k][1] + t * target[1];
+      dot(ctx, tr.x(x), tr.y(y), 2.25, ctx.fillStyle);
+    }
+    ctx.shadowBlur = 0;
+    drawLabels(ctx, tr);
+    ctx.font = '700 12px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#facc15';
+    ctx.fillText('t = ' + t.toFixed(2), 12, size.h - 12);
+    timeValue.textContent = t.toFixed(2);
+
+    window.__referencePathStats = {
+      time: t,
+      particles: N,
+      pairingCount: pairings.length,
+      allFinite: starts.concat(targets).every(function (point) {
+        return Number.isFinite(point[0]) && Number.isFinite(point[1]);
+      })
+    };
+  }
+
+  function frame(now) {
+    if (previousTime == null) previousTime = now;
+    var elapsed = Math.min(50, now - previousTime);
+    previousTime = now;
+    var value = parseInt(timeEl.value, 10) + direction * elapsed / 3.6;
+    if (value >= 1000) {
+      value = 1000;
+      if (direction > 0) direction = 0;
+    }
+    if (value <= 0) {
+      value = 0;
+      if (direction < 0) direction = 0;
+    }
+    timeEl.value = Math.round(value);
+    draw();
+    if (direction !== 0) raf = requestAnimationFrame(frame);
+    else { raf = null; previousTime = null; }
+  }
+
+  function play(nextDirection) {
+    direction = nextDirection;
+    if (raf == null) raf = requestAnimationFrame(frame);
+  }
+
+  function pause() {
+    direction = 0;
+    if (raf != null) cancelAnimationFrame(raf);
+    raf = null;
+    previousTime = null;
+  }
+
+  function applyTheme() {
+    var palette = NDFlow.palette();
+    document.body.dataset.dark = palette.dark ? '1' : '0';
+    draw();
+  }
+
+  timeEl.addEventListener('input', function () { pause(); draw(); });
+  showLinesEl.addEventListener('change', draw);
+  document.getElementById('back').addEventListener('click', function () { play(-1); });
+  document.getElementById('pause').addEventListener('click', pause);
+  document.getElementById('forward').addEventListener('click', function () { play(1); });
+  document.getElementById('reshuffle').addEventListener('click', function () { reshuffle(true); });
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  sampleData();
+  applyTheme();
+})();
+</script>
+</body>
+</html>

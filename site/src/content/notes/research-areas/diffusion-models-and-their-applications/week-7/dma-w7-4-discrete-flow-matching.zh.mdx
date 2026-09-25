@@ -148,7 +148,7 @@ $$
 2. **schedule 與 source 可以逐位置不同。** 每個位置有自己的 $\kappa_t^\ell$、自己的 source 分佈——例如一部分位置走 mask、一部分走 uniform 的混合路徑（Gat et al. 的實驗顯示這種混合對某些任務有幫助）。
 3. **取樣器的 stochasticity。** 上一篇說的 $\eta$（Campbell et al.）與 corrector（Gat et al.）：在生成 rate 上加一對流量相反的管子，邊際不變。
 
-第 1 點把我們帶到 <Ref to="dma-linear-path"/> 遺留的設定。
+第 1 點把我們帶到 <Ref to="dma-fm-vs-diffusion"/> 遺留的設定。
 
 <Question id="Q1">
 <Ref to="dma-unified-equation"/> 把設計拆成路徑、配對與訓練噪聲。這裡的路徑是 $\kappa_t$，也沒有獨立的 $\gamma_t z$；還留下配對 $\pi(x_0,x_1)$。
@@ -160,13 +160,13 @@ $$
 
 **mask source：沒有東西可以配對。** $x_1$ 是全 `[MASK]`，一個確定的狀態。$\pi$ 只能是 $p_{\text{data}}\otimes\delta_{\text{all-mask}}$，配對設定根本不存在。這是 absorbing 鏈的另一個乾淨之處。
 
-**uniform source：可以配對，但拉直的意義沒了。** 連續世界裡配對之所以重要，是 <Ref to="dma-linear-path"/> Q1 那條鏈：獨立配對 → 條件直線交叉 → 邊際速度是交叉處的平均 → 軌跡彎 → Euler 有限步誤差大；OT 配對讓直線不交叉、軌跡變直、$\int\|\ddot x\|dt$ 變小。離散世界裡這條鏈的每一環都換了東西：條件路徑不是直線而是「每個 token 跳一次」；「交叉」沒有定義（沒有 ODE 軌跡，只有跳躍）；有限步誤差的來源不是曲率而是 <Ref to="dma-factorization-error"/> 的因子化——**一步內同時跳的多個位置被獨立抽**。而因子化誤差取決於**給定 $x_t$ 下各位置之間的條件相依**，這是資料分佈本身的性質；換配對改變的是「哪個噪聲配哪個資料」，改不了資料裡「牛肉」和「麵」的相依。所以「配對 → 拉直 → 少步」這條路在離散世界沒有對應。
+**uniform source：可以配對，但拉直的意義沒了。** 連續世界裡配對之所以重要，是 <Ref to="dma-fm-vs-diffusion"/> Q1 那條鏈：獨立配對 → 條件直線交叉 → 邊際速度是交叉處的平均 → 軌跡彎 → Euler 有限步誤差大；OT 配對讓直線不交叉、軌跡變直、$\int\|\ddot x\|dt$ 變小。離散世界裡這條鏈的每一環都換了東西：條件路徑不是直線而是「每個 token 跳一次」；「交叉」沒有定義（沒有 ODE 軌跡，只有跳躍）；有限步誤差的來源不是曲率而是 <Ref to="dma-factorization-error"/> 的因子化——**一步內同時跳的多個位置被獨立抽**。而因子化誤差取決於**給定 $x_t$ 下各位置之間的條件相依**，這是資料分佈本身的性質；換配對改變的是「哪個噪聲配哪個資料」，改不了資料裡「牛肉」和「麵」的相依。所以「配對 → 拉直 → 少步」這條路在離散世界沒有對應。
 
 （有一個粗糙的類比：用 Hamming 距離把 $x_0$ 配給「和它重疊最多」的 $x_1$，需要跳的 token 變少，每步同時跳的位置也少一點。但這同時讓噪聲字帶有 $x_0$ 的資訊——「還是原字」與「噪聲剛好等於原字」不再可分——沒有像 OT 配對那樣的定理支持它是好事，而且就我所知也沒有像 minibatch OT 那樣的系統性研究。這裡只當一個提示，不當結論。）
 
 **配對真正留下的意義：對齊。** 當 source 不是噪聲而是另一個分佈時，$\pi$ 是**成對資料**——原文與譯文、草稿與修訂、一張圖的 caption 與 token。這時 $\pi$ 不是為了拉直而選的，是任務本身給的：它告訴模型「這個 $x_1$ 該變成哪個 $x_0$」。<Ref to="dma-why-not-diffusion"/> 說 FM 拿回了路徑設計權、可以做 A→B；DFM 把同一件事帶到 token 上，而配對是 A→B 裡「哪個 A 對哪個 B」的那個資訊。Campbell et al. [2] 的 protein co-design 就是這種用法的例子：結構（連續、用 FM）與序列（離散、用 DFM）成對生成，兩條路徑共用一個網路。
 
-所以答案是：**拉直的意義消失，對齊的意義留下。** <Ref to="dma-linear-path"/> Q1 的「交叉」在離散世界的化身是因子化誤差，而它不歸配對管，歸「每步翻開幾個」與 <Ref to="dma-remasking"/> 的取樣器管。
+所以答案是：**拉直的意義消失，對齊的意義留下。** <Ref to="dma-fm-vs-diffusion"/> Q1 的「交叉」在離散世界的化身是因子化誤差，而它不歸配對管，歸「每步翻開幾個」與 <Ref to="dma-remasking"/> 的取樣器管。
 </Answer>
 </Question>
 
@@ -207,7 +207,7 @@ DFM 的條件路徑 $p_t(x\mid x_0,x_1)=(1-\kappa_t)\delta_{x_0}+\kappa_t\delta_
 </QuizBlock>
 
 <QuizBlock id="w7-4-d">
-<Ref to="dma-linear-path"/> Q1 說「彎曲來自交叉，交叉來自配對」。這條因果鏈在離散世界裡：
+<Ref to="dma-fm-vs-diffusion"/> Q1 說「彎曲來自交叉，交叉來自配對」。這條因果鏈在離散世界裡：
 <Option>完全照搬：換配對可以減少因子化誤差。</Option>
 <Option>不存在任何對應。</Option>
 <Option correct>「有限步誤差」那一端的對應是因子化誤差，但它取決於資料在給定 $x_t$ 下的條件相依，不由配對控制；配對留下的意義是成對資料（A→B）的對齊。</Option>

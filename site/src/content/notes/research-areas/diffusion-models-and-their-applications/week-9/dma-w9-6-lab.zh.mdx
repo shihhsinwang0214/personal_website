@@ -139,7 +139,7 @@ def sample(model, n, steps):
 
    交替更新（每步生成器配 $k$ 步 fake denoiser，$k\in\{1,2,5\}$），畫 $W_2$ 對訓練步數。回答：$k=1$ 時是否震盪？把 $-s_{\text{fake}}$ 那一項拿掉，樣本跑去哪裡？
 
-2. **交叉問題的最終回收。** 換到 `toy_crossing.py` 的兩 Gaussian 例子。(a) 用 <Ref to="dma-lab-consistency"/> 的 consistency training 訓一步生成器，時間網格 $N\in\{2,4,8,32\}$，畫一步樣本，標出落在 $p_1$ 等高線外、位於兩個上方 mode **之間**的樣本比例；(b) 用作業 1 的 DMD 在同一份資料上訓一步生成器，畫同一張圖。期待：(a) 在 $N$ 小時大量樣本落在中間——這就是 <Ref to="dma-linear-path"/> Q1 的交叉、<Ref to="dma-distribution-matching"/> Q1 的「平均」——$N$ 大時比例下降但不歸零；(b) 幾乎沒有樣本落在中間。用 `exact_flow_map` 對 (a) 的每一顆中間樣本算出它的 $z$ 真正該去的終點，確認它落在幾個終點的平均位置。寫三句話說明這張圖與 <Ref to="dma-linear-path"/> 那張「條件直線交叉 vs 邊際曲線」的關係。
+2. **交叉問題的最終回收。** 換到 `toy_crossing.py` 的兩 Gaussian 例子。(a) 用 <Ref to="dma-lab-consistency"/> 的 consistency training 訓一步生成器，時間網格 $N\in\{2,4,8,32\}$，畫一步樣本，標出落在 $p_1$ 等高線外、位於兩個上方 mode **之間**的樣本比例；(b) 用作業 1 的 DMD 在同一份資料上訓一步生成器，畫同一張圖。期待：(a) 在 $N$ 小時大量樣本落在中間——這就是 <Ref to="dma-fm-vs-diffusion"/> Q1 的交叉、<Ref to="dma-distribution-matching"/> Q1 的「平均」——$N$ 大時比例下降但不歸零；(b) 幾乎沒有樣本落在中間。用 `exact_flow_map` 對 (a) 的每一顆中間樣本算出它的 $z$ 真正該去的終點，確認它落在幾個終點的平均位置。寫三句話說明這張圖與 <Ref to="dma-fm-vs-diffusion"/> 那張「條件直線交叉 vs 邊際曲線」的關係。
 
 3. **Shortcut。** 把步驟 1 改成 <Ref to="dma-shortcut-ayf"/> 的 progressive 目標：`model(z, t, d)`，$d\in\{0,\tfrac18,\tfrac14,\tfrac12,1\}$，四分之三的樣本走 $d=0$ 的 FM 損失，其餘走 $s(x,t,2d)=\tfrac12[s(x,t,d)+s(x',t+d,d)]$。不需要 `jvp`。與 MeanFlow 比：一步 $W_2$、訓練時間、以及步驟 3 的半群誤差——半群當顯式損失後，誤差應該更小；一步品質誰好？
 

@@ -71,7 +71,7 @@ $$
 
 程式碼上這是一行：`x_hat = x0 + t[n] * eps`。不需要任何網路呼叫、任何 score。
 
-第一次看到 CT 的人通常會皺眉。$x_0+t_n\epsilon$ **不在** $x_{t_{n+1}}$ 的 PF-ODE 軌跡上——它在那條穿過 $x_0$、方向是 $\epsilon$ 的**直線**上；而 <Ref to="dma-linear-path"/> Q1 花了一整篇說：條件路徑是直的，邊際軌跡是彎的，兩者不是同一條線。拿一個不在軌跡上的點，要求 $f_\theta$ 在那裡的輸出等於 $f_\theta(x_{t_{n+1}})$，這看起來就是在教錯的東西。
+第一次看到 CT 的人通常會皺眉。$x_0+t_n\epsilon$ **不在** $x_{t_{n+1}}$ 的 PF-ODE 軌跡上——它在那條穿過 $x_0$、方向是 $\epsilon$ 的**直線**上；而 <Ref to="dma-fm-vs-diffusion"/> Q1 花了一整篇說：條件路徑是直的，邊際軌跡是彎的，兩者不是同一條線。拿一個不在軌跡上的點，要求 $f_\theta$ 在那裡的輸出等於 $f_\theta(x_{t_{n+1}})$，這看起來就是在教錯的東西。
 
 <Question id="Q1">
 CT 沒有 teacher、沒有 score，$x_0+t_n\epsilon$ 也明明不在同一條 PF-ODE 軌跡上。**它憑什麼能學到 consistency function？**
@@ -131,7 +131,7 @@ Q1 的兩個細節給了一張很實用的圖。固定一個 $x_{t_{n+1}}$，看
 於是有一個真正的取捨：$\Delta t$ 大（$N$ 小）→ 訊號強、好訓，但 bias 大，$f_\theta$ 學到的是「假設每一段是直線」的錯誤終點；$\Delta t$ 小（$N$ 大）→ bias 小，但訊號被淹沒。Song et al. 的解法是**時間網格的 curriculum**：訓練初期用小 $N$（$N=2$ 起），$f_\theta$ 快速學到一個粗糙但方向正確的版本；然後逐步增加 $N$（到 150 或更多），每次加細都在把上一階段的 bias 消掉，而因為 $f_\theta$ 已經接近真值、相鄰兩點的輸出已經很接近，variance 造成的擾動相對可控。改進版本 [2] 把這條 curriculum 改成指數成長（$N$ 每隔固定步數翻倍，到 1280），這是下一篇的內容。
 
 <Details summary="「CT 的目標其實是假設這一段是直線」——把 Q1 接回配對交叉">
-Q1 裡三個點的幾何值得再說一次。從 $x_{t_{n+1}}$ 往乾淨端走 $\Delta t$：CT 走的是**這一筆條件直線的方向 $-\epsilon$**；Euler 走的是**經過此點的所有條件直線方向的後驗平均 $-\mathbb E[\epsilon\mid x_{t_{n+1}}]$**；真實軌跡走的是一段**曲線**。前兩者都是直線，差別在方向是「自己的」還是「平均的」——這正是 <Ref to="dma-linear-path"/> Q1 的圖：條件直線交叉，邊際速度是交叉處的平均，邊際軌跡因此彎曲。CT 的 bias 有兩層：條件方向對平均方向的偏差（零均值、進 variance）、平均方向的直線對曲線的偏差（不是零均值、進 bias）。第二層就是 <Ref to="dma-error-theory"/> 的曲率積分在 CM 裡的樣子。
+Q1 裡三個點的幾何值得再說一次。從 $x_{t_{n+1}}$ 往乾淨端走 $\Delta t$：CT 走的是**這一筆條件直線的方向 $-\epsilon$**；Euler 走的是**經過此點的所有條件直線方向的後驗平均 $-\mathbb E[\epsilon\mid x_{t_{n+1}}]$**；真實軌跡走的是一段**曲線**。前兩者都是直線，差別在方向是「自己的」還是「平均的」——這正是 <Ref to="dma-fm-vs-diffusion"/> Q1 的圖：條件直線交叉，邊際速度是交叉處的平均，邊際軌跡因此彎曲。CT 的 bias 有兩層：條件方向對平均方向的偏差（零均值、進 variance）、平均方向的直線對曲線的偏差（不是零均值、進 bias）。第二層就是 <Ref to="dma-error-theory"/> 的曲率積分在 CM 裡的樣子。
 
 反過來想：如果配對是不交叉的（<Ref to="dma-rectified-flow"/> reflow 之後、或 <Ref to="dma-minibatch-ot"/> 的 OT 配對），條件直線幾乎就是邊際軌跡，CT 的目標就幾乎落在軌跡上，bias 幾乎為零、不需要小 $\Delta t$。這解釋了為什麼「先拉直、再做 CT」在實務上是一個常見的組合。
 </Details>
@@ -188,7 +188,7 @@ CT 的時間網格 $N$ 為什麼要從小到大做 curriculum，而不是一開�
 <Option correct>從 $x_{t_{n+1}}$ 退到 $\hat x_{t_n}$ 走的是直線（CT 沿自己的 $-\epsilon$、Euler 沿平均方向），而真實軌跡在這一段是彎的；彎與直的差就是 $\tfrac12\Delta t^2\|\ddot x\|$ 的 bias。</Option>
 <Option>網路 $f_\theta$ 是線性函數。</Option>
 <Explanation>
-邊際軌跡恰恰**不是**直線——那是 <Ref to="dma-linear-path"/> Q1 的結論；$f_\theta$ 也不是線性的（線性才不會有 Jensen gap）。「直線」說的是一步的走法：CT 與 Euler 都用一條直線代替一小段曲線，差別只在方向是自己的還是平均的。
+邊際軌跡恰恰**不是**直線——那是 <Ref to="dma-fm-vs-diffusion"/> Q1 的結論；$f_\theta$ 也不是線性的（線性才不會有 Jensen gap）。「直線」說的是一步的走法：CT 與 Euler 都用一條直線代替一小段曲線，差別只在方向是自己的還是平均的。
 </Explanation>
 </QuizBlock>
 

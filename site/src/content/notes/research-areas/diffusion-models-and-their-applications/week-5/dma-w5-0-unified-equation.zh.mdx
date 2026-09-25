@@ -74,7 +74,7 @@ $$
 - **配對**：$\pi$ 是 $p_0$ 與 $p_1$ 的**任意**耦合，不必是獨立乘積。
 - **$\gamma_t$**：一項與端點無關的額外 Gaussian，在兩端被掐掉。
 
-**注意這三個不等於 <Ref to="dma-why-not-diffusion"/> 的那三個設定。** 那裡的是「起點分布／路徑／配對」，講的是 forward process 的設計；這裡的起點被吸收進 $\pi$ 的一個邊際，換上來的是 $\gamma_t$。而 $\gamma_t$ 是**訓練時**的路徑寬度，和取樣時要注入多少噪聲又是兩回事——<Ref to="dma-sampler-family"/> 會把後者獨立出來，那是第五個設定。
+**注意這三個不等於 <Ref to="dma-fm-vs-diffusion"/> 的那三個設定。** 那裡的是「起點分布／路徑／配對」，講的是 reference process 的設計；這裡的起點被吸收進 $\pi$ 的一個邊際，換上來的是 $\gamma_t$。而 $\gamma_t$ 是**訓練時**的路徑寬度，和取樣時要注入多少噪聲又是兩回事——<Ref to="dma-sampler-family"/> 會把後者獨立出來，那是第五個設定。
 
 $x_0$ 和 $z$ 是**兩個不同的東西**，這點很容易看漏。$x_0$ 是起點分布的樣本，可以是任何分布；$z$ 是硬加進來的標準 Gaussian，在兩端被 $\gamma_t$ 掐掉。
 
@@ -88,7 +88,7 @@ $x_0$ 和 $z$ 是**兩個不同的東西**，這點很容易看漏。$x_0$ 是�
 
 | 模型 | $\alpha_t$ | $\beta_t$ | $\gamma_t$ | $\pi$ |
 |---|---|---|---|---|
-| 線性 FM（<Ref to="dma-linear-path"/>） | $1-t$ | $t$ | $0$ | 獨立 |
+| 線性 FM（<Ref to="dma-fm-vs-diffusion"/>） | $1-t$ | $t$ | $0$ | 獨立 |
 | Rectified flow（<Ref to="dma-rectified-flow"/>） | $1-t$ | $t$ | $0$ | 上一輪 ODE 誘導的耦合 |
 | Minibatch OT-CFM（<Ref to="dma-minibatch-ot"/>） | $1-t$ | $t$ | $0$ | batch 內解 OT |
 | VP diffusion（<Ref week="dma-week-diffusion"/>），$p_0=\mathcal N(0,I)$ | $\cos\frac{\pi t}{2}$ | $\sin\frac{\pi t}{2}$ | $0$ | 獨立 |
@@ -171,7 +171,7 @@ $$
 更糟的情況是 $p_t$ 連密度都沒有。上面 demo 的對徑配對就是一個例子：$x_t=(1-2t)x_0$ 在 $t=\tfrac12$ 塌成一個點。不是每個確定性配對都會這樣（<Ref to="dma-minibatch-ot"/> 那種 OT 配對就不會——它有一個叫**單調**的性質，讓不同的起點不會被送到互相交錯的地方，那一篇會證），但**只要有可能，靠密度的東西就不能無條件依賴**。
 
 <Question id="Q1">
-<Ref to="dma-linear-path"/> 的結論是：要把軌跡拉直，得動配對那一軸。而剛剛的結論是：配對一旦變成確定性的，score 就拿不到了。
+<Ref to="dma-fm-vs-diffusion"/> 的結論是：要把軌跡拉直，得動配對那一軸。而剛剛的結論是：配對一旦變成確定性的，score 就拿不到了。
 
 **這兩件事放在一起，是不是互相矛盾？**
 

@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>跨年散場：沿著平均人潮前進</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; background: transparent; color: #333; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 700px; margin: 0 auto; padding: 20px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,.10); }
+  body[data-dark="1"] .card { background: #1f2126; box-shadow: 0 4px 15px rgba(0,0,0,.28); }
+  .goal { margin: 0 0 12px; font-size: .9rem; line-height: 1.55; }
+  .formula { color: #0056b3; font-weight: 750; white-space: nowrap; }
+  body[data-dark="1"] .formula { color: #66b9ff; }
+  canvas { width: 100%; max-width: 540px; aspect-ratio: 1 / 1; height: auto; display: block; margin: 0 auto; border-radius: 8px; background: #111; box-shadow: inset 0 0 10px rgba(0,0,0,.5); touch-action: none; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
+  .cap { margin: 7px 0 0; text-align: center; color: #646c78; font-size: .73rem; line-height: 1.5; }
+  body[data-dark="1"] .cap { color: #aaa69c; }
+  .controls { display: grid; gap: 11px; margin-top: 15px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 9px; }
+  label { font-size: .82rem; font-weight: 700; }
+  select { padding: 7px 9px; border: 1px solid #ccc4b8; border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: .82rem; }
+  body[data-dark="1"] select { border-color: #3a3b42; background: #25272d; }
+  input[type="range"] { width: 235px; max-width: 54vw; accent-color: #0056b3; }
+  input[type="checkbox"] { accent-color: #0056b3; }
+  button { padding: 8px 14px; border: 0; border-radius: 6px; cursor: pointer; font-weight: 750; background: #0056b3; color: #fff; }
+  body[data-dark="1"] button { background: #1877c9; color: #fff; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .observe { margin: 13px 0 0; color: #646c78; font-size: .81rem; line-height: 1.6; }
+  body[data-dark="1"] .observe { color: #aaa69c; }
+  @media (max-width: 520px) {
+    body { padding: 8px; }
+    .card { padding: 13px; }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">黃色點是迷路的人；拖動它會把所在位置設成新的起點 <i>x</i>(0)。周圍圓盤顯示各方向的 posterior signal；<span class="formula">v<sub>t</sub>(x)=E[dI<sub>t</sub>/dt | I<sub>t</sub>=x]</span> 是它們的平均速度。</p>
+
+  <canvas id="cv" width="600" height="600" aria-label="Gaussian 起點經由 Flow ODE 搬運到不同的 empirical target distributions"></canvas>
+  <p class="cap">青點＝起點　橘點＝終點分布　發光點＝目前人潮　黃點＝可拖曳的迷路者　黃線＝ODE trajectory（實線已走過、虛線尚未走到）</p>
+
+  <div class="controls">
+    <div class="row">
+      <label for="time">散場進度 t</label>
+      <input id="time" type="range" min="0" max="180" step="1" value="0" />
+      <b id="time-value">0.00</b>
+      <button id="play">▶ 播放</button>
+    </div>
+    <div class="row">
+      <label for="shape">終點分布</label>
+      <select id="shape">
+        <option value="mrt">捷運站（3 Gaussians）</option>
+        <option value="two_moons">雙月（Two Moons）</option>
+        <option value="swiss_roll">瑞士捲（Swiss Roll）</option>
+        <option value="grid">Gaussian 網格（Grid）</option>
+        <option value="heart">愛心（Heart）</option>
+        <option value="ring">環形（Ring）</option>
+      </select>
+      <label><input id="show-signal" type="checkbox" checked /> 顯示方向圓盤</label>
+      <button id="reroll" class="ghost">換一位迷路的人</button>
+    </div>
+  </div>
+
+  <p class="observe">圓盤越長、越亮的方向，代表這裡出現那種 reference velocity 的訊號越強。黃線是迷路者一路跟著平均箭頭走出的 trajectory；實線是已走過的部分，虛線是接下來的路。拖動它時，時間會回到 0，再從新的起點向前重算。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  'use strict';
+  var N = 460, TARGET_N = 420, STEPS = 180, HERO_STEPS = 1000;
+  var SIGMA = 1.15, TARGET_SIGMA = 0.48, GRID_SPAN = 12;
+  var centers = [
+    { x: 0, y: 4.25, label: '市政府站' },
+    { x: -3.55, y: -3.0, label: '101／世貿站' },
+    { x: 3.55, y: -3.0, label: '象山站' }
+  ];
+  var cv = document.getElementById('cv');
+  var display = NDFlow.hiDPICanvas(cv);
+  var timeEl = document.getElementById('time');
+  var timeValue = document.getElementById('time-value');
+  var shapeEl = document.getElementById('shape');
+  var showSignalEl = document.getElementById('show-signal');
+  var pal = NDFlow.palette();
+  var targets = [], starts = [], trajectories = [], heroPath = [];
+  var crowdMeanNearestTarget = 0;
+  var raf = null, draggingHero = false;
+
+  function sampleTargets() {
+    targets = [];
+    for (var i = 0; i < TARGET_N; i++) {
+      var x = 0, y = 0, c, angle, radius, branch;
+      if (shapeEl.value === 'mrt') {
+        c = centers[i % centers.length];
+        x = c.x + NDFlow.randn() * TARGET_SIGMA;
+        y = c.y + NDFlow.randn() * TARGET_SIGMA;
+      } else if (shapeEl.value === 'two_moons') {
+        branch = Math.random() > 0.5;
+        angle = Math.random() * Math.PI;
+        x = (branch ? Math.cos(angle) - 0.5 : 0.5 - Math.cos(angle)) * 4 + NDFlow.randn() * 0.2;
+        y = (branch ? -Math.sin(angle) + 0.25 : Math.sin(angle) - 0.25) * 4 + NDFlow.randn() * 0.2;
+      } else if (shapeEl.value === 'swiss_roll') {
+        angle = 1.5 + Math.random() * (4 * Math.PI - 1.5);
+        x = angle * Math.cos(angle) * 0.4 + NDFlow.randn() * 0.2;
+        y = angle * Math.sin(angle) * 0.4 + NDFlow.randn() * 0.2;
+      } else if (shapeEl.value === 'grid') {
+        x = (Math.floor(Math.random() * 3) - 1) * 3.5 + NDFlow.randn() * 0.35;
+        y = (Math.floor(Math.random() * 3) - 1) * 3.5 + NDFlow.randn() * 0.35;
+      } else if (shapeEl.value === 'heart') {
+        angle = Math.random() * Math.PI * 2;
+        x = 16 * Math.pow(Math.sin(angle), 3) * 0.28 + NDFlow.randn() * 0.2;
+        y = (13 * Math.cos(angle) - 5 * Math.cos(2 * angle) - 2 * Math.cos(3 * angle) - Math.cos(4 * angle)) * 0.28 + NDFlow.randn() * 0.2;
+      } else {
+        angle = Math.random() * Math.PI * 2;
+        radius = 4.5 + NDFlow.randn() * 0.4;
+        x = radius * Math.cos(angle);
+        y = radius * Math.sin(angle);
+      }
+      targets.push([x, y]);
+    }
+  }
+
+  function posteriorState(x, y, t, includeComponents) {
+    var tau = Math.min(Math.max(t, 0), 0.999);
+    var remaining = 1 - tau;
+    var conditionalVariance = remaining * remaining * SIGMA * SIGMA;
+    var components = includeComponents ? new Array(targets.length) : null;
+    var minDistance = Infinity;
+    var i;
+
+    // Integrate over the complete Gaussian source analytically. The displayed
+    // target points are the empirical X_1 distribution, not paired X_0 samples.
+    for (i = 0; i < targets.length; i++) {
+      var dx = x - tau * targets[i][0];
+      var dy = y - tau * targets[i][1];
+      minDistance = Math.min(minDistance, dx * dx + dy * dy);
+    }
+
+    var weightSum = 0, expectedX1 = 0, expectedY1 = 0;
+    for (i = 0; i < targets.length; i++) {
+      var offsetX = x - tau * targets[i][0];
+      var offsetY = y - tau * targets[i][1];
+      var distance = offsetX * offsetX + offsetY * offsetY;
+      var weight = Math.exp(-(distance - minDistance) / (2 * conditionalVariance));
+      weightSum += weight;
+      expectedX1 += weight * targets[i][0];
+      expectedY1 += weight * targets[i][1];
+      if (includeComponents) {
+        components[i] = {
+          weight: weight,
+          meanX1: targets[i][0],
+          meanY1: targets[i][1]
+        };
+      }
+    }
+
+    if (includeComponents) {
+      for (i = 0; i < components.length; i++) components[i].weight /= weightSum;
+    }
+    return {
+      remaining: remaining,
+      components: components,
+      expectedX1: expectedX1 / weightSum,
+      expectedY1: expectedY1 / weightSum
+    };
+  }
+
+  function field(x, y, t) {
+    // At t = 1, (E[X_1 | X_t = x] - x) / (1 - t) is 0 / 0.
+    // Its continuous limit is x because X_0 is independent and centered.
+    if (t >= 1 - 1e-10) return [x, y];
+    var posterior = posteriorState(x, y, t, false);
+    return [
+      (posterior.expectedX1 - x) / posterior.remaining,
+      (posterior.expectedY1 - y) / posterior.remaining
+    ];
+  }
+
+  function rk4Step(x, y, t, dt) {
+    var k1 = field(x, y, t);
+    var k2 = field(x + 0.5 * dt * k1[0], y + 0.5 * dt * k1[1], t + 0.5 * dt);
+    var k3 = field(x + 0.5 * dt * k2[0], y + 0.5 * dt * k2[1], t + 0.5 * dt);
+    var k4 = field(x + dt * k3[0], y + dt * k3[1], t + dt);
+    return [
+      x + dt * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]) / 6,
+      y + dt * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]) / 6
+    ];
+  }
+
+  function integrateOne(start, steps) {
+    var dt = 1 / steps, x = start[0], y = start[1];
+    var path = [[x, y]];
+    for (var k = 0; k < steps; k++) {
+      var next = rk4Step(x, y, k * dt, dt);
+      x = next[0];
+      y = next[1];
+      path.push([x, y]);
+    }
+    return path;
+  }
+
+  function integrateEuler(start, steps) {
+    var dt = 1 / steps, x = start[0], y = start[1];
+    var path = [[x, y]];
+    for (var k = 0; k < steps; k++) {
+      var velocity = field(x, y, k * dt);
+      x += velocity[0] * dt;
+      y += velocity[1] * dt;
+      path.push([x, y]);
+    }
+    return path;
+  }
+
+  function integrateCrowd() {
+    trajectories = new Array(N);
+    for (var i = 0; i < N; i++) trajectories[i] = integrateEuler(starts[i], STEPS);
+  }
+
+  function chooseHero() {
+    heroPath = integrateOne(NDFlow.sampleNoise(1, SIGMA)[0], HERO_STEPS);
+    updateStats();
+  }
+
+  function setHeroStart(point) {
+    heroPath = integrateOne(point, HERO_STEPS);
+    updateStats();
+  }
+
+  function updateStats() {
+    var finite = true, maxRadius = 0;
+    for (var i = 0; i < heroPath.length; i++) {
+      var point = heroPath[i];
+      if (!Number.isFinite(point[0]) || !Number.isFinite(point[1])) finite = false;
+      maxRadius = Math.max(maxRadius, Math.hypot(point[0], point[1]));
+    }
+    var endpoint = heroPath[heroPath.length - 1] || [NaN, NaN];
+    var heroNearestTarget = Infinity;
+    for (var j = 0; j < targets.length; j++) {
+      heroNearestTarget = Math.min(
+        heroNearestTarget,
+        Math.hypot(endpoint[0] - targets[j][0], endpoint[1] - targets[j][1])
+      );
+    }
+    window.__flowDemoStats = {
+      meanNearestTarget: crowdMeanNearestTarget,
+      particles: N,
+      targets: TARGET_N,
+      sourceUsesAnalyticGaussian: true,
+      targetUsesEmpiricalSamples: true,
+      heroFinite: finite,
+      heroMaxRadius: maxRadius,
+      heroStart: (heroPath[0] || [NaN, NaN]).slice(),
+      heroEndpoint: endpoint.slice(),
+      heroNearestTarget: heroNearestTarget
+    };
+  }
+
+  function rebuild() {
+    stop();
+    sampleTargets();
+    starts = NDFlow.sampleNoise(N, SIGMA);
+    integrateCrowd();
+    chooseHero();
+    timeEl.value = 0;
+
+    var meanNearest = 0;
+    for (var i = 0; i < N; i++) {
+      var endpoint = trajectories[i][STEPS], nearest = Infinity;
+      for (var j = 0; j < TARGET_N; j++) {
+        nearest = Math.min(nearest, Math.hypot(endpoint[0] - targets[j][0], endpoint[1] - targets[j][1]));
+      }
+      meanNearest += nearest;
+    }
+    crowdMeanNearestTarget = meanNearest / N;
+    updateStats();
+    draw();
+  }
+
+  function transform(size) {
+    var scale = Math.min(size.w, size.h) / GRID_SPAN;
+    return {
+      scale: scale,
+      x: function (v) { return size.w / 2 + v * scale; },
+      y: function (v) { return size.h / 2 - v * scale; },
+      invX: function (v) { return (v - size.w / 2) / scale; },
+      invY: function (v) { return (size.h / 2 - v) / scale; }
+    };
+  }
+
+  function arrow(ctx, ax, ay, vx, vy, length, color, width) {
+    var norm = Math.hypot(vx, vy);
+    if (norm < 1e-8) return;
+    var bx = ax + vx / norm * length, by = ay - vy / norm * length;
+    var angle = Math.atan2(by - ay, bx - ax), head = Math.min(7, length * 0.34);
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(bx - head * Math.cos(angle - 0.48), by - head * Math.sin(angle - 0.48));
+    ctx.lineTo(bx - head * Math.cos(angle + 0.48), by - head * Math.sin(angle + 0.48));
+    ctx.closePath(); ctx.fill();
+  }
+
+  function drawCloud(ctx, points, tr, fill, radius) {
+    ctx.fillStyle = fill;
+    for (var i = 0; i < points.length; i++) {
+      ctx.beginPath();
+      ctx.arc(tr.x(points[i][0]), tr.y(points[i][1]), radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawTarget(ctx, tr) {
+    ctx.fillStyle = 'rgba(234,88,12,.30)';
+    for (var i = 0; i < targets.length; i++) {
+      ctx.beginPath();
+      ctx.arc(tr.x(targets[i][0]), tr.y(targets[i][1]), 2.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawCurrentCloud(ctx, points, tr, t) {
+    var r = Math.round((1 - t) * 6 + t * 234);
+    var g = Math.round((1 - t) * 182 + t * 88);
+    var b = Math.round((1 - t) * 212 + t * 12);
+    ctx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',.78)';
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = 'rgba(' + r + ',' + g + ',' + b + ',.72)';
+    for (var i = 0; i < points.length; i++) {
+      ctx.beginPath();
+      ctx.arc(tr.x(points[i][0]), tr.y(points[i][1]), 2.25, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+  }
+
+  function drawLabels(ctx, tr) {
+    ctx.font = '700 12px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    if (shapeEl.value === 'mrt') {
+      ctx.fillStyle = 'rgba(234,88,12,.86)';
+      for (var i = 0; i < centers.length; i++) {
+        var offset = centers[i].y > 0 ? -34 : 38;
+        ctx.fillText(centers[i].label, tr.x(centers[i].x), tr.y(centers[i].y) + offset);
+      }
+    }
+    ctx.fillStyle = 'rgba(6,182,212,.34)';
+    ctx.fillText('台北 101 周圍', tr.x(0), tr.y(0) - 20);
+  }
+
+  function directionSignals(x, y, t) {
+    var bins = 48, values = new Array(bins).fill(0);
+    var posterior = posteriorState(x, y, t, true), i;
+
+    for (i = 0; i < posterior.components.length; i++) {
+      var component = posterior.components[i];
+      var vx = (component.meanX1 - x) / posterior.remaining;
+      var vy = (component.meanY1 - y) / posterior.remaining;
+      var angle = Math.atan2(vy, vx);
+      if (angle < 0) angle += Math.PI * 2;
+      var bin = Math.floor(angle / (Math.PI * 2) * bins) % bins;
+      values[bin] += component.weight * Math.hypot(vx, vy);
+    }
+
+    var smoothed = new Array(bins), maxValue = 0;
+    for (i = 0; i < bins; i++) {
+      smoothed[i] =
+        values[(i - 2 + bins) % bins] * 0.12 +
+        values[(i - 1 + bins) % bins] * 0.46 +
+        values[i] +
+        values[(i + 1) % bins] * 0.46 +
+        values[(i + 2) % bins] * 0.12;
+      maxValue = Math.max(maxValue, smoothed[i]);
+    }
+
+    if (maxValue > 0) {
+      for (i = 0; i < bins; i++) smoothed[i] /= maxValue;
+    }
+    return smoothed;
+  }
+
+  function drawDirectionDisk(ctx, tr, x, y, t) {
+    var values = directionSignals(x, y, t), bins = values.length;
+    var cx = tr.x(x), cy = tr.y(y), step = Math.PI * 2 / bins;
+    var inner = 10, span = 29;
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(234,179,8,.24)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, inner + span, 0, Math.PI * 2);
+    ctx.stroke();
+
+    for (var i = 0; i < bins; i++) {
+      var strength = values[i];
+      if (strength < 0.015) continue;
+      var theta = -(i + 0.5) * step;
+      var outer = inner + span * Math.sqrt(strength);
+      ctx.fillStyle = 'rgba(234,179,8,' + (0.09 + strength * 0.48) + ')';
+      ctx.beginPath();
+      ctx.arc(cx, cy, inner, theta - step * 0.48, theta + step * 0.48);
+      ctx.arc(cx, cy, outer, theta + step * 0.48, theta - step * 0.48, true);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawHeroTrajectory(ctx, tr, index) {
+    if (!heroPath.length) return;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    ctx.beginPath();
+    ctx.moveTo(tr.x(heroPath[0][0]), tr.y(heroPath[0][1]));
+    for (var i = 1; i < heroPath.length; i++) {
+      ctx.lineTo(tr.x(heroPath[i][0]), tr.y(heroPath[i][1]));
+    }
+    ctx.setLineDash([4, 5]);
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = 'rgba(234,179,8,.30)';
+    ctx.stroke();
+
+    if (index > 0) {
+      ctx.beginPath();
+      ctx.moveTo(tr.x(heroPath[0][0]), tr.y(heroPath[0][1]));
+      for (var j = 1; j <= index; j++) {
+        ctx.lineTo(tr.x(heroPath[j][0]), tr.y(heroPath[j][1]));
+      }
+      ctx.setLineDash([]);
+      ctx.lineWidth = 2.2;
+      ctx.strokeStyle = 'rgba(250,204,21,.92)';
+      ctx.shadowBlur = 5;
+      ctx.shadowColor = 'rgba(234,179,8,.65)';
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function draw() {
+    var size = display.resize(), ctx = display.ctx, tr = transform(size);
+    var index = parseInt(timeEl.value, 10), t = index / STEPS;
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, size.w, size.h);
+
+    drawCloud(ctx, starts, tr, 'rgba(6,182,212,.28)', 2.05);
+    drawTarget(ctx, tr);
+
+    var current = new Array(N);
+    for (var i = 0; i < N; i++) current[i] = trajectories[i][index];
+    drawCurrentCloud(ctx, current, tr, t);
+
+    var heroIndex = Math.min(HERO_STEPS, Math.round(t * HERO_STEPS));
+    var hero = heroPath[heroIndex];
+    drawHeroTrajectory(ctx, tr, heroIndex);
+    if (showSignalEl.checked) drawDirectionDisk(ctx, tr, hero[0], hero[1], t);
+
+    var velocity = field(hero[0], hero[1], t);
+    arrow(ctx, tr.x(hero[0]), tr.y(hero[1]), velocity[0], velocity[1], 38, '#facc15', 2.7);
+    ctx.beginPath();
+    ctx.arc(tr.x(hero[0]), tr.y(hero[1]), 5.2, 0, Math.PI * 2);
+    ctx.fillStyle = '#facc15';
+    ctx.fill();
+    ctx.strokeStyle = '#fff4b0';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    drawLabels(ctx, tr);
+    ctx.font = '700 12px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#facc15';
+    ctx.fillText('t = ' + t.toFixed(2), 12, size.h - 12);
+    timeValue.textContent = t.toFixed(2);
+  }
+
+  function stop() {
+    if (raf) cancelAnimationFrame(raf);
+    raf = null;
+  }
+
+  function play() {
+    stop();
+    var began = performance.now(), duration = NDFlow.prefersReducedMotion() ? 1 : 3600;
+    function frame(now) {
+      var fraction = Math.min(1, (now - began) / duration);
+      timeEl.value = Math.round(fraction * STEPS);
+      draw();
+      if (fraction < 1) raf = requestAnimationFrame(frame);
+      else raf = null;
+    }
+    raf = requestAnimationFrame(frame);
+  }
+
+  function rerollHero() {
+    stop();
+    chooseHero();
+    timeEl.value = 0;
+    draw();
+  }
+
+  function pointerState(event) {
+    var rect = cv.getBoundingClientRect();
+    var size = display.resize(), tr = transform(size);
+    var sx = (event.clientX - rect.left) * size.w / rect.width;
+    var sy = (event.clientY - rect.top) * size.h / rect.height;
+    return { sx: sx, sy: sy, x: tr.invX(sx), y: tr.invY(sy), tr: tr };
+  }
+
+  function beginHeroDrag(event) {
+    stop();
+    var state = pointerState(event);
+    var t = parseInt(timeEl.value, 10) / STEPS;
+    var hero = heroPath[Math.min(HERO_STEPS, Math.round(t * HERO_STEPS))];
+    var distance = Math.hypot(state.sx - state.tr.x(hero[0]), state.sy - state.tr.y(hero[1]));
+    if (distance > 24) return;
+    draggingHero = true;
+    cv.classList.add('dragging');
+    cv.setPointerCapture(event.pointerId);
+    timeEl.value = 0;
+    setHeroStart([state.x, state.y]);
+    draw();
+  }
+
+  function moveHero(event) {
+    if (!draggingHero) return;
+    var state = pointerState(event);
+    setHeroStart([state.x, state.y]);
+    draw();
+  }
+
+  function endHeroDrag(event) {
+    if (!draggingHero) return;
+    draggingHero = false;
+    cv.classList.remove('dragging');
+    if (cv.hasPointerCapture(event.pointerId)) cv.releasePointerCapture(event.pointerId);
+  }
+
+  function applyTheme() {
+    pal = NDFlow.palette();
+    document.body.dataset.dark = pal.dark ? '1' : '0';
+    draw();
+  }
+
+  timeEl.addEventListener('input', function () { stop(); draw(); });
+  shapeEl.addEventListener('change', rebuild);
+  showSignalEl.addEventListener('change', draw);
+  document.getElementById('play').addEventListener('click', play);
+  document.getElementById('reroll').addEventListener('click', rerollHero);
+  cv.addEventListener('pointerdown', beginHeroDrag);
+  cv.addEventListener('pointermove', moveHero);
+  cv.addEventListener('pointerup', endHeroDrag);
+  cv.addEventListener('pointercancel', endHeroDrag);
+  window.addEventListener('resize', draw);
+  NDFlow.onThemeChange(applyTheme);
+  rebuild();
+  applyTheme();
+})();
+</script>
+</body>
+</html>

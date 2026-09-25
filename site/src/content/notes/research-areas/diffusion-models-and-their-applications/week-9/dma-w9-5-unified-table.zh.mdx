@@ -53,7 +53,7 @@ import Answer from '../../../components/Answer.astro';
 
 - **曲率 bias**：目標假設某一段軌跡是直線。consistency training 的 $O(\Delta t)$ 項（<Ref to="dma-cd-vs-ct"/>），Euler 取樣的每一步（<Ref to="dma-error-theory"/>）。連續時間版本把它消掉。
 - **累積**：小步的誤差被帶到大步。progressive distillation 的逐輪（<Ref to="dma-progressive-distillation"/>）、Shortcut 的階梯、reflow 的多輪（<Ref to="dma-rectified-flow"/>）、多步 ODE 取樣的逐步累積。
-- **交叉平均**：squared loss 回歸多值目標，輸出落在平均。<Ref to="dma-linear-path"/> Q1 的交叉，在蒸餾裡是模糊（<Ref to="dma-distribution-matching"/> Q1）。
+- **交叉平均**：squared loss 回歸多值目標，輸出落在平均。<Ref to="dma-fm-vs-diffusion"/> Q1 的交叉，在蒸餾裡是模糊（<Ref to="dma-distribution-matching"/> Q1）。
 - **score 估計**：訓練訊號依賴一個要即時估計的 score。DMD 的 $s_{\text{fake}}$，以及任何 SDE 取樣器對 score 精度的依賴（<Ref to="dma-sampler-family"/>）。
 
 第五種——**網路本身的近似誤差**——每個方法都有，不列入表中；表只列方法**結構**上帶來的誤差。
@@ -95,7 +95,7 @@ import Answer from '../../../components/Answer.astro';
 
 **算力在哪一邊？** JVP 讓每步訓練多一次前向；DMD 的 fake denoiser 讓每步多一整個網路的更新；progressive distillation 與 CTM 要 teacher 在訓練時跑 solver。取樣端則所有方法都是一到幾次前向，差別不大。
 
-最後一件事值得說清楚：**這張表上的每一列都建在前幾個單元的物件上。** 訓練訊號來自 <Ref to="dma-denoising-regression"/> 的 **conditional trick**（<Ref to="dma-concrete-score"/> 有一張把它各個版本列齊的表），誤差的分類來自 <Ref to="dma-error-theory"/> 的曲率與 <Ref to="dma-linear-path"/> 的交叉，「多步是否合法」來自 <Ref to="dma-flow-map"/> 的半群條件——學的物件本身能不能從任意 $t$ 走到任意 $s$。一個新方法出現時，先問它在四個軸上各取哪一格、主要在對付哪一種誤差——通常三分鐘就能把它放進表裡。
+最後一件事值得說清楚：**這張表上的每一列都建在前幾個單元的物件上。** 訓練訊號來自 <Ref to="dma-denoising-regression"/> 的 **conditional trick**（<Ref to="dma-concrete-score"/> 有一張把它各個版本列齊的表），誤差的分類來自 <Ref to="dma-error-theory"/> 的曲率與 <Ref to="dma-fm-vs-diffusion"/> 的交叉，「多步是否合法」來自 <Ref to="dma-flow-map"/> 的半群條件——學的物件本身能不能從任意 $t$ 走到任意 $s$。一個新方法出現時，先問它在四個軸上各取哪一格、主要在對付哪一種誤差——通常三分鐘就能把它放進表裡。
 
 <Question id="Q1">
 表上「結構性誤差」那一欄有一個名詞出現得特別頻繁：**交叉平均**。但它並不是每一列都有——CD、sCM、MeanFlow 那幾列就沒有。
@@ -105,7 +105,7 @@ import Answer from '../../../components/Answer.astro';
 <Answer>
 判準只有一句：**回歸的目標，在給定輸入之後是不是唯一的。**
 
-squared loss 的最小值是條件期望（<Ref to="dma-tweedie-and-score"/>）。目標唯一，回歸就學到它；目標多值，回歸就學到那些值的平均——那個平均通常不是任何一個合法的答案，這就是 <Ref to="dma-linear-path"/> Q1 的交叉在蒸餾裡的樣子（<Ref to="dma-distribution-matching"/> 展開過）。
+squared loss 的最小值是條件期望（<Ref to="dma-tweedie-and-score"/>）。目標唯一，回歸就學到它；目標多值，回歸就學到那些值的平均——那個平均通常不是任何一個合法的答案，這就是 <Ref to="dma-fm-vs-diffusion"/> Q1 的交叉在蒸餾裡的樣子（<Ref to="dma-distribution-matching"/> 展開過）。
 
 逐列看：
 

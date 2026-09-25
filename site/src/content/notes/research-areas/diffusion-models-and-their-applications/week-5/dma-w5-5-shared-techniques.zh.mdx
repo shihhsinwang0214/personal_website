@@ -69,7 +69,7 @@ $$
 \tilde u_t(x\mid c)=u_t(x\mid\varnothing)+w\big(u_t(x\mid c)-u_t(x\mid\varnothing)\big).
 $$
 
-這兩式在 Gaussian 路徑下是**同一件事**：<Ref to="dma-fm-vs-diffusion"/> 說 $u$ 是 $x$ 與 $s$ 的線性組合、係數只依賴 $t$，而線性組合和線性外推可以交換順序。$w=1$ 是普通的條件生成，$w \gt 1$ 才叫 guidance。
+這兩式在 Gaussian 路徑下是**同一件事**：<Ref to="dma-linear-path"/> 說 $u$ 是 $x$ 與 $s$ 的線性組合、係數只依賴 $t$，而線性組合和線性外推可以交換順序。$w=1$ 是普通的條件生成，$w \gt 1$ 才叫 guidance。
 
 麻煩的是 $w \gt 1$ 時它生成的**不是** $p_t(\cdot\mid c)$。$\tilde s_t$ 對應的是
 
@@ -106,7 +106,7 @@ $$
 但每一步要兩次網路評估。取樣成本一般用 **NFE**（number of function evaluations，網路被叫幾次）來算，所以在**相同 NFE** 下比較，Heun 的步長是 Euler 的兩倍。軌跡夠光滑的時候還是划算；軌跡彎得不規律（$\dddot x$ 大，例如高 guidance）的時候好處就縮水。
 
 <Details summary="DPM-Solver 為什麼比通用的高階方法更有效">
-DPM-Solver [3] 用的是 <Ref to="dma-fm-vs-diffusion"/> 的線性結構。既然
+DPM-Solver [3] 用的是 <Ref to="dma-linear-path"/> 的 Gaussian 線性結構。既然
 
 $$
 u_t=\frac{\dot\alpha_t}{\alpha_t}\,x+\Big(\dot\sigma_t-\frac{\dot\alpha_t}{\alpha_t}\sigma_t\Big)\epsilon_\theta(x,t),
@@ -130,7 +130,7 @@ $$
 | --- | --- |
 | <Ref to="dma-denoising-regression"/> 推出來的目標 | $w(t)=\dfrac{\bar\alpha_{t-1}\beta_t}{2(1-\bar\alpha_t)(1-\bar\alpha_{t-1})}$，換到 $\epsilon$ 座標是 $\dfrac{\beta_t}{2\alpha_t(1-\bar\alpha_{t-1})}$ |
 | DDPM 實際在跑的 $\mathcal L_{\text{simple}}$ | **均勻**——那是把上面整個 $w(t)$ 刻意丟掉的結果 |
-| <Ref to="dma-linear-path"/> 的線性 FM、均勻抽 $t$ | 換到 $\epsilon$ 座標是 $1/t^2$ |
+| <Ref to="dma-fm-vs-diffusion"/> 的線性 FM、均勻抽 $t$ | 換到 $\epsilon$ 座標是 $1/t^2$ |
 
 （第一列沿用 <Ref week="dma-week-diffusion"/> 的**離散**記號：$\alpha_t=1-\beta_t$、$\bar\alpha_t=\prod_{s\le t}\alpha_s$。它和本篇其他地方那個連續時間的 $\alpha_t$——$x_t=\alpha_tx_0+\sigma_t\epsilon$ 裡的振幅，在 VP 下等於 $\sqrt{\bar\alpha_t}$——不是同一個東西。）
 
@@ -145,7 +145,7 @@ $$
 
 那哪一段 $t$ 最值得花訓練預算？**兩端都太容易。** $t\approx0$ 時 $x_t$ 幾乎就是噪聲，速度幾乎是常數 $\mathbb E[x_1]-x_0$；$t\approx1$ 時 $x_t$ 幾乎就是 $x_1$，去噪幾乎是恆等映射。困難全部在**中段**——那裡 $p_t$ 的結構正在形成、條件直線交叉最密、速度場最彎。
 
-要注意這是一個**訓練難度**的論證，不是誤差分布的論證：<Ref to="dma-error-theory"/> 給的是整段的積分 $\int_0^1\|\ddot x_t\|\,\mathrm dt$，本課沒有量過它沿 $t$ 怎麼分配。（<Ref to="dma-fm-vs-diffusion"/> 甚至給過一個相反方向的描述：粒子一開始朝資料的平均位置衝、之後再分岔，那會把彎曲放在 $t$ 小的那一端。）所以「把預算放中段」是一個實務上有效、但本課沒有證的選擇。
+要注意這是一個**訓練難度**的論證，不是誤差分布的論證：<Ref to="dma-error-theory"/> 給的是整段的積分 $\int_0^1\|\ddot x_t\|\,\mathrm dt$，本課沒有量過它沿 $t$ 怎麼分配。所以「把預算放中段」是一個實務上有效、但本課沒有證的選擇。
 
 實務做法：
 
@@ -153,7 +153,7 @@ $$
 - **EDM** [2] 對 $\log\sigma$ 用一個正態分布。
 - **Kingma & Gao** [4] 證明許多常見加權其實都等價於「對 $\log\mathrm{SNR}$ 加一個權重函數」，不同論文的差別只在那個函數的形狀。上面那張表的三列，就是這個函數的三種形狀（<Ref to="dma-denoising-regression"/> 已經做過同一個換算，用的也是這一篇）。
 
-最後這一條把散在 <Ref to="dma-denoising-regression"/>、<Ref to="dma-linear-path"/> 和這裡的三處加權討論收成一句話：
+最後這一條把散在 <Ref to="dma-denoising-regression"/>、<Ref to="dma-fm-vs-diffusion"/> 和這裡的三處加權討論收成一句話：
 
 > **沒有 importance correction 時，選 $t$ 的分布就是選 $\log\mathrm{SNR}$ 上的權重；有 correction 時，改的是估計效率，不是 objective。**
 
@@ -194,7 +194,7 @@ CFG 在 score 座標與速度座標下等價，理由是什麼？
 <Option correct>Gaussian 路徑下 $u$ 是 $x$ 與 $s$ 的線性組合、係數只依賴 $t$，所以線性外推可以交換順序。</Option>
 <Option>CFG 只作用在 $t=1$。</Option>
 <Explanation>
-就是 <Ref to="dma-fm-vs-diffusion"/> 那個框起來的轉換式。如果路徑不是 Gaussian（$\gamma=0$ 而 $p_0$ 又不是 Gaussian），score 根本不存在，就只能在速度座標做。
+就是 <Ref to="dma-linear-path"/> 那個框起來的轉換式。如果路徑不是 Gaussian（$\gamma=0$ 而 $p_0$ 又不是 Gaussian），score 根本不存在，就只能在速度座標做。
 </Explanation>
 </QuizBlock>
 

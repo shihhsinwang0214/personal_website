@@ -66,8 +66,18 @@ The notes system is bilingual (zh + en) and must stay that way.
 (See `WEBSITE_ROLE_MODELS.md` for the strength each reference site models.)
 
 * **Intuition first** (Ng). Open with a concrete metaphor or example, then build to
-  the math. (The sand-pile → sandcastle framing in the flow-matching note is the
-  target style.)
+  the math. U2.1's sand-pile → New Year crowd → lost-person progression is the
+  target style: every role in the scene maps to a mathematical object, and the same
+  scene carries the explanation through the formula instead of being replaced.
+* **Let the method grow from a problem.** Start with the easiest solvable case,
+  expose the precise limitation that makes it fail in the real setting, ask what a
+  person in that situation would naturally do, and only then introduce the method,
+  objective, or theorem that formalizes that action. A formula should arrive as the
+  answer to a visible need, not as an announced topic.
+* **Keep the page rhythm compact.** Use one paragraph per reasoning beat, not one
+  sentence per paragraph. Keep closely related sentences together; add whitespace
+  only for a genuine turn in the argument, a question, a display equation, or a
+  conclusion.
 * **Canonical depth** (Weng). Aim for each note to be the reference on its sub-topic:
   thorough, self-contained, with a clear path from motivation to result, and valuable
   for years.
