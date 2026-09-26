@@ -8,9 +8,9 @@ prereqs:
 lang: "zh"
 title: "取樣器不只一個，是一整族"
 category: "courses"
-group: "Unit 3 · Stochastic Interpolants 與共用技巧"
+group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-09-21
+updated: 2026-09-27
 summary: "速度與 score 可以組成一整族邊際相同的 ODE／SDE。取樣噪聲不改變理想分布，只改變誤差能否被拉回，以及有限步時要付出的成本。"
 demos: []
 references:
@@ -38,30 +38,30 @@ import Ref from '../../../components/Ref.astro';
 # 取樣器不只一個，是一整族
 
 <Objectives>
-- **寫出由 $(u_t,\nabla\log p_t)$ 生成的一族 SDE。** 用 Fokker–Planck 證明它們和 ODE 共享同一組邊際分布。
+- **把 U2.4 的 $\varepsilon$ 推廣成隨時間改變的 $\varepsilon_t$。** 用 Fokker–Planck 確認整族 ODE／SDE 仍共享同一組 marginal distributions。
 - **說出自我修正從哪裡來。** 訓練時的 $\gamma_t$ 讓 score 可學，取樣時的 $\varepsilon_t$ 才真正把它用來拉回偏差。
 - **用 $\varepsilon_t$ 解釋 ODE／SDE 的取捨。** 它越大，修正越強，但有限步下新增的噪聲誤差也越大。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 有了 score，一定要把噪聲全加回去嗎？
+## 同一條 $p_t$，要選哪一種走法？
 
-<Ref to="dma-unified-equation"/> 訓練完之後，我們手上有速度 $u_t$，還有 score $s_t:=\nabla\log p_t$。
+<Ref to="dma-unified-equation"/> 已經從同一條 stochastic interpolant 得到 velocity $v_t$、score $s_t:=\nabla\log p_t$，也證明 ODE 與加入 diffusion 的 SDE 可以走過同一條 $p_t$。
 
-<Ref week="dma-week-flow-matching"/> 只沿速度解 ODE；<Ref to="dma-reverse-process"/> 的 reverse SDE 則同時使用 score 與隨機噪聲。這看起來像「不加」與「全加」的二選一，但研究上更自然的問題是：能不能只加一部分，而且仍走過同一組分布？
+但 U2.4 為了把證明寫清楚，只先用了固定的 $\varepsilon$。真正 sampling 時，我們還可以決定每個時刻要加入多少 diffusion。這不再只是「ODE 或 SDE」的二選一，而是一整族可能的走法。
 
 <Ask>
-如果把 score 摻進去一點，<br />
-會不會走到別的地方？
+既然 marginals 都一樣，<br />
+$\varepsilon_t$ 到底改變了什麼？
 </Ask>
 
-## 一整族，中間全部合法
+## 先讓 $\varepsilon$ 也隨時間改變
 
 對任意非負函數 $\varepsilon_t$（只跟時間有關，不跟位置有關），考慮
 
 $$
-\boxed{\;dX_t=\big[u_t(X_t)+\varepsilon_t\,s_t(X_t)\big]dt+\sqrt{2\varepsilon_t}\,dW_t,\qquad X_0\sim p_0,\ \ t:0\to1 .\;}
+\boxed{\;dX_t=\big[v_t(X_t)+\varepsilon_t\,s_t(X_t)\big]dt+\sqrt{2\varepsilon_t}\,dW_t,\qquad X_0\sim p_0,\ \ t:0\to1 .\;}
 $$
 
 **答案是：不會走到別的地方。對每一個 $\varepsilon_t\ge0$，這個 SDE 在時刻 $t$ 的邊際都是同一個 $p_t$。**
@@ -69,7 +69,7 @@ $$
 證明只有兩行。SDE 的邊際 $\rho_t$ 滿足 Fokker–Planck：
 
 $$
-\partial_t\rho=-\nabla\cdot\big((u+\varepsilon s)\rho\big)+\varepsilon\,\Delta\rho .
+\partial_t\rho=-\nabla\cdot\big((v+\varepsilon s)\rho\big)+\varepsilon\,\Delta\rho .
 $$
 
 把 $\rho=p_t$ 代進去。關鍵是 $s\,p_t=\nabla\log p_t\cdot p_t=\nabla p_t$，所以那兩個多出來的項
@@ -78,7 +78,7 @@ $$
 -\nabla\cdot(\varepsilon\,\nabla p_t)+\varepsilon\,\Delta p_t=0
 $$
 
-**互相抵消**，剩下的正是 $u_t$ 生成 $p_t$ 的 continuity equation。$\square$
+**互相抵消**，剩下的正是 $v_t$ 生成 $p_t$ 的 continuity equation。$\square$
 
 $\varepsilon\equiv0$ 就是 <Ref week="dma-week-flow-matching"/> 的 ODE；$\varepsilon_t$ 取某個特定的 schedule 會還原 <Ref to="dma-reverse-process"/> 的 reverse SDE；中間任何取法都合法。<Ref to="dma-reverse-process"/> 說「PF-ODE 的 score 係數剛好是 reverse SDE 的一半」，講的就是這一族裡兩個特定的點。
 
@@ -95,7 +95,7 @@ $$
 <Remark label="補充" summary="這一族在 diffusion 那一側長什麼樣">
 把 $\varepsilon_t$ 換成 <Ref to="dma-reverse-process"/> 的語言，它就是 DDIM 那個 $\eta$ 家族：$\eta=0$ 對應 $\varepsilon=0$、$\eta=1$ 對應完整的 reverse SDE。差別只是那裡用離散步的係數寫、這裡用連續時間的 SDE 寫。
 
-實務上 $\varepsilon_t$ 不會取成常數。由 <Ref to="dma-tweedie-and-score"/> 的 Tweedie 公式，$\nabla\log p_t=-\mathbb E[\epsilon\mid x_t]/\sigma_t$，而分子是 $O(1)$，所以 **score 的量級是 $O(1/\sigma_t)$**（這裡沿用 <Ref week="dma-week-flow-matching"/> 的 $\sigma_t$ 表示**噪聲那一端的係數**，也就是 <Ref to="dma-unified-equation"/> 對照表裡的 $\alpha_t$——談 score 的量級時這個寫法比較好讀）。常見做法是讓 $\varepsilon_t\propto\sigma_t^2$，這樣 $\varepsilon_t s_t=O(\sigma_t)$ 不只有界，還會在資料那一端自己收掉——下面的 demo 就是這樣做的（$\varepsilon_t=c\,\sigma_t^2$，$c$ 是那個滑桿）。
+實務上 $\varepsilon_t$ 不會取成常數。由 <Ref to="dma-tweedie-and-score"/> 的 Tweedie 公式，$\nabla\log p_t=-\mathbb E[\epsilon\mid x_t]/\sigma_t$，而分子是 $O(1)$，所以 **score 的量級是 $O(1/\sigma_t)$**。這裡的 $\sigma_t$ 沿用 <Ref to="dma-unified-equation"/> 的符號，表示 Gaussian 起點的係數。常見做法是讓 $\varepsilon_t\propto\sigma_t^2$，這樣 $\varepsilon_t s_t=O(\sigma_t)$ 不只有界，還會在資料那一端自己收掉——下面的 demo 就是這樣做的（$\varepsilon_t=c\,\sigma_t^2$，$c$ 是那個滑桿）。
 </Remark>
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-1-epsilon.html" class="demo-frame" title="同一組邊際，一整族走法：互動 demo" style="height: 1000px; width: 100%; border: none;"></iframe>
@@ -112,7 +112,7 @@ $$
 <Answer>
 沒有——而這個問題會把兩個很容易混在一起的設定分開。
 
-**訓練時的 $\gamma_t$** 決定 $p_t$ 長什麼樣，以及你**學得到哪些量**。$\gamma \gt 0$ 讓你除了 $u_t$ 之外還能學 $\eta_t$，於是手上多了一個 score。
+**訓練時的 $\gamma_t$** 決定 $p_t$ 長什麼樣，以及你**學得到哪些量**。$\gamma \gt 0$ 讓你除了 $v_t$ 之外還能學 $\eta_t$，於是手上多了一個 score。
 
 **取樣時的 $\varepsilon_t$** 決定你**怎麼走**。$\varepsilon=0$ 沒有 Langevin 項：一旦偏離 $p_t$，就沿著偏離之後的軌跡繼續走，誤差一路帶到終點。$\varepsilon \gt 0$ 才有拉回。
 
@@ -139,6 +139,17 @@ $\varepsilon \gt 0$ 每一步會多注入 $\sqrt{2\varepsilon h}$ 量級的噪�
 
 > **$\varepsilon_t$ 不影響邊際，只影響誤差怎麼累積。**
 
+<Ref to="dma-unified-equation"/> 的 KL bound 已經把這個取捨寫了出來。若先把 $\varepsilon$ 當成常數，記 velocity 與 score 的整體誤差為 $\mathcal E_v$、$\mathcal E_s$，那麼
+
+$$
+\mathrm{KL}(p_1\|\hat p_1)
+\le
+\frac{\mathcal E_v}{2\varepsilon}
++\frac{\varepsilon\mathcal E_s}{2}.
+$$
+
+只看這個 upper bound，最佳值是 $\varepsilon^*=\sqrt{\mathcal E_v/\mathcal E_s}$：velocity 學得比較差，就提高 diffusion；score 學得比較差，就降低 diffusion。這不是可以直接照抄的 schedule——實際上兩種誤差都會隨 $t$ 改變，還要加上 numerical error——但它說清楚了 $\varepsilon$ 在平衡什麼。
+
 所以「該取多少」不是正確性問題，而是取捨問題：$\varepsilon$ 大，前面的偏差有機會被拉回，但每一步自己多帶一份噪聲誤差。這正是 <Ref to="dma-reverse-process"/> 那個判準在連續版本上的樣子：**$\varepsilon$ 要不要開、開多大，看的是模型誤差有沒有大到值得花這筆噪聲成本。** 模型幾乎沒有誤差時（乾淨的 toy），沒有東西可修，$\varepsilon$ 只是多帶一份噪聲誤差；模型誤差大時（真實模型），修正才划算。<Ref to="dma-lab-interpolants"/> 會把兩邊都量出來。$\varepsilon_t$ 該怎麼取到最好目前沒有定論，常見做法是在中段的 $t$ 給比較大的值、兩端收小。
 
 <Details summary="為什麼「兩端收小、中間放大」是合理的">
@@ -151,11 +162,11 @@ $\varepsilon \gt 0$ 每一步會多注入 $\sqrt{2\varepsilon h}$ 量級的噪�
 
 *圖：一整族取樣器。ODE 與不同噪聲強度的 SDE 共用理想邊際，但個別樣本的行徑與誤差修正方式不同。*
 
-## 消化一下
+## 快速回顧一下
 
 <QuizBlock id="w5-1-a">
 「一族 SDE 邊際相同」的證明，關鍵那一步是什麼？
-<Option>$u_t$ 是常數。</Option>
+<Option>$v_t$ 是常數。</Option>
 <Option correct>$\nabla\log p_t\cdot p_t=\nabla p_t$，讓 score drift 與擴散項在 Fokker–Planck 裡剛好抵消。</Option>
 <Option>$\varepsilon_t$ 必須是常數。</Option>
 <Explanation>
@@ -193,8 +204,8 @@ $\varepsilon \gt 0$ 每一步會多注入 $\sqrt{2\varepsilon h}$ 量級的噪�
 </Explanation>
 </QuizBlock>
 
-<Bridge to="dma-error-theory">
-現在知道噪聲能修正偏差，卻也會帶來新的有限步誤差。若先走確定性的 ODE，真正要付的成本是軌跡彎曲造成的累積誤差。下一篇把「彎」從一個看圖的形容詞，變成能直接控制 Euler 誤差的數。
+<Bridge to="dma-lab-flow-matching">
+現在 U2 的整條方法已經連起來了：製造 reference paths、用 L2 學 velocity、沿著 Flow ODE 生成，也能在有 score 時改走同一組 marginals 的 SDE。下一篇把訓練與 Euler／Heun sampling 寫成程式，並先從實驗觀察 path 與 coupling 如何影響少步生成。
 </Bridge>
 
 ## 參考文獻

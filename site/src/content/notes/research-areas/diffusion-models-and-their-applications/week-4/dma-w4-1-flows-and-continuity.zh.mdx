@@ -10,7 +10,7 @@ title: "沿著人潮學會怎麼走"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-09-25
+updated: 2026-09-26
 summary: "知道起點與終點後，我們可以先畫出參考路徑；L2 regression 會把經過同一位置的速度取平均，得到 Flow ODE 需要的 velocity field。"
 demos:
   - "notes/research_areas/diffusion-models-applications/w4-1-reference-paths.html"
@@ -22,6 +22,7 @@ references:
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
 import Question from '../../../components/Question.astro';
 import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
@@ -36,6 +37,7 @@ import Ref from '../../../components/Ref.astro';
 - **給定起始與最終的隨機變數 $X_0,X_1$，寫出一條把兩端接起來的 reference path $I_t$，並求出速度。** 對直線 path $I_t=(1-t)X_0+tX_1$，有 $I_0=X_0$、$I_1=X_1$，而 $\partial_t I_t=X_1-X_0$。
 - **把「隨人潮而動」化成可以訓練的 L2 objective。** 抽一組端點與一個時間，以 $I_t$ 為輸入、$\partial_t I_t$ 為 label，讓同一個 velocity field 學會每個位置該怎麼走。
 - **說出這個方法學到的最佳 velocity。** 它是所有在時間 $t$ 經過位置 $x$ 的 reference velocities 的 conditional expectation；直覺上，就是迷路的人站在 $x$，觀察此刻可能經過這裡的人，再依可能性平均他們的方向與速度。
+- **用 Euler method 實際沿著學到的 velocity field 生成資料。** 每一步在目前位置詢問一次 $v_\theta(x,t)$，再沿著這個方向往前走一小段。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -69,6 +71,12 @@ I_t(x_0,x_1)=(1-t)x_0+tx_1,\qquad
 $$
 
 只要給定一組 $(x_0,x_1)$，這條直線給出的位置變化和速度都可以直接算出來，不需要任何神經網路模型。
+
+<Remark label="名稱" summary="端點也隨機之後，這個 construction 就是最簡單的 stochastic interpolant">
+固定 $(x_0,x_1)$ 時，$I_t(x_0,x_1)$ 是替這一組端點畫出的 **reference path**。訓練時改成抽隨機端點 $(X_0,X_1)$ 後，$I_t(X_0,X_1)$ 本身也成了 random variable；文獻把這種連接兩端 distributions 的 random process 稱為 **stochastic interpolant**。
+
+這一篇先用 reference path 的說法，專心看單一路線怎麼產生 velocity label；<Ref to="dma-unified-equation" /> 再正式展開 stochastic interpolant 的一般形式。
+</Remark>
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w4-1-reference-paths.html" class="demo-frame" title="用直線 reference paths 搬運人群" style="height: 820px; width: 100%; border: none;"></iframe>
 
@@ -145,6 +153,27 @@ $$
 你可以直接拖動黃色的迷路者，替它指定新的起點 $x(0)$。周圍的方向圓盤把相容的 reference velocities 依方向聚合：扇區越長、越亮，代表那個方向的 posterior signal 越強；黃色箭頭則是它們的 weighted average，也就是 $v_t(x)$。黃線記錄迷路者一路沿著 $v_t$ 走出的 ODE trajectory：實線是已走過的部分，虛線是接下來的路。拖動時，時間會回到 $0$，再從新的起點向前計算整條軌跡；你也可以切換不同的 empirical target samples，看同一條公式如何產生不同的 flow。
 
 這就是 Flow Matching 的核心做法：**先製造容易監督的 reference paths，再讓 regression 把它們整理成一個共同的 velocity field。**
+
+## 訓練完之後，要怎麼真的沿著這個 field 走？
+
+訓練完成後，模型給我們的是：站在任意位置 $x$、時間 $t$，現在應該往哪裡走。要生成資料，我們先從起點 distribution 抽一個 $x^{(0)}\sim p_0$，再解
+
+$$
+\frac{\mathrm dx_t}{\mathrm dt}=v_\theta(x_t,t).
+$$
+
+一般來說，這條 ODE 沒有 closed-form solution。所以實作時，我們會把 $0$ 到 $1$ 這個區間切成許多小段 $[t_k,t_{k+1}]$，再用 numerical solver 做近似迭代。像是最簡單的 Euler method 會採用
+
+$$
+x^{(k+1)}
+=
+x^{(k)}+\Delta t\,
+v_\theta\!\left(x^{(k)},t_k\right).
+$$
+
+這條式子其實就很像迷路的人實際採用的做法：**先問一次現在該往哪裡走，沿著這個方向走一小步，再從新的位置重新問一次。** 每一步都要呼叫一次網路；而且就像黎曼積分一樣，通常切得越細，就走得越準，但生成也會越慢。
+
+如果沿途的方向幾乎不變，一大步也可能走得很好；如果 velocity 不斷轉向，就必須頻繁確認方向。我們會在 U3 再回來看看：除了使用更準確的 numerical solver，能不能直接減少這些彎路，讓少步 sampling 也能走得準。
 
 ## 快速回顧一下
 

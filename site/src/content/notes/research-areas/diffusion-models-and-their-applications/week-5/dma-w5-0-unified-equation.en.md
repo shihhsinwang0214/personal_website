@@ -8,7 +8,7 @@ prereqs:
 lang: "en"
 title: "一個式子裝下兩個框架"
 category: "courses"
-group: "Unit 3 · Stochastic Interpolants 與共用技巧"
+group: "Unit 2 · Flow Matching"
 status: "missing"
 updated: 2026-09-04
 summary: "English translation in progress; content-agent task."

@@ -9,7 +9,7 @@ title: "Gaussian 起點：DDIM 與 Flow Matching 的交集"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-09-25
+updated: 2026-09-26
 summary: "當起點是 Gaussian，denoiser、score 與 velocity 是同一組 conditional means 的不同寫法；代入 VP path 後，Flow ODE 就接回 DDIM 與 probability-flow ODE。"
 demos: []
 references:
@@ -23,7 +23,6 @@ references:
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
-import Try from '../../../components/Try.astro';
 import Remark from '../../../components/Remark.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
@@ -34,65 +33,120 @@ import Ref from '../../../components/Ref.astro';
 # Gaussian 起點：DDIM 與 Flow Matching 的交集
 
 <Objectives>
-- **寫出 Gaussian path 的 optimal velocity。** 它是 $\mathbb E[X_1\mid X_t=x]$ 與 $\mathbb E[\epsilon\mid X_t=x]$ 的線性組合。
+- **寫出 DDPM 的 VP interpolation 所對應的 optimal velocity。** 它是 $\mathbb E[X_1\mid I_t=x]$ 與 $\mathbb E[\epsilon\mid I_t=x]$ 的線性組合。
 - **在 noise、score 與 velocity 之間轉換。** 說明為什麼 U1 訓練好的 denoiser 能直接提供 Flow ODE 所需的方向。
-- **說清楚 DDIM 與 Flow Matching 的關係。** 在同一條 VP Gaussian path 上，它們的連續極限是同一條 probability-flow ODE；換路徑則不再成立。
+- **說清楚 DDIM 與 Flow Matching 的關係。** 在同一條 VP interpolation 上，它們的連續極限是同一條 probability-flow ODE；換路徑則不再成立。
+- **說出 Flow Matching 多出的設計自由度。** 起點 distribution、reference path，以及起點與終點如何配對，都不必被 DDPM 的 forward process 固定。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 我們是不是早就學過這個 velocity？
+在 <Ref to="dma-conditional-flow-matching" /> 的最後，我們留下了一個問題：如果把 $X_0$ 選成 U1 使用的 Gaussian noise，Flow Matching 學到的 velocity field，會不會和 DDIM 背後的 deterministic dynamics 有關？
 
-<Ref to="dma-flows-and-continuity" /> 的 Flow Matching 看起來像一套新方法：先造路徑，再回歸速度。但在 <Ref week="dma-week-diffusion">U1</Ref>，denoiser 已經學會從 noisy $x_t$ 預測資料或 noise。
+在 U1，denoiser 從 noisy $x_t$ 預測 data 或 noise；到了 U2，Flow Matching 的 network 則要預測 velocity。它們的名字與輸出不同，但看到的都是同一個 $x_t$。所以我們真正要確認的是：這些量能不能互相換算？
 
 <Ask>
-如果 Flow Matching 的起點也是 Gaussian，<br />
-denoiser 給的答案能不能直接換成 velocity？
+<strong>如果起點是 Gaussian，U1 的 denoiser<br />
+能不能直接給出 Flow ODE 需要的 velocity？</strong>
 </Ask>
 
-沿用本單元的時間方向：$t=0$ 是 Gaussian、$t=1$ 是資料。令
+## 把 U1 中 forward process 決定的路徑，寫成 Flow Matching 的語言
+
+我們沿用這個單元的時間方向：$t=0$ 是 Gaussian、$t=1$ 是資料。這和 U1 的 forward process 相反；U1 是從資料一路加 noise，這裡則要從 noise 走回資料。
+
+為了分清兩邊的時間方向，這一段用 $\tau$ 表示 U1 從資料走向 noise 的時間，用 $t$ 表示 Flow Matching 從 noise 走向資料的時間。<Ref to="dma-forward-process" /> 中的 noisy state 是
+
+$$
+x_\tau=\sqrt{\bar\alpha_\tau}\,x_0+\sigma_\tau\epsilon.
+$$
+
+現在反過來讀，並令 Flow Matching 的兩個端點為
 
 $$
 X_0=\epsilon\sim\mathcal N(0,I),\qquad X_1\sim p_{\mathrm{data}},
 $$
 
-再選一條 Gaussian path
+用 Flow Matching 的語言寫下來就是
 
 $$
-X_t=\alpha_tX_1+\sigma_t\epsilon,\qquad
+I_t=\alpha_tX_1+\sigma_tX_0
+=\alpha_tX_1+\sigma_t\epsilon,\qquad
 \alpha_0=0, \sigma_0=1, \alpha_1=1, \sigma_1=0.
 $$
 
-給定一組 $(X_1,\epsilon)$，reference velocity 直接微分就有：
+其中：
+
+- $\alpha_t$ 是 data 的 signal amplitude，對應 U1.1 裡的 $\sqrt{\bar\alpha}$。注意，它不是 U1.1 中表示單一步保留率的 $\alpha_s=1-\beta_s$；
+- $\sigma_t$ 是 noise amplitude，對應 U1.1 裡的 $\sqrt{1-\bar\alpha}$；
+- 因為 U1 使用的是 variance-preserving path，兩者滿足 $\alpha_t^2+\sigma_t^2=1$。
+
+只是現在時間反過來讀：$\alpha_t$ 從 $0$ 增加到 $1$，$\sigma_t$ 則從 $1$ 降到 $0$。U1 的 noise schedule 決定的，就是 data 與 noise 在這條路上交接的速度。
+
+接下來，我們從這個由 DDPM 定義出來的 $x_\tau$ 出發，看看反向讀取後的 $I_t$ 所對應的 Flow Matching velocity 是什麼。
+
+給定一組 $(X_1,\epsilon)$，reference velocity 直接對 $I_t$ 微分就可以得到：
 
 $$
-\dot X_t=\dot\alpha_tX_1+\dot\sigma_t\epsilon.
+\dot I_t=\dot\alpha_tX_1+\dot\sigma_t\epsilon.
 $$
 
-依照 <Ref to="dma-flows-and-continuity" /> 的 L2 結論，把所有會產生同一個 $X_t=x$ 的路徑平均：
+此時，依照 <Ref to="dma-flows-and-continuity" /> 的結論，optimal velocity field 會等於
 
 $$
-v_t(x)
-=\dot\alpha_t\,\mathbb E[X_1\mid X_t=x]
-+\dot\sigma_t\,\mathbb E[\epsilon\mid X_t=x].
+v_t^\star(x)
+=\mathbb E[\dot I_t\mid I_t=x]
+=\mathbb E[\dot\alpha_tX_1+\dot\sigma_t\epsilon\mid I_t=x].
 $$
 
-## 一個 denoiser 就夠了
+## 連結到 DDPM、DDIM 的 denoiser
 
-對 $X_t=\alpha_tX_1+\sigma_t\epsilon$ 取 conditional expectation：
-
-$$
-x=\alpha_t\mathbb E[X_1\mid x]
-+\sigma_t\mathbb E[\epsilon\mid x].
-$$
-
-所以兩個 conditional means 不是兩個獨立的未知數。若網路估計
+接下來從條件 $I_t=x$ 出發：
 
 $$
-\epsilon_\theta(x,t)\approx\mathbb E[\epsilon\mid X_t=x],
+x=\alpha_tX_1+\sigma_t\epsilon.
 $$
 
-就能直接換成 velocity：
+當 $\alpha_t>0$ 時，可以把 $X_1$ 寫成 $x$ 與 $\epsilon$ 的關係：
+
+$$
+X_1=\frac{x-\sigma_t\epsilon}{\alpha_t}.
+$$
+
+再代回 reference velocity：
+
+$$
+\begin{aligned}
+\dot I_t
+&=\dot\alpha_tX_1+\dot\sigma_t\epsilon\\
+&=\frac{\dot\alpha_t}{\alpha_t}x
++\left(
+\dot\sigma_t-
+\frac{\dot\alpha_t}{\alpha_t}\sigma_t
+\right)\epsilon.
+\end{aligned}
+$$
+
+現在才對所有滿足 $I_t=x$ 的可能來路取平均：
+
+$$
+v_t^\star(x)
+=\frac{\dot\alpha_t}{\alpha_t}x
++\left(
+\dot\sigma_t-
+\frac{\dot\alpha_t}{\alpha_t}\sigma_t
+\right)
+\mathbb E[\epsilon\mid I_t=x].
+$$
+
+所以只要知道「在這個 $x$ 裡平均含有多少 noise」，就能得到 optimal velocity。把 $t$ 對回 U1 中相同的 noise level，DDPM、DDIM 的 denoiser 估計的正是
+
+$$
+\epsilon_\theta(x,t)
+\approx\mathbb E[\epsilon\mid I_t=x]
+=-\sigma_t\nabla_x\log p_t(x),
+$$
+
+其中最後一個等號就是 <Ref to="dma-tweedie-and-score" /> 的 Tweedie 公式。代回上式，就得到 denoiser 與 velocity 的轉換公式：
 
 $$
 \boxed{
@@ -105,19 +159,10 @@ v_\theta(x,t)
 }
 $$
 
-這不是重新訓練，也不是近似另一個模型，只是把同一組 conditional means 改寫成另一個座標。
-
-再用 <Ref to="dma-tweedie-and-score" /> 的 Tweedie 公式
+若改用 score 表示，同一條式子則是
 
 $$
-\mathbb E[\epsilon\mid X_t=x]
-=-\sigma_t\nabla_x\log p_t(x),
-$$
-
-就得到 score 版本：
-
-$$
-v_t(x)
+v_t^\star(x)
 =\frac{\dot\alpha_t}{\alpha_t}x
 -\sigma_t\left(
 \dot\sigma_t-
@@ -125,75 +170,176 @@ v_t(x)
 \right)\nabla_x\log p_t(x).
 $$
 
-> **Noise、score 與 velocity 不是三個互不相關的學習目標；在同一條 Gaussian path 上，它們可以互相換算。**
+這不是重新訓練另一個模型，只是把同一個 conditional mean 改寫成不同的形式。
 
-## 代入 VP path，就回到 probability-flow ODE
+> **Noise、score 與 velocity 不是三個互不相關的學習目標；在同一條由 DDPM forward process 定義的 VP interpolation 上，它們可以互相換算。**
 
-為了和 U1 的時間方向對齊，這一小段改用 $\tau$：$\tau=0$ 是資料、$\tau=1$ 是 noise。寫成
+## 把 DDIM 的一步縮小，會看到什麼？
 
-$$
-Y_\tau=a_\tau X_{\mathrm{data}}+s_\tau\epsilon.
-$$
+到這裡，我們只證明了 U1 的 denoiser 可以換算成 Flow Matching 的 velocity。但開頭問的問題還多了一步：**這個 velocity 真的是 DDIM 背後的 deterministic dynamics 嗎？**
 
-VP path 滿足 $a_\tau^2+s_\tau^2=1$，並令 $a_\tau^2=\bar\alpha_\tau$、$\dot{\bar\alpha}_\tau=-\beta(\tau)\bar\alpha_\tau$。
-
-<Try summary="把兩個係數化簡，就會看到 U1 的 PF-ODE">
-第一個係數是
+回到 <Ref to="dma-reverse-process" />。在 U1 的時間方向裡，$\tau=0$ 是資料、$\tau=1$ 是 noise。當 $\eta=0$ 時，DDIM 不再加入新的 randomness，而是用同一組 $\widehat x_0$ 與 predicted noise，直接重建另一個 noise level：
 
 $$
-\frac{\dot a_\tau}{a_\tau}=-\frac12\beta(\tau).
+x_s
+=\sqrt{\bar\alpha_s}\,\widehat x_0(x_\tau,\tau)
++\sigma_s\epsilon_\theta(x_\tau,\tau),
+\qquad s<\tau.
 $$
 
-又因為 $s_\tau^2=1-a_\tau^2$，
+其中
 
 $$
--s_\tau\left(
-\dot s_\tau-\frac{\dot a_\tau}{a_\tau}s_\tau
+\widehat x_0(x_\tau,\tau)
+=\frac{x_\tau-\sigma_\tau\epsilon_\theta(x_\tau,\tau)}
+{\sqrt{\bar\alpha_\tau}}.
+$$
+
+所以目前的 $x_\tau$ 也可以寫成
+
+$$
+x_\tau
+=\sqrt{\bar\alpha_\tau}\,\widehat x_0(x_\tau,\tau)
++\sigma_\tau\epsilon_\theta(x_\tau,\tau).
+$$
+
+把兩個時刻相減，就得到
+
+$$
+\begin{aligned}
+x_s-x_\tau
+&=\left(\sqrt{\bar\alpha_s}-\sqrt{\bar\alpha_\tau}\right)
+\widehat x_0(x_\tau,\tau)\\
+&\quad+(\sigma_s-\sigma_\tau)\epsilon_\theta(x_\tau,\tau).
+\end{aligned}
+$$
+
+現在讓 $s$ 越來越靠近 $\tau$，再除以 $s-\tau$：
+
+$$
+\begin{aligned}
+\frac{\mathrm dx_\tau}{\mathrm d\tau}
+&=\frac{\mathrm d\sqrt{\bar\alpha_\tau}}{\mathrm d\tau}
+\widehat x_0(x_\tau,\tau)
++\dot\sigma_\tau\epsilon_\theta(x_\tau,\tau)\\
+&=\frac{\mathrm d}{\mathrm d\tau}
+\log\sqrt{\bar\alpha_\tau}\,x_\tau
++\left(
+\dot\sigma_\tau-
+\frac{\mathrm d}{\mathrm d\tau}
+\log\sqrt{\bar\alpha_\tau}\,\sigma_\tau
 \right)
+\epsilon_\theta(x_\tau,\tau).
+\end{aligned}
+$$
+
+這正是上一節得到的 velocity 轉換公式，只是現在沿用 U1 從 data 走向 noise 的時間方向。DDIM 的 deterministic update 一旦縮到連續時間，就會走向同一條 Flow ODE。
+
+## 代入 VP schedule，就會得到哪一條 ODE？
+
+接下來只差把 DDPM 的 schedule 代進去。由 $\dot{\bar\alpha}_\tau=-\beta(\tau)\bar\alpha_\tau$，data 係數的變化率是
+
+$$
+\frac{\mathrm d}{\mathrm d\tau}\log\sqrt{\bar\alpha_\tau}
 =-\frac12\beta(\tau).
+$$
+
+而 $\sigma_\tau^2=1-\bar\alpha_\tau$，所以
+
+$$
+2\sigma_\tau\dot\sigma_\tau
+=\beta(\tau)\bar\alpha_\tau.
+$$
+
+再用 $\epsilon_\theta(x_\tau,\tau)\approx-\sigma_\tau\nabla\log p_\tau(x_\tau)$，score 前面的係數會變成
+
+$$
+\begin{aligned}
+-\sigma_\tau\left(
+\dot\sigma_\tau+\frac12\beta(\tau)\sigma_\tau
+\right)
+&=-\frac12\beta(\tau)
+\left(\bar\alpha_\tau+\sigma_\tau^2\right)\\
+&=-\frac12\beta(\tau).
+\end{aligned}
+$$
+
+因此，DDIM 縮到連續時間後得到
+
+$$
+\boxed{
+\frac{\mathrm dx_\tau}{\mathrm d\tau}
+=-\frac12\beta(\tau)x_\tau
+-\frac12\beta(\tau)\nabla\log p_\tau(x_\tau).
+}
+$$
+
+這就是 U1 的 **probability-flow ODE**。生成時，DDIM 從 noise 端往回走，也就是沿著這條 ODE 把 $\tau$ 從大積到小。
+
+所以這裡的關係是：DDPM 與 DDIM 用相同的 denoising objective 學 conditional mean；這個 conditional mean 可以換成 VP interpolation 上的 velocity；而 DDIM 的 $\eta=0$ update，則是這條 continuous dynamics 的一種有限步走法。
+
+<Remark label="注意" summary="可以換座標，不代表可以偷換路徑">
+上面的 $(\alpha_t,\sigma_t)$ 必須對應模型 training 時使用的 VP interpolation。把這條 interpolation 訓出的 $\epsilon_\theta$，直接配上 $I_t=tX_1+(1-t)X_0$ 的係數，會把網路帶到它沒看過的 $p_t$ 上。
+
+**不用重訓能換的是 noise／score／velocity 的表示方式，不是中間的 probability path。**
+</Remark>
+
+## Flow Matching 多給了什麼？
+
+到這裡，我們已經看到：**DDIM 背後的 deterministic dynamics，其實和對應的 Flow Matching ODE 是同一件事。** 兩者最後都可以寫成
+
+$$
+\frac{\mathrm dX_t}{\mathrm dt}=v_t(X_t),
+$$
+
+只是從不同的角度得到 velocity field $v_t$。既然 DDIM 已經是一條 flow，Flow Matching 真正多給我們的就不是另一種 ODE，而是可以直接設計：
+
+- 起點 distribution $p_0$；
+- 中間的 reference path $I_t$；
+- 起點與終點如何配成 $(X_0,X_1)$。
+
+最自然的第一個嘗試，就是把每一組端點直接連成直線：
+
+$$
+I_t=(1-t)X_0+tX_1,\qquad
+\dot I_t=X_1-X_0.
+$$
+
+每個人的 reference velocity 都是常數；如果生成時真的沿著其中一條 reference path 前進，看起來只要一步 Euler 就能從起點走到終點。
+
+| 設計 | DDPM／DDIM | Flow Matching |
+|---|---|---|
+| 起點 | Gaussian prior | 可以是任意 $p_0$ |
+| Reference path | 由 noise schedule 決定 | 可以自行選擇 $I_t$ |
+| 配對方式 | Gaussian noise 與資料獨立配對 | 可以自行決定起點與終點如何配對 |
+| 網路輸出 | 常用 noise／score | 直接預測 velocity，也可換其他 parametrization |
+
+同一條 VP interpolation 上，noise、score 與 velocity 可以互換；一旦改了 reference path 或端點的配對方式，中間的 $p_t$ 與 optimal velocity 就一起改變，不能只換公式而不重訓。
+
+<Remark label="補充" summary="Velocity MSE 換成 noise MSE 時，權重也會改變">
+在線性 path $I_t=tX_1+(1-t)\epsilon$ 上，
+
+$$
+\epsilon=I_t-t\dot I_t,\qquad
+v_\theta(x,t)=\frac{x-\epsilon_\theta(x,t)}{t}.
 $$
 
 因此
 
 $$
-\frac{\mathrm dY_\tau}{\mathrm d\tau}
-=-\frac12\beta(\tau)Y_\tau
--\frac12\beta(\tau)\nabla\log p_\tau(Y_\tau),
+\|v_\theta-\dot I_t\|^2
+=\frac1{t^2}\|\epsilon_\theta-\epsilon\|^2.
 $$
 
-正是 <Ref to="dma-reverse-process" /> 的 probability-flow ODE。生成時只要從 noise 端把 $\tau$ 反向積回資料端。
-</Try>
-
-## DDIM 在哪裡？
-
-<Ref to="dma-reverse-process" /> 已經看過，DDIM 保留每個 noise level 的 Gaussian marginal，卻把跨時間的 coupling 改成 non-Markovian。當 $\eta=0$ 時，不再加入新的 randomness，而是沿用同一份 predicted noise：
-
-$$
-Y_s
-=a_s\widehat X_{\mathrm{data}}(Y_\tau)
-+s_s\widehat\epsilon(Y_\tau),\qquad s<\tau.
-$$
-
-這是一個 deterministic update。當時間格切得越來越細，它就是上面那條 probability-flow ODE 的離散化；DDIM 論文也把這個極限寫成 ODE form。
-
-所以關係可以整理成三層：
-
-1. **Training：** DDPM 與 DDIM 使用同一個 denoising objective，學到相同的 conditional mean。
-2. **Continuous dynamics：** 在同一條 VP Gaussian path 上，conditional mean 可以改寫成 Flow ODE 的 velocity，也就是 PF-ODE。
-3. **Discrete sampling：** DDIM 的 $\eta=0$ update 是這條 deterministic flow 的一種離散走法。
-
-<Remark label="注意" summary="可以換座標，不代表可以偷換路徑">
-上面的 $(\alpha_t,\sigma_t)$ 必須是模型 training 時使用的 Gaussian path。把 VP path 訓出的 $\epsilon_\theta$，直接配上線性 path $(\alpha_t,\sigma_t)=(t,1-t)$ 的係數，會把網路帶到它沒看過的 $p_t$ 上。
-
-**不用重訓能換的是 noise／score／velocity 的表示方式，不是中間的 probability path。**
+所以「同樣可以預測 noise」不代表 training objective 完全相同。線性 Flow Matching 若均勻抽 $t$，換到 noise 座標後會自然帶出 $1/t^2$；DDPM 常用的 $\mathcal L_{\mathrm{simple}}$ 則是均勻 noise MSE。
 </Remark>
 
 ## 快速回顧一下
 
 <QuizBlock id="w4-3-a">
-在固定 Gaussian path 上，已知 $\epsilon_\theta\approx\mathbb E[\epsilon\mid X_t=x]$ 後，還需要另一個網路預測 velocity 嗎？
+在固定的 VP interpolation 上，已知 $\epsilon_\theta\approx\mathbb E[\epsilon\mid I_t=x]$ 後，還需要另一個網路預測 velocity 嗎？
 <Option>需要，因為 velocity 與 noise 無關。</Option>
-<Option correct>不需要；利用 $X_t=\alpha_tX_1+\sigma_t\epsilon$ 就能做線性轉換。</Option>
+<Option correct>不需要；利用 $I_t=\alpha_tX_1+\sigma_t\epsilon$ 就能做線性轉換。</Option>
 <Option>只有 $t=0.5$ 時不需要。</Option>
 <Explanation>
 位置本身提供了另一條線性關係，因此知道 noise mean 就知道 data mean，也就知道 velocity。
@@ -203,15 +349,15 @@ $$
 <QuizBlock id="w4-3-b">
 DDIM 與 Flow ODE 的關係，哪一個說法最準確？
 <Option>所有 Flow Matching 模型都是 DDIM。</Option>
-<Option correct>在同一條 VP Gaussian path 上，DDIM 的 deterministic sampling 與 Flow ODE 共享同一個連續 dynamics。</Option>
+<Option correct>在同一條 VP interpolation 上，DDIM 的 deterministic sampling 與 Flow ODE 共享同一個連續 dynamics。</Option>
 <Option>DDIM 只能由 continuity equation 訓練。</Option>
 <Explanation>
-等價需要「同一條 Gaussian path」這個前提；換掉 path 或 coupling 後，不能只靠座標轉換沿用原模型。
+等價需要「同一條 VP interpolation」這個前提；換掉 reference path 或端點的配對方式後，不能只靠座標轉換沿用原模型。
 </Explanation>
 </QuizBlock>
 
-<Bridge to="dma-fm-vs-diffusion">
-既然 DDIM 已經能寫成一條 flow，Flow Matching 真正多給了我們什麼？答案不是另一種 ODE，而是設計 reference paths 與起終點 coupling 的自由。但最自然的直線路徑，也藏著下一個問題：每條 reference path 都直，平均後的生成軌跡也會直嗎？
+<Bridge to="dma-unified-equation">
+現在，我們已經把起點、reference path，以及起點與終點如何配對都變成可以設計的部分。但目前的 $I_t(x_0,x_1)$ 仍只是固定一組端點後畫出的路；訓練時，$(X_0,X_1)$ 本身也是隨機的。下一篇把端點的配對方式正式寫成一個 joint distribution，再將整個 random process 寫成 stochastic interpolant。
 </Bridge>
 
 ## 參考文獻

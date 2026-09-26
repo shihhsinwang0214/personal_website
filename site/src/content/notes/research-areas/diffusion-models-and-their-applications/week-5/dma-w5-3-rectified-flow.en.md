@@ -7,7 +7,7 @@ prereqs:
 lang: "en"
 title: "拉直（一）：Rectified Flow 與 Reflow"
 category: "courses"
-group: "Unit 3 · Stochastic Interpolants 與共用技巧"
+group: "Unit 3 · 更直、更快的生成路徑"
 status: "missing"
 updated: 2026-09-04
 summary: "English translation in progress; content-agent task."

@@ -7,9 +7,9 @@ prereqs:
 lang: "zh"
 title: "每條路都直，為什麼人潮還會繞路？"
 category: "courses"
-group: "Unit 2 · Flow Matching"
+group: "Unit 3 · 更直、更快的生成路徑"
 status: "available"
-updated: 2026-09-25
+updated: 2026-09-26
 summary: "直線 reference paths 可能彼此交叉；在交叉處，L2 只能輸出平均方向，因此真正的 ODE trajectories 仍會彎。路徑與 coupling 決定少步取樣有多困難。"
 demos:
   - "notes/research_areas/diffusion-models-applications/w4-3-crossing.html"
@@ -24,7 +24,6 @@ references:
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
-import Remark from '../../../components/Remark.astro';
 import Question from '../../../components/Question.astro';
 import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
@@ -43,23 +42,18 @@ import Ref from '../../../components/Ref.astro';
 
 <Prereq items={frontmatter.prereqs} />
 
-## 如果 DDIM 已經是 flow，Flow Matching 多了什麼？
-
-<Ref to="dma-linear-path" /> 說明了：在 VP Gaussian path 上，DDIM、score 與 velocity 描述的是同一個 continuous dynamics。
-
-Flow Matching 真正多給我們的，不是另一種 ODE，而是可以直接設計：
-
-- 起點 distribution $p_0$；
-- 中間的 reference path $I_t$；
-- 起點與終點怎麼配成 $(X_0,X_1)$。
-
-最自然的第一個嘗試，就是把每一組端點直接連成直線：
+在 <Ref to="dma-flows-and-continuity" /> 裡，我們已經看過實際生成的方法：從 $x^{(0)}\sim p_0$ 出發，每一步詢問一次目前的 velocity，再用 Euler method 往前走：
 
 $$
-I_t=(1-t)X_0+tX_1,\qquad \dot I_t=X_1-X_0.
+x^{(k+1)}
+=
+x^{(k)}+\Delta t\,
+v_\theta\!\left(x^{(k)},t_k\right).
 $$
 
-每個人的 reference velocity 都是常數。看起來只要一步 Euler，就能從起點走到終點。
+而 <Ref to="dma-linear-path" /> 選擇的 reference paths 都是直線，每一條路的 reference velocity $X_1-X_0$ 也都是常數。直覺上，既然方向從頭到尾都不變，我們似乎可以把 $\Delta t$ 放得很大，甚至一步走到終點。
+
+但 <Ref to="dma-lab-flow-matching" /> 已經看到：sampling steps 一少，生成結果仍然會偏掉。**直線的是我們製造 training label 的 reference paths；Euler 真正沿著走的，卻是 learned velocity field 產生的 ODE trajectory。** 這兩條路不一定相同。
 
 <Ask>
 每一條 reference path 都是直線，<br />
@@ -124,38 +118,11 @@ $$
 
 路線大量交叉時，同一位置的 conditional velocities 差異很大，regression target 的 variance 變大；平均後的 trajectory 也容易急轉彎。兩件事都會增加有限計算下的誤差。
 
-所以 coupling 不是在決定「能不能到」，而是在決定「多容易學、要走幾步才到」。U3 會沿著這個問題研究 curvature、reflow 與 minibatch OT。
+所以 coupling 不是在決定「能不能到」，而是在決定「多容易學、要走幾步才到」。但到這裡，我們只知道路線交叉會讓 trajectory 彎，還不知道該怎麼量出「彎多少」，也不知道哪種配對會比較好。
+
+接下來會把這個問題拆開處理：先在 <Ref to="dma-error-theory" /> 把 curvature 和有限步 sampling error 連起來，再用 <Ref to="dma-rectified-flow" /> 與 <Ref to="dma-minibatch-ot" /> 的兩種策略重新安排 coupling。
 </Answer>
 </Question>
-
-## 現在可以把 DDPM 與 Flow Matching 分開了
-
-| 設計 | DDPM／DDIM | Flow Matching |
-|---|---|---|
-| 起點 | Gaussian prior | 可以是任意 $p_0$ |
-| Reference path | 由 Gaussian noise schedule 決定 | 可以自行選擇 $I_t$ |
-| Coupling | Gaussian noise 與資料獨立配對 | 可以選任意 coupling $\pi(X_0,X_1)$ |
-| 網路輸出 | 常用 noise／score | 直接預測 velocity，也可換其他 parametrization |
-
-同一條 Gaussian path 上，noise、score 與 velocity 可以互換；一旦改了 path 或 coupling，中間的 $p_t$ 與最佳 velocity 就一起改變，不能只換公式而不重訓。
-
-<Remark label="補充" summary="Velocity MSE 換成 noise MSE 時，權重也會改變">
-在線性 path $X_t=tX_1+(1-t)\epsilon$ 上，
-
-$$
-\epsilon=X_t-t\dot I_t,\qquad
-v_\theta=\frac{X_t-\epsilon_\theta}{t}.
-$$
-
-因此
-
-$$
-\|v_\theta-\dot I_t\|^2
-=\frac1{t^2}\|\epsilon_\theta-\epsilon\|^2.
-$$
-
-所以「同樣可以預測 noise」不代表 training objective 完全相同。線性 FM 若均勻抽 $t$，換到 noise 座標後會自然帶出 $1/t^2$；DDPM 常用的 $\mathcal L_{\mathrm{simple}}$ 則是均勻 noise MSE。
-</Remark>
 
 ## 快速回顧一下
 
@@ -179,8 +146,8 @@ $$
 </Explanation>
 </QuizBlock>
 
-<Bridge to="dma-lab-flow-matching">
-現在整條方法已經連起來了：製造 reference paths、用 L2 學 posterior-average velocity、以 continuity equation 保證 marginal distribution，再用 ODE sampling。下一篇把這些式子縮成幾行程式，並實際比較 path curvature 與 sampling steps。
+<Bridge to="dma-error-theory">
+現在我們知道問題從哪裡來了：reference paths 可以互相交叉，L2 regression 會在交叉處平均方向，因此 learned ODE trajectory 仍然可能彎曲。但「很彎」目前還只是一個看圖得到的印象。下一篇把它寫成可以計算的 curvature，並直接連到 Euler sampling 的有限步誤差。
 </Bridge>
 
 ## 參考文獻

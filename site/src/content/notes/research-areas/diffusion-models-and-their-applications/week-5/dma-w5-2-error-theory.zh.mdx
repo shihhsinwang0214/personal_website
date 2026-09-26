@@ -9,9 +9,9 @@ prereqs:
 lang: "zh"
 title: "把「彎」寫成一個算得出來的數"
 category: "courses"
-group: "Unit 3 · Stochastic Interpolants 與共用技巧"
+group: "Unit 3 · 更直、更快的生成路徑"
 status: "available"
-updated: 2026-09-21
+updated: 2026-09-26
 summary: "Euler 每一步忽略的二階項，累積後正好把終點誤差連到軌跡加速度。這讓「彎」成為可計算、可比較，也能被後續方法直接壓小的量。"
 demos: []
 references:
@@ -41,7 +41,7 @@ import Ref from '../../../components/Ref.astro';
 <Objectives>
 - **從 Taylor 展開推導 Euler 的全域誤差上界。** 說出步長決定斜率，軌跡加速度積分決定誤差尺度。
 - **解釋 ODE 與 SDE 為什麼不能共用同一個曲率指標。** 布朗軌跡不可微，SDE 要改看 drift 正則性與弱／強誤差。
-- **說出拉直與保留 score 的張力。** 確定性配對能讓 ODE 接近直線，卻不再自動提供可回歸的 score。
+- **說出拉直與取得 score 的張力。** 確定性配對能讓 ODE 接近直線，卻不再自動提供 stochastic interpolant 中那個可回歸的 Gaussian noise label。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -128,15 +128,15 @@ SDE 的軌跡是布朗運動加 drift，$\ddot x_t$ 根本不存在，「這條�
 <Ref to="dma-rectified-flow"/> 會用 reflow 把軌跡拉直，讓 $\int\|\ddot x\|\,dt$ 往 0 靠。既然拉直之後誤差這麼小，那**能不能再把 <Ref to="dma-sampler-family"/> 的 Langevin 項加上去，同時享有直軌跡和自我修正？**
 
 <Answer>
-不能，而且原因是結構性的，不是工程上還沒做到。
+不能直接這樣做。問題不是 score 在數學上一定不存在，而是目前這套 training construction 沒有把它交給我們。
 
-Reflow 的核心是把配對 $\pi$ 換成**確定性**的耦合（每個 $x_0$ 對到唯一的 $x_1$），並且 $\gamma\equiv0$。<Ref to="dma-unified-equation"/> Q1 說過這時候發生什麼事：給定 $x_t$，端點就定死了，沒有後驗可以平均，所以**沒有可回歸的 score**——寫不出 SDE 取樣器。
+Reflow 的核心是把配對 $\pi$ 換成由上一輪 ODE 產生的耦合，並且 $\gamma\equiv0$。這時 velocity regression 仍然完全成立；但 <Ref to="dma-unified-equation"/> 用來取得 score 的 label 是額外的 $Z$，而現在根本沒有這個 $Z$ 可以預測。中間的 $p_t$ 可能仍有 density 與 score，只是**同一個訓練目標不會自動把 score 學出來**。
 
-要有 score 就得留 $\gamma_t \gt 0$。但 $\gamma_t z$ 把每一條條件路徑撐成一根**有寬度的管子**，管子互相重疊，於是邊際速度又變回一個平均，$\int\|\ddot x\|\,dt$ 就回不到 0 了。
+如果想沿用 stochastic interpolant 的 noise regression 取得 score，一個做法是保留 $\gamma_t \gt 0$。但 $\gamma_tZ$ 也會改變中間的 $p_t$ 與 reference velocities；通道互相重疊後，邊際 velocity 必須平均更多方向，原本接近直線的 ODE trajectory 可能再次彎曲。
 
-這兩個要求要的是互斥的圖像：
+所以這裡不是「兩者在數學上不可能並存」，而是目前兩種簡單 construction 各自直接提供不同的東西：
 
-> **「所有粒子沿確定的直線走」和「中間分布有厚度、偏了可以拉回來」不可能同時成立。**
+> **確定性 reflow coupling 直接給出較直的 velocity；加入 $\gamma_tZ$ 則直接給出可回歸的 score，但也會改變 path geometry。**
 
 上面 demo 的數字剛好把這件事量出來，而且方向不是單一的：
 
@@ -145,9 +145,9 @@ Reflow 的核心是把配對 $\pi$ 換成**確定性**的耦合（每個 $x_0$ �
 - 在**好配對**上加 $\gamma$：積分回升到約 **3.5**。這就是上面說的那個代價。
 - 在**壞配對**上加 $\gamma$：反而掉到約 **6**。因為這時候 $\gamma$ 主要的作用是把速度場抹平，抹平帶來的好處大於管子重疊帶來的壞處。
 
-所以「加 $\gamma$ 會讓軌跡更彎」這句話只在配對已經很好的時候才對。真正沒有例外的是那句結構性的話：**$\gamma \gt 0$ 讓積分不可能等於 0。**
+所以「加 $\gamma$ 會讓軌跡更彎」並不是無條件成立；它和原本的 coupling、path 以及 smoothing 後的 velocity 都有關。
 
-實務上的折衷就是取小一點的 $\gamma$：路徑接近直線，同時留一點 score 可用。$\gamma_t$ 該多大目前沒有定論。
+實務上可以取較小的 $\gamma$，在 path geometry 與可回歸的 score 之間取捨；也可以另外訓練 score estimator。哪種方式最好，取決於我們要用 ODE 還是 SDE sampling，以及有限步時哪一種誤差比較主要。
 </Answer>
 </Question>
 

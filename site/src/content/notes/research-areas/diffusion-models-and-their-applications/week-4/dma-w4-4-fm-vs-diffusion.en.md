@@ -7,7 +7,7 @@ prereqs:
 lang: "en"
 title: "Flow Matching 與 Diffusion：同與異"
 category: "courses"
-group: "Unit 2 · Flow Matching"
+group: "Unit 3 · 更直、更快的生成路徑"
 status: "missing"
 updated: 2026-09-04
 summary: "English translation in progress; content-agent task."
