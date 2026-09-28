@@ -42,7 +42,7 @@ import Ref from '../../../components/Ref.astro';
 # Stochastic Interpolant: 統一 Flow 與 Diffusion
 
 <Objectives>
-- **把 reference paths 正式寫成 stochastic interpolant。** 分清端點如何配對、單條 reference path、整條 marginal path 與真正生成時的 trajectory。
+- **用 stochastic interpolant 描述整條 probability path。** 說明 coupling $\pi$ 如何抽出一組端點、reference path $I_t$ 如何連接它們，以及兩者如何共同決定 $p_t=\operatorname{Law}(X_t)$。
 - **從同一個 interpolant 導出 velocity、score、ODE 與 SDE。** 說明 Flow Matching 與 diffusion 並不是兩套互不相干的 construction。
 - **說出 regression loss 小，究竟保證了什麼。** 在適當條件下，velocity error 控制 ODE 終點的 $W_2$；velocity 與 score error 則控制 SDE 終點的 KL。
 </Objectives>
@@ -66,73 +66,95 @@ import Ref from '../../../components/Ref.astro';
 
 ## Stochastic Interpolant: 將 reference paths 寫成一個 random process
 
-在 U2.1，給定一組端點 $(x_0,x_1)$ 後，我們建立一條路將它們接起來：
-
-$$
-I_t(x_0,x_1)=(1-t)x_0+tx_1
-$$
-
-這時的路徑沒有隨機性。但實際上，兩端的 distributions 分別由隨機變數
+在 U2.1，我們先隨意抽出一組端點 $(x_0,x_1)$，再建立 reference path 將它們接起來。其實可以把這個過程寫得更完整一點：先考慮 $x_0$、$x_1$ 本身來自兩個 distributions，
 
 $$
 X_0\sim p_0,\qquad X_1\sim p_1.
 $$
 
-表示，$(x_0,x_1)$ 只是其中一組抽樣結果。因此，我們也可以考慮
-
-$$
-I_t(X_0,X_1)=(1-t)X_0+tX_1.
-$$
-
-現在，每個時刻的 $I_t$ 都是一個隨機變數，而整個 $\{I_t\}_{t\in[0,1]}$ 建構了 $X_0$ 與 $X_1$ 之間的 interpolation。因此，我們稱它為 **stochastic interpolant**。
-
-不過，只知道 $X_0\sim p_0$ 與 $X_1\sim p_1$，還沒有決定它們要如何配成一組。這個配對規則就是 **coupling**，也就是 $(X_0,X_1)$ 的 joint distribution：
+接下來，如何「抽出一組端點」，對應到的就是 $(X_0,X_1)$ 的 joint distribution：
 
 $$
 (X_0,X_1)\sim\pi.
 $$
 
-$\pi$ 在兩端的 marginal distributions 必須分別是 $p_0$ 與 $p_1$。獨立抽一個起點和一個終點是一種 coupling，但不是唯一的選擇。
+在這裡，我們也稱 $\pi$ 為 **coupling**——也就是將兩端 couple 起來的方法。
 
-回到散場的例子，$p_0$ 告訴我們人群原本站在哪裡，$p_1$ 告訴我們最後各個捷運站有多少人；但這兩張分布圖並沒有告訴我們「哪一個人要去哪一站」。$\pi$ 做的就是這件事：決定哪些起點與終點會被配成一組。
+<Remark label="補充" summary="Coupling 的嚴謹定義">
+給定定義在 $\mathcal X_0$、$\mathcal X_1$ 上的兩個 distributions $p_0$、$p_1$，coupling 是 product space $\mathcal X_0\times\mathcal X_1$ 上的 probability distribution $\pi$，並且對任意 measurable sets $A\subseteq\mathcal X_0$、$B\subseteq\mathcal X_1$，滿足
 
-但只決定「誰要去哪一站」仍然不夠。同一個人可以直走，也可以繞路；reference path $I_t$ 決定的是：**這一組起點與終點，在時間 $t$ 應該走到哪裡。**
+$$
+\pi(A\times\mathcal X_1)=p_0(A),
+\qquad
+\pi(\mathcal X_0\times B)=p_1(B).
+$$
 
-現在想像在時間 $t$ 拍一張空拍照。先按照 $\pi$ 抽出每個人的起點與終點，再用 $I_t$ 算出他們此刻的位置；所有位置形成的 distribution 就是
+所有符合條件的 $\pi$ 組成 $\Pi(p_0,p_1)$。所以 coupling 可以改變 $X_0$ 與 $X_1$ 之間的關係，但不能改變任何一端原本的 distribution。
+</Remark>
+
+我們前面採取的是最直接的做法：獨立分別從 $p_0$、$p_1$ 各抽一個點，
+
+$$
+\pi_{\mathrm{ind}}(x_0,x_1)=p_0(x_0)p_1(x_1),
+$$
+
+也就是 **independent coupling**。但這不是唯一的選擇。
+
+回到散場的例子，$p_0$ 告訴我們人群原本站在哪裡，$p_1$ 告訴我們最後各個捷運站有多少人。Independent coupling 就像不看位置，隨機替每個人抽一個捷運站；站在象山方向的人可能被配到市政府站，許多人的路便會互相交叉。
+
+但如果我們已經知道每個人的位置，就可以把靠近象山的人優先配到象山站、靠近市政府的人優先配到市政府站，同時維持每個車站原本的人數。兩種方法的 $p_0$ 與 $p_1$ 完全相同，改變的只有「誰和誰配成一組」——也就是 coupling。
+
+有了抽取端點的方法後，我們才替每一組 $(x_0,x_1)$ 建立 reference path。例如，
+
+$$
+I_t(x_0,x_1)=(1-t)x_0+tx_1.
+$$
+
+先從 $\pi$ 抽出端點，再把抽到的端點放進 $I_t$：
+
+$$
+(X_0,X_1)\sim\pi,\qquad X_t=I_t(X_0,X_1).
+$$
+
+固定端點後，$I_t(x_0,x_1)$ 是一條沒有隨機性的 reference path；但端點本身是隨機抽出的，所以 $X_t$ 是 random variable，整個 $\{X_t\}_{t\in[0,1]}$ 就叫做 **stochastic interpolant**。
+
+現在想像在時間 $t$ 拍一張空拍照。先按照 $\pi$ 決定每個人要去哪一站，再按照 $I_t$ 算出他們此刻的位置；所有位置形成的 distribution 就是
 
 $$
 p_t
 =
 \operatorname{Law}_{(X_0,X_1)\sim\pi}
-\bigl(I_t(X_0,X_1)\bigr).
+\bigl(I_t(X_0,X_1)\bigr)
+=\operatorname{Law}(X_t).
 $$
 
 所以，**$\pi$ 決定哪些端點會配在一起，$I_t$ 決定每組端點中途怎麼走；兩者合在一起，才決定空拍照中的 $p_t$。** 即使 $p_0$ 與 $p_1$ 完全相同，換掉其中任何一個，中間的人群分布都可能改變。
 
-沿用跨年散場的例子，可以把四個容易混在一起的物件分開：
+沿用跨年散場的例子，可以把幾個容易混在一起的物件分開：
 
 | 物件 | 散場例子 | 數學角色 |
 |---|---|---|
+| Coupling | 決定哪一個人要去哪一站 | $(X_0,X_1)\sim\pi$ |
 | Reference path | 指定某個人的起點與捷運站後，替他畫出的路 | $I_t(x_0,x_1)$ |
-| Stochastic interpolant | 隨機抽一個人與目的地後，他在時間 $t$ 的位置 | $I_t(X_0,X_1)$ |
-| Marginal path | 在時間 $t$ 拍一張空拍照，看到整群人如何分布 | $p_t=\operatorname{Law}(I_t)$ |
-| ODE trajectory | 迷路的人跟著學到的平均人潮後，真正走出的路 | $\frac{dX_t}{dt}=v_t(X_t)$ |
+| Stochastic interpolant | 隨機抽出一組端點後，他在時間 $t$ 的位置 | $X_t=I_t(X_0,X_1)$ |
+| Marginal path | 在時間 $t$ 拍一張空拍照，看到整群人如何分布 | $p_t=\operatorname{Law}(X_t)$ |
+| ODE trajectory | 迷路的人跟著學到的平均人潮後，真正走出的路 | $\frac{dY_t}{dt}=v_t(Y_t)$ |
 
-Reference path 是用來製造 training label 的路；stochastic interpolant 是把端點的 randomness 也放進來後的 random process；$p_t$ 是它在每個時刻留下的快照。真正生成時走的則是最後一列，通常不會重走某一條 reference path。
+Reference path 是用來製造 training label 的路；stochastic interpolant 是先隨機抽取端點，再沿著 reference path 得到的 random process；$p_t$ 是它在每個時刻留下的快照。真正生成時走的則是最後一列，通常不會重走某一條 reference path。
 
 <Remark label="名稱" summary="為什麼 U2 先叫 reference path，到了這裡才叫 stochastic interpolant？">
 在 U2，我們先固定一組 $(x_0,x_1)$，只討論怎麼替這一組端點畫路，所以 **reference path** 比較直白。
 
-現在開始把 $(X_0,X_1)$ 當成隨機變數，研究整條 random process 以及它的 marginal distributions，才需要 **stochastic interpolant** 這個正式名稱。兩個名稱描述的是不同層次，不需要把前面的 reference path 全部改名。
+現在先用 $\pi$ 隨機抽取 $(X_0,X_1)$，再令 $X_t=I_t(X_0,X_1)$，研究的才是整條 random process 與它的 marginal distributions，因此需要 **stochastic interpolant** 這個正式名稱。兩個名稱描述的是不同層次，不需要把前面的 reference path 全部改名。
 </Remark>
 
 ## 在 reference path 外，再加入可以控制的 randomness
 
-U2 使用的 $I_t(X_0,X_1)$ 已經是最簡單的 stochastic interpolant。Albergo 等人的架構再多放入一個獨立的 Gaussian random variable $Z$：
+U2 使用的 $X_t=I_t(X_0,X_1)$ 已經是最簡單的 stochastic interpolant。Albergo 等人的架構再多放入一個獨立的 Gaussian random variable $Z$：
 
 $$
 \boxed{
-I_t
+X_t
 =
 \sigma_tX_0+\alpha_tX_1+\gamma_tZ,
 \qquad
@@ -175,21 +197,21 @@ DDPM 那一列的 $\gamma_t$ 是 0，並不代表它沒有 noise。U1 中的起�
 
 ## 同一個 L2 trick，仍然可以學出 velocity
 
-給定一組 $(X_0,X_1,Z)$，直接對 $I_t$ 微分：
+給定一組 $(X_0,X_1,Z)$，直接對 $X_t$ 微分：
 
 $$
-\dot I_t
+\dot X_t
 =
 \dot\sigma_tX_0+\dot\alpha_tX_1+\dot\gamma_tZ.
 $$
 
-這個 reference velocity 可以直接算，所以和 U2.1 一樣，把 $(I_t,t)$ 當輸入、$\dot I_t$ 當 label：
+這個 reference velocity 可以直接算，所以和 U2.1 一樣，把 $(X_t,t)$ 當輸入、$\dot X_t$ 當 label：
 
 $$
 \mathcal L_v(\theta)
 =
 \mathbb E\!\left[
-\left\|v_\theta(I_t,t)-\dot I_t\right\|^2
+\left\|v_\theta(X_t,t)-\dot X_t\right\|^2
 \right].
 $$
 
@@ -198,37 +220,37 @@ $$
 $$
 v_t^*(x)
 =
-\mathbb E[\dot I_t\mid I_t=x].
+\mathbb E[\dot X_t\mid X_t=x].
 $$
 
 這正是 U2 的 Flow Matching，現在只是 reference velocity 多了 $\dot\gamma_tZ$。接下來省略星號，把這個 optimal velocity 記成 $v_t$。
 
 ## 為什麼這個 velocity 真的會走過同一條 $p_t$？
 
-令 $p_t=\operatorname{Law}(I_t)$。對任意 test function $\phi$，沿著 stochastic interpolant 微分：
+令 $p_t=\operatorname{Law}(X_t)$。對任意 test function $\phi$，沿著 stochastic interpolant 微分：
 
 $$
 \begin{aligned}
-\frac{\mathrm d}{\mathrm dt}\mathbb E[\phi(I_t)]
-&=\mathbb E[\nabla\phi(I_t)\cdot\dot I_t]\\
-&=\mathbb E[\nabla\phi(I_t)\cdot v_t(I_t)]\\
+\frac{\mathrm d}{\mathrm dt}\mathbb E[\phi(X_t)]
+&=\mathbb E[\nabla\phi(X_t)\cdot\dot X_t]\\
+&=\mathbb E[\nabla\phi(X_t)\cdot v_t(X_t)]\\
 &=\int \nabla\phi(x)\cdot v_t(x)p_t(x)\,\mathrm dx.
 \end{aligned}
 $$
 
-第一行只是 chain rule；第二行用的是 $v_t(x)=\mathbb E[\dot I_t\mid I_t=x]$。最後做一次 integration by parts，就得到
+第一行只是 chain rule；第二行用的是 $v_t(x)=\mathbb E[\dot X_t\mid X_t=x]$。最後做一次 integration by parts，就得到
 
 $$
 \partial_t p_t+\nabla\cdot(p_tv_t)=0.
 $$
 
-這就是 U2.2 的 continuity equation。因此從 $X_0\sim p_0$ 出發，沿著
+這就是 U2.2 的 continuity equation。因此令 $Y_0\sim p_0$，再沿著
 
 $$
-\frac{\mathrm dX_t}{\mathrm dt}=v_t(X_t)
+\frac{\mathrm dY_t}{\mathrm dt}=v_t(Y_t)
 $$
 
-前進，marginal distribution 會和 stochastic interpolant 的快照一樣，在每個時刻都是 $p_t$，最後抵達 $p_1$。
+前進，$Y_t$ 的 marginal distribution 會和 stochastic interpolant $X_t$ 的快照一樣，在每個時刻都是 $p_t$，最後抵達 $p_1$。
 
 ## 多出來的 Gaussian，還讓我們拿到 score
 
@@ -238,16 +260,16 @@ $$
 \mathcal L_Z(\theta)
 =
 \mathbb E\!\left[
-\left\|\eta_\theta(I_t,t)-Z\right\|^2
+\left\|\eta_\theta(X_t,t)-Z\right\|^2
 \right],
 \qquad
-\eta_t^*(x)=\mathbb E[Z\mid I_t=x].
+\eta_t^*(x)=\mathbb E[Z\mid X_t=x].
 $$
 
 給定 $(X_0,X_1)$ 後，
 
 $$
-I_t\mid X_0,X_1
+X_t\mid X_0,X_1
 \sim
 \mathcal N\!\left(
 \sigma_tX_0+\alpha_tX_1,
@@ -262,7 +284,7 @@ $$
 \nabla_x\log p_t(x)
 =
 -\frac{1}{\gamma_t}\,
-\mathbb E[Z\mid I_t=x]
+\mathbb E[Z\mid X_t=x]
 =
 -\frac{\eta_t^*(x)}{\gamma_t}.
 }
@@ -271,7 +293,7 @@ $$
 直覺上，$\gamma_tZ$ 把每一條 conditional path 撐成一條有厚度的通道；預測「我在通道裡偏離中心多少」，也就告訴我們哪個方向的 density 比較高。
 
 <Details summary="Tweedie 公式在這裡怎麼套？">
-記 $m_t=\sigma_tX_0+\alpha_tX_1$。在固定端點的 conditional Gaussian 中，$I_t-m_t=\gamma_tZ$，因此
+記 $m_t=\sigma_tX_0+\alpha_tX_1$。在固定端點的 conditional Gaussian 中，$X_t-m_t=\gamma_tZ$，因此
 
 $$
 \nabla_x\log p_t(x\mid X_0,X_1)
@@ -289,11 +311,11 @@ $$
 &=
 \mathbb E\!\left[
 \nabla_x\log p_t(x\mid X_0,X_1)
-\mid I_t=x
+\mid X_t=x
 \right]\\
 &=
 -\frac{1}{\gamma_t}
-\mathbb E[Z\mid I_t=x].
+\mathbb E[Z\mid X_t=x].
 \end{aligned}
 $$
 
@@ -312,9 +334,9 @@ $v_t$ 已經能用 ODE 推動 $p_t$。但對任意常數 $\varepsilon>0$，我�
 
 $$
 \boxed{
-\mathrm dX_t
+\mathrm dY_t
 =
-\big[v_t(X_t)+\varepsilon s_t(X_t)\big]\,\mathrm dt
+\big[v_t(Y_t)+\varepsilon s_t(Y_t)\big]\,\mathrm dt
 +\sqrt{2\varepsilon}\,\mathrm dW_t.
 }
 $$
@@ -365,32 +387,32 @@ e^{2L}\mathcal E_v.
 }
 $$
 
-證明的想法很直接：讓正確 ODE 與 learned ODE 從同一個 $X_0$ 出發，分別得到 $X_t$ 與 $\hat X_t$。兩人的距離滿足
+證明的想法很直接：讓正確 ODE 與 learned ODE 從同一個起點出發，分別得到 $Y_t$ 與 $\hat Y_t$。兩人的距離滿足
 
 $$
-\frac{\mathrm d}{\mathrm dt}\|\hat X_t-X_t\|
+\frac{\mathrm d}{\mathrm dt}\|\hat Y_t-Y_t\|
 \le
-L\|\hat X_t-X_t\|
-+\|v_\theta(X_t,t)-v_t(X_t)\|.
+L\|\hat Y_t-Y_t\|
++\|v_\theta(Y_t,t)-v_t(Y_t)\|.
 $$
 
 用 Grönwall inequality 把每一刻的方向誤差累積起來，再平方取平均，就得到
 
 $$
-\mathbb E\|\hat X_1-X_1\|^2
+\mathbb E\|\hat Y_1-Y_1\|^2
 \le e^{2L}\mathcal E_v.
 $$
 
-而 $(X_1,\hat X_1)$ 本身就是 $p_1$ 與 $\hat p_1$ 的一種 coupling；$W_2$ 會在所有 coupling 裡選搬運成本最小的那一個，所以只可能更小。這裡控制的是**精確解 ODE 時的模型誤差**；numerical solver 造成的離散誤差要另外計算。
+而 $(Y_1,\hat Y_1)$ 本身就是 $p_1$ 與 $\hat p_1$ 的一種 coupling；$W_2$ 會在所有 coupling 裡選搬運成本最小的那一個，所以只可能更小。這裡控制的是**精確解 ODE 時的模型誤差**；numerical solver 造成的離散誤差要另外計算。
 
 ### SDE：drift error 直接控制 KL
 
 現在把 exact velocity 與 score 換成網路的近似值，考慮
 
 $$
-\mathrm d\hat X_t
+\mathrm d\hat Y_t
 =
-\big[v_\theta(\hat X_t,t)+\varepsilon s_\theta(\hat X_t,t)\big]\,\mathrm dt
+\big[v_\theta(\hat Y_t,t)+\varepsilon s_\theta(\hat Y_t,t)\big]\,\mathrm dt
 +\sqrt{2\varepsilon}\,\mathrm dW_t,
 $$
 
@@ -469,8 +491,8 @@ $\gamma_tZ$ 提供平滑的 conditional density，讓 score 可以透過 regress
 ## 快速回顧一下
 
 <QuizBlock id="w5-0-a">
-固定一組 $(x_0,x_1)$ 所畫出的 $I_t(x_0,x_1)$，和 $I_t(X_0,X_1)$ 有什麼差別？
-<Option correct>前者是一條 reference path；後者因端點也是隨機變數，形成 stochastic interpolant。</Option>
+固定一組 $(x_0,x_1)$ 所畫出的 $I_t(x_0,x_1)$，和 $X_t=I_t(X_0,X_1)$ 有什麼差別？
+<Option correct>前者是一條 reference path；後者先從 coupling 抽出隨機端點，因此形成 stochastic interpolant。</Option>
 <Option>兩者完全相同，只是大小寫不同。</Option>
 <Option>前者是 ODE trajectory，後者是 SDE trajectory。</Option>
 <Explanation>
