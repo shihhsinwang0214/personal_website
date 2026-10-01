@@ -12,7 +12,7 @@ title: "Stochastic Interpolant: 統一 Flow 與 Diffusion"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-09-27
+updated: 2026-09-30
 summary: "Stochastic interpolant 把端點、路徑與額外 randomness 寫進同一個物件，再從它導出 marginal path、velocity、score、ODE 與 SDE；同一套架構也說清楚 regression error 分別如何控制 ODE 的 Wasserstein error 與 SDE 的 KL error。"
 demos:
   - "notes/research_areas/diffusion-models-applications/w5-0-gamma.html"
@@ -25,6 +25,14 @@ references:
     href: "https://arxiv.org/abs/2401.08740"
   - label: "Benton, Deligiannidis & Doucet, Error Bounds for Flow Matching Methods (TMLR 2024)"
     href: "https://arxiv.org/abs/2305.16860"
+  - label: "Gao, Huang & Jiao, Gaussian Interpolation Flows (JMLR 2024)"
+    href: "https://www.jmlr.org/papers/v25/23-1515.html"
+  - label: "Reu et al., Gradient Variance Reveals Failure Modes in Flow-Based Generative Models (NeurIPS 2025)"
+    href: "https://arxiv.org/abs/2510.18118"
+  - label: "Su et al., Three Forms of Stochastic Injection for Improved Distribution-to-Distribution Generative Modeling (2025)"
+    href: "https://arxiv.org/abs/2510.06634"
+  - label: "Bertrand et al., On the Closed-Form of Flow Matching: Generalization Does Not Arise from Target Stochasticity (NeurIPS 2025)"
+    href: "https://proceedings.neurips.cc/paper_files/paper/2025/hash/0ca819b3e8126e19a008c38cd0c371ea-Abstract-Conference.html"
 ---
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
@@ -118,7 +126,7 @@ $$
 
 固定端點後，$I_t(x_0,x_1)$ 是一條沒有隨機性的 reference path；但端點本身是隨機抽出的，所以 $X_t$ 是 random variable，整個 $\{X_t\}_{t\in[0,1]}$ 就叫做 **stochastic interpolant**。
 
-現在想像在時間 $t$ 拍一張空拍照。先按照 $\pi$ 決定每個人要去哪一站，再按照 $I_t$ 算出他們此刻的位置；所有位置形成的 distribution 就是
+從我們在起點與終點看到的 particles 出發，先按照 $\pi$ 決定每個人要去哪一站，再按照 $I_t$ 算出他們在時間 $t$ 的位置；所有位置形成的 distribution 就是
 
 $$
 p_t
@@ -128,7 +136,7 @@ p_t
 =\operatorname{Law}(X_t).
 $$
 
-所以，**$\pi$ 決定哪些端點會配在一起，$I_t$ 決定每組端點中途怎麼走；兩者合在一起，才決定空拍照中的 $p_t$。** 即使 $p_0$ 與 $p_1$ 完全相同，換掉其中任何一個，中間的人群分布都可能改變。
+所以，**$\pi$ 決定哪些端點會配在一起，$I_t$ 決定每組端點中途怎麼走；兩者合在一起，才決定每個時刻空拍照中的 $p_t$。** 即使 $p_0$ 與 $p_1$ 完全相同，換掉其中任何一個部分，中間的人群分布都可能改變。
 
 沿用跨年散場的例子，可以把幾個容易混在一起的物件分開：
 
@@ -150,7 +158,11 @@ Reference path 是用來製造 training label 的路；stochastic interpolant �
 
 ## 在 reference path 外，再加入可以控制的 randomness
 
-U2 使用的 $X_t=I_t(X_0,X_1)$ 已經是最簡單的 stochastic interpolant。Albergo 等人的架構再多放入一個獨立的 Gaussian random variable $Z$：
+到這裡，coupling $\pi$ 與 reference path $I_t$ 已經足以定義一條 probability path。但「能接起兩端」不代表中間一定容易學。
+
+回到散場的例子，如果許多 reference paths 在同一個路口交叉，人群可能在某個時刻全擠進一條很窄的巷子。這時 $p_t$ 會變得很尖，甚至塌在低維的區域；附近的 velocity 也可能快速改變，讓神經網路與 numerical solver 都更難處理。
+
+那能不能保留起點與終點，卻讓中間的人群不要擠得那麼尖？Albergo 等人的做法是：在 reference path 外，再加入一個獨立的 Gaussian random variable $Z$，
 
 $$
 \boxed{
@@ -172,28 +184,56 @@ $$
 \gamma_0=\gamma_1=0.
 $$
 
-這是 stochastic interpolant 中最常用、也足以包含 U1 與 U2 的 affine family。更一般的版本可以把前兩項換成任意的 reference map $I_t(X_0,X_1)$；這個單元先把 affine 的情況做清楚。
+在散場的畫面裡，$\gamma_tZ$ 就像讓每個人在 reference path 周圍保留一點活動空間，而不是所有人都踩在同一條細線上。因為 $\gamma_0=\gamma_1=0$，它不會改變兩端；改變的是中間每一張空拍照。
 
-現在有三件事可以分別決定：
+<Remark label="論文中的結果" summary="加入 $\gamma_tZ$ 有什麼理論與實務上的好處？">
+令 $p_t^{(0)}$ 表示沒有額外 noise 時的中間 distribution。因為 $Z$ 是獨立 Gaussian，加入 $\gamma_tZ$ 後會精確得到
 
-- **Path：** $(\sigma_t,\alpha_t)$ 決定端點的影響力如何隨時間交接。
-- **Coupling：** $\pi$ 決定哪一個 $X_0$ 與哪一個 $X_1$ 被配在一起。
-- **Extra randomness：** $\gamma_t$ 決定同一組端點之間，允許多大的額外 Gaussian variation。
+$$
+p_t^{(\gamma)}
+=
+p_t^{(0)}*\mathcal N(0,\gamma_t^2I).
+$$
+
+也就是把原本的 distribution 做一次 Gaussian smoothing。論文 [1] 在其 regularity assumptions 下證明：當 $\gamma_t>0$ 時，中間的 density 與 velocity field 都會在空間上變得平滑。作者因此指出，生成時所需的 numerical integration 也會比較容易。
+
+後來的研究把這個好處說得更具體：
+
+- **讓 flow 更穩定。** 在一端為 Gaussian 的相關設定中，Gao 等人 [5] 進一步證明了 velocity 的 Lipschitz regularity、flow 的存在與唯一性，以及 source distribution 或 learned velocity 被擾動時的 $W_2$ stability。也就是說，Gaussian smoothing 不只是讓圖看起來比較圓滑；它能直接提供 ODE well-posedness 與誤差控制所需的 regularity。
+- **讓有限資料提供更密的 supervision。** 對兩端都是 empirical distribution 的情況，原本每一組資料只畫出一條細線；加上 $\gamma_tZ$ 後，同一組端點會在周圍產生一整片 training points。Su 等人 [7] 證明，Gaussian smoothing 後的 empirical interpolant 與 population interpolant 之間的 $W_1$ 距離不會更大，因此能縮小他們分析的 generalization gap。實驗中，完整的 stochastic-injection 方法在五個 image-to-image tasks 上比 standard Flow Matching 平均改善 13 FID；ablation 也顯示，單獨拿掉 interpolant noise 就會使結果變差。
+- **降低某些 deterministic paths 的 memorization。** Reu 等人 [6] 證明，在他們分析的 straight-path setting 中，即使 training paths 彼此交叉，仍可能存在一個記住 training pairings 的 velocity field；在 CelebA 的實驗裡，加入少量 noise 後才恢復 generalization。這說明「每條線都穿過很多地方」不代表 supervision 已經足夠。
+
+這個 Gaussian 還提供了一個訓練時已知的 label $Z$。論文 [1] 進一步證明，它的 conditional expectation 可以直接換成 $p_t$ 的 score；所以下面除了 velocity，我們也能用 L2 regression 學到 score，進而建立 ODE 與 SDE。
+
+不過，這些結果不能簡化成「加入越多 noise 一定越好」。$\gamma_t$ 會改變整條 $p_t$，而且 schedule 與 scale 都要選：Su 等人 [7] 的 ablation 裡，不同 schedule 的差距很大。Bertrand 等人 [8] 也在一端為 Gaussian 的 high-dimensional setting 中發現，把 stochastic regression target 換成 conditional mean 並不會傷害 generalization，有時反而更好。雖然他們研究的不是 $\gamma_tZ$，但這提醒我們：**interpolant smoothing、sampling randomness 與 noisy training target 是三種不同的 randomness，不能混成同一個「noise 有幫助」的理由。**
+</Remark>
+
+這是 stochastic interpolant 中最常用、也足以包含 U1 與 U2 的 affine family。更一般的版本可以把前兩項換成任意的 reference map $I_t(X_0,X_1)$；不過下面的內容我們先用 affine 來做說明。
+
+現在有三件事是我們可以設計的：
+
+- **Path：** $(\sigma_t,\alpha_t)$ 決定路徑。
+- **Coupling：** $\pi$ 決定哪一個 $X_0$ 與哪一個 $X_1$ 會以多少的機率被配在一起。
+- **Extra randomness：** $\gamma_t$ 決定路徑中允許多大的額外 Gaussian variation。
 
 如果把 reference path 想成一條畫好的路，$\gamma_tZ$ 就像替它加上寬度：$\gamma_t=0$ 時是一條線；$\gamma_t>0$ 時，同一組端點在中途可以落在一條有厚度的通道裡。因為 $\gamma_0=\gamma_1=0$，這份 randomness 不會改變兩端的 distributions。
 
-## U1 與 U2 原來早就在這個架構裡
+## DDPM、DDIM 與 Flow Matching 都在這個架構裡
 
-| 方法 | $(\sigma_t,\alpha_t)$ | $\gamma_t$ | Coupling $\pi$ |
+先把我們已經看過的方法，放回剛才的三項設計：
+
+| 方法 | Path $(\sigma_t,\alpha_t)$ | Coupling $\pi$ | Extra randomness $\gamma_t$ |
 |---|---|---|---|
-| Linear Flow Matching | $(1-t,t)$ | $0$ | 獨立或自行選擇 |
-| U1 的 VP path | U1 noise schedule 決定 | $0$ | Gaussian $X_0$ 與 data $X_1$ 獨立 |
-| Reflow／minibatch OT | $(1-t,t)$ | $0$ | 重新設計配對方式 |
-| 一般 affine stochastic interpolant | 自行設計 | $\gamma_t\ge 0$ | 任意 coupling |
+| Linear Flow Matching | $(1-t,t)$ | $\pi_{\mathrm{ind}}(x_0,x_1)=p_0(x_0)p_1(x_1)$ | $0$ |
+| DDPM／DDIM | $(\sigma_t,\alpha_t)$，且 $\sigma_t^2+\alpha_t^2=1$ | $\pi_{\mathrm{ind}}(x_0,x_1)=p_0(x_0)p_1(x_1)$ | $0$ |
 
-DDPM 那一列的 $\gamma_t$ 是 0，並不代表它沒有 noise。U1 中的起點 $X_0$ 本身就是 Gaussian noise；$\gamma_tZ$ 則是**端點之外額外加入的 randomness**，兩者不是同一個東西。
+<Ref to="dma-flows-and-continuity">U2.1</Ref> 已經介紹過 $(1-t,t)$ 如何畫出 linear path；DDPM／DDIM 的 $\alpha_t$ 是 data amplitude、$\sigma_t$ 是 noise amplitude，兩者如何由 VP noise schedule 得到，則可以回顧 <Ref to="dma-forward-process">U1.1</Ref>。
 
-這個表也顯示，stochastic interpolant 不只是在替既有方法換名字。它把 path、coupling 與額外 randomness 分開寫出來，讓我們可以清楚看見：每次修改到底動到了哪一部分。
+DDPM 與 DDIM 會放在同一列，是因為這張表記錄的是 stochastic interpolant 如何定義每個時刻的 $p_t$。兩者使用相同的 VP path，只差在最後生成時怎麼 sample。
+
+這一列的 $\gamma_t=0$ 也不表示沒有 noise：$X_0$ 本身已經是 Gaussian noise。$\gamma_tZ$ 是在 $X_0$ 與 $X_1$ 之外，另外加入、用來改變中間 $p_t$ 的 randomness。
+
+所以 stochastic interpolant 統一的，是 **coupling 怎麼配對端點、path 怎麼連接端點，以及中途要不要加入額外 randomness**。同一條 $p_t$ 又能用哪些 dynamics 來生成，我們會在後面繼續推導。
 
 ## 同一個 L2 trick，仍然可以學出 velocity
 
@@ -227,32 +267,29 @@ $$
 
 ## 為什麼這個 velocity 真的會走過同一條 $p_t$？
 
-令 $p_t=\operatorname{Law}(X_t)$。對任意 test function $\phi$，沿著 stochastic interpolant 微分：
+這正是 <Ref to="dma-conditional-flow-matching">U2.2</Ref> 已經證過的結論。現在只要把決定 reference path 的 random variables 從 $(X_0,X_1)$ 擴充成 $(X_0,X_1,Z)$，仍然有
 
 $$
-\begin{aligned}
-\frac{\mathrm d}{\mathrm dt}\mathbb E[\phi(X_t)]
-&=\mathbb E[\nabla\phi(X_t)\cdot\dot X_t]\\
-&=\mathbb E[\nabla\phi(X_t)\cdot v_t(X_t)]\\
-&=\int \nabla\phi(x)\cdot v_t(x)p_t(x)\,\mathrm dx.
-\end{aligned}
+v_t(x)=\mathbb E[\dot X_t\mid X_t=x],
+\qquad
+p_t=\operatorname{Law}(X_t).
 $$
 
-第一行只是 chain rule；第二行用的是 $v_t(x)=\mathbb E[\dot X_t\mid X_t=x]$。最後做一次 integration by parts，就得到
+因此 $p_t$ 與 $v_t$ 仍然滿足
 
 $$
 \partial_t p_t+\nabla\cdot(p_tv_t)=0.
 $$
 
-這就是 U2.2 的 continuity equation。因此令 $Y_0\sim p_0$，再沿著
+令 $Y_0\sim p_0$，再沿著
 
 $$
 \frac{\mathrm dY_t}{\mathrm dt}=v_t(Y_t)
 $$
 
-前進，$Y_t$ 的 marginal distribution 會和 stochastic interpolant $X_t$ 的快照一樣，在每個時刻都是 $p_t$，最後抵達 $p_1$。
+前進，$Y_t$ 的 marginal distribution 就會和 stochastic interpolant $X_t$ 的快照一樣，在每個時刻都是 $p_t$，最後抵達 $p_1$。更嚴謹的 test-function 證明已經放在 U2.2 的補充中。
 
-## 多出來的 Gaussian，還讓我們拿到 score
+## 多出來的 Gaussian，讓任意端點也能拿到 score
 
 既然訓練時的 $Z$ 也是已知的，我們也可以用另一個 L2 regression 來預測它：
 
@@ -292,6 +329,44 @@ $$
 
 直覺上，$\gamma_tZ$ 把每一條 conditional path 撐成一條有厚度的通道；預測「我在通道裡偏離中心多少」，也就告訴我們哪個方向的 density 比較高。
 
+<Remark label="和 U2.3 的關係" summary="如果 $X_0$ 已經是 Gaussian，velocity 不是本來就和 score 有關嗎？">
+沒錯。在 <Ref to="dma-linear-path">U2.3</Ref> 中，$X_0\sim\mathcal N(0,I)$、$\gamma_t=0$，所以原本的 Gaussian 起點就已經給出
+
+$$
+\mathbb E[X_0\mid X_t=x]
+=-\sigma_t\nabla_x\log p_t(x).
+$$
+
+而 optimal velocity 可以寫成
+
+$$
+\begin{aligned}
+v_t^*(x)
+&=\frac{\dot\alpha_t}{\alpha_t}x
++\left(\dot\sigma_t-
+\frac{\dot\alpha_t}{\alpha_t}\sigma_t\right)
+\mathbb E[X_0\mid X_t=x]\\
+&=\frac{\dot\alpha_t}{\alpha_t}x
+-\sigma_t\left(\dot\sigma_t-
+\frac{\dot\alpha_t}{\alpha_t}\sigma_t\right)
+\nabla_x\log p_t(x).
+\end{aligned}
+$$
+
+所以 U2.3 中 velocity 會和 score 連起來，是因為它們都可以從同一個 conditional mean $\mathbb E[X_0\mid X_t=x]$ 得到。
+
+但現在我們允許 $p_0$、$p_1$ 都是任意 distributions，端點不一定有 Gaussian 可以利用。加入獨立的 $Z$，等於重新放入一個已知的 Gaussian direction，讓同一個 identity 變成
+
+$$
+\mathbb E[Z\mid X_t=x]
+=-\gamma_t\nabla_x\log p_t(x).
+$$
+
+因此這不是另一個新的 trick，而是把 U2.3 用在 Gaussian 起點上的方法，推廣到任意兩個端點。若 $X_0$ 本來就已經是 independent Gaussian，單純為了取得 score 並不需要再加入 $Z$；此時 $\gamma_tZ$ 的主要作用是改變並平滑中間的 probability path。
+
+不過在任意端點的情況下，從 $Z$ 得到 score，並不代表 score 就足以決定 velocity：$v_t^*$ 還同時平均了 $X_0$ 與 $X_1$ 的貢獻，所以一般仍要分別學 velocity 與 score。
+</Remark>
+
 <Details summary="Tweedie 公式在這裡怎麼套？">
 記 $m_t=\sigma_tX_0+\alpha_tX_1$。在固定端點的 conditional Gaussian 中，$X_t-m_t=\gamma_tZ$，因此
 
@@ -330,25 +405,103 @@ $$
 v_t(x),\qquad s_t(x):=\nabla_x\log p_t(x).
 $$
 
-$v_t$ 已經能用 ODE 推動 $p_t$。但對任意常數 $\varepsilon>0$，我們也可以改走
+$v_t$ 已經能用 ODE 推動 $p_t$。若選定 $\varepsilon>0$，我們可以先把 velocity 與 score 合成新的 drift：
+
+$$
+\boxed{
+b_t^\varepsilon(x)
+:=
+v_t(x)+\varepsilon s_t(x).
+}
+$$
+
+這個 drift 不一定要先訓練兩支 networks 再相加。利用
+
+$$
+s_t(x)
+=-\frac{1}{\gamma_t}\mathbb E[Z\mid X_t=x],
+$$
+
+可以直接得到
+
+$$
+b_t^\varepsilon(x)
+=
+\mathbb E\!\left[
+\dot X_t-\frac{\varepsilon}{\gamma_t}Z
+\,\middle|\,X_t=x
+\right],
+\qquad \gamma_t>0.
+$$
+
+所以固定 $\varepsilon$ 後，只要讓一支 network 對 $\dot X_t-\varepsilon Z/\gamma_t$ 做 L2 regression：
+
+$$
+\mathcal L_b(\theta)
+=
+\mathbb E\!\left[
+\left\|
+b_\theta(X_t,t)
+-\left(\dot X_t-\frac{\varepsilon}{\gamma_t}Z\right)
+\right\|^2
+\right].
+$$
+
+這個 objective 的最佳解就是 $b_t^\varepsilon$。接著用它作為 SDE 的 drift：
 
 $$
 \boxed{
 \mathrm dY_t
 =
-\big[v_t(Y_t)+\varepsilon s_t(Y_t)\big]\,\mathrm dt
+b_t^\varepsilon(Y_t)\,\mathrm dt
 +\sqrt{2\varepsilon}\,\mathrm dW_t.
 }
 $$
 
-這條 SDE 的 Fokker–Planck equation 是
+在 <Ref to="dma-conditional-flow-matching">U2.2</Ref> 中，ODE 對應的 continuity equation 告訴我們 density $p_t$ 會怎麼改變。SDE 也有對應的 density evolution equation，稱為 **Fokker–Planck equation**：
 
 $$
+\begin{aligned}
 \partial_t p_t
-=
--\nabla\cdot\big((v_t+\varepsilon s_t)p_t\big)
+&=-\nabla\cdot\bigl(b_t^\varepsilon p_t\bigr)
++\varepsilon\Delta p_t\\
+&=-\nabla\cdot\bigl((v_t+\varepsilon s_t)p_t\bigr)
 +\varepsilon\Delta p_t.
+\end{aligned}
 $$
+
+<Remark label="補充" summary="Fokker–Planck equation 從哪裡來？">
+對任意 smooth test function $\phi$，Itô's lemma 給出
+
+$$
+\frac{\mathrm d}{\mathrm dt}\mathbb E[\phi(Y_t)]
+=
+\mathbb E\!\left[
+\nabla\phi(Y_t)\cdot b_t^\varepsilon(Y_t)
++\varepsilon\Delta\phi(Y_t)
+\right].
+$$
+
+把 expectation 寫成對 density $p_t$ 的積分，再做 integration by parts：
+
+$$
+\begin{aligned}
+\frac{\mathrm d}{\mathrm dt}\int\phi(x)p_t(x)\,\mathrm dx
+&=\int
+\left[
+\nabla\phi\cdot b_t^\varepsilon
++\varepsilon\Delta\phi
+\right]p_t\,\mathrm dx\\
+&=\int\phi(x)
+\left[
+-\nabla\cdot(b_t^\varepsilon p_t)
++\varepsilon\Delta p_t
+\right]\mathrm dx.
+\end{aligned}
+$$
+
+因為這對任意 $\phi$ 都成立，括號裡就是 $\partial_t p_t$。和 U2.2 的 test-function 證明相比，多出來的 $\varepsilon\Delta p_t$ 正是 Brownian motion 對 density 造成的擴散。
+</Remark>
 
 因為 $s_tp_t=\nabla p_t$，多出來的兩項正好抵消：
 
@@ -357,7 +510,34 @@ $$
 +\varepsilon\Delta p_t=0.
 $$
 
-剩下的仍是 continuity equation。也就是說，**stochastic interpolant 先決定要經過哪些 marginals；ODE 或 SDE 則決定每個樣本要用什麼方式走過它們。** 這就是 Flow 與 Diffusion 在這套架構裡真正共用的部分。
+剩下的仍是 continuity equation。也就是說，**stochastic interpolant 先決定要經過哪些 marginals $p_t$；ODE 或 SDE 則決定每個樣本要用什麼方式去走過這些 marginals。** 這就是 Flow 與 Diffusion 在這套架構裡真正共用的部分。
+
+<Remark label="補充" summary="$\varepsilon$ 也可以隨時間改變">
+上面先用常數 $\varepsilon$ 讓式子保持簡單。更一般地，可以選任意只隨時間改變的 $\varepsilon_t\ge 0$：
+
+$$
+\mathrm dY_t
+=
+\bigl[v_t(Y_t)+\varepsilon_t s_t(Y_t)\bigr]\,\mathrm dt
++\sqrt{2\varepsilon_t}\,\mathrm dW_t.
+$$
+
+因為 $\varepsilon_t$ 不依賴位置 $x$，Fokker–Planck equation 中仍然有
+
+$$
+-\nabla\cdot(\varepsilon_t s_t p_t)
++\varepsilon_t\Delta p_t
+=0.
+$$
+
+所以在 fields 精確、連續時間也精確求解時，任意 $\varepsilon_t$ 都會經過同一條 $p_t$。它改變的是 trajectories，以及模型與 numerical errors 出現後，偏差會如何累積。
+</Remark>
+
+<Remark label="實作" summary="什麼時候才需要同時預測 velocity 與 score？">
+如果只使用一個固定 $\varepsilon$，直接學 $b_t^\varepsilon$ 就夠了。若希望同一個模型可以切換 ODE、使用不同 $\varepsilon$ 的 SDE，或分別分析 velocity 與 score error，才需要同時取得 $v_t$ 與 $s_t$；實作上可以共用一個 backbone，再接兩個 output heads。
+
+一般不能只學 score，因為 score 只描述當下 density 的形狀，沒有決定整條 $p_t$ 隨時間移動的方向。U1 的 diffusion model 是特例：forward dynamics 已知，而且 Gaussian endpoint 讓 velocity 可以由 score 換算，所以只訓練 score／noise prediction 就足夠。
+</Remark>
 
 ## Loss 變小，最後的 distribution 真的會比較接近嗎？
 
@@ -462,7 +642,7 @@ $$
 所以這裡不是「SDE 比 ODE 正確」：兩者在 exact fields 下都會得到同一條 $p_t$。差別是 fields 不精確時，ODE 很自然地得到 $W_2$ stability；SDE 的 diffusion 則額外提供 KL／likelihood control。
 </Remark>
 
-這裡有兩個很容易混在一起的量：$\gamma_t$ 放在 stochastic interpolant 裡，會改變中間的 $p_t$ 與我們能學到的 target；$\varepsilon_t$ 放在 sampling dynamics 裡，在 fields 精確時不改變 $p_t$，只改變每個樣本怎麼走。下面的 demo 先看 $\gamma_t$ 做了什麼；<Ref to="dma-sampler-family" /> 再專門討論 $\varepsilon_t$。
+這裡有兩個很容易混在一起的量：$\gamma_t$ 放在 stochastic interpolant 裡，會改變中間的 $p_t$ 與我們能學到的 target；$\varepsilon_t$ 放在 sampling dynamics 裡，在 fields 精確時不改變 $p_t$，只改變每個樣本怎麼走。下面的 demo 先看 $\gamma_t$ 做了什麼；$\varepsilon_t$ 對 finite-step sampling 的影響，則留到實作課再量。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-0-gamma.html" class="demo-frame" title="額外 Gaussian randomness 如何改變 stochastic interpolant" style="height: 950px; width: 100%; border: none;"></iframe>
 
@@ -480,7 +660,7 @@ $\gamma_tZ$ 提供平滑的 conditional density，讓 score 可以透過 regress
 
 如果我們只需要 velocity，$\gamma_t=0$ 完全可以訓練。U2 的 Flow Matching 就是這個情況；而當 $X_0$ 本身是獨立 Gaussian 時，還可以像 U2.3 那樣從 $X_0$ 的 conditional mean 換算 score。失去的是上面這個對**任意起點與任意 coupling** 都成立的 $Z$-regression 公式。
 
-所以後面的問題要分開處理：<Ref to="dma-sampler-family" /> 會研究 $\varepsilon_t$ 改變時，誤差修正能力與 numerical cost 如何取捨；U3 則會研究 reference paths 交叉後產生的彎曲，接著再用 reflow 與 minibatch OT 改善 coupling。
+所以後面的問題要分開處理：U3 會先研究 reference paths 交叉後產生的彎曲，接著用 reflow 與 minibatch OT 改善 coupling；<Ref to="dma-lab-interpolants" /> 再實際比較 $\varepsilon_t$ 改變時，誤差修正能力與 numerical cost 如何取捨。
 </Answer>
 </Question>
 
@@ -520,8 +700,8 @@ $X_0$ 與 $Z$ 是不同的 random variables。只有在 diffusion 把起點選�
 </Explanation>
 </QuizBlock>
 
-<Bridge to="dma-sampler-family">
-現在，從一條 stochastic interpolant 出發，我們已經得到 marginal path、velocity、score、ODE、SDE，以及 $W_2$ 與 KL 的誤差保證。KL bound 裡還留著一個可以選的 $\varepsilon$：它越大，velocity error 的代價越小，score error 的代價卻越大。下一篇就來看，$\varepsilon_t$ 改變時，實際的 trajectories、修正能力與 numerical cost 會怎麼變。
+<Bridge to="dma-fm-vs-diffusion">
+現在，從一條 stochastic interpolant 出發，我們已經得到 marginal path、velocity、score、ODE、SDE，以及 $W_2$ 與 KL 的誤差保證。但這些結果只保證 distribution 走得到，還沒有回答少走幾步時會不會走得準。U3 接下來要回到 trajectory 本身：即使每一條 reference path 都是直線，平均後的 velocity 為什麼仍可能讓人繞路？
 </Bridge>
 
 ## 參考文獻
@@ -530,3 +710,7 @@ $X_0$ 與 $Z$ 是不同的 random variables。只有在 diffusion 把起點選�
 2. Albergo, M. S., Vanden-Eijnden, E. [*Building Normalizing Flows with Stochastic Interpolants.*](https://arxiv.org/abs/2209.15571) ICLR 2023.
 3. Ma, N., et al. [*SiT: Exploring Flow and Diffusion-Based Generative Models with Scalable Interpolant Transformers.*](https://arxiv.org/abs/2401.08740) ICCV 2023.
 4. Benton, J., Deligiannidis, G., Doucet, A. [*Error Bounds for Flow Matching Methods.*](https://arxiv.org/abs/2305.16860) TMLR 2024.（以 velocity 的 L2 approximation error 與 Lipschitz constant 控制 deterministic Flow Matching 的 $W_2$ error。）
+5. Gao, Y., Huang, J., Jiao, Y. [*Gaussian Interpolation Flows.*](https://www.jmlr.org/papers/v25/23-1515.html) JMLR 2024.（證明 Gaussian interpolation velocity 的 Lipschitz regularity、flow 的存在唯一性，以及 $W_2$ stability。）
+6. Reu, T., Dromigny, S., Bronstein, M., Vargas, F. [*Gradient Variance Reveals Failure Modes in Flow-Based Generative Models.*](https://arxiv.org/abs/2510.18118) NeurIPS 2025.（deterministic straight-path training 的 memorization 結果；noise 改善 generalization 的部分為實驗觀察。）
+7. Su, S., Zhang, Y., Zhou, L., Ranganath, R., Yeung-Levy, S. [*Three Forms of Stochastic Injection for Improved Distribution-to-Distribution Generative Modeling.*](https://arxiv.org/abs/2510.06634) arXiv preprint, 2025.（分析 stochastic interpolant 如何增加有限資料下的 supervision coverage，並提供 $W_1$ 與 image-to-image experiments。）
+8. Bertrand, Q., Gagneux, A., Massias, M., Emonet, R. [*On the Closed-Form of Flow Matching: Generalization Does Not Arise from Target Stochasticity.*](https://proceedings.neurips.cc/paper_files/paper/2025/hash/0ca819b3e8126e19a008c38cd0c371ea-Abstract-Conference.html) NeurIPS 2025.（區分 noisy regression target 與 interpolant randomness，避免把不同來源的 stochasticity 混為一談。）

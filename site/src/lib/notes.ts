@@ -58,7 +58,6 @@ export const noteSlugList = [
   'dma-w4-2-conditional-flow-matching',
   'dma-w4-3-linear-path',
   'dma-w5-0-unified-equation',
-  'dma-w5-1-sampler-family',
   'dma-w4-5-lab',
   'dma-u1-u2-homework-a',
   'dma-u1-u2-homework-b',

@@ -83,7 +83,7 @@ absorbing 的 $Q_t=(1-\beta_t)I+\beta_t\mathbb 1e_m^{\!\top}$，`[MASK]` 那一�
 
 停下來對照 <Ref week="dma-week-diffusion"/>。DDPM 也是離散時間：$T=1000$ 步、每步一個 $\beta_t$、取樣器是「反著走 posterior」。<Ref to="dma-reverse-process"/> 遇到的問題和上面幾乎一樣——DDPM 與 DDIM 用同一個網路卻是兩種取樣器，「為什麼都對、差在哪」在 $T$ 步的語言裡說不清楚。
 
-解法是換成連續時間：forward 寫成 SDE $dx=f\,dt+g\,dW$，邊際 $p_t$ 的演化寫成 Fokker–Planck。有了這個語言之後，<Ref to="dma-sampler-family"/> 才能寫出一整族取樣器
+解法是換成連續時間：forward 寫成 SDE $dx=f\,dt+g\,dW$，邊際 $p_t$ 的演化寫成 Fokker–Planck。有了這個語言之後，<Ref to="dma-unified-equation"/> 才能寫出一整族取樣器
 
 $$
 dX_t=\big[b_t+\varepsilon_t s_t\big]dt+\sqrt{2\varepsilon_t}\,dW_t ,
@@ -116,7 +116,7 @@ $$
 有了這個物件，上面三個小問題會在接下來幾篇裡各得到一個短答案：
 
 - **改多少？** 是一個 rate $\sigma_t$，單位 1/時間（<Ref to="dma-remasking"/>）。
-- **會不會動到邊際？** 有一個和 <Ref to="dma-sampler-family"/> 逐字對應的條件，滿足它就不動（<Ref to="dma-remasking"/>）。
+- **會不會動到邊際？** 有一個和 <Ref to="dma-unified-equation"/> 逐字對應的條件，滿足它就不動（<Ref to="dma-remasking"/>）。
 - **能不能連續地調？** $\sigma_t$ 從 0 連續調上去，absorbing 是 $\sigma\equiv0$ 那一端（<Ref to="dma-remasking"/>）。
 
 順便，<Ref to="dma-discrete-data"/> 說 <Ref week="dma-week-diffusion"/> 的框架在離散世界裡真的壞掉的兩塊是 **score** 與 **ODE / SDE**。rate 的語言會把這兩塊重建回來：反向過程的 rate 裡會冒出一個扮演 score 角色的量——不是梯度，是**比值** $p_t(y)/p_t(x)$（<Ref to="dma-concrete-score"/>）；而 flow matching 那套「條件路徑 → 邊際速度」的建構，把速度換成 rate 之後逐字成立（<Ref to="dma-discrete-flow-matching"/>）。<Ref to="dma-discrete-data"/> 那張 2×2 的表，右下角那格這個單元填滿。
@@ -145,7 +145,7 @@ CTMC 是一個可以講一學期的主題。這個單元只用到四件事：rat
 2. **可以連續地調。** absorbing 是 $\sigma\equiv0$，加 remasking 是把 $\sigma$ 從 0 往上推——之間沒有斷點。離散時間裡「加一點」得先決定加在哪一步、加多少，那不是一個連續的設定。
 3. **同一個問題只要算一次。** 「這樣改會不會動到邊際？」在 rate 的語言裡是一條式子（<Ref to="dma-remasking"/>），在 $Q$ 的語言裡每換一次 $T$ 都得重算一次矩陣連乘。
 
-這和 <Ref week="dma-week-diffusion"/> 到 <Ref to="dma-sampler-family"/> 的過渡是**同一件事**：DDPM 的 $\beta_t$ 在 $T\to\infty$ 下就是 SDE 的 $g_t^2\,dt$，而「寫下一族邊際相同的取樣器」在 SDE 裡是一行、在 DDPM 裡要重推 posterior。
+這和 <Ref week="dma-week-diffusion"/> 到 <Ref to="dma-unified-equation"/> 的過渡是**同一件事**：DDPM 的 $\beta_t$ 在 $T\to\infty$ 下就是 SDE 的 $g_t^2\,dt$，而「寫下一族邊際相同的取樣器」在 SDE 裡是一行、在 DDPM 裡要重推 posterior。
 
 值得說清楚的是：**換語言沒有換掉任何數學**。同一條鏈在兩種語言裡是同一條鏈，離散時間也不是錯的。變的只是「問一個新問題要付多少力氣」。
 </Answer>
@@ -174,7 +174,7 @@ CTMC 是一個可以講一學期的主題。這個單元只用到四件事：rat
 </QuizBlock>
 
 <QuizBlock id="w7-0-c">
-<Ref to="dma-sampler-family"/> 那一族取樣器裡，$\varepsilon_t$ 可以任意選而邊際不變。這件事之所以能在連續世界裡**證明**，關鍵在於：
+<Ref to="dma-unified-equation"/> 那一族取樣器裡，$\varepsilon_t$ 可以任意選而邊際不變。這件事之所以能在連續世界裡**證明**，關鍵在於：
 <Option>SDE 的解可以寫成 closed form。</Option>
 <Option>所有取樣器都用同一個網路。</Option>
 <Option correct>有 Fokker–Planck 這個「邊際 $p_t$ 怎麼隨時間變」的方程式，可以直接把候選的取樣器代進去驗證。</Option>

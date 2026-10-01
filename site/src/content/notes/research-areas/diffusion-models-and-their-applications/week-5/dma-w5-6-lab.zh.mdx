@@ -9,9 +9,10 @@ title: "實作：把曲率積分畫成一條線"
 category: "courses"
 group: "Unit 3 · 更直、更快的生成路徑"
 status: "available"
-updated: 2026-09-21
+updated: 2026-09-30
 summary: "在同一個 toy 上分開量配對、曲率、solver 與取樣噪聲；先診斷誤差來源，再判斷 reflow、OT、ODE 或 SDE 哪一個真的有幫助。"
-demos: []
+demos:
+  - "notes/research_areas/diffusion-models-applications/w5-1-epsilon.html"
 references:
   - label: "Liu, Gong & Liu, Flow Straight and Fast: Rectified Flow (ICLR 2023)"
     href: "https://arxiv.org/abs/2209.03003"
@@ -120,6 +121,12 @@ def sde_step(x, t, h, eps_t):
     return x + h * (u + eps_t * s) + (2 * eps_t * h) ** 0.5 * torch.randn_like(x)
 ```
 
+在自己訓練之前，可以先用下面的 demo 分開看兩件事：調整 $c$ 會改變 trajectories 的抖動程度；按下「把所有樣本推歪」則可以測試 Langevin 項能否把偏差拉回來。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-1-epsilon.html" class="demo-frame" title="同一組 marginals，不同 sampling randomness" style="height: 1000px; width: 100%; border: none;"></iframe>
+
+理想 fields、連續時間下，不同 $\varepsilon_t$ 會共享同一組 marginals；demo 真正要比較的是 finite-step 與人為偏差出現後，ODE 和 SDE 如何累積或修正誤差。
+
 對 $\varepsilon\in\lbrace 0,\,0.1,\,0.5 \rbrace$ 與步數 $\lbrace 10,50,200,1000 \rbrace$ 算 $W_2$，畫成三條曲線。**先寫下你的猜測：這三條會不會交叉？** 這張圖要驗的是 <Ref to="dma-reverse-process"/> 的判準——不是「哪一個比較好」，而是「在這個設定下，哪一種誤差佔上風」。
 
 <Remark label="補充" summary="這一步很容易得到和文獻相反的結論，原因在哪">
@@ -127,12 +134,12 @@ def sde_step(x, t, h, eps_t):
 
 第一，**$\varepsilon_t$ 的尺度**。如果照 $\varepsilon_t=c\,\gamma_t^2$ 取而 $\gamma$ 又很小，那每步注入的噪聲 $\sqrt{2\varepsilon h}$ 就很小，而 score 那一項提供的是一個很強的收縮——這時候 SDE 幾乎在所有步數都比 ODE 好，因為它其實是一個更穩定的積分器，不是「多了噪聲」。要重現文獻的圖像，$\varepsilon$ 得取到 diffusion reverse SDE 那個量級。
 
-第二，**score 是精確的還是學出來的**。SDE 那一族的邊際不變性用到了 $s_t$ 是真正的 score（<Ref to="dma-sampler-family"/> 的證明只有那一步用到它）。$s_t$ 有誤差時，$\varepsilon$ 越大偏得越多——文獻上「多步 SDE 更好」的圖像其實同時包含了「噪聲能抵掉一部分網路誤差」，而 toy 上如果 score 幾乎精確，就看不到這一面。
+第二，**score 是精確的還是學出來的**。SDE 那一族的邊際不變性用到了 $s_t$ 是真正的 score（<Ref to="dma-unified-equation"/> 的證明只有那一步用到它）。$s_t$ 有誤差時，$\varepsilon$ 越大偏得越多——文獻上「多步 SDE 更好」的圖像其實同時包含了「噪聲能抵掉一部分網路誤差」，而 toy 上如果 score 幾乎精確，就看不到這一面。
 
 所以這一步的正確做法是：**先把 $\varepsilon$ 掃過一個大範圍**（不要只試一兩個值），並且**同時報告用精確 score 與用訓練 score 的兩組曲線**。得到和文獻不同的結論不一定是做錯了，但一定要說清楚是在哪個設定下量到的。
 </Remark>
 
-再做一件事：在 $t=0.3$ 對所有樣本注入 $+0.5$ 的人為偏移，看三條曲線終點的 $W_2$。$\varepsilon=0$ 的偏移會完整保留，$\varepsilon \gt 0$ 會被吸收掉一部分——<Ref to="dma-sampler-family"/> 的 demo 量過，吸收的程度取決於 $\varepsilon$ 的大小和剩下多少時間。
+再做一件事：在 $t=0.3$ 對所有樣本注入 $+0.5$ 的人為偏移，看三條曲線終點的 $W_2$。$\varepsilon=0$ 的偏移會完整保留，$\varepsilon \gt 0$ 會被吸收掉一部分；吸收的程度取決於 $\varepsilon$ 的大小和剩下多少時間。
 
 <Question id="Q1">
 圖 b 上有一個點明顯落在那條共線之上——同樣的曲率積分，誤差卻大了一截。

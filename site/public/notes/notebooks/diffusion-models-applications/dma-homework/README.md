@@ -4,6 +4,7 @@ Files in this directory are linked by the three student-facing homework candidat
 
 - `dma-u1-u2-homework-starter.ipynb`: shared Colab notebook and fixed six-section submission skeleton.
 - `dma_hw_starter.py`: deterministic cases, model, training, sampling, metrics, diagnostics, plotting, and budget guards.
+- `dma-u2-flow-matching-failure-homework.ipynb`: two-week, student-authored continuous-toy stress test for the shared Flow Matching framework.
 
 ## Instructor workflow
 

@@ -76,12 +76,12 @@ $u_t$ 是「一個被遮位置每單位時間翻開的比例」，翻成哪個�
 只做這一件事會壞掉一樣東西。反向鏈的邊際本來沿著 forward 的 $p_t$ 往回走（上一篇的驗證）；多一條把質量倒回 `[MASK]` 的管子，`[MASK]` 的比例會比 $1-\alpha_t$ 高，$x_t$ 的分佈變了，網路面對的是它沒訓過的輸入。<Ref to="dma-why-continuous-time"/> 的第 2 個小問題——會不會動到邊際——現在有了正面的答案：會。但也有補救。
 
 <Question id="Q1">
-在 absorbing 的反向鏈上加一條「回到 `[MASK]`」的 rate $\sigma_t$。**這對應 <Ref to="dma-sampler-family"/> 那一族取樣器裡的哪個設定？** 順著那個對應，能不能推出「加了 $\sigma_t$ 但邊際 $p_t$ 不變」的條件？
+在 absorbing 的反向鏈上加一條「回到 `[MASK]`」的 rate $\sigma_t$。**這對應 <Ref to="dma-unified-equation"/> 那一族取樣器裡的哪個設定？** 順著那個對應，能不能推出「加了 $\sigma_t$ 但邊際 $p_t$ 不變」的條件？
 
 <Answer>
 常見的答案會先分成「訓練時的 $\gamma_t$」與「取樣時的 $\varepsilon_t$」兩種，也有一種說法是「這是把 absorbing 變成 uniform」。第三個答案值得先處理：uniform 的修正能力來自 **forward chain**——訓練時 $x_t$ 裡就有被換掉的字，模型學的是「哪些字是噪聲」；remasking 沒有動 forward，訓練分佈裡從來沒有「被重遮的字」這種東西，所以它不是 uniform。
 
-答案是 **$\varepsilon_t$：取樣器的噪聲。** 對照 <Ref to="dma-sampler-family"/> 那一族
+答案是 **$\varepsilon_t$：取樣器的噪聲。** 對照 <Ref to="dma-unified-equation"/> 那一族
 
 $$
 dX_t=\big[b_t+\varepsilon_t s_t\big]dt+\sqrt{2\varepsilon_t}\,dW_t ,
@@ -121,7 +121,7 @@ $$
 
 ## 這條管子要付什麼？
 
-有了對應，<Ref to="dma-sampler-family"/> 與 <Ref to="dma-error-theory"/> 對 $\varepsilon_t$ 說過的每一句話都可以直接搬過來。
+有了對應，<Ref to="dma-unified-equation"/> 與 <Ref to="dma-error-theory"/> 對 $\varepsilon_t$ 說過的每一句話都可以直接搬過來。
 
 **修正的機制。** 一個在早期翻錯的字，以 rate $\sigma_t$ 有機會被遮回去；重新翻開時，網路看到的 context 比第一次完整，$p_\theta$ 更準。這正是 Langevin 項「偏離的樣本被 score 拉回 $p_t$」的離散版——不同的是這裡沒有「偏離多遠」的度量，只有「對或錯」，修正是離散的。
 
@@ -145,7 +145,7 @@ demo 裡有一個「有誤差的網路」開關（把 $p_\theta$ 往均勻分布
 
 ## 兩個設定，現在分開了
 
-<Ref to="dma-absorbing-vs-uniform"/> 把 absorbing / uniform 對到 ODE / SDE，並說這個對應「不完全」——uniform 的代價是每步都要重新判斷什麼是噪聲，而且這個代價不隨步數變小。現在可以說清楚為什麼不完全：**uniform 的修正能力是訓練噪聲**（forward chain 裡的隨機替換），**remasking 的修正能力是取樣噪聲**（反向鏈裡的 $\sigma_t$）。<Ref to="dma-sampler-family"/> 的 Q1 說這是兩個獨立的設定：訓練噪聲決定 $p_t$ 長什麼樣、以及你能學到什麼；取樣噪聲決定你怎麼走。而取樣噪聲正是這門課數到現在的**第五個設定**——<Ref to="dma-fm-vs-diffusion"/> 的起點、路徑、配對都在 reference process 裡，訓練加權則在 objective 裡；$\varepsilon_t$ 是第一個完全不碰訓練的。remasking 就是它的離散版。
+<Ref to="dma-absorbing-vs-uniform"/> 把 absorbing / uniform 對到 ODE / SDE，並說這個對應「不完全」——uniform 的代價是每步都要重新判斷什麼是噪聲，而且這個代價不隨步數變小。現在可以說清楚為什麼不完全：**uniform 的修正能力是訓練噪聲**（forward chain 裡的隨機替換），**remasking 的修正能力是取樣噪聲**（反向鏈裡的 $\sigma_t$）。<Ref to="dma-unified-equation"/> 已經分清這兩個獨立的設定：訓練噪聲決定 $p_t$ 長什麼樣、以及你能學到什麼；取樣噪聲決定你怎麼走。而取樣噪聲正是這門課數到現在的**第五個設定**——<Ref to="dma-fm-vs-diffusion"/> 的起點、路徑、配對都在 reference process 裡，訓練加權則在 objective 裡；$\varepsilon_t$ 是第一個完全不碰訓練的。remasking 就是它的離散版。
 
 在連續世界裡 diffusion 的 Gaussian noise 同時扮演了兩個角色（起點分佈是 Gaussian、天然有 score），所以設定分不分開不那麼顯眼。在離散世界裡兩者的差別很明顯：uniform 把噪聲放進訓練分佈，模型必須學會分辨噪聲字（context 不乾淨）；remasking 把噪聲放進取樣器，訓練分佈裡只有 `[MASK]`（context 乾淨），而修正能力照樣有。**<Ref to="dma-absorbing-vs-uniform"/> 的問題「能不能兩個都要」，答案是可以，而且理由就是兩個設定本來就是分開的。**
 
@@ -193,7 +193,7 @@ Remasking 保持邊際的條件 $u'_t=u_t+\sigma_t\frac{\alpha_t}{1-\alpha_t}$�
 <Option correct>修正能力可以來自取樣器（$\sigma_t$）而不必來自 forward chain；訓練噪聲與取樣噪聲是兩個獨立的設定，uniform 把噪聲放在前者、remasking 放在後者。</Option>
 <Option>因為 `[MASK]` 是吸收態。</Option>
 <Explanation>
-<Ref to="dma-sampler-family"/> Q1 的結論在離散世界裡變得特別明顯：訓練分佈裡只有 `[MASK]`（context 乾淨），修正由取樣器提供。`[MASK]` 是吸收態這件事本身正是「不能修正」的來源，是 remasking 要繞開的，不是它的理由。
+<Ref to="dma-unified-equation"/> 對訓練 randomness 與 sampling randomness 的區分，在離散世界裡變得特別明顯：訓練分佈裡只有 `[MASK]`（context 乾淨），修正由取樣器提供。`[MASK]` 是吸收態這件事本身正是「不能修正」的來源，是 remasking 要繞開的，不是它的理由。
 </Explanation>
 </QuizBlock>
 
