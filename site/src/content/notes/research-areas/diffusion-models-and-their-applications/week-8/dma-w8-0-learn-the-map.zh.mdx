@@ -40,7 +40,7 @@ import Ref from '../../../components/Ref.astro';
 # 不走了，直接學那一步
 
 <Objectives>
-- **說出速度場路線的一步天花板。** 用曲率積分解釋：只要軌跡還有彎，一步 Euler 就仍有誤差。
+- **說出速度場路線的一步天花板。** 用加速度積分解釋：只要 velocity 沿 trajectory 仍會改變，一步 Euler 就仍有誤差。
 - **說出直接學 flow map 的做法與代價。** 分析 teacher 造 ODE 配對後回歸終點，並與 <Ref to="dma-rectified-flow"/> 的 reflow 對照。
 - **在兩套時間座標間翻譯。** 分清 FM 的「噪聲 $\to$ 資料」與本單元 $t=0$ 為資料、$t$ 大為噪聲的慣例。
 </Objectives>
@@ -49,7 +49,7 @@ import Ref from '../../../components/Ref.astro';
 
 ## 路已經拉直，為什麼一步還是不準？
 
-<Ref to="dma-error-theory"/> 把三個單元的主線收在一條不等式上：Euler 取樣的全域誤差 $\lesssim C_L\,h\int_0^1\|\ddot x_t\|\,dt$。步長 $h$ 是預算，積分是軌跡有多彎。<Ref to="dma-rectified-flow"/> 與 <Ref to="dma-minibatch-ot"/> 接著做了一件事：改配對，把積分壓小。<Ref to="dma-lab-interpolants"/> 的圖 b 上，四個模型落在一條斜線上——積分小的，同樣步數誤差就小。
+<Ref to="dma-error-theory"/> 把三個單元的主線收在一條不等式上：Euler 取樣的全域誤差 $\lesssim C_L\,h\int_0^1\|a_t(x_t)\|\,dt$。步長 $h$ 是預算，積分量的是沿 trajectory 累積了多少 velocity 變化，包括方向改變、加速與減速。<Ref to="dma-rectified-flow"/> 與 <Ref to="dma-minibatch-ot"/> 接著做了一件事：改配對，把積分壓小。<Ref to="dma-lab-interpolants"/> 的圖 b 上，四個模型落在一條斜線上——積分小的，同樣步數誤差就小。
 
 現在把這條斜線往左看到底。積分**恰好是零**只有一種情形：所有粒子沿等速直線走，$S(\pi)=0$。reflow 迭代的極限逼近它，但每一輪都在累積上一輪的模型誤差，實務上一到兩輪就停；停下來的時候積分還不是零。而只要它不是零，$h=1$——一步——就一定有誤差，不等式只告訴你誤差有多小，沒有辦法讓它消失。
 
@@ -150,10 +150,10 @@ Tweedie：對 $p_t(x)=\int\mathcal N(x;x_0,t^2I)\,p_{\text{data}}(x_0)\,dx_0$ �
 <QuizBlock id="w8-0-a">
 「直接學 flow map」與「先學速度場再積分」的根本差別是：
 <Option>前者不需要訓練資料。</Option>
-<Option correct>前者的輸出本身就是終點，不經過任何數值積分，所以沒有「每一段假設是直線」的離散誤差；後者即使軌跡很直，只要曲率積分不是零，一步就有誤差。</Option>
+<Option correct>前者的輸出本身就是終點，不經過任何數值積分，所以沒有「一步內假設 velocity 不變」的離散誤差；後者即使軌跡是直線，只要速度大小仍會改變、加速度積分不是零，一步就有誤差。</Option>
 <Option>前者學到的映射比較多樣。</Option>
 <Explanation>
-兩者都要訓練資料。「多樣性」不是差別——ODE 誘導的映射是確定的，兩者學的都是同一個 $\psi_{0\to1}$。差別是有沒有離散化這一步：學速度場的路上，一步生成只能是曲率積分趨近零的極限；直接學映射則把離散誤差整個繞掉，代價換成別的（接下來幾篇會看到）。
+兩者都要訓練資料。「多樣性」不是差別——ODE 誘導的映射是確定的，兩者學的都是同一個 $\psi_{0\to1}$。差別是有沒有離散化這一步：學速度場的路上，一步生成只能是加速度積分趨近零的極限；直接學映射則把離散誤差整個繞掉，代價換成別的（接下來幾篇會看到）。
 </Explanation>
 </QuizBlock>
 

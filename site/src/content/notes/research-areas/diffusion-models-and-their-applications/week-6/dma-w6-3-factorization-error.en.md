@@ -5,7 +5,7 @@ prereqs:
   - math-kl
   - math-conditional-expectation
 lang: "en"
-title: "因子化誤差：離散世界的曲率"
+title: "因子化誤差：離散取樣一步走太大的代價"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion I"
 status: "missing"

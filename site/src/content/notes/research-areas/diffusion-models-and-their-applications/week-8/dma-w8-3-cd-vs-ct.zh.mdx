@@ -40,7 +40,7 @@ import Ref from '../../../components/Ref.astro';
 <Objectives>
 - **寫出 CD 與 CT 的相鄰點。** 分清 teacher 的 Euler 一步，與同一組 $(x_0,\epsilon)$ 在另一時刻重新合成。
 - **證明 CT 為什麼可行。** 對條件目標取後驗平均，得到真實 score 的 Euler 一步，並連回 conditional trick。
-- **說出 CT 的 bias–variance 取捨。** 找出非線性與曲率造成的 bias，並解釋時間網格為什麼需要 curriculum。
+- **說出 CT 的 bias–variance 取捨。** 找出非線性與一步內 velocity 變化造成的 bias，並解釋時間網格為什麼需要 curriculum。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -61,7 +61,7 @@ $$
 \hat x^{\text{CD}}_{t_n}=x_{t_{n+1}}+(t_{n+1}-t_n)\,t_{n+1}\,s_\phi(x_{t_{n+1}},t_{n+1}) .
 $$
 
-（$t_n<t_{n+1}$，所以是往回走；用 $\mathbb E[\epsilon\mid x]=-t\nabla\log p_t$ 改寫成 $x_{t_{n+1}}-(t_{n+1}-t_n)\,\hat\epsilon_\phi$ 也一樣。）這個點與真實 $x_{t_n}$ 差了兩件事：teacher 的 score 誤差，以及 Euler 一步的局部誤差 $\tfrac12\Delta t^2\|\ddot x\|$——<Ref to="dma-error-theory"/> 的那個量，$\Delta t=t_{n+1}-t_n$。**這是一個蒸餾**：它把 teacher 的知識、一小步一小步地，壓進 $f_\theta$。
+（$t_n<t_{n+1}$，所以是往回走；用 $\mathbb E[\epsilon\mid x]=-t\nabla\log p_t$ 改寫成 $x_{t_{n+1}}-(t_{n+1}-t_n)\,\hat\epsilon_\phi$ 也一樣。）這個點與真實 $x_{t_n}$ 差了兩件事：teacher 的 score 誤差，以及 Euler 一步的局部誤差 $\tfrac12\Delta t^2\|a_t(x_t)\|$——<Ref to="dma-error-theory"/> 的那個量，$\Delta t=t_{n+1}-t_n$。**這是一個蒸餾**：它把 teacher 的知識、一小步一小步地，壓進 $f_\theta$。
 
 **Consistency training（CT）。** 沒有 teacher。注意到 $x_{t_{n+1}}$ 本來就是用某一組 $(x_0,\epsilon)$ 造出來的，那就**用同一組**，在 $t_n$ 再造一次：
 
@@ -107,7 +107,7 @@ $$
 
 差多少？$x_0+t_n\epsilon$ 在給定 $x_{t_{n+1}}$ 下的條件變異數是 $\Delta t^2\,\mathrm{Var}(\epsilon\mid x_{t_{n+1}})$，Jensen gap 的量級是 $\Delta t^2$ 乘 $f$ 的二階導數。這是 $O(\Delta t^2)$ 的東西——**隨 $\Delta t\to0$ 消失**，但 $\Delta t$ 大時不能忽略。
 
-*細節二：Euler 本身相對真實軌跡就有誤差。* 就算完美地平均成 $\hat x^{\text{CD}}_{t_n}$，它也只是真實 $x_{t_n}$ 的一步 Euler 近似，差 $\tfrac12\Delta t^2\|\ddot x\|$。這一項 CD 也有；它是 <Ref to="dma-error-theory"/> 的局部誤差，係數是**曲率**，同樣隨 $\Delta t\to0$ 消失。
+*細節二：Euler 本身相對真實軌跡就有誤差。* 就算完美地平均成 $\hat x^{\text{CD}}_{t_n}$，它也只是真實 $x_{t_n}$ 的一步 Euler 近似，差 $\tfrac12\Delta t^2\|a_t(x_t)\|$。這一項 CD 也有；它是 <Ref to="dma-error-theory"/> 的局部誤差，係數是**acceleration**，同樣隨 $\Delta t\to0$ 消失。
 
 兩項合起來，就是 Song et al. [1] 那條定理的精神：**在 $\Delta t\to0$ 時，CT 的損失與（用真實 score 的）CD 損失只差 $o(\Delta t)$**，兩者訓出同一個 $f$。（定理的精確條件——$d$ 的形式、對 $f$ 的 Lipschitz 與二階可微假設、$\theta^-=\theta$——請查原文；這裡只用它的結論。）
 
@@ -117,13 +117,13 @@ $$
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/week-8/w8-3-1.html" class="demo-frame" title="CT 條件目標、Euler 與真實軌跡：互動 demo" style="height: 930px; width: 100%; border: none;"></iframe>
 
-**互動 demo：條件目標的扇形。** 調整 $\Delta t$ 與曲率，單筆 CT 目標、後驗平均的 Euler 點、真實軌跡點會分開或重合；右側同時顯示 bias 約為 $O(\Delta t^2)$、條件目標標準差約為 $O(\Delta t)$。
+**互動 demo：條件目標的扇形。** 調整 $\Delta t$ 與 trajectory 的彎曲幅度 $k$，單筆 CT 目標、後驗平均的 Euler 點、真實軌跡點會分開或重合；右側同時顯示 bias 約為 $O(\Delta t^2)$、條件目標標準差約為 $O(\Delta t)$。這裡的 $k$ 是 toy path 的係數，不是 geometric curvature $\kappa=\|\mathrm dT/\mathrm ds\|$。
 
 ## 為什麼時間網格要慢慢變細
 
 Q1 的兩個細節給了一張很實用的圖。固定一個 $x_{t_{n+1}}$，看 CT 那一側的目標 $f_{\theta^-}(x_0+t_n\epsilon,t_n)$：
 
-- 它的**期望**偏離真實的 $f(x_{t_n},t_n)$，偏離量是 $O(\Delta t^2)$ 乘上曲率（Euler 誤差）與 $f$ 的二階導數（Jensen gap）。這是 **bias**。$N$ 個網格點的 bias 疊起來，整個 $f_\theta$ 偏離真值 $O(\Delta t)$——這是 Song et al. [1] 定理裡「CD 損失為零則 $\|f_\theta-f\|=O(\Delta t)$」的內容，係數由曲率決定。
+- 它的**期望**偏離真實的 $f(x_{t_n},t_n)$，偏離量是 $O(\Delta t^2)$ 乘上 acceleration（Euler 誤差）與 $f$ 的二階導數（Jensen gap）。這是 **bias**。$N$ 個網格點的 bias 疊起來，整個 $f_\theta$ 偏離真值 $O(\Delta t)$——這是 Song et al. [1] 定理裡「CD 損失為零則 $\|f_\theta-f\|=O(\Delta t)$」的內容，係數受到沿 trajectory 的 velocity 變化控制。
 - 它的**散佈**來自不同的 $(x_0,\epsilon)$ 退向不同方向，標準差是 $O(\Delta t)$。這是 **variance**。
 
 單看兩項都隨 $\Delta t$ 變小，似乎 $\Delta t$ 越小越好。但損失比較的是 $f_\theta(x_{t_{n+1}})$ 與 $f_{\theta^-}(\hat x_{t_n})$ 的**差**，這個差本身在 $\Delta t\to0$ 時也趨近零——真正有資訊的訊號（兩點輸出的真實差距）是 $O(\Delta t)$ 量級，而目標的 noise 也是 $O(\Delta t)$。$\Delta t$ 一小，**訊噪比不再改善**，梯度被 variance 主導，訓練變慢、甚至不收斂 [1, 2]。
@@ -131,7 +131,7 @@ Q1 的兩個細節給了一張很實用的圖。固定一個 $x_{t_{n+1}}$，看
 於是有一個真正的取捨：$\Delta t$ 大（$N$ 小）→ 訊號強、好訓，但 bias 大，$f_\theta$ 學到的是「假設每一段是直線」的錯誤終點；$\Delta t$ 小（$N$ 大）→ bias 小，但訊號被淹沒。Song et al. 的解法是**時間網格的 curriculum**：訓練初期用小 $N$（$N=2$ 起），$f_\theta$ 快速學到一個粗糙但方向正確的版本；然後逐步增加 $N$（到 150 或更多），每次加細都在把上一階段的 bias 消掉，而因為 $f_\theta$ 已經接近真值、相鄰兩點的輸出已經很接近，variance 造成的擾動相對可控。改進版本 [2] 把這條 curriculum 改成指數成長（$N$ 每隔固定步數翻倍，到 1280），這是下一篇的內容。
 
 <Details summary="「CT 的目標其實是假設這一段是直線」——把 Q1 接回配對交叉">
-Q1 裡三個點的幾何值得再說一次。從 $x_{t_{n+1}}$ 往乾淨端走 $\Delta t$：CT 走的是**這一筆條件直線的方向 $-\epsilon$**；Euler 走的是**經過此點的所有條件直線方向的後驗平均 $-\mathbb E[\epsilon\mid x_{t_{n+1}}]$**；真實軌跡走的是一段**曲線**。前兩者都是直線，差別在方向是「自己的」還是「平均的」——這正是 <Ref to="dma-fm-vs-diffusion"/> Q1 的圖：條件直線交叉，邊際速度是交叉處的平均，邊際軌跡因此彎曲。CT 的 bias 有兩層：條件方向對平均方向的偏差（零均值、進 variance）、平均方向的直線對曲線的偏差（不是零均值、進 bias）。第二層就是 <Ref to="dma-error-theory"/> 的曲率積分在 CM 裡的樣子。
+Q1 裡三個點的幾何值得再說一次。從 $x_{t_{n+1}}$ 往乾淨端走 $\Delta t$：CT 走的是**這一筆條件直線的方向 $-\epsilon$**；Euler 走的是**經過此點的所有條件直線方向的後驗平均 $-\mathbb E[\epsilon\mid x_{t_{n+1}}]$**；真實軌跡則讓 velocity 沿途繼續改變。前兩者的差別在方向是「自己的」還是「平均的」——這正是 <Ref to="dma-fm-vs-diffusion"/> Q1 的圖。CT 的 bias 有兩層：條件方向對平均方向的偏差（零均值、進 variance）、把後續 velocity 固定在起點值所造成的 Euler 誤差（不是零均值、進 bias）。第二層就是 <Ref to="dma-error-theory"/> 的 acceleration term 在 CM 裡的樣子。
 
 反過來想：如果配對是不交叉的（<Ref to="dma-rectified-flow"/> reflow 之後、或 <Ref to="dma-minibatch-ot"/> 的 OT 配對），條件直線幾乎就是邊際軌跡，CT 的目標就幾乎落在軌跡上，bias 幾乎為零、不需要小 $\Delta t$。這解釋了為什麼「先拉直、再做 CT」在實務上是一個常見的組合。
 </Details>
@@ -144,7 +144,7 @@ Q1 裡三個點的幾何值得再說一次。從 $x_{t_{n+1}}$ 往乾淨端走 $
 |---|---|---|
 | $\hat x_{t_n}$ | teacher 走一步 Euler | 同一組 $(x_0,\epsilon)$ 在 $t_n$ 重加噪 |
 | 需要 | 訓好的 teacher（每步多一次網路呼叫） | 只要資料 |
-| $\hat x_{t_n}$ 的誤差 | teacher 誤差 $+$ Euler 曲率誤差 | Euler 曲率誤差 $+$ 條件目標的 variance（$+$ 非線性的 Jensen gap） |
+| $\hat x_{t_n}$ 的誤差 | teacher 誤差 $+$ Euler acceleration error | Euler acceleration error $+$ 條件目標的 variance（$+$ 非線性的 Jensen gap） |
 | 上限 | teacher | 資料分佈本身 |
 | 對 $N$ 的敏感度 | 較低（目標是確定的） | 高（bias–variance 取捨，需要 curriculum） |
 
@@ -185,7 +185,7 @@ CT 的時間網格 $N$ 為什麼要從小到大做 curriculum，而不是一開�
 <QuizBlock id="w8-3-d">
 「CT 的目標其實是假設這一段是直線」這句話裡，「直線」指的是：
 <Option>PF-ODE 的邊際軌跡是直線。</Option>
-<Option correct>從 $x_{t_{n+1}}$ 退到 $\hat x_{t_n}$ 走的是直線（CT 沿自己的 $-\epsilon$、Euler 沿平均方向），而真實軌跡在這一段是彎的；彎與直的差就是 $\tfrac12\Delta t^2\|\ddot x\|$ 的 bias。</Option>
+<Option correct>從 $x_{t_{n+1}}$ 退到 $\hat x_{t_n}$ 時，CT 與 Euler 都把 velocity 固定成一個常向量；真實 trajectory 的 velocity 卻會繼續改變。漏掉的變化在局部給出約 $\tfrac12\Delta t^2\|a_t(x_t)\|$ 的 bias。</Option>
 <Option>網路 $f_\theta$ 是線性函數。</Option>
 <Explanation>
 邊際軌跡恰恰**不是**直線——那是 <Ref to="dma-fm-vs-diffusion"/> Q1 的結論；$f_\theta$ 也不是線性的（線性才不會有 Jensen gap）。「直線」說的是一步的走法：CT 與 Euler 都用一條直線代替一小段曲線，差別只在方向是自己的還是平均的。

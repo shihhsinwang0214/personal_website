@@ -32,7 +32,7 @@
 </head>
 <body>
 <div class="card">
-  <p class="goal">學習目標：<b>只換配對，兩端的分布完全不動。</b> 每一輪用上一輪的 ODE 終點當新的配對，條件直線就越來越不交叉——運輸成本、straightness、少步數誤差三個數會一起往下走。</p>
+  <p class="goal">學習目標：<b>只換配對，兩端的分布完全不動。</b> 每一輪用上一輪的 ODE 終點當新的配對，觀察 reference directions 的 disagreement、運輸成本與少步數誤差如何改變。</p>
 
   <canvas id="cv" width="560" height="560" aria-label="這一輪的配對與 ODE 軌跡"></canvas>
   <p class="cap">綠細線＝這一輪的配對直線　靛／金粗線＝這一輪訓出來的邊際 ODE 軌跡　藍點＝起點　橘點＝終點</p>
@@ -54,13 +54,13 @@
     </div>
     <div class="stats">
       <span>運輸成本 E‖x₁−x₀‖² = <b id="vc">—</b></span>
-      <span>straightness S = <b id="vst">—</b></span>
+      <span>direction disagreement V = <b id="vst">—</b></span>
       <span>1 步 Euler 的誤差 = <b id="ve">—</b></span>
       <span>終點分布與資料的距離 = <b id="vm">—</b></span>
     </div>
   </div>
 
-  <p class="observe">從第 0 輪按到第 3 輪：配對直線從交錯成一團變得<b>幾乎互不相交</b>，ODE 軌跡也跟著變直。<b>第一輪就吃掉大部分的好處</b>：straightness 從約 1.4 掉到 0.03、1 步 Euler 的誤差從約 1.4 掉到 0.1（十幾倍），運輸成本從約 4.0 掉到 0.6；第二、三輪只再擠出一點。同時<b>終點分布與資料的距離一直在 0.01 以下</b>（和第 0 輪的 0 相比可以忽略）——改善不是靠犧牲樣本品質換來的，這就是「保邊際」那條性質。</p>
+  <p class="observe">從第 0 輪按到第 3 輪：配對直線從交錯成一團變得<b>幾乎互不相交</b>。在這組 toy 裡，第一輪就讓 direction disagreement 從約 1.4 掉到 0.03、1 步 Euler 誤差從約 1.4 掉到 0.1，運輸成本則從約 4.0 掉到 0.6；同時<b>終點分布與資料的距離一直在 0.01 以下</b>。</p>
 </div>
 
 <script src="./_demo-common.js"></script>
@@ -111,7 +111,7 @@
       var dx = B[i][0] - A[i][0], dy = B[i][1] - A[i][1];
       cost += dx * dx + dy * dy;
     }
-    // S = ∫ E‖(x1−x0) − v_t(x_t)‖² dt，t 取 TT 個格點
+    // V = ∫ E‖(x1−x0) − E[x1−x0 | x_t]‖² dt，t 取 TT 個格點
     for (var q = 0; q < TT; q++) {
       var t = (q + 0.5) / TT;
       for (i = 0; i < NP; i += 2) {

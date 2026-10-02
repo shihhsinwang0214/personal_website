@@ -102,7 +102,7 @@ $$
 
 這和 <Ref to="dma-rectified-flow"/> 說的 reflow 代價是同一件事：「第 $k$ 輪的配對來自第 $k-1$ 輪模型的 ODE 解，模型誤差與數值誤差一起進入下一輪的訓練資料」。兩者都是**一連串蒸餾**，每一輪的老師是上一輪的學生。差別是每一輪在學什麼——reflow 每輪學一個更直的速度場，PD 每輪學一個步長翻倍的跳躍。
 
-還有一個更細的觀察。前幾輪（$N$ 很大、$\Delta$ 很小）幾乎沒有東西要學：teacher 的兩小步本來就接近一大步，因為那一段軌跡幾乎是直線。真正困難的是**最後幾輪**：從 4 步到 2 步、從 2 步到 1 步，這時一步要跨過整條軌跡最難學的中段。<Ref to="dma-error-theory"/> 的曲率在這裡以另一種形式回來——不是 Euler 的離散誤差，而是「這一大步的 flow map 有多難用網路表達」。實務上 PD 蒸餾到 4 步左右品質仍好，1 步明顯下降 [1]。
+還有一個更細的觀察。前幾輪（$N$ 很大、$\Delta$ 很小）幾乎沒有東西要學：teacher 的兩小步本來就接近一大步，因為那一小段的 velocity 幾乎不變。真正困難的是**最後幾輪**：從 4 步到 2 步、從 2 步到 1 步，這時一步要跨過整條軌跡最難學的中段。<Ref to="dma-error-theory"/> 的問題在這裡以另一種形式回來——不再是 Euler 的離散誤差，而是「這一大步的 flow map 有多難用網路表達」。實務上 PD 蒸餾到 4 步左右品質仍好，1 步明顯下降 [1]。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/week-8/w8-1-1.html" class="demo-frame" title="逐輪減半：學生的一步對齊老師的兩步：互動 demo" style="height: 900px; width: 100%; border: none;"></iframe>
 
@@ -146,7 +146,7 @@ PD 的回歸目標是確定的（給定 $x_t$ 只有一個答案），這件事�
 <Option correct>最後幾輪（例如 $4\to2\to1$），因為一步要跨過整條軌跡最難學的中段，那個 flow map 最難用網路表達。</Option>
 <Option>每一輪一樣困難。</Option>
 <Explanation>
-$N$ 很大時相鄰兩小步幾乎共線，合成一大步幾乎不用學；越到後面，一步跨越的曲率越多。曲率在這裡換成了「表達難度」，不是「Euler 離散誤差」。
+$N$ 很大時相鄰兩小步的 velocity 幾乎不變，合成一大步幾乎不用學；越到後面，一步跨過的非線性越多。這裡談的是 flow map 的表達難度，不是 geometric curvature，也不是 Euler 的離散誤差。
 </Explanation>
 </QuizBlock>
 

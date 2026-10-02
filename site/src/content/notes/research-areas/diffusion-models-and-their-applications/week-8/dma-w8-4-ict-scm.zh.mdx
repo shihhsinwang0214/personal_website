@@ -120,7 +120,7 @@ $$
 \boxed{\;\frac{d}{dt}f(x_t,t)=\partial_t f(x_t,t)+\nabla_x f(x_t,t)\cdot\frac{dx_t}{dt}=0\;}\qquad\text{沿每一條 PF-ODE 軌跡}.
 $$
 
-這是這一篇唯一的新物件。逐項讀：第一項是「時間往前走、位置不動」時 $f$ 的變化；第二項是「位置隨軌跡移動」帶來的變化，$\frac{dx_t}{dt}$ 是 PF-ODE 的速度（本單元座標下 $=\mathbb E[\epsilon\mid x_t]$）。兩項要**恰好相消**。<Ref to="dma-error-theory"/> 裡出現過同一個算子——那裡是對速度場 $u$ 取 $\partial_t u+(u\cdot\nabla)u$ 得到加速度；這裡是對 $f$ 取，得到「$f$ 沿軌跡的漂移」。
+這是這一篇唯一的新物件。逐項讀：第一項是「時間往前走、位置不動」時 $f$ 的變化；第二項是「位置隨軌跡移動」帶來的變化，$\frac{dx_t}{dt}$ 是 PF-ODE 的速度（本單元座標下 $=\mathbb E[\epsilon\mid x_t]$）。兩項要**恰好相消**。<Ref to="dma-error-theory"/> 裡出現過同一個算子——那裡是對速度場 $v$ 取 $\partial_t v+(v\cdot\nabla)v$ 得到加速度；這裡是對 $f$ 取，得到「$f$ 沿軌跡的漂移」。
 
 Song et al. [3] 已經推出：$\ell_2$ 版的 CM 損失在 $N\to\infty$ 時，梯度趨近
 
@@ -128,7 +128,7 @@ $$
 \nabla_\theta\ \mathbb E\Big[f_\theta(x_t,t)^{\!\top}\ \frac{d}{dt}f_{\theta^-}(x_t,t)\Big]
 $$
 
-（$\theta^-$ 側的全導數不回傳梯度）。把它推到零，就是要 $f_\theta$ 沿軌跡的全導數為零。這個目標**沒有 $\Delta t$**：Euler 的曲率誤差、Jensen gap，兩個 $O(\Delta t^2)$ 的 bias 來源在極限裡一起消失。
+（$\theta^-$ 側的全導數不回傳梯度）。把它推到零，就是要 $f_\theta$ 沿軌跡的全導數為零。這個目標**沒有 $\Delta t$**：Euler 漏掉 velocity 變化的誤差、Jensen gap，兩個 $O(\Delta t^2)$ 的 bias 來源在極限裡一起消失。
 
 那要怎麼在沒有 teacher 的情形下算 $\frac{dx_t}{dt}$？和上一篇一樣，用 <Ref to="dma-denoising-regression"/> 的 **conditional trick**。$x_t=x_0+t\epsilon$ 對 $t$ 微分，條件速度是 $\epsilon$ 本身。而 $\frac{d}{dt}f=\partial_tf+\nabla_xf\cdot\dot x_t$ **對 $\dot x_t$ 是線性的**，所以用 $\epsilon$ 代替 $\mathbb E[\epsilon\mid x_t]$ 後取期望是**精確的**——連上一篇那個 Jensen gap 都沒有了，因為現在條件量不再被包在非線性函數裡面，而是線性地進入一個乘積。連續時間 CT 在這裡又多賺一項。
 
@@ -208,7 +208,7 @@ $$
 | $\lambda=1/\Delta t$、adaptive weighting | iCT / sCM | variance（均衡） | 不同 $t$ 的損失拉到同一尺度 |
 | Lognormal 時間取樣 | iCT | variance（預算） | 把樣本放在 $f$ 真正在變的中段 |
 | $N$ 指數 curriculum | CM / iCT | bias↔variance | 先強訊號、再逐步消 bias |
-| $\Delta t\to0$（連續時間） | CM / sCM | **bias** | 消掉 Euler 曲率誤差與 Jensen gap |
+| $\Delta t\to0$（連續時間） | CM / sCM | **bias** | 消掉 Euler acceleration error 與 Jensen gap |
 | 條件速度代 $\dot x_t$ | sCT | — | 線性進入全導數，期望精確 |
 | Tangent normalization / clipping | sCM | variance | 只改權重不改方向 |
 | Tangent warmup、時間 embedding、double normalization | sCM | variance（$\frac{dF}{dt}$ 的穩定） | 讓 $f$ 對 $t$ 平滑 |
@@ -253,7 +253,7 @@ TrigFlow 用 $x_t=\cos t\,x_0+\sin t\,z$、$f_\theta=\cos t\,x_t-\sin t\,\sigma_
 <Option>同一個 $F_\theta$ 也是 PF-ODE 的速度參數化，diffusion 模型與 consistency model 共用網路形式。</Option>
 <Option correct>它讓 PF-ODE 的軌跡變成直線，一步 Euler 就精確。</Option>
 <Explanation>
-TrigFlow 只是換座標——三角時間與 EDM 時間差一個 $\tan$——邊際軌跡的彎曲不會因為換座標而消失（<Ref to="dma-linear-path"/>：同一物件、不同座標）。它改善的是參數化的數值行為與網路共用，不是曲率。
+TrigFlow 只是換座標——三角時間與 EDM 時間差一個 $\tan$——邊際 trajectory 上的 velocity 變化不會因為換座標就自動消失（<Ref to="dma-linear-path"/>：同一物件、不同座標）。它改善的是參數化的數值行為與網路共用，不是在最小化 geometric curvature 或加速度積分。
 </Explanation>
 </QuizBlock>
 

@@ -9,8 +9,8 @@ title: "拉直（一）：讓模型自己生出配對"
 category: "courses"
 group: "Unit 3 · 更直、更快的生成路徑"
 status: "available"
-updated: 2026-09-21
-summary: "讓模型先跑一次 ODE，再把同一起點與終點配回去重訓。這個 reflow 迴圈保留端點分布、通常大幅減少交錯，但不保證每一輪都更直，也不保證得到 OT。"
+updated: 2026-10-02
+summary: "先讓目前的 ODE 產生終點，再把同一起點與新終點配回去重訓。這個 reflow 迴圈在理想情況下保留邊際、降低凸運輸成本，並逐步找到更直的 flow。"
 demos: []
 references:
   - label: "Liu, Gong & Liu, Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow (ICLR 2023)"
@@ -38,42 +38,42 @@ import Ref from '../../../components/Ref.astro';
 
 <Objectives>
 - **寫出一輪 rectification。** 從舊配對學速度、跑 ODE，再把同一起點與新終點當成下一輪配對。
-- **說出 reflow 保證什麼、不保證什麼。** 它保邊際且不增加凸運輸成本；ODE 軌跡不交叉，但端點的直線弦仍可能交叉。
-- **定義 straightness 並讀懂 $O(1/K)$ 保證。** 前 $K$ 輪中至少有一輪很直，不代表每輪單調改善或極限一定是 OT。
+- **說出 rectification 保證什麼。** 在理想 velocity 與精確 ODE 下，新配對保留兩端 marginals，而且不增加任何凸 transport cost。
+- **分清 straightness 的保證與限制。** 前 $K$ 輪中至少有一輪的 $S+V$ 降到 $O(1/K)$；這不代表每輪單調改善，也不代表最後得到 OT coupling。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 不交叉的配對從哪裡來？
+## 能不能讓已經學到的路，教下一輪走得更直？
 
-<Ref to="dma-fm-vs-diffusion"/> Q1 的結論可以倒過來讀。那裡說：**邊際軌跡彎，因為條件直線交叉；交叉，因為配對是隨機的。** 而 <Ref to="dma-fm-vs-diffusion"/> 又說：**ODE 的軌跡不會交叉。**
+<Ref to="dma-error-theory"/> 把少步取樣的問題寫成了一個具體目標：讓 learned velocity 沿著 ODE trajectory 少一點變化。<Ref to="dma-fm-vs-diffusion"/> 也給了第一個線索：reference paths 交叉得越嚴重，同一個位置要平均的速度越不一致，learned velocity 就越容易沿途改變。
 
-把這兩句話放在一起，就得到一個不必增加新模型的想法：先讓目前的 ODE 把每個起點送到終點，再把這兩端配回去。ODE 軌跡本身不交叉；端點之間重新拉出的直線弦**仍可能交叉**，但通常會比原本的隨機配對整齊得多。
+那配對可以從哪裡來？想像散場後，我們已經讓每個人照目前的導航走過一次。現在起點與實際抵達的位置都有了；與其再隨機替他指定一個終點，不如把**同一個人的起點與終點重新配在一起**，再畫一條直線作為下一輪的 reference path。
 
-> **配對不必自己設計——讓上一輪的模型生出來就好。**
-
-而我們手上正好有一條 ODE——就是訓好的模型自己。
+在數學上，這條「已經走過的路」就是目前模型產生的 ODE trajectory，而 ODE trajectories 在解唯一時不會相交。把它們的兩端配回去，得到的 reference paths 通常會比原本的獨立配對整齊。
 
 <Ask>
 能不能拿模型自己的取樣結果，<br />
 當成下一輪訓練的配對？
 </Ask>
 
-## 一輪要做哪三件事
+## 把模型產生的端點配回去
 
-可以，而且整件事寫成三步就結束了。給一個耦合 $(X_0,X_1)\sim\pi$（一開始就用最沒有結構的獨立配對）：
+給一個 coupling $(X_0,X_1)\sim\pi$；第一輪通常從獨立配對開始。接著做三件事：
 
-1. 照 <Ref to="dma-fm-vs-diffusion"/> 的直線插值 $X_t=(1-t)X_0+tX_1$，得到邊際速度 $u_t(x)=\mathbb E[X_1-X_0\mid X_t=x]$。
-2. 解 ODE $\dot Z_t=u_t(Z_t)$、$Z_0=X_0$，走到 $t=1$ 得到 $Z_1$。
+1. 照 <Ref to="dma-fm-vs-diffusion"/> 的直線插值 $X_t=(1-t)X_0+tX_1$，得到邊際速度 $v_t(x)=\mathbb E[X_1-X_0\mid X_t=x]$。
+2. 解 ODE $\dot Z_t=v_t(Z_t)$、$Z_0=X_0$，走到 $t=1$ 得到 $Z_1$。
 3. 把 $(Z_0,Z_1)$ 當成**新的**耦合：$\pi'=\mathsf R(\pi)$。
 
-這個運算叫 **rectification**，把它一輪一輪疊上去（$\pi^{k+1}=\mathsf R(\pi^k)$）就是 **reflow**——本篇之後都用這兩個名字。
+這個「學 velocity、跑 ODE、把兩端配回去」的運算叫 **rectification**。把輸出的 coupling 再送回下一輪，$\pi^{k+1}=\mathsf R(\pi^k)$，就是 **reflow**。
 
-$\mathsf R$ 吃一個耦合、吐一個耦合，而它其實是：**「訓練一個 FM 模型，然後用 ODE 取樣」這件事，在耦合的層次上就是 $\mathsf R$。** 所以 reflow 不需要任何新的機器，只是把已經在做的事再做一次，並且把輸出接回輸入。
+$\mathsf R$ 的輸入與輸出都是 coupling。它沒有改 Flow Matching 的 objective；改的是下一輪要從哪些 $(X_0,X_1)$ 製造 reference paths。
 
-## 這一招為什麼不需要新的機器
+## 為什麼新的端點還能拿來訓練？
 
-**（一）保邊際。** $Z_0\sim p_0$ 是定義；$Z_1\sim p_1$ 來自 <Ref to="dma-conditional-flow-matching"/> 的定理 1（$u_t$ 生成 $p_t$，而 $p_1=p_{\text{data}}$）。所以 $\mathsf R(\pi)$ 仍然是 $p_0$ 與 $p_1$ 的耦合——**可以再餵回去**。這條性質是整個迭代能成立的前提。
+新的配對如果改掉了終點 distribution，下一輪就會開始學錯資料。因此第一個要檢查的不是直不直，而是它仍不仍然連接 $p_0$ 與 $p_1$。
+
+**（一）保留 marginals。** $Z_0\sim p_0$ 是定義；在理想 velocity 與精確 ODE 下，<Ref to="dma-conditional-flow-matching"/> 已經證明 $Z_t$ 與 reference process $X_t$ 在每個時刻都有相同的 marginal，所以 $Z_1\sim p_1$。因此 $\mathsf R(\pi)$ 仍然是 $p_0$ 與 $p_1$ 的合法 coupling，可以送進下一輪。
 
 **（二）不增運輸成本。** 對任何凸函數 $c$，
 
@@ -81,15 +81,15 @@ $$
 \mathbb E\big[c(Z_1-Z_0)\big]\ \le\ \mathbb E\big[c(X_1-X_0)\big].
 $$
 
-取 $c(\cdot)=\|\cdot\|^2$ 就是：**新配對的平均位移平方不會比舊的大。** 粒子不再繞路。
+取 $c(a)=\|a\|^2$ 時，意思就是：**新配對兩端的平均位移平方不會比舊配對更大。**
 
 <Details summary="不增運輸成本：兩次 Jensen">
-$Z_1-Z_0=\int_0^1 u_t(Z_t)\,dt$，而 $u_t(Z_t)=\mathbb E[X_1-X_0\mid X_t=Z_t]$。
+$Z_1-Z_0=\int_0^1 v_t(Z_t)\,dt$，而 $v_t(Z_t)=\mathbb E[X_1-X_0\mid X_t=Z_t]$。
 
 先對時間用 Jensen（$c$ 是凸的，$\int_0^1\cdot\,dt$ 是一個平均）：
 
 $$
-c\Big(\int_0^1 u_t(Z_t)\,dt\Big)\ \le\ \int_0^1 c\big(u_t(Z_t)\big)\,dt .
+c\Big(\int_0^1 v_t(Z_t)\,dt\Big)\ \le\ \int_0^1 c\big(v_t(Z_t)\big)\,dt .
 $$
 
 再對條件期望用 Jensen：$c(\mathbb E[X_1-X_0\mid X_t])\le\mathbb E[c(X_1-X_0)\mid X_t]$。最後取期望，並用 $Z_t$ 與 $X_t$ 同分布（性質一的推論）把兩邊接起來：
@@ -101,80 +101,76 @@ $$
 兩次 Jensen 各對付一個「取平均」：一次是沿時間平均，一次是對後驗平均。
 </Details>
 
-**（三）不交叉。** $Z_t$ 是 ODE 的解，Lipschitz 之下唯一，所以兩條 $Z$ 軌跡不交叉。$\mathsf R(\pi)$ 的條件直線 $\lbrace(1-t)Z_0+tZ_1\rbrace$ 是這些不交叉軌跡的**弦**。
+**（三）產生有結構的 coupling。** $Z_t$ 是 ODE 的解；在解唯一時，兩條 trajectories 不會在同一時間、同一位置相交後再分開。因此 $(Z_0,Z_1)$ 不再是任意配對，而是同一條 ODE trajectory 的兩端。
 
-嚴格說弦還是有可能交叉——但比原本的隨機配對少太多了。這件事就是下面 demo 要看的。
+不過，下一輪訓練使用的是兩端之間重新畫出的**直線**，不是原本那條彎曲 trajectory。這些直線弦仍可能互相交叉，所以一次 rectification 不一定就會完全拉直。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-3-reflow.html" class="demo-frame" title="Reflow：讓模型自己生出配對：互動 demo" style="height: 1060px; width: 100%; border: none;"></iframe>
 
-**互動 demo：reflow 一輪一輪看。** 按 0 → 1 → 2 → 3。第 0 輪的配對直線交錯成一團，ODE 軌跡明顯彎；第 1 輪之後配對幾乎互不相交、軌跡幾乎就是那些直線。**第一輪就吃掉大部分好處**：straightness（下一段會定義；直覺上就是「條件直線的方向和實際速度差多少」，直線時為 0）從約 1.4 掉到 0.03，1 步 Euler 的誤差從約 1.4 掉到 0.1，運輸成本（配對兩端距離平方的平均，$\mathbb E\|X_1-X_0\|^2$）從約 4.0 掉到 0.6。同時「終點分布與資料的距離」一直在 0.01 以下——**保邊際那條性質是真的**，這些改善不是拿樣本品質換來的。
+**互動 demo：reflow 一輪一輪看。** 按 0 → 1 → 2 → 3。第 0 輪的配對直線交錯成一團，ODE 軌跡明顯彎；第 1 輪之後，reference directions 的 disagreement $V$ 從約 1.4 掉到 0.03，1 步 Euler 的誤差從約 1.4 掉到 0.1，transport cost 則從約 4.0 掉到 0.6。這組 toy 裡第一輪就吃掉大部分改善；終點分布的距離則一直在 0.01 以下。
 
-## 為什麼總能找到更直的一輪？
+## Reflow 真的會越來越直嗎？
 
-把「直」寫成一個數：
-
-$$
-S(\pi)=\int_0^1\mathbb E\big[\|(X_1-X_0)-u_t(X_t)\|^2\big]\,dt .
-$$
-
-白話是：**每個粒子自己的條件速度，和它在那個位置實際被指派到的邊際速度，差多少。** $S=0$ 等價於 $u_t(X_t)=X_1-X_0$ 幾乎處處成立——粒子照著自己的直線走，軌跡是直線，而且**一步 Euler 就精確**。
-
-Liu et al. [1] 對迭代 $\pi^{k+1}=\mathsf R(\pi^k)$ 給出
+先把 flow 的 straightness 寫成一個數。對 rectification 產生的 ODE process $Z_t$，定義
 
 $$
-\min_{0\le k\le K}S(\pi^k)
-\ \le\ \frac{\mathbb E\|X_1-X_0\|^2\big|_{\pi^0}}{K+1}
-=O(1/K).
+S(Z)=\int_0^1\mathbb E\big[\|(Z_1-Z_0)-\dot Z_t\|^2\big]\,\mathrm dt.
 $$
 
-讀法是：做得越多輪，前 $K$ 輪裡**至少有一輪**的 straightness 會降到 $O(1/K)$。背後仍是有限預算的簿記：rectification 不能一直從運輸成本裡省下固定大小的量，而運輸成本又有 OT 成本這個下界。
+這裡比較的是：粒子此刻的 velocity $\dot Z_t$，和從起點直達終點所需的固定 velocity $Z_1-Z_0$，相差多少。$S(Z)=0$ 時，每一條 ODE trajectory 都以固定速度走直線，因此一步 Euler 就能精確走到 $Z_1$。
 
-這個式子刻意寫成 $\min$。它沒有說 $S(\pi^k)$ 每輪單調下降，也沒有保證整個序列收斂到 OT；實驗裡常見「第一輪進步最大」，是現象，不是這條定理承諾的內容。
-
-<Remark label="補充" summary="straightness 和曲率積分怎麼連起來">
-$S$ 與 <Ref to="dma-error-theory"/> 的 $\int\|\ddot x_t\|\,dt$ 不是逐項相等的公式，但它們共享同一個「完全直」的情況。
-
-$S=0$ 時 $u_t(Z_t)=Z_1-Z_0$ 是一個**不隨 $t$ 變**的常向量，於是
+論文還需要另一個量，來描述下一輪 reference lines 在同一個位置給出的方向是否一致：
 
 $$
-\ddot Z_t=\frac{d}{dt}u_t(Z_t)=\frac{d}{dt}(Z_1-Z_0)=0 ,
+V(\pi)=\int_0^1\mathbb E\!\left[
+\left\|(X_1-X_0)-\mathbb E[X_1-X_0\mid X_t]\right\|^2
+\right]\mathrm dt.
 $$
 
-曲率積分也會是零。反過來在一般情況下，兩個數值不必一致：$S$ 比較條件速度與邊際速度，曲率積分則沿實際 ODE 軌跡量加速度。Reflow 的定理直接控制的是 $S$；它是否同步降低有限步誤差，還要靠 <Ref to="dma-error-theory"/> 的誤差分析與實驗確認。
+它正是 velocity regression 在理想最佳解下仍剩下的 conditional variance：同一個 $X_t$ 附近如果有很多不同方向，$V(\pi)$ 就大；方向完全一致時，它就是零。
+
+Liu et al. [1] 對 reflow 證明
+
+$$
+\sum_{k=0}^{K}\Big(S(Z^{k+1})+V(\pi^k)\Big)
+\le \mathbb E_{\pi^0}\|X_1-X_0\|^2.
+$$
+
+右邊是一個固定的初始預算，左邊則把每一輪剩下的「trajectory 不直」與「reference directions 不一致」加起來。因此前 $K$ 輪中，至少有一輪滿足 $S+V=O(1/K)$。
+
+這個保證說的是「前 $K$ 輪中至少有一輪」，**不是每一輪的 $S$ 都一定單調下降**，也沒有說最後一定得到某個指定成本下的 OT coupling。
+
+<Remark label="補充" summary="straightness 和加速度積分怎麼連起來">
+$S(Z)$ 與 <Ref to="dma-error-theory"/> 的 $\int\|a_t(Z_t)\|\,dt$ 不是同一個公式，但它們共享同一個「等速直線」的情況。
+
+$S(Z)=0$ 時 $\dot Z_t=Z_1-Z_0$ 是一個**不隨 $t$ 變**的常向量，於是
+
+$$
+a_t(Z_t)=\frac{\mathrm d}{\mathrm d t}v_t(Z_t)=\frac{\mathrm d}{\mathrm d t}(Z_1-Z_0)=0 ,
+$$
+
+加速度積分也會是零。反過來在一般情況下，兩個數值不必一致：$S$ 比較當下 velocity 與端點位移，加速度積分則量沿途累積了多少 velocity 變化——方向改變、加速與減速都包含在內。Reflow 的定理直接控制的是 $S+V$；它如何影響 finite-step error，還要接上 <Ref to="dma-error-theory"/> 的分析。
 </Remark>
 
-## 直是有代價的
+## 理論沒有替實際模型保證什麼？
 
-> **reflow 買到的是「直」，付出的是多樣性與上一輪的模型誤差。**
+上面的性質是在**理想 velocity、精確 ODE solution** 下成立的。真正實作 reflow 時，第 $k$ 輪的配對來自第 $k-1$ 輪學到的 neural velocity，再經過 numerical solver 產生終點；模型誤差與 finite-step error 都會一起進入下一輪訓練資料。上面 demo 使用精確場，因此顯示的是理想情況，不是每次重訓都會複製的改善幅度。
 
-**誤差累積。** 第 $k$ 輪的配對來自第 $k-1$ 輪模型的 ODE 解，所以模型的逼近誤差和取樣的數值誤差會一起變成下一輪的訓練資料。**上面 demo 用的是精確算出來的場，所以它顯示的是這件事的上限，不是實際會拿到的。** 實務上一到兩輪就停。
-
-**多樣性。** 每一輪的配對都是確定性映射、$\gamma\equiv0$，<Ref to="dma-error-theory"/> Q1 說過這時候沒有可回歸的 score。模型變成一個純確定的映射，樣本的隨機性**完全**來自 $p_0$——而且沒有 SDE 取樣器可以退回去用。
-
-**極限未必是 OT。** 運輸成本單調下降，但沒有理由收斂到 OT 成本。經驗上很接近，但那是經驗，不是定理。
+此外，不增加 convex transport cost 並不等於找到 OT。Rectification 同時不增加所有凸成本，卻沒有針對其中一個指定成本做最佳化；除了特殊情況，reflow 的極限不必是二次成本的 optimal coupling。
 
 <Question id="Q1">
-Reflow 和下一篇的 minibatch OT 都只改「配對」。端點分布 $p_0$、$p_1$ 完全沒動，中間路徑也還是同一條直線插值。
-
-**那為什麼只改配對，軌跡的曲率就變了？**
+ODE trajectories 在解唯一時不會互相交叉。既然 reflow 把同一條 trajectory 的起點與終點配在一起，**為什麼一次 rectification 之後還可能不夠直？**
 
 <Answer>
-因為邊際速度是一個**條件期望**：
+因為下一輪並不沿著原本的 ODE trajectories 訓練，而是只保留它們的端點，再重新畫直線：
 
 $$
-u_t(x)=\mathbb E[X_1-X_0\mid X_t=x],
+I_t=(1-t)Z_0+tZ_1.
 $$
 
-而條件期望取決於**聯合分布**，不只是兩個邊際。同一組 $p_0,p_1$ 配上不同的 $\pi$，經過 $x$ 的那些條件直線就是不同的一批，方向的分布也不同，平均出來的 $u_t$ 自然不同。
+兩條彎曲的 ODE trajectories 可以互不相交，但連接各自端點的兩條弦仍然可能相交。到了交叉處，下一輪的 optimal velocity 又得平均不同方向，所以新的 ODE trajectory 仍可能轉彎。
 
-具體看兩端：
-
-- **獨立配對**：經過 $x$ 的直線來自四面八方，平均之後的方向偏離其中每一條——這就是 <Ref to="dma-conditional-flow-matching"/> demo 裡那支「明顯比細箭頭短」的粗箭頭。
-- **不交叉配對**：經過 $x$ 附近的直線幾乎彼此平行，平均之後幾乎就是那個共同方向，於是 $u_t(X_t)\approx X_1-X_0$、$S\approx0$。
-
-**中間的邊際分布 $p_t$ 也會隨 $\pi$ 改變**，即使兩端固定。<Ref to="dma-unified-equation"/> 的 demo 就是這件事最極端的版本——同一個環配同一個環，換配對可以讓 $p_{1/2}$ 從一個環變成一個點。
-
-所以「路徑」和「配對」這兩個設定**不是完全獨立的**：配對決定了中間的 $p_t$ 長什麼樣，而路徑 $(\alpha_t,\beta_t)$ 只是決定在給定配對之下怎麼從 $x_0$ 走到 $x_1$。
+Rectification 做的是把原本「隨機抓的端點」換成「同一條 ODE trajectory 的兩端」。這通常已經會大幅減少交叉，卻不保證一次就把 $V(\pi)$ 壓到零；因此才有把輸出再送回去的 reflow。
 </Answer>
 </Question>
 
@@ -195,22 +191,22 @@ Rectification 為什麼保邊際？
 </QuizBlock>
 
 <QuizBlock id="w5-3-b">
-$S(\pi)=0$ 代表什麼？
-<Option>$\pi$ 是 OT 耦合。</Option>
-<Option correct>每個粒子的邊際速度等於它自己的條件速度，軌跡是直線，一步 Euler 就精確。</Option>
+$S(Z)=0$ 代表什麼？
+<Option>端點 coupling 一定是 OT。</Option>
+<Option correct>沿每一條 ODE trajectory，當下 velocity 都等於端點位移，所以一步 Euler 精確。</Option>
 <Option>$p_0=p_1$。</Option>
 <Explanation>
-**直不等於最省。** $S=0$ 只保證不交叉且是直線，運輸成本不一定是最小的——這也是 reflow 的極限未必是 OT 的原因。
+**直不等於最省。** $S=0$ 只代表 ODE trajectories 是等速直線，transport cost 不一定是指定成本下的最小值。
 </Explanation>
 </QuizBlock>
 
 <QuizBlock id="w5-3-c">
-做完三輪 reflow 之後，模型取樣的多樣性來自哪裡？
-<Option>配對更有結構，所以多樣性增加。</Option>
-<Option correct>只來自 $p_0$ 的隨機性。模型本身是確定映射，而且沒有可回歸的 score 可以拿來做加噪聲的取樣。</Option>
-<Option>不受影響。</Option>
+為什麼一次 rectification 之後，新的 reference lines 仍可能交叉？
+<Option>因為 ODE trajectories 本身會在同一時刻交叉。</Option>
+<Option correct>因為下一輪連的是 trajectories 的兩端；不交叉的曲線，其端點弦仍可能相交。</Option>
+<Option>因為 rectification 改掉了 $p_1$。</Option>
 <Explanation>
-這是 <Ref to="dma-error-theory"/> Q1 那個張力在實務上的樣子：拉直換來的少步數能力，代價是失去 SDE 取樣這條退路。
+Reflow 保留的是端點 coupling，不是整條舊 trajectory。重新畫出的直線仍可能有交叉，所以可能需要下一輪再調整。
 </Explanation>
 </QuizBlock>
 

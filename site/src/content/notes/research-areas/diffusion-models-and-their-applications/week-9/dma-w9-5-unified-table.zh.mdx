@@ -33,7 +33,7 @@ import Answer from '../../../components/Answer.astro';
 
 <Objectives>
 - **用四個問題描述一個方法。** 判斷它學什麼、要不要 teacher、能否合法多步、主要誤差從哪裡來。
-- **把結構性誤差連回前面的工具。** 分清曲率、累積、交叉平均與 score 估計各在哪些方法出現。
+- **把結構性誤差連回前面的工具。** 分清 Euler acceleration error、累積、交叉平均與 score 估計各在哪些方法出現。
 - **根據需求選擇方法。** 給定可用資源與取樣需求，說出適合的路線及其代價。
 </Objectives>
 
@@ -51,7 +51,7 @@ import Answer from '../../../components/Answer.astro';
 
 **軸四：誤差從哪裡來。** 這是最值得記的一軸，因為每一種都對應前幾個單元的一個工具：
 
-- **曲率 bias**：目標假設某一段軌跡是直線。consistency training 的 $O(\Delta t)$ 項（<Ref to="dma-cd-vs-ct"/>），Euler 取樣的每一步（<Ref to="dma-error-theory"/>）。連續時間版本把它消掉。
+- **Euler acceleration bias**：目標把某一段的 velocity 當成不變。consistency training 的 $O(\Delta t)$ 項（<Ref to="dma-cd-vs-ct"/>），Euler 取樣的每一步（<Ref to="dma-error-theory"/>）。連續時間版本把這個 finite-$\Delta t$ bias 消掉。
 - **累積**：小步的誤差被帶到大步。progressive distillation 的逐輪（<Ref to="dma-progressive-distillation"/>）、Shortcut 的階梯、reflow 的多輪（<Ref to="dma-rectified-flow"/>）、多步 ODE 取樣的逐步累積。
 - **交叉平均**：squared loss 回歸多值目標，輸出落在平均。<Ref to="dma-fm-vs-diffusion"/> Q1 的交叉，在蒸餾裡是模糊（<Ref to="dma-distribution-matching"/> Q1）。
 - **score 估計**：訓練訊號依賴一個要即時估計的 score。DMD 的 $s_{\text{fake}}$，以及任何 SDE 取樣器對 score 精度的依賴（<Ref to="dma-unified-equation"/>）。
@@ -64,24 +64,24 @@ import Answer from '../../../components/Answer.astro';
 
 | 方法 | 學什麼 | 訓練訊號 | teacher | 多步 | 結構性誤差 |
 |---|---|---|---|---|---|
-| Flow matching（<Ref to="dma-conditional-flow-matching"/>） | 速度 $v_t$ | 回歸 | 否 | 必須多步 | 曲率（Euler）、累積 |
+| Flow matching（<Ref to="dma-conditional-flow-matching"/>） | 速度 $v_t$ | 回歸 | 否 | 必須多步 | Euler acceleration error、累積 |
 | Reflow（<Ref to="dma-rectified-flow"/>） | 速度（新配對） | 回歸 | 上一輪的自己 | 少步 | 累積（逐輪）、多樣性 |
 | Progressive distillation（<Ref to="dma-progressive-distillation"/>） | 離散步的 flow map | 回歸 | 是 | 固定步數 | 累積（逐輪） |
-| Consistency distillation（<Ref to="dma-cd-vs-ct"/>） | 終點 $\psi_{t\to1}$ | 回歸 | 是 | 要重加噪 | teacher 誤差、Euler 曲率誤差 |
-| Consistency training（<Ref to="dma-cd-vs-ct"/>） | 終點 | 回歸 | 否 | 要重加噪 | 曲率 bias $O(\Delta t)$、條件目標的 variance、Jensen gap；網格太粗時另加交叉平均 |
+| Consistency distillation（<Ref to="dma-cd-vs-ct"/>） | 終點 $\psi_{t\to1}$ | 回歸 | 是 | 要重加噪 | teacher 誤差、Euler acceleration error |
+| Consistency training（<Ref to="dma-cd-vs-ct"/>） | 終點 | 回歸 | 否 | 要重加噪 | Euler acceleration bias $O(\Delta t)$、條件目標的 variance、Jensen gap；網格太粗時另加交叉平均 |
 | sCM（<Ref to="dma-ict-scm"/>） | 終點 | 回歸 | 否 | 要重加噪 | bootstrapping（$\tfrac{df}{dt}$ 的數值行為） |
 | CTM（<Ref to="dma-flow-map"/>） | flow map $\psi_{t\to s}$ | 回歸 | 是／可自誘導 | 合法 | teacher solver 的離散誤差；自誘導版換成對角線的 bootstrapping |
 | MeanFlow（<Ref to="dma-meanflow"/>） | 平均速度 | 回歸 | 否 | 合法 | bootstrapping（$\tfrac{du}{dt}$） |
-| Shortcut（<Ref to="dma-shortcut-ayf"/>） | 平均速度（離散 $d$） | 回歸 | 否 | 合法，$d$ 在網格上 | 累積（階梯）、底層 FM 的曲率 |
+| Shortcut（<Ref to="dma-shortcut-ayf"/>） | 平均速度（離散 $d$） | 回歸 | 否 | 合法，$d$ 在網格上 | 累積（階梯）、底層 FM 的 finite-step error |
 | Align Your Flow（<Ref to="dma-shortcut-ayf"/>） | flow map | 回歸 | 是 | 合法 | teacher 誤差 |
 | DMD / DMD2（<Ref to="dma-distribution-matching"/>） | 分佈（一步生成器） | 分佈匹配 | 是 | 另外設計 | score 估計、mode collapse |
 | IMM（<Ref to="dma-distribution-matching"/> 延伸） | flow map | 分佈匹配（moment） | 否 | 合法 | 分佈距離的估計 |
 
-表上有兩條對角線。「不要 teacher」與「沒有曲率 bias」在早期方法上不能兼得（CT 有 bias、CD 要 teacher），連續時間的 sCM 與 MeanFlow 把這個矛盾解掉——靠的是 JVP 換掉差分。另一條是「回歸」與「交叉平均」幾乎總是一起出現；要擺脫交叉平均，目前唯一的辦法是換訓練訊號（分佈匹配），而那會把 score 估計的問題請進來。**沒有一格是全綠的。**
+表上有兩條對角線。「不要 teacher」與「沒有 finite-$\Delta t$ bias」在早期方法上不能兼得（CT 有 bias、CD 要 teacher），連續時間的 sCM 與 MeanFlow 把這個矛盾解掉——靠的是 JVP 換掉差分。另一條是「回歸」與「交叉平均」幾乎總是一起出現；要擺脫交叉平均，目前唯一的辦法是換訓練訊號（分佈匹配），而那會把 score 估計的問題請進來。**沒有一格是全綠的。**
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/week-9/w9-5-1.html" class="demo-frame" title="一步生成方法可篩選統一表：互動 demo" style="height: 820px; width: 100%; border: none;"></iframe>
 
-**互動 demo：依需求篩方法。** 勾選 teacher、一步、多步、曲率、階梯、交叉平均、score 與 JVP 等限制；不符合的方法保留但淡出，欄名可排序，格子可查看取捨說明。
+**互動 demo：依需求篩方法。** 勾選 teacher、一步、多步、finite-$\Delta t$ bias、階梯、交叉平均、score 與 JVP 等限制；不符合的方法保留但淡出，欄名可排序，格子可查看取捨說明。
 
 ## 怎麼選
 
@@ -95,7 +95,7 @@ import Answer from '../../../components/Answer.astro';
 
 **算力在哪一邊？** JVP 讓每步訓練多一次前向；DMD 的 fake denoiser 讓每步多一整個網路的更新；progressive distillation 與 CTM 要 teacher 在訓練時跑 solver。取樣端則所有方法都是一到幾次前向，差別不大。
 
-最後一件事值得說清楚：**這張表上的每一列都建在前幾個單元的物件上。** 訓練訊號來自 <Ref to="dma-denoising-regression"/> 的 **conditional trick**（<Ref to="dma-concrete-score"/> 有一張把它各個版本列齊的表），誤差的分類來自 <Ref to="dma-error-theory"/> 的曲率與 <Ref to="dma-fm-vs-diffusion"/> 的交叉，「多步是否合法」來自 <Ref to="dma-flow-map"/> 的半群條件——學的物件本身能不能從任意 $t$ 走到任意 $s$。一個新方法出現時，先問它在四個軸上各取哪一格、主要在對付哪一種誤差——通常三分鐘就能把它放進表裡。
+最後一件事值得說清楚：**這張表上的每一列都建在前幾個單元的物件上。** 訓練訊號來自 <Ref to="dma-denoising-regression"/> 的 **conditional trick**（<Ref to="dma-concrete-score"/> 有一張把它各個版本列齊的表），誤差的分類來自 <Ref to="dma-error-theory"/> 的 acceleration-controlled finite-step error 與 <Ref to="dma-fm-vs-diffusion"/> 的交叉，「多步是否合法」來自 <Ref to="dma-flow-map"/> 的半群條件——學的物件本身能不能從任意 $t$ 走到任意 $s$。一個新方法出現時，先問它在四個軸上各取哪一格、主要在對付哪一種誤差——通常三分鐘就能把它放進表裡。
 
 <Question id="Q1">
 表上「結構性誤差」那一欄有一個名詞出現得特別頻繁：**交叉平均**。但它並不是每一列都有——CD、sCM、MeanFlow 那幾列就沒有。
@@ -109,7 +109,7 @@ squared loss 的最小值是條件期望（<Ref to="dma-tweedie-and-score"/>）�
 
 逐列看：
 
-- **CD**：teacher 是 ODE，一個 $x_t$ 對到一條軌跡、一個終點。目標唯一，**沒有**交叉平均——<Ref to="dma-learn-the-map"/> 正是拿這件事當「回歸不會糊」的範例。它的誤差是 teacher 本身的誤差加上 Euler 一步的曲率誤差。
+- **CD**：teacher 是 ODE，一個 $x_t$ 對到一條軌跡、一個終點。目標唯一，**沒有**交叉平均——<Ref to="dma-learn-the-map"/> 正是拿這件事當「回歸不會糊」的範例。它的誤差是 teacher 本身的誤差加上 Euler 一步漏掉 velocity 變化的誤差。
 - **CT**：目標是同一條件直線上往前一格的點經過 $f_{\theta^-}$，對同一個 $x_{t_{n+1}}$ 而言它隨 $(x_0,\epsilon)$ 變——是多值的。但這個多值是**刻意的**，<Ref to="dma-cd-vs-ct"/> 證明它的後驗平均恰好是對的那一步，所以它是 variance 不是 bias。只有當時間網格粗到目標退化成「$x_t$ 對到哪個 $x_1$」時，平均掉的才變成終點本身——那時才真的糊。
 - **sCM／MeanFlow**：條件速度**線性**進入目標，期望精確（<Ref to="dma-ict-scm"/>、<Ref to="dma-meanflow"/> Q1）。連 CT 那個 Jensen gap 都沒有，更不會有交叉平均。它們付的是另一種代價：bootstrapping。
 - **Reflow**：目標唯一（上一輪模型的 ODE 解），但那個解本身帶著上一輪的誤差，所以問題是**累積**與多樣性，不是平均。
@@ -128,9 +128,9 @@ squared loss 的最小值是條件期望（<Ref to="dma-tweedie-and-score"/>）�
 一個新方法宣稱「不要 teacher、一步生成、沒有任何離散化誤差」。從表的結構判斷，它最可能住在哪一格，並帶著哪一種結構性誤差？
 <Option>Lagrangian 恆等式，帶 score 估計誤差。</Option>
 <Option correct>連續時間的 Eulerian 恆等式（sCM、MeanFlow 那一格），帶 bootstrapping 與回歸式的交叉平均。</Option>
-<Option>分佈匹配，帶曲率 bias。</Option>
+<Option>分佈匹配，帶 Euler acceleration bias。</Option>
 <Explanation>
-不要 teacher 排除 Lagrangian；沒有離散化排除 CT 與 Shortcut 的階梯；剩下連續時間 Eulerian。這一格的代價是自我目標的 bootstrapping，且它仍是回歸，交叉平均不會消失。分佈匹配沒有曲率 bias 的問題，但它需要 teacher。
+不要 teacher 排除 Lagrangian；沒有離散化排除 CT 與 Shortcut 的階梯；剩下連續時間 Eulerian。這一格的代價是自我目標的 bootstrapping，且它仍是回歸，交叉平均不會消失。分佈匹配沒有 finite-$\Delta t$ bias 的問題，但它需要 teacher。
 </Explanation>
 </QuizBlock>
 
@@ -150,7 +150,7 @@ consistency 家族也能任意增加步數，但每步要重加噪，那是新�
 <Option>加大時間網格的密度。</Option>
 <Option correct>換訓練訊號——不要求逐點對應，改成分佈匹配；代價是 score（或分佈距離）要即時估計。</Option>
 <Explanation>
-連續時間與細網格消的是曲率 bias，不是交叉平均——只要訊號是 squared loss 回歸多值目標，平均就在。分佈匹配繞開它，但把 <Ref to="dma-distribution-matching"/> Q1 的另一半請進來。
+連續時間與細網格消的是 finite-$\Delta t$ bias，不是交叉平均——只要訊號是 squared loss 回歸多值目標，平均就在。分佈匹配繞開它，但把 <Ref to="dma-distribution-matching"/> Q1 的另一半請進來。
 </Explanation>
 </QuizBlock>
 

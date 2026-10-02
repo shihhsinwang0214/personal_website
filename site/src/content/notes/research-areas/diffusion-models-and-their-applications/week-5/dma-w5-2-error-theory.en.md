@@ -7,7 +7,7 @@ prereqs:
   - math-w2
   - math-weak-strong-convergence
 lang: "en"
-title: "誤差理論：曲率積分壓住偏差"
+title: "Euler 漏掉的 velocity 變化，要怎麼量？"
 category: "courses"
 group: "Unit 3 · 更直、更快的生成路徑"
 status: "missing"

@@ -8,6 +8,25 @@
 
 ---
 
+## U2 改寫後確立的主線規則（2026-10-02）
+
+這一節整理 U2.0–U2.4 逐段改寫後新增的共同判準。修改 U3 之後的 DMA notes 時，除了下面 §0 的底線，也要先用這十條檢查整篇的問題鏈。
+
+1. **先讓讀者需要下一個物件，再介紹它。** 不要用「接下來介紹 Flow Matching／coupling／solver」開場。先回指目前已經會做什麼，再讓限制或成本出現；方法名應該在需求與構造都看見後才出場。
+2. **一節只推進一個真正的問題。** 節奏是「已有的方法 → 新限制 → 最自然的嘗試 → 為什麼還不夠 → 下一個問題」。旁支即使正確，只要沒有幫助後面的推進，就刪掉或放進補充。
+3. **生活例子要短，而且同一個例子一路對到數學。** 人群、散場、迷路者、沙子等角色一旦選定，就要明確對到 distribution、path、velocity、conditional mean；不要只提供氣氛，也不要每條式子換一個比喻。
+4. **第一次出現的實作用語當場解釋。** 在使用 network evaluation、numerical solver、adaptive step size、coupling 等詞之前，先用一句話說它做什麼、成本是什麼。不能假設讀者知道「一步」等於一次或多次模型呼叫。
+5. **嚴格分清楚不同的數學物件。** 尤其不要混用 reference path、reference velocity、optimal/marginal velocity field、真正的 ODE trajectory、marginal distribution；也要分開 continuous dynamics 與 discretized sampler、training randomness 與 sampling randomness。
+6. **式子出現的順序是：想算什麼 → 精確式 → 為什麼算不動 → 近似式。** 例如介紹 Euler 時，先寫 ODE 的積分，再說 solver 是近似積分的規則，最後才寫 Euler update。每一條式子後面立刻翻成一句白話。
+7. **例子必須真的證明正文宣稱的事。** 算出交叉點的一支平均箭頭，只能證明 optimal velocity 和 reference velocity 不同；若要說 trajectory 會彎，還要沿 trajectory 說明方向如何改變，或把 singular toy 加厚成平滑情況。不要讓結論比例子多走一步。
+8. **標題寫出讀者此刻遇到的衝突。** 比起「Flow Matching 多給了什麼」，更適合寫「每一條 reference path 都是直線，為什麼學出來的 ODE trajectory 卻是彎的？」標題不要提前宣布還沒推得的答案。
+9. **Bridge 只做兩件事：收住本篇的新問題，說明下一篇為什麼非讀不可。** 不要在 bridge 裡突然引入新的方法或名詞；用「目前只能看出來，下一篇要怎麼量／證明／解決」即可。
+10. **保持緊湊的段落節奏。** 同一個推進拍點放在同一段，不要一句話一個空行；不使用「旋鈕」「套餐」等不像作者語氣的包裝詞。簡短不等於跳步：刪的是重複與旁支，不是必要的動機、定義與中間推理。
+
+**套用到 U3 的問題鏈：** U3.0 先讓 discretization error 從沿 trajectory 改變的 velocity 中出現；U3.1 再把這個變化寫成 acceleration integral，並連到 finite-step error。後續方法必須各自由這個誤差問題長出來：先問怎麼讓 trajectory 更接近等速直線，再介紹 reflow、minibatch OT 或 solver。不要在需要它們之前先講 coupling 或方法分類。
+
+---
+
 ## 0. 三條底線
 
 這一節是 2026-09-16 重寫的。前面兩週的規則是一條一條累積上去的，而 2026-09-15 那次作者的原話是「**我覺得你的 workflow 跟對我們 notes 的標準出現了很嚴重需要檢討的問題**」。回頭看，那一輪出錯的三件事都不是筆誤，是**預設動作**錯了。所以先把三條底線放在最前面，後面的細則都是它們的展開。
@@ -224,7 +243,7 @@ md5sum ...                    # 和容器裡驗過的那份對
 - **標題裡可以放 `$…$`**（W3.2 有兩個），不必為了避開數學而改用文字繞。
 - **標題不要提前洩底。** 課堂提問剛問完「誰能幫我們？」，下一個 `##` 就不能叫「多給一個 $x_0$，同一個 Bayes 就算得動」——那把答案和結論一次講完，讀者不會停下來想。「只說要做什麼、不說結果」和「講目的不講手法」是同一條的兩面：說目的（拿到什麼）可以，說結果（拿到之後發現什麼）不行。
 
-篇名（frontmatter `title`）同一套規則：`指定路徑的方法：Forward Process`、`速度場怎麼推動一整個分布？`、`先配對，再平均：Conditional Flow Matching`、`代入最簡單的一條路：直線插值`、`把「彎」寫成一個算得出來的數`、`Remasking：取樣器多一條管子`、`Tweedie 公式：Denoiser 和 Data Distribution 有什麼關係？`。
+篇名（frontmatter `title`）同一套規則：`指定路徑的方法：Forward Process`、`速度場怎麼推動一整個分布？`、`先配對，再平均：Conditional Flow Matching`、`代入最簡單的一條路：直線插值`、`Euler 漏掉的 velocity 變化，要怎麼量？`、`Remasking：取樣器多一條管子`、`Tweedie 公式：Denoiser 和 Data Distribution 有什麼關係？`。
 
 ---
 
@@ -258,7 +277,7 @@ md5sum ...                    # 和容器裡驗過的那份對
   - W6 的 $\bar\alpha_t$ 是**機率**（token 沒被動過的機率），連續世界的 $\sqrt{\bar\alpha_t}$ 是**振幅**——差一個平方根。
   - W7.4 的 $\kappa_t$ 是「已經變成 $x_1$ 的機率」，和 $\alpha_t$ 互補（$\kappa_t=1-\alpha_t$）；Gat et al. 原文的時間方向和我們相反。
   - W8 的時間方向和 W4／W5 **相反**（$t=0$ 是資料）；`$\psi_{s\to t}$` 的下標仍沿用 FM 慣例，W8.0 有一段明講這件事。
-  - W9 的 $u$ 是**平均速度**、$v$ 是邊際速度，和 W5.2 的 $u$（邊際速度）相反；$s$ 在 W9 有四個意思（目標時刻、Shortcut 網路、teacher score、score），W9.3 的符號 `<Remark>` 要涵蓋全部四個。
+  - U2–U3 的邊際／optimal velocity 一律寫成 $v_t$；W9 的 $u$ 另指**平均速度**，$v$ 仍是邊際速度。$s$ 在 W9 有四個意思（目標時刻、Shortcut 網路、teacher score、score），W9.3 的符號 `<Remark>` 要涵蓋全部四個。
 
 ---
 
@@ -477,7 +496,7 @@ md5sum ...                    # 和容器裡驗過的那份對
 - **寫回之後照 §0.10 的四步驟驗。**
 - **demo 的敘述不能超過 demo 真的能顯示的東西。** 這條在 W4–W7 抓到很多次：
   - 原稿說「FM 的軌跡比 DDIM 直」，2D 精確場實測**反而是 VP 較直**（1.47 對 2.12）→ 改寫成「條件路徑直不等於邊際軌跡直」。
-  - 原稿說「加 $\gamma$ 會讓軌跡更彎」，實測**取決於配對** → 只保留「$\gamma \gt 0$ 讓曲率積分不可能為 0」。
+  - 原稿說「加 $\gamma$ 會讓軌跡更彎」，實測**取決於配對** → 只保留「$\gamma \gt 0$ 會加入額外的 velocity 變化；不要把 acceleration integral 說成 curvature」。
   - 原稿說 remasking「步數少時更差、步數多時佔優」，乾淨 toy 上實測**剛好相反** → 段落與 quiz 全部改寫。
   - **`預期：` 底下寫的東西不是量測。**（2026-09-14）W8.6 步驟 6 的「CM 從 1 到 2 明顯下降、之後幾乎水平」被我自己在別處當成證據引用了兩次——它從頭到尾只是我寫的預測。**引用一個數字之前，先確認它是量出來的還是預期的。**
   **實測和原稿／文獻相反時，照實測寫，並說明差異來自哪個設定。**
@@ -535,7 +554,7 @@ md5sum ...                    # 和容器裡驗過的那份對
 9. **$x_T$ 只是接近 $\mathcal N(0,I)$**，不是等於（prior mismatch）。
 10. **「邊際相同」是連續時間、無限步的敘述**；有限步離散化之後 DDPM 與 DDIM 的誤差行為不同。**DDPM vs DDIM 的判準是「模型誤差與離散化誤差誰佔上風」**，不是「步數少時 ODE 勝、步數多時 SDE 勝」——後者已經全課退休（2026-09-14 清掉最後一處，W6.4）。
 11. **確定性配對讓我們失去的是「可回歸的 score」，不是「密度」。** $p_t$ **有可能**連密度都沒有（對徑配對），但**不是一定**。
-12. **$\gamma_t z$ 對曲率的影響取決於配對**。沒有例外的只有「$\gamma \gt 0$ 讓曲率積分不可能等於 0」。
+12. **$\gamma_t z$ 對 trajectory geometry 與 acceleration integral 的影響取決於配對**。兩者不是同一個量；不要用其中一個替代另一個。
 13. **「線性路徑比較直」成立在條件路徑，不成立在邊際軌跡。**
 14. **classifier-free guidance 的 $w=1$ 已經是正確答案**；$w \gt 1$ 生成的是刻意被銳化的分布。
 15. **OT 配對的正確敘述是「單調」**。一維的單調等於零交叉，高維只能說「把交叉壓到很少」——實測全域 OT 也還有 0.2–0.8%。
@@ -735,6 +754,12 @@ md5sum ...                    # 和容器裡驗過的那份對
 作者的原話：「**我覺得這一章節的符號已經太多了，不要再引入多餘的符號。請你參考 The Principles of Diffusion Models 的寫法，盡量用固定那幾個符號就好。**」
 
 **一個單元只有一組符號，由該單元的第一篇建立；後面每一篇都從那一組裡取，不新增。**
+
+**同一個數學物件跨到下一個單元時，也不要無故改名。** U2 已經把 Flow ODE 的 optimal／marginal velocity 寫成 $v_t(x)$、網路寫成 $v_\theta(x,t)$；U3 延續分析同一個 velocity field，因此仍然使用 $v_t,v_\theta$，不能因為參考論文改用 $u_t$ 就跟著換。讀者應該能從符號直接認出「這就是前面那個物件」。
+
+U3 把沿 ODE trajectory 感受到的 acceleration 記成 $a_t(x_t):=\frac{\mathrm d}{\mathrm d t}v_t(x_t)$。正文與後續回指一律使用 $a_t(x_t)$，不要再換成 $\ddot x_t$；這樣讀者可以直接看出 acceleration 是由前一個單元的 $v_t$ 導出的新物件。
+
+**Acceleration integral 不是 geometric curvature。** Curvature 必須明確定義成單位切線對弧長的變化率 $\kappa=\left\|\frac{\mathrm dT}{\mathrm ds}\right\|$，不能只寫成「方向轉得多快」，因為那會被誤讀成對時間微分。$\int\|a_t(x_t)\|\,\mathrm dt$ 量的是沿 trajectory 累積的 velocity 變化，除了方向改變，也包含沿直線加速或減速；因此正文、demo、lab 與圖說都不能再把它叫作「彎」「曲率積分」或 curvature surrogate。只有**等速直線**才同時讓 curvature 與 acceleration 歸零。
 
 五條操作規則：
 

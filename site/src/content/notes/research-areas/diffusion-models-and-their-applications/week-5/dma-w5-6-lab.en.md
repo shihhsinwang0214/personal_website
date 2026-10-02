@@ -5,7 +5,7 @@ prereqs:
   - math-euler-error
   - math-w2
 lang: "en"
-title: "實作：把曲率積分畫成一條線"
+title: "實作：把加速度積分與 Euler 誤差畫在一起"
 category: "courses"
 group: "Unit 3 · 更直、更快的生成路徑"
 status: "missing"

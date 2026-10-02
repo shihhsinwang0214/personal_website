@@ -139,7 +139,7 @@ $$
 
 而 squared loss 對一個隨機目標回歸，等於對目標的條件期望回歸再加一個變異數項；因為目標是 stop-gradient 的，那個變異數項不影響對 $\theta$ 的梯度。所以**梯度與用真正的邊際速度訓練時完全相同**。這裡「線性」是關鍵——上一篇的展開框說過，若 $v$ 出現在非線性（例如平方）的位置，代換會多出一項 bias。
 
-**細節二：與 consistency training 差在「沒有離散化」。** <Ref to="dma-cd-vs-ct"/> 的 CT 也是條件代換，但它代的是「用同一組 $(x_0,\epsilon)$ 重新插值出 $x_{t'}$」來假裝走了一步；那個目標在期望上等於用真實 score 走一步 **Euler**，而 Euler 假設這一步是直線——bias 是 $O(\Delta t)$ 乘上曲率，所以 CT 需要對 $N$ 做 curriculum。MeanFlow 沒有走任何一步：identity 是把「走一步」換成了**解析的全導數**，對任何 $(r,t)$ 精確，沒有 $\Delta t$ 可言。<Ref to="dma-error-theory"/> 那個曲率積分在這裡不是被壓小，是根本沒有出現。
+**細節二：與 consistency training 差在「沒有離散化」。** <Ref to="dma-cd-vs-ct"/> 的 CT 也是條件代換，但它代的是「用同一組 $(x_0,\epsilon)$ 重新插值出 $x_{t'}$」來假裝走了一步；那個目標在期望上等於用真實 score 走一步 **Euler**，而 Euler 假設這一步內的 velocity 不變——bias 是 $O(\Delta t)$ 乘上 acceleration-controlled coefficient，所以 CT 需要對 $N$ 做 curriculum。MeanFlow 沒有走任何一步：identity 是把「走一步」換成了**解析的全導數**，對任何 $(r,t)$ 精確，沒有 $\Delta t$ 可言。<Ref to="dma-error-theory"/> 那個加速度積分在這裡不是被壓小，是根本沒有出現。
 
 **還有一件事要誠實標出來：$\tfrac{du}{dt}$ 那一項用的是 $u_\theta$ 自己。** 條件→邊際的論證只處理 $v$；identity 右邊的 $\tfrac{du}{dt}$ 應該是**真實**平均速度的導數，訓練時我們手上沒有，只能用網路當下的輸出代替。這是一個**實作選擇**（bootstrapping），不是定理：它的辯護是不動點論證——若 $u_\theta$ 已經等於真實的 $u$，目標就恰好是 $u$ 本身，訓練停在正解；訓練過程中它是否穩定收斂，靠的是 stop-gradient、$r=t$ 樣本的錨定（那些樣本就是普通 FM，沒有 bootstrapping），以及 <Ref to="dma-ict-scm"/> 談過的那些穩定技巧。CT 與 sCM 也有同樣的 self-target 結構，MeanFlow 在這一點上並不比它們更多或更少。
 </Answer>
@@ -155,7 +155,7 @@ $$
 
 （讀法：位置 $z_0$、當前時刻 $t=0$、目標 $r=1$。）兩步就是 $0\to\tfrac12\to1$，中途不需要重新加噪——半群條件被 identity 隱含地訓進去了。
 
-MeanFlow 值得記住的原因，是它把這個單元的目標——**flow map 可以像 flow matching 一樣從頭訓練、不要 teacher、不帶曲率 bias**——用一條式子做到。代價有兩個：每一步訓練多一次 JVP 的前向；以及 $\tfrac{du}{dt}$ 那一項的 bootstrapping。實務上 MeanFlow 還把一部分訓練樣本取 $r=t$（純 FM，穩定訓練的錨），並對 loss 做自適應加權——那些屬於 <Ref to="dma-shared-techniques"/> 說的加權那一軸，不改變主線。
+MeanFlow 值得記住的原因，是它把這個單元的目標——**flow map 可以像 flow matching 一樣從頭訓練、不要 teacher、不帶 finite-$\Delta t$ 的 Euler bias**——用一條式子做到。代價有兩個：每一步訓練多一次 JVP 的前向；以及 $\tfrac{du}{dt}$ 那一項的 bootstrapping。實務上 MeanFlow 還把一部分訓練樣本取 $r=t$（純 FM，穩定訓練的錨），並對 loss 做自適應加權——那些屬於 <Ref to="dma-shared-techniques"/> 說的加權那一軸，不改變主線。
 
 ## 先消化一下
 
@@ -175,7 +175,7 @@ MeanFlow identity 裡的 $\tfrac{d}{dt}u(z_t,r,t)$ 是：
 <Option correct>沿軌跡的全導數 $\partial_t u+(\partial_z u)\,v(z_t,t)$，因為 $z_t$ 隨 $t$ 沿軌跡移動。</Option>
 <Option>$u$ 對 $r$ 的偏導數。</Option>
 <Explanation>
-推導時我們讓 $t$ 動、$z_t$ 跟著沿軌跡動，所以 $u$ 的兩個輸入同時在變，是全導數；$r$ 固定不動。實作上它是 Jacobian 乘切向量 $(v,0,1)$，用 JVP 算。只取 $\partial_t u$ 會漏掉「粒子移到新位置後看到的 $u$ 的變化」——與 <Ref to="dma-error-theory"/> 裡 $(v\cdot\nabla)v$ 那一項是同一種角色（那一篇把邊際速度記成 $u$；本單元 $u$ 留給平均速度，邊際速度是 $v$）。
+推導時我們讓 $t$ 動、$z_t$ 跟著沿軌跡動，所以 $u$ 的兩個輸入同時在變，是全導數；$r$ 固定不動。實作上它是 Jacobian 乘切向量 $(v,0,1)$，用 JVP 算。只取 $\partial_t u$ 會漏掉「粒子移到新位置後看到的 $u$ 的變化」——與 <Ref to="dma-error-theory"/> 裡 $(v\cdot\nabla)v$ 那一項是同一種角色。
 </Explanation>
 </QuizBlock>
 
@@ -190,12 +190,12 @@ $x_1-x_0$ 只在**條件期望**上等於 $v$，單一樣本差很多。代換�
 </QuizBlock>
 
 <QuizBlock id="w9-2-d">
-與 consistency training 相比，MeanFlow「沒有 $O(\Delta t)$ 曲率 bias」的原因是：
+與 consistency training 相比，MeanFlow「沒有 $O(\Delta t)$ Euler acceleration bias」的原因是：
 <Option>MeanFlow 用了更細的時間網格。</Option>
 <Option correct>MeanFlow identity 把「走一步」換成解析的全導數，對任何 $(r,t)$ 精確成立，沒有任何離散化。</Option>
 <Option>MeanFlow 用 teacher 算了精確的軌跡。</Option>
 <Explanation>
-CT 的 bias 來自「假裝走了一步 Euler」，步長 $\Delta t$ 越大、軌跡越彎，bias 越大。MeanFlow 根本沒有走步——它用微積分基本定理直接寫出平均與瞬時速度的關係。它也沒有 teacher；剩下的近似只在 $\tfrac{du}{dt}$ 用網路自己的輸出這一點上。
+CT 的 bias 來自「假裝走了一步 Euler」；步長 $\Delta t$ 越大、這一步內的 velocity 變化越多，bias 越大。MeanFlow 根本沒有走步——它用微積分基本定理直接寫出平均與瞬時速度的關係。它也沒有 teacher；剩下的近似只在 $\tfrac{du}{dt}$ 用網路自己的輸出這一點上。
 </Explanation>
 </QuizBlock>
 

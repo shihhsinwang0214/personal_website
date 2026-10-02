@@ -97,7 +97,7 @@ def sample(model, n, steps):
 - reflow×2 加 Euler（<Ref to="dma-lab-interpolants"/>）；
 - 原始 FM 加 Euler（<Ref to="dma-lab-flow-matching"/>）當基準線。
 
-期待看到四種曲線的形狀不同，而且每一種形狀都能用 <Ref to="dma-unified-table"/> 的誤差來源解釋：FM 隨步數一路下降（曲率 + 累積）；reflow×2 從較低的起點下降（曲率被壓小）；consistency training 一步很好，但多步**不見得跟得上 FM 那個斜率**——<Ref to="dma-multistep-limit"/> 說 ODE 的 $O(1/N)$ 保證在它身上沒有，實際長什麼樣要量了才知道（<Ref to="dma-lab-consistency"/> 步驟 6 量過同一條線，把兩張圖放在一起看）；MeanFlow 一步與 CT 相近、多步**持續改善**（多步是合法路徑）。若 MeanFlow 一步明顯輸給 CT，先檢查 `p_same` 與訓練步數——它的 bootstrapping 需要比 FM 更長的訓練。
+期待看到四種曲線的形狀不同，而且每一種形狀都能用 <Ref to="dma-unified-table"/> 的誤差來源解釋：FM 隨步數一路下降（Euler acceleration error + 累積）；reflow×2 從較低的起點下降（沿途 velocity 變化被壓小）；consistency training 一步很好，但多步**不見得跟得上 FM 那個斜率**——<Ref to="dma-multistep-limit"/> 說 ODE 的 $O(1/N)$ 保證在它身上沒有，實際長什麼樣要量了才知道（<Ref to="dma-lab-consistency"/> 步驟 6 量過同一條線，把兩張圖放在一起看）；MeanFlow 一步與 CT 相近、多步**持續改善**（多步是合法路徑）。若 MeanFlow 一步明顯輸給 CT，先檢查 `p_same` 與訓練步數——它的 bootstrapping 需要比 FM 更長的訓練。
 
 <Question id="Q1">
 步驟 2 那張圖上，四條線的**起點**（一步）高低不同，**斜率**（隨步數下降多快）也不同。
@@ -166,7 +166,7 @@ def sample(model, n, steps):
 </QuizBlock>
 
 <Bridge>
-這門課從「生成到底在學什麼」出發，最後得到一套讀新方法的問法：它學的是速度、終點、flow map，還是整個分佈？它靠 conditional trick、teacher，還是自己的 bootstrap 取得訓練訊號？有限步誤差來自曲率、累積、交叉平均，還是 score 估計？訓練噪聲與取樣噪聲又各自扮演什麼角色？
+這門課從「生成到底在學什麼」出發，最後得到一套讀新方法的問法：它學的是速度、終點、flow map，還是整個分佈？它靠 conditional trick、teacher，還是自己的 bootstrap 取得訓練訊號？有限步誤差來自沿途 velocity 變化、累積、交叉平均，還是 score 估計？訓練噪聲與取樣噪聲又各自扮演什麼角色？
 
 方法名稱會繼續增加，這幾個問題不會。先找出新方法改了哪個物件、拿掉哪個假設，又把代價移到哪裡；通常就已經抓到它真正的新意。
 </Bridge>

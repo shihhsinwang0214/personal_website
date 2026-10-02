@@ -443,7 +443,7 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 8. ［C］Likelihood — $\frac{d}{dt}\log p_t(x_t)=-\nabla\cdot u_t(x_t)$；匾額「沿路把『體積被壓縮了多少』累加起來，就是 likelihood」；Remark Hutchinson 小字（附錄）
 9. ［Q］常聽到：「線性路徑的軌跡比較直，所以少步數就能取樣。」demo 可以直接量彎曲度——這個說法在什麼意義下成立？ — Q1
 10. ［C］先量 — 雙月 toy：線性 2.1、VP 1.5；8 步 Euler 線性誤差較大；粗體「在這裡，線性路徑反而比較彎」
-11. ［M］為什麼：一去一回 — $u_0(x)=\mathbb E[x_1-x_0\mid x_0=x]=\mathbb E[x_1]-x$（獨立配對）：每顆粒子一開始都朝資料平均位置衝，之後才分岔；VP 的 $\dot\sigma_0=0$ 起步是整片平移；結論「『線性比較直』成立於條件路徑；條件直≠邊際直」；相信可量的：全域誤差 $\approx h\int_0^1\|\ddot x_t\|dt$（U3.2 證）
+11. ［M］為什麼：一去一回 — $u_0(x)=\mathbb E[x_1-x_0\mid x_0=x]=\mathbb E[x_1]-x$（獨立配對）：每顆粒子一開始都朝資料平均位置衝，之後才分岔；VP 的 $\dot\sigma_0=0$ 起步是整片平移；結論「『線性比較直』成立於條件路徑；條件直≠邊際直」；相信可量的：全域誤差 $\approx h\int_0^1\|a_t(x_t)\|dt$（U3.2 證）
 12. ［C］這件事不能用框架的名字來推論 — 歸因要控制住其他三個旋鈕（把加權的效果誤記在路徵頭上）；Details「為什麼文獻說線性少步更好」放附錄
 
 **U2.5 實作：同一個 toy，只換訓練目標**
@@ -451,12 +451,12 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 1. ［K］設定：只動兩行 — 七行 PyTorch，高亮 `xt = t*x1 + (1-t)*x0` 與 `loss = ((model(xt,t) - (x1-x0))**2).mean()`；符號提醒 `x0` 噪聲、`x1` 資料；匾額「換框架在程式裡只是換兩行；換掉的是那兩行背後的設計自由度」；loss 停在 >0 且比上單元大（多一個變異數常數）
 2. ［F］圖 a：DDIM 與 FM 軌跡並排 — 32 起點、步數 $\{10,50,1000\}$；兩月牙中間最彎（條件直線交叉最密）
 3. ［Q］那到底哪一條路徑的軌跡比較好走？能不能量出來，而不是看圖猜？ — `<Ask>`
-4. ［F］圖 b：步數對誤差 log-log — `imgs/w4-5-1.png` 兩種讀法：斜率＝取樣器階數（Euler $\approx-1.05$、Heun $\approx-2.05$）、高度＝彎曲（線性高出 VP 兩到三倍）；只積到 $t=0.9$；Remark 用中位數（分岔選錯邊 $O(1)$）；匾額「量收斂階數之前，先確認你量的是離散化誤差，不是分岔選錯邊」；demo `w4-5-steps`
+4. ［F］圖 b：步數對誤差 log-log — `imgs/w4-5-1.png` 兩種讀法：斜率＝取樣器階數（Euler $\approx-1.05$、Heun $\approx-2.05$）、高度＝error scale（沿 trajectory 的 velocity 變化與 field regularity 都會影響）；只積到 $t=0.9$；Remark 用中位數（分岔選錯邊 $O(1)$）；匾額「量收斂階數之前，先確認你量的是離散化誤差，不是分岔選錯邊」；demo `w4-5-steps`
 5. ［K＋F］圖 c：不重訓的轉換 — `eps_to_velocity` ＋ `to_ddpm_step`（**反向**：FM $t=1\leftrightarrow s=0$）；與 DDIM 50 步幾乎重合
 6. ［Q＋C］U1 的模型是不是也能直接拿去用線性路徵的 FM 取樣器？ — Q1 → 不行：$\mathbb E\|x_t\|^2=t^2\mathbb E\|x_1\|^2+(1-t)^2d$ vs VP 大致固定 → 沒見過的分布；「能事後換的（取樣器、座標）vs 不能事後換的（起點、路徑、配對、加權）」
 7. ［T］作業 — 五題摘要（非 Gaussian 起點、logit-normal $t$、VP 參數化 $(\sin\frac{\pi t}2,\cos\frac{\pi t}2)$、Hutchinson likelihood…）＋ U1–U2 作業候選 A／B／C 一句話各一（急救室／鋪路／分診）
 
-**收尾**：quiz 選 w4-0-b（$t=0.9$ 接近資料）、w4-2-b（梯度同、loss 差常數）、w4-3-a（$1/t^2$）、w4-4-c（線性邊際軌跡一般是彎的）；Bridge「軌跡為什麼彎、彎多少、怎麼拉直、噴聲該不該加回去——下一個單元從一個把兩個框架都裝得進去的式子開始」。
+**收尾**：quiz 選 w4-0-b（$t=0.9$ 接近資料）、w4-2-b（梯度同、loss 差常數）、w4-3-a（$1/t^2$）、w4-4-c（線性邊際軌跡一般是彎的）；Bridge「velocity 沿 trajectory 為什麼改變、怎麼量、怎麼減少，噴聲該不該加回去——下一個單元從一個把兩個框架都裝得進去的式子開始」。
 
 **沿用 W2**：#16（底圖）、#18、#19、#20（U2.2 核心圖）、#34（flow map 對照表局部）。
 **新製圖**：五環鎖鏈；點餐套餐三格；開車三物件（若 `imgs/w4-1-1.png` 不夠）；一去一回（粒子先衝向平均再分岔）。
@@ -473,14 +473,14 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 | 開場 | 6 | 4 |
 | U3.0 一個式子裝下前面兩個單元 | 20 | 11 |
 | U3.1 取樣器不只一個，是一整族 | 18 | 10 |
-| U3.2 把「彎」寫成一個算得出來的數 | 18 | 10 |
+| U3.2 Euler 漏掉的 velocity 變化，要怎麼量？ | 18 | 10 |
 | U3.3 拉直（一）：Reflow | 15 | 9 |
 | U3.4 拉直（二）：Minibatch OT | 15 | 9 |
 | U3.5 共用技巧 | 22 | 12 |
 | U3.6 實作 | 14 | 7 |
 | quiz＋Bridge | 12 | 4 |
 
-**慣例卡（開場 #3）**：Albergo 記號 $x_t=\alpha_tx_0+\beta_tx_1+\gamma_tz$，$\alpha_t$＝**起點**係數、$\beta_t$＝**資料**係數、$\gamma_t$＝噪聲幅度；**U2 的 $(\alpha_t,\sigma_t)$＝U3 的 $(\beta_t,\alpha_t)$**；$t=1$ 資料；$\varepsilon_t$（取樣旋鈕，`\varepsilon`）≠ $\epsilon$（噴聲，`\epsilon`）。**三個記號切換點各再放一張對照卡**：U3.0 §2、U3.1 Remark 切回 U2 的 $\sigma_t$、U3.5 加權表第一列用 U1 離散 $\bar\alpha_t$。開場 #4：三個懸案（彎怎麼量／怎麼拉直／取樣加不加噪聲）歸到三軸（路徑／配對／取樣器）。
+**慣例卡（開場 #3）**：Albergo 記號 $x_t=\alpha_tx_0+\beta_tx_1+\gamma_tz$，$\alpha_t$＝**起點**係數、$\beta_t$＝**資料**係數、$\gamma_t$＝噪聲幅度；**U2 的 $(\alpha_t,\sigma_t)$＝U3 的 $(\beta_t,\alpha_t)$**；$t=1$ 資料；$\varepsilon_t$（取樣參數，`\varepsilon`）≠ $\epsilon$（噴聲，`\epsilon`）。**三個記號切換點各再放一張對照卡**：U3.0 §2、U3.1 Remark 切回 U2 的 $\sigma_t$、U3.5 加權表第一列用 U1 離散 $\bar\alpha_t$。開場 #4：三個懸案（velocity 變化怎麼量／怎麼減少／取樣加不加噪聲）歸到三軸（路徑／配對／取樣器）。
 
 **U3.0 一個式子裝下前面兩個單元**
 
@@ -509,15 +509,15 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 9. ［F］同一組邊際，一整族走法 — demo `w5-1-epsilon` 截圖：$c$ 0→6 軌跡由滑變抖、energy distance 一直停在 0.01 上下；按「把所有樣本推歪」（$t=0.15$ 平移近一單位）：$c=0$ 偏移帶到終點（約 0.7），$c$ 越大救得越回，$c=4$ 以後幾乎回到沒推的水準
 10. ［T］「一樣」有四種意思 — 預測量／訓練目標／軌跡／邊際四層階梯，一層比一層弱；「看到『其實是同一個』先問在哪一層同」
 
-**U3.2 把「彎」寫成一個算得出來的數**
+**U3.2 Euler 漏掉的 velocity 變化，要怎麼量？**
 
-1. ［Q］「彎」能不能寫成一個數？而且那個數真的壓住誤差嗎？ — `<Ask>`；副標「到目前為止它還是一個形容詞」
-2. ［M］Euler 走一步差多少 — Taylor $x_{t+h}=x_t+h\dot x_t+\frac{h^2}2\ddot x_\xi$；前兩項就是 Euler → 局部誤差 $\frac{h^2}2\|\ddot x_\xi\|$
-3. ［C］加速度的兩個來源 — $\ddot x_t=\underbrace{\partial_tu_t(x_t)}_{\text{場自己在變}}+\underbrace{(u_t\cdot\nabla)u_t(x_t)}_{\text{粒子換位置了}}$；`imgs/w5-2-1.png`；「等速直線時兩項都是零」
-4. ［M］一步的誤差怎麼變成終點的誤差 — Grönwall 放大 $e^{L(1-t_k)}$ → 加總 → $\le\frac{e^L}2h\int_0^1\|\ddot x_t\|dt+o(h)$；結論 $\boxed{\text{Euler 全域誤差}\lesssim C_Lh\int_0^1\|\partial_tu_t+(u_t\cdot\nabla)u_t\|_{x=x_t}dt}$
-5. ［C］三行讀法 — $h$ 給斜率（log-log 上 $-1$）／積分給高度／$C_L$ 是速度場正則性，**不由路徑直不直控制**；匾額「『彎』現在是一個數：$\int_0^1\|\ddot x_t\|dt$。這也是 reflow 與 minibatch OT 真正在壓小的量」
-6. ［F］曲率積分真的壓住誤差嗎 — demo `w5-2-curvature` 截圖：六個設定散點、雙對數、六點排在斜率約 1 的線上（$r$ 通常 0.95 以上）；最有效一招是換配對：線性路徑獨立→依位置，積分約 9 → 1.4
-7. ［C］SDE 為什麼不能用同一個量 — 布朗軌跡上 $\ddot x$ 不存在；控制它的是 drift 正則性與 $\varepsilon$；弱 $O(h)$、強 $O(h^{1/2})$；粗體「拉直不會幫到 SDE」「ODE 每一步犯錯少但全部累積，SDE 每一步犯錯多但錯不會全留下」
+1. ［Q］Velocity 沿 trajectory 改變了多少，能不能寫成一個數？而且那個數真的壓住誤差嗎？ — `<Ask>`
+2. ［M］Euler 走一步差多少 — 把 $v_\tau(x_\tau)=v_t(x_t)+\int_t^\tau a_s(x_s)ds$ 代回精確位移 → 局部誤差由 $h\int_t^{t+h}\|a_\tau(x_\tau)\|d\tau$ 控制
+3. ［C］加速度的兩個來源 — $a_t(x_t)=\underbrace{\partial_tv_t(x_t)}_{\text{場自己在變}}+\underbrace{(v_t\cdot\nabla)v_t(x_t)}_{\text{粒子換位置了}}$；`imgs/w5-2-1.png`；「等速直線時兩項都是零」
+4. ［M］一步的誤差怎麼變成終點的誤差 — Grönwall 放大 $e^{L(1-t_k)}$ → 加總 → $\le\frac{e^L}2h\int_0^1\|a_t(x_t)\|dt+o(h)$；結論 $\boxed{\text{Euler 全域誤差}\lesssim C_Lh\int_0^1\|a_t(x_t)\|dt}$
+5. ［C］三行讀法 — $h$ 給斜率（log-log 上 $-1$）／acceleration integral 給 velocity 變化的 scale／$C_L$ 是速度場正則性；匾額「$\int_0^1\|a_t(x_t)\|dt$ 量的是累積 velocity 變化，不是 geometric curvature；直線加速也會有加速度」
+6. ［F］加速度積分真的壓住誤差嗎 — demo `w5-2-curvature` 截圖：六個設定散點、雙對數、六點排在斜率約 1 的線上（$r$ 通常 0.95 以上）；最有效一招是換配對：線性路徑獨立→依位置，積分約 9 → 1.4
+7. ［C］SDE 為什麼不能用同一個量 — 布朗軌跡上 $a_t(x_t)$ 不存在；控制它的是 drift 正則性與 $\varepsilon$；弱 $O(h)$、強 $O(h^{1/2})$；粗體「拉直不會幫到 SDE」「ODE 每一步犯錯少但全部累積，SDE 每一步犯錯多但錯不會全留下」
 8. ［Q＋C］reflow 拉直之後誤差這麼小，能不能再把 Langevin 項加上去，同時享有直軌跡和自我修正？ — Q1 → reflow＝確定性配對＋$\gamma\equiv0$ ⇒ 無 score ⇒ 寫不出 SDE；留 $\gamma>0$ ⇒ 管子重疊 ⇒ 積分回不到 0；匾額「『所有粒子沿確定的直線走』和『中間分布有厚度、偏了可以拉回來』不可能同時成立」
 9. ［T］四個數字 — 積分：獨立配對約 9、好配對 1.4、好配對加 $\gamma$ 回升約 3.5、壞配對加 $\gamma$ 掉到約 6（加 $\gamma$ 的方向依配對好壞而異）；沒有例外的只有「$\gamma>0$ 讓積分不可能等於 0」
 10. ［C］Details：從單條軌跡誤差到 $W_2$ 上界（附錄）— 同起點兩終點是合法耦合、$W_2$ 是下確界；反向不成立
@@ -526,13 +526,13 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 
 1. ［C］一個很便宜的觀察 — 三句話：邊際軌跡彎，因為條件直線交叉；交叉，因為配對是隨機的；**ODE 的軌跡不會交叉** ⇒ 用 ODE 生配對就不交叉；匾額「配對不必自己設計——讓上一輪的模型生出來就好」
 2. ［Q］能不能拿模型自己的取樣結果，當成下一輪訓練的配對？ — `<Ask>`
-3. ［S］一輪要做哪三件事 — $X_t=(1-t)X_0+tX_1$ → 解 $\dot Z_t=u_t(Z_t)$、$Z_0=X_0$ → 把 $(Z_0,Z_1)$ 當新耦合 $\pi'=\mathsf R(\pi)$；reflow $\pi^{k+1}=\mathsf R(\pi^k)$；`imgs/w5-3-1.png` 迴圈；「訓 FM＋ODE 取樣在耦合層次就是 $\mathsf R$」
+3. ［S］一輪要做哪三件事 — $X_t=(1-t)X_0+tX_1$ → 解 $\dot Z_t=v_t(Z_t)$、$Z_0=X_0$ → 把 $(Z_0,Z_1)$ 當新耦合 $\pi'=\mathsf R(\pi)$；reflow $\pi^{k+1}=\mathsf R(\pi^k)$；`imgs/w5-3-1.png` 迴圈；「訓 FM＋ODE 取樣在耦合層次就是 $\mathsf R$」
 4. ［C］三個性質 — 保邊際（$Z_1\sim p_1$ 由 CFM 定理 1）／不增運輸成本 $\mathbb E[c(Z_1-Z_0)]\le\mathbb E[c(X_1-X_0)]$「粒子不再繞路」／軌跡不交叉（$\mathsf R(\pi)$ 的條件直線是不交叉軌跡的弦）
-5. ［M］不增運輸成本：兩次 Jensen — $Z_1-Z_0=\int_0^1u_t(Z_t)dt$ → 對時間平均用 Jensen $c(\int u)\le\int c(u)$ → 對條件期望用 Jensen → 取期望、用 $Z_t\overset d=X_t$ 接起來；$\square$
-6. ［C］為什麼一直做下去會變直？ — $S(\pi)=\int_0^1\mathbb E\|(X_1-X_0)-u_t(X_t)\|^2dt$（straightness）；白話「每個粒子自己的條件速度，和它在那個位置實際被指派到的邊際速度，差多少」；$S=0$ ⇔ 粒子照著自己的直線走、一步 Euler 就精確；Remark：$S$ 與曲率積分是同一件事
+5. ［M］不增運輸成本：兩次 Jensen — $Z_1-Z_0=\int_0^1v_t(Z_t)dt$ → 對時間平均用 Jensen $c(\int v)\le\int c(v)$ → 對條件期望用 Jensen → 取期望、用 $Z_t\overset d=X_t$ 接起來；$\square$
+6. ［C］為什麼一直做下去會變直？ — $S(\pi)=\int_0^1\mathbb E\|(X_1-X_0)-v_t(X_t)\|^2dt$（straightness）；白話「每個粒子自己的條件速度，和它在那個位置實際被指派到的邊際速度，差多少」；$S=0$ ⇔ 粒子沿等速直線走、一步 Euler 精確；Remark：$S$ 與加速度積分不是同一個公式，但 $S=0$ 會推出兩者同為 0
 7. ［M］簿記 — 每一輪省下的運輸成本 ≥ 那一輪的 $S$；預算有限（下界是 OT 成本）→ $\sum_{k\le K}S(\pi^k)\le\mathbb E\|X_1-X_0\|^2\big|_{\pi^0}$ → $\min_kS(\pi^k)=O(1/K)$；紫色
 8. ［F］Reflow demo — `w5-3-reflow` 截圖 0→1→2→3：straightness 約 1.4→0.03；1 步 Euler 誤差 1.4→0.1；運輸成本 4.0→0.6；終點分布與資料距離一直 <0.01；「第一輪就吃掉大部分好處」；註「精確場 demo 顯示的是上限」
-9. ［C＋Q］直是有代價的 — 誤差累積（上一輪模型誤差進配對）／多樣性（無 score、無 SDE 退路）／極限未必 OT；匾額「reflow 買到的是『直』，付出的是多樣性與上一輪的模型誤差」；Q1「只改配對，曲率為什麼變？」→ $u_t=\mathbb E[X_1-X_0\mid X_t=x]$ 取決於聯合分布：獨立配對四面八方平均、粗箭頭短；不交叉配對近乎平行
+9. ［C＋Q］直是有代價的 — 誤差累積（上一輪模型誤差進配對）／多樣性（無 score、無 SDE 退路）／極限未必 OT；匾額「reflow 買到的是『直』，付出的是多樣性與上一輪的模型誤差」；Q1「只改配對，沿途 velocity 變化為什麼會變？」→ $v_t=\mathbb E[X_1-X_0\mid X_t=x]$ 取決於聯合分布：獨立配對四面八方平均、粗箭頭短；不交叉配對近乎平行
 
 **U3.4 拉直（二）：在每個 batch 裡解一次配對**
 
@@ -541,30 +541,30 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 3. ［B＋C］OT 配對真正保證的是「單調」，不是「不交叉」 — 一維單調＝零交叉；高維只是把交叉壓到很少（全域 OT 實測仍有 0.2–0.8%）；Remark Brenier $T=\nabla\varphi$（附錄）；minibatch OT 仍有後驄（同一 $x_0$ 在不同 batch 遇到不同候選）
 4. ［K］Minibatch OT：只多兩行 — `C[i,j]=‖x0[i]−x1[j]‖²`、`argmin_σ Σ C[i,σ(i)]`、`x1 ← x1[σ]`；$O(B^3)$、Sinkhorn
 5. ［F］Batch 內解一次 OT — demo `w5-4-batch-ot` 截圖：獨立→192（全域）交叉比例約 20%→9%→4%→1.4%→0.6%；1 步 Euler 誤差 1.5→0.77→0.41→0.21→0.08；「batch 16 就走完八成的路，但後面還有得賺」
-6. ［C］邊際正確，配對次佳 — batch 內重排是置換 ⇒ 兩集合不變 ⇒ 合法耦合，**無論 $B$ 多小都沒有邊際偏差**；偏差在「非全域 OT」、$S>0$；匾額「Minibatch OT 影響的是曲率，不是正確性」；「在散點圖上往左移，不改斜率」
+6. ［C］邊際正確，配對次佳 — batch 內重排是置換 ⇒ 兩集合不變 ⇒ 合法耦合，**無論 $B$ 多小都沒有邊際偏差**；偏差在「非全域 OT」、$S>0$；匾額「Minibatch OT 影響的是沿途 velocity 變化，不是正確性」；「在散點圖上往左移，不改斜率」
 7. ［T］reflow 與 minibatch OT，差在哪？ — 六列對照表
 8. ［Q＋M］在 2D toy 上 minibatch OT 效果漂亮，在圖像（$d=3072$）上增益小得多——為什麼？ — Q1 → 距離集中：$\mathbb E\|x_0-x_1\|^2=2d$、$\mathrm{Var}=8d$、相對標準差 $\sqrt{2/d}$（$d=2$ 是 100%，$d=3072$ 只剩 2.5%）→ 成本矩陣幾乎是常數 → 最佳指派≈隨機指派；出路：latent space、batch 要大；順帶解釋 reflow 在高維較常見（配對結構是學出來的）
 9. ［B］（可併 #6）「配對的結構是學出來的，不依賴成本矩陣有沒有對比度」
 
 **U3.5 共用技巧：guidance、高階 solver、時間加權**
 
-1. ［Q］這三個技巧在三份論文裡、用三套語言寫，有沒有一個說法可以一次講完？ — `<Ask>`；副標「Gaussian 路徑上 diffusion／FM 是同一物件的兩套座標；曲率積分是共同度量」
-2. ［C］Classifier-free guidance 兩座標 — $\tilde s_t=s_t(\cdot\mid\varnothing)+w(s_t(\cdot\mid c)-s_t(\cdot\mid\varnothing))$、$\tilde u_t$ 同形；「同一件事」的理由：$u$ 是 $x$ 與 $s$ 的線性組合、係數只依賴 $t$，線性組合與線性外推可交換；$w=1$ 普通條件生成，$w>1$ 才叫 guidance；W2 #22 重用
-3. ［C］$w>1$ 生成的是什麼 — $\tilde s_t$ 對應 $\propto p_t(x\mid c)^wp_t(x\mid\varnothing)^{1-w}$（銳化）；但 $\tilde u_t$ 不滿足這條路徑的 continuity equation ⇒ 終點**既不是 $p_1(\cdot\mid c)$、也不是那個銳化的分布**；匾額「$w=1$ 已經是正確答案了。$w>1$ 是刻意把分布改掉，換一個『更像那一類』的樣子」
-4. ［F］Guidance 買到什麼、付了什麼 — demo `w5-5-guidance` 截圖：終點分布與該類資料距離在 $w=1$ 最小（0.01～0.03）、$w=4$ 約 0.4、$w=8$ 約 0.8；終點散布 $\sigma$ 1.1→0.57（「多樣性是被換掉的」）；曲率積分 $w>2$ 後近似線性成長 3.5→5.8→10.5；8 步時 $w=1$ 的 0.011 → $w=4$ 的 0.018；結論「guidance 越強需要越多步；少步＋高 guidance 易過飽和與結構崩壞」；Remark 平滑窗（附錄）
-5. ［C］高階 solver — Heun $\tilde x=x_t+hu_t(x_t)$，$x_{t+h}=x_t+\frac h2(u_t(x_t)+u_{t+h}(\tilde x))$「兩次評估估這一步的平均速度」；全域誤差 $\lesssim Ch^2\int\|\dddot x_t\|dt$；粗體「階數換成二、代價是被積函數升成三階導數」＋兩倍 NFE；「賭的是軌跡夠光滑；彎本身不是問題，彎得不規律才是」
-6. ［C］Details：DPM-Solver 為什麼比通用高階方法有效 — $u_t=\frac{\dot\alpha_t}{\alpha_t}x+(\dot\sigma_t-\frac{\dot\alpha_t}{\alpha_t}\sigma_t)\epsilon_\theta$（**U2 記號**）：線性部分精確積分（換 $\log$-SNR 更乾脆），只近似 $\epsilon_\theta$ 項；「先把已經知道的彎曲扣掉，剩下要近似的部分本來就更直」；三種「拉直」並列：RF 改配對／OT 改配對／DPM-Solver 改座標
+1. ［Q］這三個技巧在三份論文裡、用三套語言寫，有沒有一個說法可以一次講完？ — `<Ask>`；副標「Gaussian 路徑上 diffusion／FM 是同一物件的兩套座標；加速度積分連到共同的 finite-step error」
+2. ［C］Classifier-free guidance 兩座標 — $\tilde s_t=s_t(\cdot\mid\varnothing)+w(s_t(\cdot\mid c)-s_t(\cdot\mid\varnothing))$、$\tilde v_t$ 同形；「同一件事」的理由：$v$ 是 $x$ 與 $s$ 的線性組合、係數只依賴 $t$，線性組合與線性外推可交換；$w=1$ 普通條件生成，$w>1$ 才叫 guidance；W2 #22 重用
+3. ［C］$w>1$ 生成的是什麼 — $\tilde s_t$ 對應 $\propto p_t(x\mid c)^wp_t(x\mid\varnothing)^{1-w}$（銳化）；但 $\tilde v_t$ 不滿足這條路徑的 continuity equation ⇒ 終點**既不是 $p_1(\cdot\mid c)$、也不是那個銳化的分布**；匾額「$w=1$ 已經是正確答案了。$w>1$ 是刻意把分布改掉，換一個『更像那一類』的樣子」
+4. ［F］Guidance 買到什麼、付了什麼 — demo `w5-5-guidance` 截圖：終點分布與該類資料距離在 $w=1$ 最小（0.01～0.03）、$w=4$ 約 0.4、$w=8$ 約 0.8；終點散布 $\sigma$ 1.1→0.57（「多樣性是被換掉的」）；加速度積分 $w>2$ 後近似線性成長 3.5→5.8→10.5；8 步時 $w=1$ 的 0.011 → $w=4$ 的 0.018；結論「guidance 越強需要越多步；少步＋高 guidance 易過飽和與結構崩壞」；Remark 平滑窗（附錄）
+5. ［C］高階 solver — Heun $\tilde x=x_t+hv_t(x_t)$，$x_{t+h}=x_t+\frac h2(v_t(x_t)+v_{t+h}(\tilde x))$「兩次評估估這一步的平均速度」；全域誤差 $\lesssim Ch^2\int\|\dddot x_t\|dt$；粗體「階數換成二、代價是被積函數升成三階導數」＋兩倍 NFE；「賭的是 velocity 變化夠平滑；不只看 trajectory 幾何形狀」
+6. ［C］Details：DPM-Solver 為什麼比通用高階方法有效 — $v_t=\frac{\dot\alpha_t}{\alpha_t}x+(\dot\sigma_t-\frac{\dot\alpha_t}{\alpha_t}\sigma_t)\epsilon_\theta$（**U2 記號**）：線性部分精確積分（換 $\log$-SNR 更乾脆），只近似 $\epsilon_\theta$ 項；「先把已經知道的彎曲扣掉，剩下要近似的部分本來就更直」；三種「拉直」並列：RF 改配對／OT 改配對／DPM-Solver 改座標
 7. ［T］時間取樣與加權：三處加權並排 — DDPM $w(t)=\frac{\bar\alpha_{t-1}\beta_t}{2(1-\bar\alpha_t)(1-\bar\alpha_{t-1})}$（**U1 離散記號**）／$\epsilon$ 座標 $\frac{\beta_t}{2\alpha_t(1-\bar\alpha_{t-1})}$／線性 FM 均勻 $t$ 在 $\epsilon$ 座標 $1/t^2$；「加權從來不是新旋鈕」；**符號警示：這張表的 $w(t)$ 與 guidance 的 $w$ 撞字，投影片改寫 $w_{\text{loss}}(t)$**
 8. ［C］中段最難 — 兩端都太容易（$t\approx0$ 速度近常數、$t\approx1$ 去噪近恆等）；訓練難度論證（不是誤差分布論證）；SD3 logit-normal、EDM、Kingma & Gao；匾額「選 $t$ 的分布，就是選 $\log\mathrm{SNR}$ 上的權重」；「動的是高度，不是斜率」
 9. ［Q＋T］如果只能挑一個技巧來改善「10 步取樣的品質」，該挑哪一個？為什麼其他的不行？ — Q1 → 六列表（技巧／動的旋鈕／對誤差的影響）；逐項刪：SDE 來不及、Heun 有限、guidance 反向、時間加權間接 ⇒ 改配對（reflow demo 1.4→0.1）；誠實補述「排序針對少步；不限步數時答案反過來（SDE 多步常贏、確定性配對失去 score 變缺點）」；`imgs/w5-5-1.png`
 10. ［B］六個技巧，一個共同的靶（終點誤差）
 11–12. ［附錄］平滑窗 Remark；Hutchinson。
 
-**U3.6 實作：把曲率積分畫成一條線**
+**U3.6 實作：把加速度積分與 Euler 誤差畫在一起**
 
 1. ［K］設定與四種配對 — 同架構同 seed，粗體「只有配對不一樣」；(a) 獨立 (b) reflow×1 (c) reflow×2 (d) minibatch OT（`cdist`＋`linear_sum_assignment`，batch 256）
 2. ［F］圖 a 軌跡並排 ＋ demo `w5-6-four-couplings` 四指標：獨立 $S\approx1.6$、1 步誤差≈1.5、交叉≈23%；reflow×1 $S$ 0.03、誤差 0.12、交叉 1%；batch OT(32) $S$ 0.22、誤差 0.30；全域 OT $S$ 0.02、誤差 0.06；「旋鈕動的是路，不是終點」
-3. ［Q＋K］曲率積分小，誤差就一定小嗎？在自己的圖上驗一次 — `<Ask>`＋`curvature_integral`（細步差分兩次）；圖 b 四點共線斜率約 1；換步數整體平移
+3. ［Q＋K］加速度積分小，誤差就一定小嗎？在自己的圖上驗一次 — `<Ask>`＋`acceleration_integral`（沿細步 trajectory 對 velocity 做差分）；圖 b 四點共線斜率約 1；換步數整體平移
 4. ［T］步驟 4：straightness 與運輸成本 — 表；「reflow×1 和全域 OT 在『直』上打成平手，但運輸成本 OT 一貫略低——直和省是兩件事」
 5. ［K］步驟 5：`sde_step` — `s = -eta/gamma(t)`；`x + h*(b + eps_t*s) + sqrt(2*eps_t*h)*randn`（U3.0 的 score 式＋U3.1 的一族 SDE 合成一行）；$\gamma_t=0.3\sqrt{2t(1-t)}$、雙 head；「先寫下你的猜測：$\varepsilon\in\{0,0.1,0.5\}$ 三條會不會交叉？」
 6. ［C］Remark：這一步很容易得到和文獻相反的結論 — $\varepsilon_t=c\gamma_t^2$ 尺度；score 精確 vs 學出來；「掃大範圍 $\varepsilon$、兩種網路都報」
@@ -632,10 +632,10 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 7. ［S］取樣：從全 `[MASK]` 出發 — 每步對仍 `[MASK]` 的位置擲硬幣翻開／留下；**已翻開不再改（不是額外規定，是 posterior 說的）**；跳步 $t\to t-k$ 機率 $\frac{\bar\alpha_{t-k}-\bar\alpha_t}{1-\bar\alpha_t}$；訓 $T=1000$ 取樣 8 或 16 步
 8. ［F］demo `w6-2-sampling` 截圖 — toy 文法（長度 16、`A B ( )`）；按下一步看翻開哪些格「機率只跟 $t$ 有關，和內容無關」；步數 16→1 每步翻更多；點格子看柱子「翻開時是從柱子抽的，不是 argmax」；BERT 對照開關
 9. ［Q＋C］取樣時翻開的字是從 $p_\theta$ 抽的，改成每次取 argmax 會怎樣？ — Q1 → 程序變確定性、失去多樣性；$p_\theta$ 是 conditional，遮罩比例大時很平、argmax 偏很遠；MaskGIT 的信心保留是在「哪些位置翻開」上選擇——偷偷處理下一篇的問題
-10. ［C］（Bridge）步數越少、每步同時翻開越多——哪裡會出錯？答案是離散世界的「曲率」
+10. ［C］（Bridge）步數越少、每步同時翻開越多——哪裡會出錯？答案是離散取樣的 factorization error
 11. ［附錄］Details 連續極限、Details 不需要看 $t$、Remark $1/t$。
 
-**U4.3 因子化誤差：離散世界的曲率**
+**U4.3 因子化誤差：離散取樣一步走太大的代價**
 
 1. ［Q］上一篇說步數可以壓到 8 步、甚至 1 步。那同時翻開很多格，代價是什麼？ — `<Ask>`；W2 #31 重用（那隻 遮 在 遮 → 貓在飛／狗在飛 ✗）
 2. ［C］網路給的是什麼 — 逐位置 **marginal** $p_\theta(x_0^\ell\mid x_t)$，沒有 joint；同時翻開 $S$＝從 $\prod_{\ell\in S}p_\theta$ 抽，正確目標是 $p(x_0^S\mid x_t)$；「今天想吃 `[MASK]` `[MASK]`」→ 牛肉／麵、壽／司合法，「牛肉／司」是乘積生出來的；相等的條件：給定 $x_t$ 條件獨立——語言裡幾乎從不成立
@@ -643,7 +643,7 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 4. ［M］parity toy 三個數字 — 一步全翻：每位置 marginal $\frac12$，$\{0,1\}^8$ 均勻，合法率 $\frac12$；每步一個走 8 步：前 7 位置 $\frac12$、第 8 位置 conditional 確定 → 合法率 1；每步兩個走 4 步：前三步無誤，最後一步 joint 只允許 2 種、乘積 4 種 → $\frac12$；紫色「誤差不由步數均勻決定，出現在『同時翻開的位置有條件相依』那一步——parity 的相依全藏在最後一個自由度」
 5. ［F］中心式 — $\mathrm{FE}(S\mid x_t)=\mathrm{KL}\big(p(x_0^S\mid x_t)\,\big\|\,\prod_{\ell\in S}p(x_0^\ell\mid x_t)\big)$＝total correlation「合起來看比分開看多知道多少」；$\ge0$；$=0$ iff 條件獨立；$|S|=1$ 恆零；Details「$\mathrm{KL}(p\|\tilde p)=\sum_{\text{steps}}\mathbb E\,\mathrm{FE}$，且不在訓練 loss 裡」（附錄）
 6. ［F］demo `w6-3-parity` 截圖 — $k=1$：FE 一直 0、合法率 100%；$k=2/4/8$：FE 前面幾步 0、最後一步跳到 $\log2\approx0.693$，合法率 49.8%／48.3%／52.6%；$k=8$ 真實 joint 256 個組合只有 128 個非零、乘積 256 個都有值
-7. ［T］這是離散世界的曲率 — 對照表（本單元最重要的一張）：訓練物件 $u_t(x)$ vs $p(x_0^\ell\mid x_t)$／一步假設 直線 vs 條件獨立／誤差來源 $\int\|\ddot x\|dt$ vs total correlation／何時為零／減少做法（拉直 vs 信心排序、顯式相依）；「連續的『拉直』在離散沒有對應——沒有『直的配對』這回事」
+7. ［T］兩個世界的一步都假設得太簡單 — 對照表（本單元最重要的一張）：訓練物件 $v_t(x)$ vs $p(x_0^\ell\mid x_t)$／一步假設 velocity 不變 vs 條件獨立／誤差來源 $\int\|a_t(x_t)\|dt$ vs total correlation／何時為零／減少做法；「連續的『拉直』在離散沒有對應——沒有『直的配對』這回事」
 8. ［C］那不如直接用 autoregressive？ — 每步翻一個的 MDM＝任意順序 AR；取捨：AR 精確但 $L$ 次呼叫不可平行／MDM 可平行 $L/k$ 次但有 FE、天生雙向填空；`imgs/w6-3-1.png`；「比較時『每步翻開幾個』要當實驗變數」
 9. ［B］有限步取樣的誤差，在兩個世界裡都來自「一步之內假設了太簡單的結構」
 10. ［C］（Bridge）翻錯的字能不能改？absorbing 說不能，uniform 說可以
@@ -811,7 +811,7 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 **U6.0 不走了，直接學那一步**
 
 1. ［Q］生成一定要走那麼多步嗎？很慢ㄟ — W2 #32 重用（log-log 圖）
-2. ［C］回到那條不等式 — $\lesssim C_Lh\int\|\ddot x_t\|dt$ 往左看到底：積分只有 $S(\pi)=0$ 才為零，reflow 一兩輪就停；只要不為零，$h=1$ 就有誤差；「先學速度場再積分」的一步生成是永遠只能逼近的極限
+2. ［C］回到那條不等式 — $\lesssim C_Lh\int\|a_t(x_t)\|dt$ 往左看到底：積分只有 $S(\pi)=0$ 才為零，reflow 一兩輪就停；只要不為零，$h=1$ 就有誤差；「先學速度場再積分」的一步生成是永遠只能逼近的極限
 3. ［B］能不能不學速度場，直接學那個映射？
 4. ［C］要學的物件叫什麼 — flow map $\psi_{s\to t}(x_s)=x_t$；生成＝算一次 $\psi_{0\to1}$；「$N$ 步 Euler 就是 $N$ 個『假設這一小段是直線』的映射疊起來」；新目標 $G_\theta\approx\psi_{0\to1}$，**而且這次知道 $G$ 該等於什麼**（由 PF-ODE 決定的一對一映射）
 5. ［Q＋C］手上有訓好的 FM／diffusion 可以跑 ODE——最笨、最直接的做法是什麼？哪裡好、哪裡不好？ — Q1 → teacher 跑 ODE 收集 $(x_0,x_1)$、回歸 $G_\theta(x_0)\approx x_1$；一好：MSE 極小是 $\mathbb E[x_1\mid x_0]=\psi_{0\to1}(x_0)$，ODE 一對一所以不糊；三不好：資料太貴／學生只看過 $t=0$／只是蒸餾、上限是 teacher → 三篇分別對付
@@ -827,7 +827,7 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 3. ［C］三個性質 — 目標是確定的（DDIM 確定性，一個點不是分佈）／學生看過所有 $t$／從 teacher 初始化
 4. ［Q＋C］每一輪的老師都是上一輪的學生。為什麼不乾脆讓第一個學生直接學 teacher 的 $N$ 步，一次到位？ — Q1 → 一次到位就是上一篇的直接回歸；PD 換到資料成本＋**難度階梯**（前幾輪兩小步幾乎共線≈直線，最後幾輪一步跨過中段）；代價：上一輪誤差進本輪訓練資料（同 reflow）；順帶解釋 PD 蒸到 4 步好、1 步明顯下降
 5. ［F］demo `w8-1-1` 截圖 — 32 步→1 步（5 輪）；理想學生 vs 帶逼近誤差的 surrogate，分開看「兩步合一」本身與誤差沿輪次累積
-6. ［C］誤差怎麼累積 — 兩種誤差進學生（teacher 自帶＋本輪逼近）疊 $\log_2N$ 輪；「曲率以表達難度回來」
+6. ［C］誤差怎麼累積 — 兩種誤差進學生（teacher 自帶＋本輪逼近）疊 $\log_2N$ 輪；「跨越較長區間後，flow map 的非線性成為表達難度」
 7. ［T］解掉了什麼、留下什麼 — 三個「不好」記帳：資料貴 ✓解掉／只看過 $t=0$ 解一半（固定步長）／上限 teacher 沒解且更明顯；Details $v$-prediction 出處（附錄）
 8. ［C］（Bridge）把「一步」重新定義：不是跳到網格下一格，而是從任何一點直接跳到終點
 
@@ -851,7 +851,7 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 2. ［Q］CT 沒有 teacher、沒有 score，$x_0+t_n\epsilon$ 也明明不在同一條軌跡上。它憑什麼能學到 consistency function？ — Q1；三類常見答案（「$\Delta t$ 小差不多」對一半／「$f_\theta$ 自己平均掉」方向對／「條件與邊際」正確）
 3. ［M］算一次條件期望 — 改寫 $x_0+t_n\epsilon=x_{t_{n+1}}-\Delta t\cdot\epsilon$「從 $x_{t_{n+1}}$ 退 $\Delta t$，但退的方向是自己的 $\epsilon$，不是平均方向」→ 多組 $(x_0,\epsilon)$ 對同一 $x_{t_{n+1}}$ → 固定 $x_{t_{n+1}}$ 取後驄平均（線性）→ Tweedie $\mathbb E[\epsilon\mid x_t]=-t\nabla\log p_t$ → $\mathbb E[x_0+t_n\epsilon\mid x_{t_{n+1}}]=x_{t_{n+1}}+\Delta t\,t_{n+1}\nabla\log p_{t_{n+1}}(x_{t_{n+1}})$；紫色「正是 CD 的一步 Euler，而且用的是**真實** score」；**conditional trick 的 consistency 版本**（累積表第 6 列）
 4. ［B］CT 不是「沒有 teacher」，它的 teacher 是資料本身
-5. ［C］但這裡有兩個新的細節 — 細節一：條件目標先進非線性 $f_{\theta^-}$ 再比較，$\mathbb E[f_{\theta^-}(x_0+t_n\epsilon,t_n)\mid x_{t_{n+1}}]\neq f_{\theta^-}(\hat x^{\text{CD}}_{t_n},t_n)$，Jensen gap $\sim\Delta t^2\times f''$；細節二：Euler 本身的曲率誤差 $\frac12\Delta t^2\|\ddot x\|$（CD 也有）；兩者隨 $\Delta t\to0$ 消失（Song et al. 定理精神：CT 與真 score CD 損失差 $o(\Delta t)$）
+5. ［C］但這裡有兩個新的細節 — 細節一：條件目標先進非線性 $f_{\theta^-}$ 再比較，$\mathbb E[f_{\theta^-}(x_0+t_n\epsilon,t_n)\mid x_{t_{n+1}}]\neq f_{\theta^-}(\hat x^{\text{CD}}_{t_n},t_n)$，Jensen gap $\sim\Delta t^2\times f''$；細節二：Euler 本身漏掉 velocity 變化的誤差 $\frac12\Delta t^2\|a_t(x_t)\|$（CD 也有）；兩者隨 $\Delta t\to0$ 消失（Song et al. 定理精神：CT 與真 score CD 損失差 $o(\Delta t)$）
 6. ［F］條件目標的扇形 — demo `w8-3-1` 截圖：單筆 CT 目標散佈成扇形（半徑＝variance $O(\Delta t)$）、扇子質心＝Euler 點、質心到真實點＝bias $O(\Delta t^2)$
 7. ［C］為什麼時間網格要慢慢變細 — bias $O(\Delta t^2)$ 累積 $N$ 格 → $O(\Delta t)$；variance 標準差 $O(\Delta t)$；訊號（兩點輸出真實差距）也是 $O(\Delta t)$ → 訊噪比不改善 → curriculum $N$ 從 2 到 150（iCT 指數到 1280）
 8. ［C］Details：CT 的目標其實是假設這一段是直線——接回配對交叉 — 三個點（CT 沿 $-\epsilon$ 直線、Euler 沿平均方向直線、真實曲線）；若配對不交叉則 bias 幾乎零 →「先拉直、再做 CT」（可附錄）
@@ -866,7 +866,7 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 3. ［T］iCT：五個改動，各對一格 — 拿掉 EMA（bias）／pseudo-Huber $d=\sqrt{\|x-y\|^2+c^2}-c$，$c=0.00054\sqrt D$（variance）／$\lambda=1/\Delta t$（variance 均衡）／lognormal 時間取樣 $P_{\text{mean}}=-1.1,P_{\text{std}}=2.0$（預算放在有訊號的中段）／$N(k)=\min(s_02^{\lfloor k/K'\rfloor},s_1)+1$，$s_0=10,s_1=1280$（bias↔variance）；Details Fourier 尺度、dropout（附錄）
 4. ［Q］全部是在離散網格上周旋。能不能讓 $\Delta t\to0$？
 5. ［F］中心式 — $\boxed{\frac{d}{dt}f(x_t,t)=\partial_tf(x_t,t)+\nabla_xf(x_t,t)\cdot\frac{dx_t}{dt}=0}$ 沿每一條 PF-ODE 軌跡；白話「時間走、位置不動的變化 ＋ 位置隨軌跡移動的變化，兩項恰好相消——兩支箭頭的合力為零」；demo `w8-4-2` 截圖
-6. ［C］沒有 $\Delta t$ 之後 — 兩個 bias（Euler 曲率誤差與 Jensen gap）一次消失；$\ell_2$ 損失 $N\to\infty$ 的極限梯度 $\nabla_\theta\mathbb E[f_\theta^\top\frac d{dt}f_{\theta^-}]$；conditional trick：$\dot x_t$ 用條件速度 $\epsilon$，全導數對 $\dot x_t$ 線性 → 期望精確、無 Jensen gap（sCT）
+6. ［C］沒有 $\Delta t$ 之後 — 兩個 bias（Euler acceleration error 與 Jensen gap）一次消失；$\ell_2$ 損失 $N\to\infty$ 的極限梯度 $\nabla_\theta\mathbb E[f_\theta^\top\frac d{dt}f_{\theta^-}]$；conditional trick：$\dot x_t$ 用條件速度 $\epsilon$，全導數對 $\dot x_t$ 線性 → 期望精確、無 Jensen gap（sCT）
 7. ［K］全導數的 JVP：三行程式 — `torch.func.jvp(f,(x,t),(v,ones))` 得 $\nabla_xf\cdot v+\partial_tf$，成本≈一次前向；為什麼不算 Jacobian
 8. ［C］sCM：為什麼 2023 年寫出來卻訓不穩 — 問題在 $\frac{d}{dt}f_{\theta^-}$ 的數值行為；TrigFlow $x_t=\cos t\,x_0+\sin t\,z$，$f_\theta=\cos t\,x_t-\sin t\,\sigma_dF_\theta(\frac{x_t}{\sigma_d},t)$（$c_{\text{skip}}=\cos t$、$c_{\text{out}}=-\sigma_d\sin t$ 有界；與 diffusion 共用網路；$t_{\text{EDM}}=\sigma_d\tan t$）；`imgs/w8-4-1.svg`
 9. ［M］全導數分解成兩個括號 — $\frac{d}{dt}f_{\theta^-}=-\cos t\,(\sigma_dF_{\theta^-}-\frac{dx_t}{dt})-\sin t\,(x_t+\sigma_d\frac{dF_{\theta^-}}{dt})$；「兩個括號各是該為零的東西：第一個是 $F$ 與真速度的差（初始化後小）；第二個含 $\frac{dF}{dt}$——網路對時間的敏感度，這是不穩定的來源」
@@ -890,7 +890,7 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 3. ［K］步驟 2：`train_cm` — CD／CT 只差 `x_hat` 一行；stopgrad 不用 EMA；`huber`；$\lambda=1/\Delta t$；檢查點「沿精確軌跡 8 點輸出平線」；Details 固定 $N$ 訓不起來用 curriculum（$s_0=4,s_1=128$）
 4. ［F］圖 a：CT 的 bias 對 $N$ — $N\in\{2,\dots,256\}$；先猜再出：CD 單調降趨平、CT 先降後升、小 $N$ 重合
 5. ［F］圖 b：條件目標的扇子（不訓練）— 後驟抽 500 個 $x_0$；`(ct.mean(0)−euler).norm()` ≲ 5e-3 驗證 U6.3 中心等式；log-log 斜率 1（variance）與 2（bias）
-6. ［F］圖 c 主圖：三種「一步」 — CD（$N=128$、精確 score）、CT（最佳 $N$）、reflow×2（座標轉換 $x_T/(1+T)$，寫成 $x_T/T$ 會差 10%）；每根長條標誤差來源（MLP 逼近極限／bias–variance 極限／$\int\|\ddot x\|dt$ 尚未為零）；「把這張圖留好，U7 加 MeanFlow」
+6. ［F］圖 c 主圖：三種「一步」 — CD（$N=128$、精確 score）、CT（最佳 $N$）、reflow×2（座標轉換 $x_T/(1+T)$，寫成 $x_T/T$ 會差 10%）；每根長條標誤差來源（MLP 逼近極限／bias–variance 極限／$\int\|a_t(x_t)\|dt$ 尚未為零）；「把這張圖留好，U7 加 MeanFlow」
 7. ［Q＋C］三個東西拿到的資源完全不同（精確 teacher／不用 teacher／訓出來的速度場跑兩輪）——這樣比，比得出什麼？比不出什麼？ — Q1 → 比得出「拿這些資源能做到多好」，比不出「哪個方法好」；三個沒控制住（teacher 品質、訓練預算、配對）各對應作業；「一步生成沒有單一瓶頸」
 8. ［F］圖 d：多步 CM 還吃不吃步數？ — `multistep_cm`、$k$ 掃到 64、疊 FM Euler 斜率 $-1$ 線；真值 $f$ 對照（任何步數都精確 → 曲線形狀全來自 $f_\theta$）；**距離不要用 $W_2$**（$n=1000$ 兩組真資料互比就有 0.3 地板），用無偏 energy distance（$n=8000$ 地板 $10^{-4}$）；作業五題
 
@@ -952,9 +952,9 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 4. ［F］中心式二 — $\boxed{u(z_t,r,t)=v(z_t,t)-(t-r)\frac{d}{dt}u(z_t,r,t)}$；白話「平均速度＝瞬時速度−修正項（平均速度沿軌跡的變化率×時間差）；直線時修正為零；對**任何**一對 $(r,t)$ 精確成立」；demo `w9-2-1` 截圖：弦（平均速度）、切線（瞬時速度）、修正向量三者精確閉合，$r\to t$ 修正縮到零；Details「它就是上一篇的 Eulerian」（附錄）
 5. ［C］訓練：把右邊當目標 — $u_{\text{tgt}}=v(z_t,t)-(t-r)\underbrace{[\partial_tu_\theta+(\partial_zu_\theta)v]}_{\frac{du}{dt}\text{，用 JVP}}$、$\mathcal L=\|u_\theta(z_t,r,t)-\mathrm{sg}(u_{\text{tgt}})\|^2$；三個實作決定：全導數用 JVP（切向量 $(v,0,1)$ 對應 $(z,r,t)$）／目標 stop-gradient／$v$ 用條件速度——**兩處 $v$（顯式的、JVP 切向量裡的）都換成 $x_1-x_0$**
 6. ［Q］Identity 是對**邊際**速度成立的，訓練卻代進**條件**速度，而同一個 $z_t$ 被許多 $(x_0,x_1)$ 經過。為什麼可以？這是哪一個用過的模式？和 consistency training 那一次差在哪？ — Q1
-7. ［M］細節一：目標對 $v$ 是線性的 — $\mathbb E[u_{\text{tgt}}(x_1-x_0)\mid z_t]=u_{\text{tgt}}(\mathbb E[x_1-x_0\mid z_t])=u_{\text{tgt}}(v(z_t,t))$「期望可以穿過去，代換後的梯度與用真正邊際速度訓練時完全相同」（conditional trick 累積表第 7 列：線性精確版）；細節二：與 CT 差在「沒有離散化」——CT 走一步 Euler 有 $O(\Delta t)$ 曲率 bias，這裡是解析的全導數，曲率積分不是被壓小，是根本沒有出現
+7. ［M］細節一：目標對 $v$ 是線性的 — $\mathbb E[u_{\text{tgt}}(x_1-x_0)\mid z_t]=u_{\text{tgt}}(\mathbb E[x_1-x_0\mid z_t])=u_{\text{tgt}}(v(z_t,t))$「期望可以穿過去，代換後的梯度與用真正邊際速度訓練時完全相同」（conditional trick 累積表第 7 列：線性精確版）；細節二：與 CT 差在「沒有離散化」——CT 走一步 Euler 有 $O(\Delta t)$ acceleration bias，這裡是解析的全導數，加速度積分不是被壓小，是根本沒有出現
 8. ［C］還有一件事要誠實標出來 — $\frac{du}{dt}$ 那一項用的是 $u_\theta$ 自己＝bootstrapping；不動點論證（$u_\theta=u$ 時目標恰為 $u$）；靠 stop-gradient＋$r=t$ 樣本當錨（純 FM、無 bootstrapping）＋sCM 穩定技巧
-9. ［C］取樣，與它為什麼值得 — 一步 $z_1=\psi_{0\to1}(z_0)=z_0+u_\theta(z_0,1,0)$；多步合法（分段跳）；代價：JVP、bootstrapping；粗體「flow map 可以像 flow matching 一樣從頭訓練、不要 teacher、不帶曲率 bias」
+9. ［C］取樣，與它為什麼值得 — 一步 $z_1=\psi_{0\to1}(z_0)=z_0+u_\theta(z_0,1,0)$；多步合法（分段跳）；代價：JVP、bootstrapping；粗體「flow map 可以像 flow matching 一樣從頭訓練、不要 teacher、不帶 finite-$\Delta t$ bias」
 10. ［C］（Bridge）同一個輸出，換 progressive 恆等式——Shortcut
 11–12. ［附錄］Details 慣例對照、Details 就是 Eulerian。
 
@@ -986,9 +986,9 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 **U7.5 統一表與選擇指南**
 
 1. ［T］沿哪四個軸排這張表 — 軸一學什麼（速度／終點／flow map／平均速度／分佈）、軸二要不要 teacher（CTM 中間案例）、軸三能否多步、多步的路合不合法（＝不需回終點重加噴）、軸四誤差從哪裡來
-2. ［T］四種結構性誤差各對應前幾單元的哪個工具 — 曲率 bias（U3.2 Euler／U6.3 CT $O(\Delta t)$）／累積（PD、Shortcut 階梯、reflow 逐輪）／交叉平均（U2.3 Q1 的最終形態）／score 估計（DMD 的 $s_{\text{fake}}$、U3.1 SDE）；第五種「網路本身的近似誤差」不列
+2. ［T］四種結構性誤差各對應前幾單元的哪個工具 — Euler acceleration bias（U3.2 Euler／U6.3 CT $O(\Delta t)$）／累積（PD、Shortcut 階梯、reflow 逐輪）／交叉平均（U2.3 Q1 的最終形態）／score 估計（DMD 的 $s_{\text{fake}}$、U3.1 SDE）；第五種「網路本身的近似誤差」不列
 3–4. ［T］四軸總表 12 列（分兩張；內容照 w9-5 原表逐字）— FM／Reflow／PD／CD／CT／sCM／CTM／MeanFlow／Shortcut／AYF／DMD／IMM
-5. ［C］兩條對角線＋「沒有一格是全綠的」 — (a) 不要 teacher ↔ 無曲率 bias 的矛盾被 JVP（連續時間）解掉；(b) 回歸 ↔ 交叉平均綁定，只能換訊號解
+5. ［C］兩條對角線＋「沒有一格是全綠的」 — (a) 不要 teacher ↔ 無 finite-$\Delta t$ bias 的矛盾被 JVP（連續時間）解掉；(b) 回歸 ↔ 交叉平均綁定，只能換訊號解
 6. ［Q＋C］「交叉平均」出現得特別頻繁，但 CD、sCM、MeanFlow 那幾列沒有——一個方法什麼時候會吃到、什麼時候不會？ — Q1 → 判準一句「回歸目標，在給定輸入之後是不是唯一的」；逐列：CD 目標唯一→無；CT 目標刻意多值、後驴平均恰對→variance 非 bias（網格粗到退化成 $x_t\to x_1$ 才真糊）；sCM／MeanFlow 條件速度線性進目標、連 Jensen gap 都沒有，付 bootstrapping；Reflow 目標唯一但帶上一輪誤差→累積；「看新方法先問：目標給定輸入唯一嗎？不唯一是像 CT 會被正確平均、還是像 SDE teacher 會平均掉終點？」
 7. ［T］怎麼選：四個問題 — 有沒有訓好的 teacher？要一步還是幾步？最怕哪一種錯？算力在哪一邊？；demo `w9-5-1`（可篩選統一表）；「每一列都建在前幾個單元的物件上；新方法三分鐘就能放進表裡」
 
@@ -1003,7 +1003,7 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 
 **全課收尾（4 張）**：
 
-1. ［T］三件工具站穩整門課 — **conditional trick**（累積表七列一次放完：KL／MSE／速度／通式／比值／consistency／線性精確）；**曲率積分壓住有限步誤差**（連續：$\int\|\ddot x\|dt$；離散：total correlation）；**訓練噴聲與取樣噴聲是兩個旋鈕**（$\gamma_t$ vs $\varepsilon_t$；uniform vs remasking $\sigma_t$）
+1. ［T］三件工具站穩整門課 — **conditional trick**（累積表七列一次放完：KL／MSE／速度／通式／比值／consistency／線性精確）；**加速度積分壓住有限步誤差**（連續：$\int\|a_t(x_t)\|dt$；離散：total correlation）；**訓練噴聲與取樣噴聲是兩個旋鈕**（$\gamma_t$ vs $\varepsilon_t$；uniform vs remasking $\sigma_t$）
 2. ［T］一路跟到最後的問題：配對交叉 — U2.3 兩組配對 $(0,2)$ → reflow 裡是彎曲 → 多步 CM 裡是重加噴 → 蒸餾裡是模糊 → 作業 2 再做它一次；一張橫向時間軸
 3. ［B］往後讀任何一篇新的論文，先問它動了哪個旋鈕、誤差落在哪一格；通常，那就是它全部的新意。
 4. ［C］quiz（選 w9-0-b 半群、w9-2-c 線性＋sg、w9-4-a 梯度方向、w9-5-c 擺脫交叉平均只能換訊號）＋預告應用單元（W2 #21–28 的七個場景會一個一個回來）
@@ -1089,7 +1089,7 @@ W2 的做法是整張投影片連文字一起用生圖模型畫出來（slide 40
 
 ### 5.4 Toy 與數字鏈（demo 頁只引這些實測值）
 
-- **two moons（U1–U3、U6–U7）**：U1.5 loss 地板 0.3；U2.3 四團 toy 彎曲度 1.59／1.00、Euler 4 步 1.49／0.03；U2.4 雙月線性 2.1 vs VP 1.5；U2.5 斜率 $-1.05$／$-2.05$；U3.2 曲率積分 9→1.4（加 $\gamma$：3.5／6）；U3.3 reflow 1.4→0.03、4.0→0.6；U3.4 交叉 20%→0.6%、誤差 1.5→0.08；U3.5 guidance $\sigma$ 1.1→0.57、曲率 3.5→10.5；U3.6 四配對 $S$ 1.6／0.03／0.22／0.02；U6.6 扇子 ≲5e-3、$W_2$ 地板 0.3（改 energy distance）。
+- **two moons（U1–U3、U6–U7）**：U1.5 loss 地板 0.3；U2.3 四團 toy 彎曲度 1.59／1.00、Euler 4 步 1.49／0.03；U2.4 雙月線性 2.1 vs VP 1.5；U2.5 斜率 $-1.05$／$-2.05$；U3.2 加速度積分 9→1.4（加 $\gamma$：3.5／6）；U3.3 reflow 1.4→0.03、4.0→0.6；U3.4 交叉 20%→0.6%、誤差 1.5→0.08；U3.5 guidance $\sigma$ 1.1→0.57、加速度積分 3.5→10.5；U3.6 四配對 $S$ 1.6／0.03／0.22／0.02；U6.6 扇子 ≲5e-3、$W_2$ 地板 0.3（改 energy distance）。
 - **parity toy（$L=8$，U4–U5）**：U4.3 合法率 $k=1$ 100%、$k=2/4/8$ 49.8／48.3／52.6%、FE $\log2$；U4.5 步數 1/2/4/8 → 50／52／64／78–79%（理論 78.6%）；U5.6 精確跳步 63–65／78–79／94–95% vs τ-leaping 57–59／73–74／93–94%。
 - **Markov toy（$L=16$，0.9，切換率真值 0.10，U4–U5）**：U4.4 修正率 0.0% vs 62–67%；U4.5 切換率 0.10→0.50；U5.2 比值 5.60／0.99／0.11；U5.3 $N=8$ 0.14–0.15→0.13；U5.5 block 0.098／0.172／0.504。
 - **W2 已用的數字**：slide 32 的「4 步 1.49（隨機配對）／0.03（換配對）／200 步 0.01」就是 U2.3 的 demo——U2.3 #7 直接接回。

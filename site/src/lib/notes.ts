@@ -195,7 +195,7 @@ const groupOrder = [
   // Courses — Diffusion Models and Their Applications
   'Unit 1 · Diffusion Models',
   'Unit 2 · Flow Matching',
-  'Unit 3 · Stochastic Interpolants 與共用技巧',
+  'Unit 3 · 更直、更快的生成路徑',
   'Unit 4 · Discrete Diffusion I',
   'Unit 5 · Discrete Diffusion II',
   'Unit 6 · Consistency Models',
@@ -521,8 +521,8 @@ export const courses: CourseDef[] = [
         label: 'dma-week-interpolants',
         constellation: { anchor: [400, 50], stars: [[0, 40, 3.4], [44, 66, 2.9], [78, 24, 4.9], [120, 44, 3.2], [170, 4, 3.0], [214, 36, 4.0]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5]] },
         description: {
-          zh: '直線 reference paths 為什麼仍會產生彎曲的 ODE trajectories？從 curvature 與有限步誤差出發，再用 reflow、minibatch OT 與共用技巧讓生成更直、更快。',
-          en: 'Why can straight reference paths still produce curved ODE trajectories? Connect curvature to finite-step error, then use reflow, minibatch OT, and shared techniques to make generation straighter and faster.',
+          zh: '直線 reference paths 為什麼仍會產生彎曲的 ODE trajectories？從 velocity 變化與 finite-step error 出發，再用 reflow、minibatch OT 與 numerical solvers 讓生成更直、更快。',
+          en: 'Why can straight reference paths still produce curved ODE trajectories? Connect accumulated velocity change to finite-step error, then use reflow, minibatch OT, and shared techniques to make generation straighter and faster.',
         },
       },
       {
@@ -530,8 +530,8 @@ export const courses: CourseDef[] = [
         label: 'dma-week-discrete-i',
         constellation: { anchor: [340, 262], stars: [[0, 0, 3.0], [28, 46, 4.4], [74, 32, 3.2], [112, 70, 3.6], [136, 18, 2.8], [180, 50, 4.0]], edges: [[0, 1], [1, 2], [2, 3], [3, 5], [2, 4]] },
         description: {
-          zh: '資料是 token 時怎麼「加噪聲」？離散是狀態不是時間；D3PM 的轉移矩陣、masked diffusion 塌成加權 cross-entropy、因子化誤差是離散版的曲率。',
-          en: 'How to "add noise" to tokens: discrete states, not discrete time; D3PM transition matrices, masked diffusion as weighted cross-entropy, and factorization error as the discrete analogue of curvature.',
+          zh: '資料是 token 時怎麼「加噪聲」？離散是狀態不是時間；D3PM 的轉移矩陣、masked diffusion 塌成加權 cross-entropy，以及離散取樣特有的因子化誤差。',
+          en: 'How to "add noise" to tokens: discrete states, not discrete time; D3PM transition matrices, masked diffusion as weighted cross-entropy, and the factorization error specific to finite-step discrete sampling.',
         },
       },
       {

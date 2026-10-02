@@ -25,20 +25,20 @@ git -c safe.directory=C:/Users/vespe/Documents/Codex/personal_website show HEAD:
 | `w4-0-1.png` | `week-4/dma-w4-0-why-not-diffusion` | B | 16:9* | Two non-Gaussian endpoint tasks; manifold vs Gaussian-noise limitation; tied-knob conclusion | Endpoint samples only |
 | `w4-1-1.png` | `week-4/dma-w4-1-flows-and-continuity` | B | 16:9* | `u_t`, trajectories at `t=0,.25,.5,.75,1`, `ψ_t/ψ_1`; network learns the field, not stored paths | None |
 | `w4-2-1.png` | `week-4/dma-w4-2-conditional-flow-matching` | B | 16:6 | `z=(x₀,x₁)` → conditional velocity → posterior-weighted `u_t(x)`; L2-regression conclusion | Endpoint samples only |
-| `w4-3-1.png` | `week-4/dma-w4-3-linear-path` | A | 16:8 | Crossing conditional lines but non-crossing marginal ODE curves; `(2,2),(-2,2)→(0,2)`; curvature and four-step error | None |
+| `w4-3-1.png` | `week-4/dma-w4-3-linear-path` | A | 16:8 | Crossing conditional lines but non-crossing marginal ODE curves; `(2,2),(-2,2)→(0,2)`; trajectory turning and four-step error | None |
 | `w4-4-1.png` | `week-4/dma-w4-4-fm-vs-diffusion` | A | 16:7 | Both exact parameterizations, affine transform, same underlying object, Gaussian-path-only caveat | None |
 | `w4-5-1.png` | `week-4/dma-w4-5-lab` | A | 16:7 | log step-count axis with slopes −1/−2; distinguish slope from vertical error level | Optional corner guide |
 | `w5-0-1.png` | `week-5/dma-w5-0-unified-equation` | A | 16:10 | Unified equation; coupling `π`; coefficient schedules; `γ₀=γ₁=0`; four-method special-case table | `x₁` data endpoint |
 | `w5-1-1.png` | `week-5/dma-w5-1-sampler-family` | A | 16:12 | Same time-space marginals; deterministic/noisy paths; forced perturbation `ε=0` biased vs `ε>0` recovery with ≈.70/.01 | Endpoint samples only |
-| `w5-2-1.png` | `week-5/dma-w5-2-error-theory` | A | 16:6 | `∂_t u_t` and convective term; uniform-field zero acceleration; `C_L h∫‖ẍ_t‖dt` | None |
+| `w5-2-1.png` | `week-5/dma-w5-2-error-theory` | A | 16:6 | `a_t(x_t)=∂_t v_t+(v_t·∇)v_t`; uniform-field zero acceleration; `C_L h∫‖a_t(x_t)‖dt` | None |
 | `w5-3-1.png` | `week-5/dma-w5-3-rectified-flow` | A | 16:10 | Rectification loop; preserves marginals; non-increasing cost; non-crossing paths; metrics by round | Data endpoints only |
 | `w5-4-1.png` | `week-5/dma-w5-4-minibatch-ot` | A | 16:10 | Four labeled points; both squared-cost sums; `2(a−b)ᵀ(A−B)`; monotonicity chain; batch-size/crossing plot | None |
-| `w5-5-1.png` | `week-5/dma-w5-5-shared-techniques` | A | 16:10 | Map each technique to `C_L`, `h`, or `∫‖ẍ_t‖dt`; mark SDE/time weighting outside this deterministic bound | Optional corner guide |
-| `w5-6-1.png` | `week-5/dma-w5-6-lab` | A | 16:9 | Denoising → Tweedie/score → velocity → curvature/Euler chain; pairing, sampler, and training-distribution branches | Optional corner guide |
+| `w5-5-1.png` | `week-5/dma-w5-5-shared-techniques` | A | 16:10 | Map each technique to `C_L`, `h`, or `∫‖a_t(x_t)‖dt`; mark SDE/time weighting outside this deterministic bound | Optional corner guide |
+| `w5-6-1.png` | `week-5/dma-w5-6-lab` | A | 16:9 | Denoising → Tweedie/score → velocity → acceleration/Euler chain; pairing, sampler, and training-distribution branches | Optional corner guide |
 | `w6-0-1.png` | `week-6/dma-w6-0-discrete-data` | B | 16:9 | Uniform vs absorbing chains; shared `ᾱ_t` curve; 12-token time ticks; can a corrupted token return? | None |
 | `w6-1-1.png` | `week-6/dma-w6-1-d3pm` | A | 16:8 | Masked sequence `x_t` → per-position K logits → closed-form `q(x_{t−1}\|x_t,x̃₀)`; k-step jump and continuous/discrete analogy | None |
 | `w6-2-1.png` | `week-6/dma-w6-2-masked-diffusion` | A | 16:9 | `L₀/ΣL_{t−1}/L_T`; posterior/model cancellation; unmasked KL = 0; masked CE; weighted final sum | None |
-| `w6-3-1.png` | `week-6/dma-w6-3-factorization-error` | B | 16:8 | Curved path vs Euler chord with `∫‖ẍ‖dt`; true joint 2×2 vs product 2×2 with `KL(joint‖product)`; zero conditions | None |
+| `w6-3-1.png` | `week-6/dma-w6-3-factorization-error` | B | 16:8 | Curved path vs Euler chord with `∫‖a_t(x_t)‖dt`; true joint 2×2 vs product 2×2 with `KL(joint‖product)`; zero conditions | None |
 | `w6-4-1.png` | `week-6/dma-w6-4-absorbing-vs-uniform` | B | 16:9 | Time-axis evidence: wrong absorbing reveal persists; uniform hidden noise can later correct; model cannot identify plausible corrupt tokens | None |
 | `w6-5-1.png` | `week-6/dma-w6-5-lab` | A | 16:8 | Parity: k=1 100%, k≥2 50%; Markov gradual error 0.50→0.10; same transition .9 and switching .1 | None |
 | `w7-0-1.png` | `week-7/dma-w7-0-why-continuous-time` | A | 16:9 | 3×3 matrix with γ edit vs state-rate graph with σ arcs; closed-form breakage vs local-rate flexibility | None |

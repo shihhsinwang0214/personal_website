@@ -131,7 +131,7 @@ CTM 的損失裡 teacher 出現在「先走一段」那裡：$\tilde x_u$ 是用
 
 但 Q1 的條件四已經給了出路：$\partial_s\psi_{t\to s}$ 在 $s=t$ 取值就是 $v_t$——**flow map 網路自己的對角線就是一個速度場**。CTM 原文正是這樣用它的：把 $G_\theta$ 寫成「輸入 ＋ 殘差」的形式，讓殘差在 $s=t$ 時退化成「一步猜出乾淨資料」的那個量，也就是 denoiser；於是那條對角線可以用 <Ref to="dma-denoising-regression"/> 的 loss 直接監督，一個字都不用改。對角線訓得動之後，就拿它解出一條**自己誘導的 ODE**，$\tilde x_u$ 從那裡來——外部 teacher 換成自己的 stop-gradient 版本，半群那一條損失完全不動。
 
-所以「CTM 需要 teacher」是實作上的選擇，不是定義上的必要。代價只是換了位置：目標現在 bootstrap 在自己的對角線上，對角線有多準，$\tilde x_u$ 就有多準。<Ref to="dma-cd-vs-ct"/> 的 consistency training 是另一條拿掉 teacher 的路——用同一組 $(x_0,x_1)$ 重新插值，靠 **conditional trick**，代價是 $O(\Delta t)$ 的曲率 bias。
+所以「CTM 需要 teacher」是實作上的選擇，不是定義上的必要。代價只是換了位置：目標現在 bootstrap 在自己的對角線上，對角線有多準，$\tilde x_u$ 就有多準。<Ref to="dma-cd-vs-ct"/> 的 consistency training 是另一條拿掉 teacher 的路——用同一組 $(x_0,x_1)$ 重新插值，靠 **conditional trick**，代價是 $O(\Delta t)$ 的 Euler acceleration bias。
 
 兩條路都還停在「拿一個近似的東西當目標」。接下來三篇問的是更強的一件事：有沒有辦法寫出一條**精確**的恆等式，讓目標不再是近似？
 </Details>

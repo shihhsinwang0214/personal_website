@@ -109,7 +109,7 @@ $w(t)$ 是 <Ref to="dma-fm-vs-diffusion"/> 那第四個設定、訓練端的加�
 
 **分佈匹配式：估不準 score，或塌到少數 mode。** DMD 完全不要求逐點對應——同一個 $z$ 送到哪裡都可以，只要整體分佈對——所以交叉問題不存在，樣本不會落在 mode 之間。代價有三層。第一，$s_{\text{fake}}$ 是一個**正在移動的目標的估計**：fake denoiser 永遠在追學生，追不上時梯度方向就是錯的，訓練會震盪甚至發散——這是 GAN 裡判別器與生成器互相追逐的老問題換了一個形式。第二，$\mathrm{KL}(p_\theta\|p_{\text{real}})$ 這個**方向**是 mode-seeking 的：它重罰「學生把質量放在 teacher 沒有的地方」，卻只輕罰「學生漏掉 teacher 的某個 mode」——學生把所有樣本放進 teacher 的一個 mode 裡，KL 可以很小。實務上表現為 **mode collapse**、多樣性下降，DMD2 加 GAN 項與 two time-scale update 主要就是在對付這兩件事。第三，DMD 需要 teacher（$s_{\text{real}}$），沒有從頭訓練的版本；學生也不是 flow map，多步取樣要另外設計。
 
-兩條路的差別可以收成一句話：**回歸式的錯是「平均」，分佈匹配式的錯是「塌縮」或「追不上」。** 前者來自 conditional expectation，後者來自要估一個移動中的 score。下一篇的表把這兩種誤差來源與曲率 bias、累積並列。
+兩條路的差別可以收成一句話：**回歸式的錯是「平均」，分佈匹配式的錯是「塌縮」或「追不上」。** 前者來自 conditional expectation，後者來自要估一個移動中的 score。下一篇的表把這兩種誤差來源與 Euler acceleration bias、累積並列。
 </Answer>
 </Question>
 
@@ -149,7 +149,7 @@ DMD 的梯度是 $\mathbb E[(s_{\text{fake}}-s_{\text{real}})\,\partial_\theta x
 <Option correct>它是目標的性質：squared loss 的最小值是條件期望，目標多值時最佳解就是平均。</Option>
 <Option>teacher 的軌跡太彎。</Option>
 <Explanation>
-這不是優化沒收斂，是收斂到了正確的最小值——而那個最小值就是平均。要消除它只能讓目標變成單值（ODE teacher、細網格、去交叉的配對），或者換成不要求逐點對應的訓練訊號。曲率是另一個獨立的誤差來源。
+這不是優化沒收斂，是收斂到了正確的最小值——而那個最小值就是平均。要消除它只能讓目標變成單值（ODE teacher、細網格、去交叉的配對），或者換成不要求逐點對應的訓練訊號。Euler 漏掉 velocity 變化所造成的 finite-step error，是另一個獨立的誤差來源。
 </Explanation>
 </QuizBlock>
 

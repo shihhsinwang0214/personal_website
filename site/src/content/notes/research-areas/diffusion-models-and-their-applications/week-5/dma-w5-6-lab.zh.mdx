@@ -5,12 +5,12 @@ prereqs:
   - math-euler-error
   - math-w2
 lang: "zh"
-title: "實作：把曲率積分畫成一條線"
+title: "實作：把加速度積分與 Euler 誤差畫在一起"
 category: "courses"
 group: "Unit 3 · 更直、更快的生成路徑"
 status: "available"
 updated: 2026-09-30
-summary: "在同一個 toy 上分開量配對、曲率、solver 與取樣噪聲；先診斷誤差來源，再判斷 reflow、OT、ODE 或 SDE 哪一個真的有幫助。"
+summary: "在同一個 toy 上分開量配對、加速度積分、solver 與取樣噪聲；先診斷誤差來源，再判斷 reflow、OT、ODE 或 SDE 哪一個真的有幫助。"
 demos:
   - "notes/research_areas/diffusion-models-applications/w5-1-epsilon.html"
 references:
@@ -33,11 +33,11 @@ import Explanation from '../../../components/Explanation.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 
-# 實作：把曲率積分畫成一條線
+# 實作：把加速度積分與 Euler 誤差畫在一起
 
 <Objectives>
 - **比較獨立配對、reflow 與 minibatch OT。** 固定網路與 solver，只看配對如何改變軌跡。
-- **數值估計曲率積分與 Euler 終點誤差。** 驗證兩者的關係，並在離群點出現時檢查 Lipschitz 常數。
+- **數值估計加速度積分與 Euler 終點誤差。** 驗證兩者的關係，並在離群點出現時檢查 Lipschitz 常數。
 - **掃描 $\gamma_t$、$\varepsilon_t$ 與步數。** 分開模型誤差、ODE 離散化誤差與 SDE 噪聲成本，再解釋何時出現交叉。
 </Objectives>
 
@@ -45,11 +45,11 @@ import Ref from '../../../components/Ref.astro';
 
 ## 設定
 
-沿用 `toy.py` 與 `fm.py`。這個單元新增三個檔：`couplings.py`（reflow 的配對生成、minibatch OT）、`interpolant.py`（帶 $\gamma_t$ 的訓練與一整族 SDE 取樣器）、`curvature.py`。所有模型同架構、同 seed、同步數——**只有配對不一樣。**
+沿用 `toy.py` 與 `fm.py`。這個單元新增三個檔：`couplings.py`（reflow 的配對生成、minibatch OT）、`interpolant.py`（帶 $\gamma_t$ 的訓練與一整族 SDE 取樣器）、`acceleration.py`。所有模型同架構、同 seed、同步數——**只有配對不一樣。**
 
-[下載 Week 5：Stochastic Interpolants、曲率與 reflow notebook（.ipynb）](/personal_website/notes/notebooks/diffusion-models-applications/dma-w5-lab.ipynb)
+[下載 Week 5：Stochastic Interpolants、加速度積分與 reflow notebook（.ipynb）](/personal_website/notes/notebooks/diffusion-models-applications/dma-w5-lab.ipynb)
 
-**Notebook 內容。** 比較 deterministic path 與帶 $\gamma_t z$ 的 interpolant，再用解析旋轉速度場將 reflow 配對拉成弦，實測曲率積分和一步 Euler 誤差的關係。解析公式完整寫在 notebook 裡，不需要外部權重。
+**Notebook 內容。** 比較 deterministic path 與帶 $\gamma_t z$ 的 interpolant，再用解析旋轉速度場將 reflow 配對拉成弦，實測加速度積分和一步 Euler 誤差的關係。解析公式完整寫在 notebook 裡，不需要外部權重。
 
 ## 步驟 1：四種配對
 
@@ -81,38 +81,38 @@ model_ot = train_fm(pair_fn=ot_pair, batch=256)
 
 **互動 demo：四種配對放在一起量。** 這是圖 a 加上步驟 4 的表格的「標準答案版」——速度場精確算出來，所以沒有網路誤差混進去。四個指標的實測值：獨立配對 S ≈ 1.6、1 步誤差 ≈ 1.5、交叉比例 ≈ 23%；reflow×1 把 S 壓到 0.03、誤差 0.12、交叉 1%；batch OT（32）走到 S 0.22、誤差 0.30；全域 OT 是 S 0.02、誤差 0.06。**reflow×1 和全域 OT 在「直」上打成平手，但運輸成本 OT 一貫略低**——「直」和「省」真的是兩件事。
 
-四種配對的曲率積分差好幾倍，而它們的兩端分布完全一樣——**設定動的是路，不是終點。** 至於「曲率積分小，誤差是不是真的跟著小」，那要等下一步把兩個量畫在同一張圖上才知道。
+四種配對的加速度積分差好幾倍，而它們的兩端分布完全一樣——**設定動的是路，不是終點。** 至於「加速度積分小，誤差是不是真的跟著小」，那要等下一步把兩個量畫在同一張圖上才知道。
 
-## 步驟 3：曲率積分 vs 誤差（圖 b）
+## 步驟 3：加速度積分 vs 誤差（圖 b）
 
 ```python
-def curvature_integral(model, x0, n_fine=1000):
+def acceleration_integral(model, x0, n_fine=1000):
     traj = euler_sample(model, x0, n_fine)          # 細步當成真實軌跡
     v = (traj[1:] - traj[:-1]) * n_fine             # 速度 ≈ 差分
     a = (v[1:] - v[:-1]) * n_fine                   # 加速度
     return a.norm(dim=-1).mean(dim=0).mean()        # 對 t 積分、再對起點平均
 ```
 
-對四個模型算 $\mathbb E\int\|\ddot x\|\,dt$，以及 Euler 10 步終點的 $W_2$，畫成散點、兩軸取對數。
+對四個模型算 $\mathbb E\int\|a_t(x_t)\|\,dt$，以及 Euler 10 步終點的 $W_2$，畫成散點、兩軸取對數。
 
-**會看到的事情是**：四個點近似共線、斜率約 1。這張圖就是 <Ref to="dma-error-theory"/> 那條不等式的實證——**高度由曲率決定**。<Ref to="dma-error-theory"/> 的 demo 已經先用精確場把這條線畫出來過（六個設定、$r$ 通常 0.95 以上），這裡要看的是**換成訓練出來的網路之後還成不成立**。
+**會看到的事情是**：四個點近似共線、斜率約 1。這張圖顯示的是 <Ref to="dma-error-theory"/> 那條不等式裡的關係：在這組設定中，加速度積分越大，Euler endpoint error 也越大。<Ref to="dma-error-theory"/> 的 demo 已經先用精確場畫過一次（六個設定、$r$ 通常在 0.95 以上），這裡要看的是**換成訓練出來的網路之後還成不成立**。
 
 再加一組步數（$N\in\lbrace 5,10,20 \rbrace$）：點會整體上下平移，但相對順序不變。
 
 <Ask>
-曲率積分小，誤差就一定小嗎？<br />
+加速度積分小，誤差就一定小嗎？<br />
 這件事能不能在自己的圖上驗一次？
 </Ask>
 
-## 步驟 4：straightness 與運輸成本
+## 步驟 4：direction disagreement 與 transport cost
 
-對每個模型算 $S$（<Ref to="dma-rectified-flow"/>）與 $\mathbb E\|X_1-X_0\|^2$，做成一張表。
+對每個模型算 $V$（<Ref to="dma-rectified-flow"/>）與 $\mathbb E\|X_1-X_0\|^2$，做成一張表。這裡的 $V$ 比較 reference velocity 與 conditional mean，不是沿 ODE trajectory 定義的 $S(Z)$。
 
 **會看到的事情是**：reflow 的兩個數都單調下降，而 OT 的運輸成本最低。把 OT 的成本和全域 OT（2000 點精確解）比一下，就知道 reflow 的極限離 OT 有多遠。
 
 ## 步驟 5：ODE 與 SDE 在第幾步交叉（圖 c）
 
-用 `interpolant.py` 訓一個 $\gamma_t=0.3\sqrt{2t(1-t)}$ 的模型，兩個 head 同時輸出 $u_t$ 與 $\eta_t$。取樣器：
+用 `interpolant.py` 訓一個 $\gamma_t=0.3\sqrt{2t(1-t)}$ 的模型，兩個 head 同時輸出 $v_t$ 與 $\eta_t$。取樣器：
 
 ```python
 def sde_step(x, t, h, eps_t):
@@ -142,28 +142,28 @@ def sde_step(x, t, h, eps_t):
 再做一件事：在 $t=0.3$ 對所有樣本注入 $+0.5$ 的人為偏移，看三條曲線終點的 $W_2$。$\varepsilon=0$ 的偏移會完整保留，$\varepsilon \gt 0$ 會被吸收掉一部分；吸收的程度取決於 $\varepsilon$ 的大小和剩下多少時間。
 
 <Question id="Q1">
-圖 b 上有一個點明顯落在那條共線之上——同樣的曲率積分，誤差卻大了一截。
+圖 b 上有一個點明顯落在那條共線之上——同樣的加速度積分，誤差卻大了一截。
 
 **第一個該懷疑什麼？**
 
 <Answer>
-不是曲率積分算錯，也不是步數不夠（步數只會讓整條線平移）。
+不一定是加速度積分算錯，也不一定只是步數不夠（步數主要會讓整條線平移）。
 
 回到 <Ref to="dma-error-theory"/> 的不等式：
 
 $$
-\text{Euler 全域誤差}\ \lesssim\ C_L\,h\int_0^1\|\ddot x_t\|\,dt .
+\text{Euler 全域誤差}\ \lesssim\ C_L\,h\int_0^1\|a_t(x_t)\|\,dt .
 $$
 
 它有**兩個**因子。畫散點圖的時候我們默默假設了各個模型的 $C_L$ 差不多，於是誤差只隨積分變化。所以某個點偏高，第一個該懷疑的就是**那個模型的速度場 Lipschitz 常數比較大**——場更「陡」，同樣的局部誤差被放大得更多。
 
 怎麼檢查？幾個實際的做法：
 
-- 在一批隨機的 $(x,t)$ 上估 $\|\partial u_\theta/\partial x\|$ 的譜範數（用幾次 power iteration，或直接 finite difference 取最大方向）。
+- 在一批隨機的 $(x,t)$ 上估 $\|\partial v_\theta/\partial x\|$ 的譜範數（用幾次 power iteration，或直接 finite difference 取最大方向）。
 - 看那個模型的權重範數與有沒有用 weight decay／spectral norm。
 - 看它的誤差是不是集中在少數幾個起點（$C_L$ 大通常表現成「大部分軌跡很好，少數幾條爆掉」），而不是均勻分布。
 
-如果 $C_L$ 也差不多，那才輪到懷疑量測本身：曲率積分用的 `n_fine` 夠不夠細（差分兩次對步長很敏感）、$W_2$ 的樣本數夠不夠、以及**有沒有樣本走到不同的 mode**（那種樣本的誤差是 $O(1)$，和步數幾乎無關，會把平均值整個拉歪——<Ref to="dma-lab-flow-matching"/> 用中位數就是為了避開它）。
+如果 $C_L$ 也差不多，那才輪到懷疑量測本身：加速度積分用的 `n_fine` 夠不夠細（對 velocity 做數值差分，對步長很敏感）、$W_2$ 的樣本數夠不夠、以及**有沒有樣本走到不同的 mode**（那種樣本的誤差是 $O(1)$，和步數幾乎無關，會把平均值整個拉歪——<Ref to="dma-lab-flow-matching"/> 用中位數就是為了避開它）。
 </Answer>
 </Question>
 
@@ -171,25 +171,25 @@ $$
 
 ## 作業
 
-1. **Guidance 與曲率。** 用兩類月牙訓一個條件 FM（條件 dropout 0.1）。對 $w\in\lbrace 1,2,4,8 \rbrace$ 算曲率積分與 Euler 10 步的 $W_2$。它們還落在圖 b 的那條線上嗎？順便量一下終點的散布，對照 <Ref to="dma-shared-techniques"/> demo 的結論。
+1. **Guidance 與加速度積分。** 用兩類月牙訓一個條件 FM（條件 dropout 0.1）。對 $w\in\lbrace 1,2,4,8 \rbrace$ 算加速度積分與 Euler 10 步的 $W_2$。它們還落在圖 b 的那條線上嗎？順便量一下終點的散布，對照 <Ref to="dma-shared-techniques"/> demo 的結論。
 2. **Heun。** 用 Heun 重跑步驟 3。斜率變成多少？哪個模型改善最多、哪個最少？用 <Ref to="dma-shared-techniques"/> 的三階導數論證解釋。
 3. **時間加權。** 回到 <Ref to="dma-lab-flow-matching"/> 作業 2：用 logit-normal 抽 $t$ 重訓獨立配對的 FM，畫它在圖 b 上的位置。它移動的是橫座標還是縱座標？為什麼？
-4. **$\gamma$ 的張力。** 對 $\gamma$ 幅度 $\lbrace 0,\,0.1,\,0.3,\,1.0 \rbrace$ 各訓一個 OT 配對的模型，畫「曲率積分」與「最佳 $\varepsilon$ 下 SDE 1000 步的 $W_2$」對 $\gamma$ 的兩條曲線。這就是 <Ref to="dma-error-theory"/> Q1 那個張力的實測——注意 <Ref to="dma-error-theory"/> demo 量到 $\gamma$ 的效果**取決於配對好不好**，先猜再跑。
+4. **$\gamma$ 與 coupling。** 對 $\gamma$ 幅度 $\lbrace 0,\,0.1,\,0.3,\,1.0 \rbrace$ 各訓一個 OT 配對的模型，畫「加速度積分」與「最佳 $\varepsilon$ 下 SDE 1000 步的 $W_2$」對 $\gamma$ 的兩條曲線。這一步檢查的是 <Ref to="dma-unified-equation"/> 加入 extra randomness 後，ODE geometry 與 SDE sampling 如何一起改變。
 5. **（選）高維。** 在 MNIST 上重做步驟 1 的 (a) 與 (d)，比較 Euler 10 步的 FID。增益是不是像 <Ref to="dma-minibatch-ot"/> 預測的比 2D 小？順便量一下成本矩陣的變異係數，看它是不是接近 $\sqrt{2/d}$。
 
 ![三個單元一張圖](./imgs/w5-6-1.png)
 
-*圖：三個單元，一張圖。由 denoising 回歸得到 score，將 score 換成速度，再用曲率連到少步 ODE 的終點誤差。*
+*圖：三個單元，一張圖。由 denoising 回歸得到 score，將 score 換成 velocity，再用加速度積分連到少步 ODE 的終點誤差。*
 
 ## 消化一下
 
 <QuizBlock id="w5-6-a">
-圖 b 中若某個模型的點明顯落在共線之上（同樣曲率、誤差更大），最可能的原因是什麼？
-<Option>曲率積分算錯了。</Option>
+圖 b 中若某個模型的點明顯落在共線之上（同樣加速度積分、誤差更大），最可能的原因是什麼？
+<Option>加速度積分算錯了。</Option>
 <Option correct>那個模型速度場的 Lipschitz 常數比較大，把誤差放大了（<Ref to="dma-error-theory"/> 的 $C_L$）。</Option>
 <Option>步數不夠。</Option>
 <Explanation>
-不等式有兩個因子：曲率積分與 $C_L$。共線的前提是 $C_L$ 相近，所以偏離時先檢查速度場的正則性。步數只會讓整條線上下平移。
+不等式除了步長，還有加速度積分與 $C_L$。共線的前提是 $C_L$ 相近，所以偏離時先檢查速度場的正則性。改變步數主要會讓整條線上下平移。
 </Explanation>
 </QuizBlock>
 
@@ -206,8 +206,8 @@ $$
 <QuizBlock id="w5-6-c">
 根據 demo 量到的數字，關於「直」與「省」下列哪一句正確？
 <Option>reflow 同時把兩者都壓到最低。</Option>
-<Option correct>reflow×1 和全域 OT 的 straightness 幾乎一樣，但運輸成本 OT 一貫略低——reflow 壓的是直，不是省。</Option>
-<Option>batch OT 的 straightness 已經和全域 OT 一樣。</Option>
+<Option correct>reflow×1 和全域 OT 的 direction disagreement 幾乎一樣，但 transport cost 是 OT 略低——方向一致與成本最小是兩件事。</Option>
+<Option>batch OT 的 direction disagreement 已經和全域 OT 一樣。</Option>
 <Explanation>
 batch OT（32）的 $S$ 約 0.22，全域 OT 約 0.02，差一個量級——但它相對獨立配對的 1.6 已經走完八成六，而且完全不必重訓。這就是「便宜」與「有效」之間的取捨。
 </Explanation>
