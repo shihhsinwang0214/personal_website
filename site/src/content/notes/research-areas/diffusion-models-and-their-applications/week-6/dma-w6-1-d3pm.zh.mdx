@@ -12,7 +12,7 @@ title: "D3PM：Transition Matrix、Closed Form 與 x₀-Parametrization"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion I"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "Transition matrix 讓離散 forward process 也能一步抽到任意時刻，並算出帶有 x₀ 的 posterior。離散版 denoiser 因此自然輸出乾淨 token 的類別分布。"
 demos: []
 references:
@@ -76,7 +76,7 @@ $$
 
 ## 這兩條鏈，$\bar Q_t$ 真的算得出來
 
-**Uniform。** 每步以機率 $\beta_t$ 把 token 換成均勻隨機的一個：
+**Uniform。** Austin 等人的 D3PM [1] 與 Hoogeboom 等人的 multinomial diffusion [3] 都使用過這條鏈。每步以機率 $\beta_t$ 把 token 換成均勻隨機的一個：
 
 $$
 Q_t=(1-\beta_t)\,I+\beta_t\,\tfrac1K\mathbb 1\mathbb 1^{\!\top}.
@@ -133,7 +133,7 @@ $\odot$ 是逐元素相乘，兩個都是長度 $K$ 的向量（分別是「哪�
 
 現在寫訓練目標。<Ref to="dma-denoising-regression"/> 為了盡快到達那五行程式碼，直接用「預測 $x_0$ 的 MSE」當 loss，把 DDPM 原本的 variational bound 放在一旁。在離散世界裡值得把這個 bound 攤開看一次，因為它的每一項都是**有限個數字之間的 KL**，沒有任何近似。
 
-Reverse model 是 $p_\theta(x_{t-1}\mid x_t)$，起點 $p(x_T)$ 是鏈的終點分佈。DDPM [4] 的 bound 一字不改地成立 [1, 2]：
+Reverse model 是 $p_\theta(x_{t-1}\mid x_t)$，起點 $p(x_T)$ 是鏈的終點分佈。Ho、Jain 與 Abbeel 的 DDPM bound [4] 一字不改地成立；Austin 等人 [1] 與 Sohl-Dickstein 等人 [2] 都從這裡建立離散版本：
 
 $$
 -\log p_\theta(x_0)\;\le\;
@@ -158,7 +158,7 @@ $$
 
 還有一個設計決定：$p_\theta(x_{t-1}\mid x_t)$ 要怎麼參數化？
 
-最直接的想法是讓網路直接輸出 $x_{t-1}$ 的 $K$ 個 logits。D3PM [1] 的選擇不同，而且是這一篇最值得記的一句話：**讓網路預測 $x_0$，再用已知的 posterior 把它折回 $x_{t-1}$。**
+最直接的想法是讓網路直接輸出 $x_{t-1}$ 的 $K$ 個 logits。Austin 等人的 D3PM [1] 選擇不同，而且是這一篇最值得記的一句話：**讓網路預測 $x_0$，再用已知的 posterior 把它折回 $x_{t-1}$。**
 
 $$
 p_\theta(x_{t-1}\mid x_t)=\sum_{\tilde x_0}q(x_{t-1}\mid x_t,\tilde x_0)\;p_\theta(\tilde x_0\mid x_t).

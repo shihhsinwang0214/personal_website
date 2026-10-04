@@ -11,7 +11,7 @@ title: "Euler 漏掉的 velocity 變化，要怎麼量？"
 category: "courses"
 group: "Unit 3 · 更直、更快的生成路徑"
 status: "available"
-updated: 2026-10-02
+updated: 2026-10-04
 summary: "Euler 每一步忽略的是這一小段內的 velocity 變化；把它沿時間累積，就能用 ODE trajectory 的加速度控制 finite-step error。"
 demos: []
 references:
@@ -58,6 +58,8 @@ Velocity 沿 trajectory 改變了多少，能不能寫成一個數？<br />
 **互動 demo：同一個起點、同一個 velocity field，只改 Euler 步數。** 拖動黃色起點，再用滑桿調整 Euler 步數。細切的 reference trajectory 不會改變；Euler 每一步只重新確認一次方向，所以步數太少時會直接切過彎曲的路段，終點也會跟著偏離。
 
 ## Euler 一步漏掉了什麼？
+
+下面採用 Hairer、Nørsett 與 Wanner [1] 的標準 Euler 誤差分析，先看一步漏掉的部分，再追它如何一路累積到終點。
 
 考慮一個 ground-truth ODE trajectory：
 
@@ -134,7 +136,7 @@ $$
 
 只有當 trajectory 是**等速直線**時，$a_t(x_t)=0$，Euler 才不會漏掉任何 velocity 變化，從任意時刻一步走到終點也會精確。
 
-![Euler 一步漏掉的 velocity 變化，以及 acceleration 的兩個來源](./imgs/w5-2-1-v2.png)
+![Euler 一步漏掉的 velocity 變化，以及 acceleration 的兩個來源](./imgs/w5-2-1.png)
 
 *圖：Euler 沿用起點的 velocity 走完整步；精確路徑則會沿途更新。這個改變可能來自 velocity field 自己隨時間變化，也可能來自粒子移動到不同位置。*
 
@@ -190,11 +192,30 @@ $$
 這裡限制的是**同一個時刻、不同位置**的 velocity 差；沿時間產生的 velocity 變化，已經包含在 local remainder $r_k$ 裡。
 </Remark>
 
-因此，當兩條 trajectory 在 $t_k$ 相差 $e_k$ 時，第二項最多是 $hLe_k$，所以
+現在對剛才相減後的式子取 norm。左邊依照定義就是下一刻的誤差 $e_{k+1}$；右邊則用三角不等式，把三種誤差分開：
 
 $$
-e_{k+1}\le(1+hL)e_k+\|r_k\|.
+\begin{aligned}
+e_{k+1}
+&=\left\|x_{t_{k+1}}-\hat x_{t_{k+1}}\right\|\\
+&\le
+\underbrace{\left\|x_{t_k}-\hat x_{t_k}\right\|}_{\text{上一刻的誤差 }e_k}
++h\underbrace{\left\|v_{t_k}(x_{t_k})-v_{t_k}(\hat x_{t_k})\right\|}_{\text{站錯位置造成的 velocity 差}}
++\underbrace{\|r_k\|}_{\text{這一步新漏掉的變化}}.
+\end{aligned}
 $$
+
+第一項就是 $e_k$。第二項再用 $L$-Lipschitz：兩個位置相差 $e_k$，查到的 velocity 最多相差 $Le_k$；乘上步長 $h$ 後，這一項最多是 $hLe_k$。因此
+
+$$
+\begin{aligned}
+e_{k+1}
+&\le e_k+hLe_k+\|r_k\|\\
+&=(1+hL)e_k+\|r_k\|.
+\end{aligned}
+$$
+
+也就是說，下一步的誤差由兩部分組成：**前面累積的 $e_k$ 可能被 flow 放大成 $(1+hL)e_k$，再加上這一步新產生的 local remainder $\|r_k\|$。**
 
 ![Euler 的 local error 如何一路累積](./imgs/w5-2-2.png)
 
@@ -388,7 +409,7 @@ Euler 誤差上界裡，哪一個量直接記錄 trajectory 沿途的 velocity �
 <Option correct>$\int_0^1\|a_t(x_t)\|\,dt$。</Option>
 <Option>步長 $h$。</Option>
 <Explanation>
-$L$ 是速度場的正則性、$h$ 是計算預算；加速度積分才直接累積 trajectory 上的 velocity 變化。等速直線時它是零，但沿直線加速或減速時仍不會是零。
+$L$ 衡量站錯一點時，查到的 velocity 最多會差多少；$h$ 是我們把時間切得多細。真正直接累積 trajectory 上 velocity 變化的，才是加速度積分。等速直線時它是零，但沿直線加速或減速時仍不會是零。
 </Explanation>
 </QuizBlock>
 
@@ -406,7 +427,7 @@ $(v_t\cdot\nabla)v_t$ 這一項在說什麼？
 下列哪一句正確？
 <Option>只要 reference paths 是直線，Euler 一步就精確。</Option>
 <Option correct>Euler error 要看 learned ODE trajectory 的加速度，而不是 reference path 的加速度。</Option>
-<Option>只要步長固定，velocity field 的正則性不會影響誤差。</Option>
+<Option>只要步長固定，$L$ 的大小就不會影響誤差。</Option>
 <Explanation>
 Reference paths 只提供 regression labels。真正生成時跟隨的是 conditional expectation 形成的 velocity field，它沿 trajectory 仍可能不斷改變。
 </Explanation>
@@ -423,9 +444,9 @@ Reference paths 只提供 regression labels。真正生成時跟隨的是 condit
 </QuizBlock>
 
 <Bridge to="dma-rectified-flow">
-現在問題已經很具體：想讓 Euler 用少量步數也走得準，就要讓 learned velocity 沿著 trajectory 少一點變化。
+現在我們已經知道，想要減少 discretization error，就要讓 learned velocity 沿著 trajectory 的變化少一點。其中，等速直線是最好的選擇。雖然我們知道可以改變 coupling 或 stochastic interpolant，來改變 optimal velocity 所走的 trajectory，但是問題來了：**要怎樣才走得出直線呢？** 這正是 Liu、Gong 與 Liu 發展 Rectified Flow [2] 時想解決的問題。
 
-<Ref to="dma-fm-vs-diffusion"/> 顯示，這些轉向經常來自 reference paths 的交叉與平均。那我們能不能利用已經訓好的 ODE，重新產生一組比較不容易互相打架的配對？
+我們將在 U3.2 和 U3.3 介紹兩種不同的常用方法。
 </Bridge>
 
 ## 參考文獻

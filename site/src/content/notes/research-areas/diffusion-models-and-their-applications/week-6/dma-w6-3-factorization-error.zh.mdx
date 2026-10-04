@@ -10,7 +10,7 @@ title: "因子化誤差：離散取樣一步走太大的代價"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion I"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "一次生成多個 token，等於用 marginal 的乘積近似真正的 conditional joint。這個 factorization error 是離散生成少步取樣的主要結構性成本。"
 demos: []
 references:
@@ -101,7 +101,7 @@ $$
 <Details summary="為什麼是 KL、以及它和 loss 的關係">
 取樣程序真正生成的分佈是把每一步的乘積分佈串起來得到的 $\tilde p(x_0)$。用 chain rule 把 $\log\frac{p(x_0)}{\tilde p(x_0)}$ 沿著翻開的順序拆開，每一步貢獻的正是 $\log\frac{p(x_0^{S}\mid x_t)}{\prod_\ell p(x_0^\ell\mid x_t)}$，取期望就是上面的 KL。所以 $\mathrm{KL}(p\,\|\,\tilde p)=\sum_{\text{steps}}\mathbb E\,\mathrm{FE}(S\mid x_t)$——**生成分佈與真實分佈的差距，就是所有步的因子化誤差之和**（網路完美時）。
 
-這個誤差**不在訓練 loss 裡**。<Ref to="dma-masked-diffusion"/> 的 ELBO 是對「每步翻開一個位置」的鏈算的（$T\to\infty$ 時每步幾乎只翻開零或一個位置），它的最小值是完美的 marginal。因子化誤差純粹是取樣時「一步走太大」造成的——這和 <Ref to="dma-error-theory"/> 的情形一模一樣：訓練目標是精確的速度場，Euler 誤差是離散化造成的。
+這個誤差**不在訓練 loss 裡**。Sahoo 等人的 MDLM [6] 所使用的 ELBO，是對「每步翻開一個位置」的鏈算的（$T\to\infty$ 時每步幾乎只翻開零或一個位置），它的最小值是完美的 marginal。因子化誤差純粹是取樣時「一步走太大」造成的——這和 <Ref to="dma-error-theory"/> 的情形一模一樣：訓練目標是精確的速度場，Euler 誤差是離散化造成的。
 </Details>
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w6-3-parity.html" class="demo-frame" title="marginal 的乘積 vs 真實的 joint：互動 demo" style="height: 810px; width: 100%; border: none;"></iframe>
@@ -120,18 +120,18 @@ $$
 | 何時為零 | trajectory 是等速直線 | 每步只翻開一個位置 |
 | 減少誤差的做法 | 多走幾步；讓 velocity 沿 trajectory 少變化（reflow、OT 配對）；高階 solver | 多走幾步；挑「相依弱」的位置先翻（信心排序）；顯式建模相依 |
 
-這張表是這個單元最重要的一張。它說的是：**有限步取樣的誤差，在兩個世界裡都來自「一步之內假設了太簡單的結構」。** 連續世界假設 velocity 不變，離散世界假設獨立。<Ref to="dma-rectified-flow"/>、<Ref to="dma-minibatch-ot"/> 在連續世界做的「拉直」，在離散世界沒有直接對應——沒有「直的配對」這回事——所以離散世界減少誤差的手段目前主要落在最後一行的後兩項：MaskGIT [3] 用信心排序挑位置；近期的工作（例如 Discrete Copula Diffusion [4]）則試著在取樣時補回相依的結構。這條線還在發展中。
+這張表是這個單元最重要的一張。它說的是：**有限步取樣的誤差，在兩個世界裡都來自「一步之內假設了太簡單的結構」。** 連續世界假設 velocity 不變，離散世界假設獨立。<Ref to="dma-rectified-flow"/>、<Ref to="dma-minibatch-ot"/> 在連續世界做的「拉直」，在離散世界沒有直接對應——沒有「直的配對」這回事——所以離散世界減少誤差的手段目前主要落在最後一行的後兩項：Chang 等人的 MaskGIT [3] 用信心排序挑位置；Liu、Liu 與 Van den Broeck 的 Discrete Copula Diffusion [4] 則試著在取樣時補回相依的結構。這條線還在發展中。
 
 ## 那不如直接用 autoregressive？
 
-表格最後一列還說了另一件事。「每步只翻開一個位置」在因子化誤差上是零，而它就是 **autoregressive**（AR）模型的做法——只是 AR 固定從左到右，masked diffusion 每步隨機挑一個位置。Ou et al. [1] 與更早的 ARDM [2] 都指出：absorbing diffusion 學到的 $p(x_0^\ell\mid x_t)$ 是乾淨資料的所有 conditional，所以每步翻一個的 masked diffusion 就是一個**任意順序**的 AR 模型。
+表格最後一列還說了另一件事。「每步只翻開一個位置」在因子化誤差上是零，而它就是 **autoregressive**（AR）模型的做法——只是 AR 固定從左到右，masked diffusion 每步隨機挑一個位置。Ou 等人 [1] 與更早由 Hoogeboom 等人提出的 ARDM [2] 都指出：absorbing diffusion 學到的 $p(x_0^\ell\mid x_t)$ 是乾淨資料的所有 conditional，所以每步翻一個的 masked diffusion 就是一個**任意順序**的 AR 模型。
 
 於是兩者的取捨可以講得很乾脆：
 
 - **AR**：一次一個 token，固定順序，factorization 精確、沒有因子化誤差；代價是 $L$ 個 token 要 $L$ 次網路呼叫，**無法平行**。
 - **Masked diffusion**：任意順序，一步可以翻開很多個、**可以平行**，$L/k$ 次呼叫；代價是每步翻開的位置之間的因子化誤差。此外它天生能做填空（雙向 context），AR 需要額外設計。
 
-這是 <Ref to="dma-error-theory"/> 那個「步數 vs 誤差」的取捨換了一套詞。Zheng et al. [5] 提醒了一件實務上的事：比較 masked diffusion 與 AR 的 perplexity 時，若取樣步數不夠、或類別抽樣的數值實作不精確，會把因子化誤差誤讀成別的東西；比較時要把「每步翻開幾個」當成明確的實驗變數。
+這是 <Ref to="dma-error-theory"/> 那個「步數 vs 誤差」的取捨換了一套詞。Zheng 等人 [5] 提醒了一件實務上的事：比較 masked diffusion 與 AR 的 perplexity 時，若取樣步數不夠、或類別抽樣的數值實作不精確，會把因子化誤差誤讀成別的東西；比較時要把「每步翻開幾個」當成明確的實驗變數。
 
 ![一步之內假設了太簡單的結構](./imgs/w6-3-1.png)
 

@@ -10,7 +10,7 @@ title: "應用：語言模型、蛋白質序列、圖"
 category: "courses"
 group: "Unit 5 · Discrete Diffusion II"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "用 path、target、sampler 三個問題拆解語言、蛋白質與圖生成系統，分清真正的新設計落在哪裡，而不是被模型名稱帶著走。"
 demos: []
 references:
@@ -80,17 +80,17 @@ import Ref from '../../../components/Ref.astro';
 
 ## 語言：LLaDA 與 masked diffusion 語言模型
 
-LLaDA [1] 是目前最有代表性的例子：一個 8B 參數、從頭訓練的 masked diffusion 語言模型，在多數標準 benchmark 上與同規模的 autoregressive（AR）模型相當。
+Nie 等人的 LLaDA [1] 是目前最有代表性的例子：一個 8B 參數、從頭訓練的 masked diffusion 語言模型，在多數標準 benchmark 上與同規模的 autoregressive（AR）模型相當。
 
 - **path**：absorbing，線性 schedule $\alpha_t=1-t$。整串 `[MASK]` 是起點。
 - **target**：$p_\theta(x_0^\ell\mid x_t)$，loss 是 <Ref to="dma-masked-diffusion"/> 那條加權 masked cross-entropy——線性 schedule 下權重是 $1/t$。網路是一個**雙向** transformer（沒有 causal mask），如 <Ref to="dma-masked-diffusion"/> 的 Details 所說，可以不吃 $t$。預訓練之後用同一個 loss 做 supervised fine-tuning（只遮 response 部分）。
-- **sampler**：固定步數；為了長序列的品質，採用**半 autoregressive** 的 block 取樣——把序列切成 block、block 之間從左到右、block 內用 masked diffusion 平行翻開；每步翻開哪些位置用 **low-confidence remasking**：先對所有被遮位置抽樣，只保留信心高的，其餘遮回去（MaskGIT [7] 式）。注意這個 remasking 是 heuristic、不保持邊際，與 <Ref to="dma-remasking"/> 那族有區別。
+- **sampler**：固定步數；為了長序列的品質，採用**半 autoregressive** 的 block 取樣——把序列切成 block、block 之間從左到右、block 內用 masked diffusion 平行翻開；每步翻開哪些位置用 **low-confidence remasking**：先對所有被遮位置抽樣，只保留信心高的，其餘遮回去（Chang 等人的 MaskGIT [7] 式）。注意這個 remasking 是 heuristic、不保持邊際，與 <Ref to="dma-remasking"/> 那族有區別。
 
 **與 AR 的權衡**，全部在 <Ref to="dma-factorization-error"/> 那張表裡：
 
 - **速度**：AR 生成 $L$ 個 token 要 $L$ 次前向；masked diffusion 走 $N$ 步，每步翻開 $L/N$ 個。$N\ll L$ 時快很多——這是「可平行」的意思。但 $N$ 越小、每步翻開越多、因子化誤差越大；實務上要達到 AR 的品質，$N$ 常常接近 $L$，速度優勢就縮小了。另外雙向 attention 讓 KV cache 無法直接沿用（每一步整串都在變），單步的成本比 AR 一步貴。
 - **品質**：每步翻開一個時沒有因子化誤差，等於任意順序的 AR。但雙向 context 帶來兩件 AR 做不到的事：天生會**填空**（infilling），以及不受生成方向的限制——LLaDA 報告在「倒著補全詩句」這類 reversal 任務上明顯優於 AR 模型，因為 AR 只在一個方向上學過條件分佈。
-- **修正**：純 absorbing 翻開就固定；<Ref to="dma-remasking"/> 的 $\sigma_t$ 是保持邊際的修正方式，ReMDM [8] 把它用在 MDLM 規模的模型上。
+- **修正**：純 absorbing 翻開就固定；<Ref to="dma-remasking"/> 的 $\sigma_t$ 是保持邊際的修正方式，Wang 等人的 ReMDM [8] 把它用在 MDLM 規模的模型上。
 
 <Question id="Q1">
 masked diffusion 語言模型最常被講的優點是**可以平行生成**。可是上面那條權衡說，要達到 AR 的品質，$N$ 常常需要接近 $L$——那平行到底平行在哪裡？**如果速度優勢會縮回去，這條路線真正贏的是什麼？**
@@ -106,7 +106,7 @@ masked diffusion 語言模型最常被講的優點是**可以平行生成**。�
 2. **取樣預算變成一項可調的選擇。** block 大小、每個 block 走幾步、$\sigma_t$——全部在取樣器裡，**不必重訓就能換品質**。AR 的生成步數就是 $L$，沒有這條軸可以調。
 3. **同一個 loss 同時是表徵學習的目標。** <Ref to="dma-masked-diffusion"/> 說 masked diffusion 是 BERT 加上隨機遮罩比例與權重；DPLM 正是把這件事直接用在蛋白質上。
 
-所以「AR 還是 diffusion 比較快」問錯了。該問的是：**這份資料的條件相依有多強、我願意花幾次網路呼叫。** 順著這個問法，還有一項對 diffusion 不利的成本要記住：雙向 attention 讓 KV cache 沒辦法直接沿用（每一步整串都在變），所以單步比 AR 一步貴——BD3-LM [9] 那種 block 設計，一部分就是為了把 cache 拿回來。
+所以「AR 還是 diffusion 比較快」問錯了。該問的是：**這份資料的條件相依有多強、我願意花幾次網路呼叫。** 順著這個問法，還有一項對 diffusion 不利的成本要記住：雙向 attention 讓 KV cache 沒辦法直接沿用（每一步整串都在變），所以單步比 AR 一步貴——Arriola 等人的 BD3-LM [9] 採用 block 設計，一部分就是為了把 cache 拿回來。
 </Answer>
 </Question>
 
@@ -121,8 +121,8 @@ masked diffusion 語言模型最常被講的優點是**可以平行生成**。�
 </Remark>
 
 <Details summary="這條線上其他值得知道的名字">
-- **MDLM [2]、SEDD [3]**：語言上兩條 target 路線的代表——加權 cross-entropy 與 score entropy——<Ref to="dma-concrete-score"/> 說過在 absorbing 鏈上它們學的是同一組數字。
-- **Block diffusion（BD3-LM）**：把 AR 與 masked diffusion 內插——block 之間 AR、block 內 diffusion，block 大小是「每步翻開幾個」之外的另一個速度／品質設定，也讓 KV cache 部分回來 [9]。
+- **Sahoo 等人的 MDLM [2]、Lou、Meng 與 Ermon 的 SEDD [3]**：語言上兩條 target 路線的代表——加權 cross-entropy 與 score entropy——<Ref to="dma-concrete-score"/> 說過在 absorbing 鏈上它們學的是同一組數字。
+- **Arriola 等人的 Block Diffusion（BD3-LM）[9]**：把 AR 與 masked diffusion 內插——block 之間 AR、block 內 diffusion，block 大小是「每步翻開幾個」之外的另一個速度／品質設定，也讓 KV cache 部分回來。
 - **商用系統**：Mercury（Inception Labs [10]）與 Gemini Diffusion 都是以 diffusion 為骨架的語言模型，主打生成速度。Mercury 的技術報告有 path 與 sampler 的粗略描述，Gemini Diffusion 目前沒有公開細節可以放進三個槽位。
 </Details>
 
@@ -130,15 +130,15 @@ masked diffusion 語言模型最常被講的優點是**可以平行生成**。�
 
 一段蛋白質是二十種胺基酸的序列，長度幾十到幾千。它比自然語言更適合離散擴散的理由有兩個：序列裡的相依是**長程且雙向**的（相隔很遠的殘基在摺疊後靠在一起），而且最常見的任務不是「從頭寫一段」而是**填空**——固定一段 motif 或活性位點、生成其餘部分（scaffolding），或者給結構、生成配得上它的序列。這兩件事都是雙向 context 的主場。
 
-- **EvoDiff [4]**：在演化尺度的序列資料上訓練離散擴散。path 有兩種：order-agnostic AR（每步只遮／翻一個殘基，即 <Ref to="dma-factorization-error"/> 說的「任意順序 AR」）與 D3PM 式的 uniform 變體（含一個依胺基酸替換矩陣設計的 transition matrix，讓「噪聲」偏向生物上合理的替換）。target 是 $x_0$ 的 logits；sampler 是反向 posterior。它示範了「不看結構、只看序列」也能生成可摺疊的蛋白。
-- **DPLM**：把 masked diffusion 當成蛋白質語言模型的預訓練目標，同時做生成與表徵學習——<Ref to="dma-masked-diffusion"/> 說 masked diffusion 是 BERT 加上隨機遮罩比例與權重，DPLM [11] 是這句話在蛋白質上的直接應用。
-- **Multiflow [5]**：結構與序列**共同生成**。結構（每個殘基的位置與朝向）是連續的，用 flow matching；序列是離散的，用 discrete flow matching；兩條路徑共用一個網路、共用時間。這是 <Ref to="dma-discrete-flow-matching"/> Q1 說「配對留下對齊的意義」的具體例子——$(x_0^{\text{struct}},x_0^{\text{seq}})$ 是成對的，不是各自獨立抽。它也是 <Ref to="dma-remasking"/> 提到的 stochasticity $\eta$ 的出處。
+- **Alamdari 等人的 EvoDiff [4]**：在演化尺度的序列資料上訓練離散擴散。path 有兩種：order-agnostic AR（每步只遮／翻一個殘基，即 <Ref to="dma-factorization-error"/> 說的「任意順序 AR」）與 D3PM 式的 uniform 變體（含一個依胺基酸替換矩陣設計的 transition matrix，讓「噪聲」偏向生物上合理的替換）。target 是 $x_0$ 的 logits；sampler 是反向 posterior。它示範了「不看結構、只看序列」也能生成可摺疊的蛋白。
+- **Wang 等人的 DPLM [11]**：把 masked diffusion 當成蛋白質語言模型的預訓練目標，同時做生成與表徵學習——<Ref to="dma-masked-diffusion"/> 說 masked diffusion 是 BERT 加上隨機遮罩比例與權重，DPLM 是這句話在蛋白質上的直接應用。
+- **Campbell 等人的 Multiflow [5]**：結構與序列**共同生成**。結構（每個殘基的位置與朝向）是連續的，用 flow matching；序列是離散的，用 discrete flow matching；兩條路徑共用一個網路、共用時間。這是 <Ref to="dma-discrete-flow-matching"/> Q1 說「配對留下對齊的意義」的具體例子——$(x_0^{\text{struct}},x_0^{\text{seq}})$ 是成對的，不是各自獨立抽。它也是 <Ref to="dma-remasking"/> 提到的 stochasticity $\eta$ 的出處。
 
 三個系統的 path 各不相同，但 target 都是 $x_0$ 的 posterior，sampler 都在「每步翻開幾個」上做取捨。序列長度短（幾百）讓 $N\approx L$ 的取樣仍然便宜，這是蛋白質比語言更早大規模採用離散擴散的實務原因之一。
 
 ## 圖：DiGress
 
-一個分子圖是節點（原子種類）加上邊（鍵的種類，含「沒有鍵」）。<Ref to="dma-discrete-data"/> 說過它是離散資料；DiGress [6] 說明了為什麼**不該**把它當連續資料處理：對 adjacency matrix 加 Gaussian noise，中間狀態是一個稠密的實數矩陣，不再是圖——稀疏性、整數度數、原子價的約束全部消失，網路要花大量容量學「什麼是圖」而不是「什麼是好的分子」。離散 forward chain 讓**每個中間狀態都仍是一個合法的圖**。
+一個分子圖是節點（原子種類）加上邊（鍵的種類，含「沒有鍵」）。<Ref to="dma-discrete-data"/> 說過它是離散資料；Vignac 等人的 DiGress [6] 說明了為什麼**不該**把它當連續資料處理：對 adjacency matrix 加 Gaussian noise，中間狀態是一個稠密的實數矩陣，不再是圖——稀疏性、整數度數、原子價的約束全部消失，網路要花大量容量學「什麼是圖」而不是「什麼是好的分子」。離散 forward chain 讓**每個中間狀態都仍是一個合法的圖**。
 
 - **path**：對每個節點與每條（可能的）邊獨立地跑一條 uniform 型的鏈——但終點不是均勻分佈，而是資料裡節點種類與邊種類的 **marginal**（大部分是「沒有鍵」）。也就是 $Q_t=\bar\alpha_t I+(1-\bar\alpha_t)\mathbb 1 m^{\!\top}$，$m$ 是 marginal 向量；<Ref to="dma-d3pm"/> 的代數一字不改（$\mathbb 1m^{\!\top}$ 也是投影）。DiGress 報告這比均勻終點好，直覺是噪聲圖的稀疏程度與真實圖相近。
 - **target**：對每個節點與每條邊輸出 $x_0$ 的 logits，cross-entropy。網路是 graph transformer，**permutation equivariant**：forward 對每個節點與邊獨立加噪聲、本身就是 equivariant 的，所以 equivariant 的網路加上 equivariant 的 forward 給出 permutation-invariant 的 likelihood——不需要像 AR 那樣選一個節點順序。

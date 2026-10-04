@@ -10,7 +10,7 @@ title: "Consistency Function：同一條軌跡，同一個終點"
 category: "courses"
 group: "Unit 6 · Consistency Models"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "同一條 PF-ODE 軌跡上的每個位置，都應認出同一個終點。這句話定義了 consistency function，也留下「相鄰點怎麼找」的問題。"
 demos: []
 references:
@@ -47,7 +47,7 @@ import Answer from '../../../components/Answer.astro';
 
 把「這個點會走到哪裡」當成一個函數。給軌跡上任何一點 $(x_t,t)$，回答「它的終點是什麼」。這個函數在整條軌跡上是**常數**，換到另一條軌跡才換值。
 
-這就是 Song et al. [1] 的 **consistency function**：
+這就是 Song 等人 [1] 定義的 **consistency function**：
 
 $$
 f(x_t,t)=\text{該點所在 PF-ODE 軌跡在乾淨端的位置}.
@@ -99,7 +99,7 @@ $$
 
 ## 參數化：讓邊界自動成立
 
-現在用網路 $f_\theta$ 逼近 $f$。邊界條件 $f(x,\varepsilon)=x$ 既是精度問題、也是上面那個退化解的唯一防線，所以不能交給網路「學會」；要把它**寫進架構**。Song et al. 沿用 EDM [2] 的形式：
+現在用網路 $f_\theta$ 逼近 $f$。邊界條件 $f(x,\varepsilon)=x$ 既是精度問題、也是上面那個退化解的唯一防線，所以不能交給網路「學會」；要把它**寫進架構**。Song 等人沿用 Karras 等人的 EDM [2] 形式：
 
 $$
 \boxed{\;f_\theta(x,t)=c_{\text{skip}}(t)\,x+c_{\text{out}}(t)\,F_\theta(x,t)\;},\qquad c_{\text{skip}}(\varepsilon)=1,\quad c_{\text{out}}(\varepsilon)=0 .
@@ -126,7 +126,7 @@ $$
 
 邊界條件交給架構之後，剩下要學的只有自我一致性。最直接的想法是：抽同一條軌跡上的兩點 $(x_t,t)$、$(x_{t'},t')$，要求 $f_\theta$ 在兩處輸出相同。
 
-Song et al. 把時間切成網格 $\varepsilon=t_1<t_2<\cdots<t_N=T$，**只對相鄰的兩格**要求一致：
+Song 等人 [1] 把時間切成網格 $\varepsilon=t_1<t_2<\cdots<t_N=T$，**只對相鄰的兩格**要求一致：
 
 $$
 \boxed{\;\mathcal L_{\text{CM}}=\mathbb E\Big[\lambda(t_n)\,d\Big(f_\theta\big(x_{t_{n+1}},t_{n+1}\big),\ f_{\theta^-}\big(\hat x_{t_n},t_n\big)\Big)\Big]\;}

@@ -12,17 +12,17 @@ title: "生成到底在學什麼？"
 category: "courses"
 group: "Unit 1 · Diffusion Models"
 status: "available"
-updated: 2026-09-04
+updated: 2026-10-04
 summary: "把「生一張新圖」翻成可以寫下 loss 的數學問題：直接學密度會卡在 normalizing constant 的梯度；改成學一個函數 G 之後，逐樣本的 L2 會塌成一張平均圖，normalizing flow 用可逆性換到精確 likelihood——而這個代價把我們推向「自己把路徑定下來」。"
 demos: []
 references:
-  - label: "Hyvärinen, Estimation of Non-Normalized Statistical Models by Score Matching (JMLR 2005)"
-    href: "https://jmlr.org/papers/v6/hyvarinen05a.html"
+  - label: "Papamakarios et al., Normalizing Flows for Probabilistic Modeling and Inference (JMLR 2021)"
+    href: "https://arxiv.org/abs/1912.02762"
   - label: "Dinh, Krueger & Bengio, NICE: Non-linear Independent Components Estimation (2014)"
     href: "https://arxiv.org/abs/1410.8516"
   - label: "Dinh, Sohl-Dickstein & Bengio, Density Estimation using Real NVP (ICLR 2017)"
     href: "https://arxiv.org/abs/1605.08803"
-  - label: "Papamakarios, Pavlakou & Murray, Masked Autoregressive Flow for Density Estimation (NeurIPS 2017)"
+  - label: "Papamakarios, Pavlakou & Murray, Masked Autoregressive Flow; Kingma et al., Inverse Autoregressive Flow"
     href: "https://arxiv.org/abs/1705.07057"
   - label: "Kingma & Dhariwal, Glow: Generative Flow with Invertible 1×1 Convolutions (NeurIPS 2018)"
     href: "https://arxiv.org/abs/1807.03039"
@@ -30,12 +30,10 @@ references:
     href: "https://arxiv.org/abs/1806.07366"
   - label: "Grathwohl et al., FFJORD: Free-form Continuous Dynamics for Scalable Reversible Generative Models (ICLR 2019)"
     href: "https://arxiv.org/abs/1810.01367"
-  - label: "Papamakarios et al., Normalizing Flows for Probabilistic Modeling and Inference (JMLR 2021)"
-    href: "https://arxiv.org/abs/1912.02762"
   - label: "Rezende & Mohamed, Variational Inference with Normalizing Flows (ICML 2015)"
     href: "https://arxiv.org/abs/1505.05770"
-  - label: "Kingma et al., Improved Variational Inference with Inverse Autoregressive Flow (NeurIPS 2016)"
-    href: "https://arxiv.org/abs/1606.04934"
+  - label: "Hyvärinen, Estimation of Non-Normalized Statistical Models by Score Matching (JMLR 2005)"
+    href: "https://jmlr.org/papers/v6/hyvarinen05a.html"
   - label: "Welling & Teh, Bayesian Learning via Stochastic Gradient Langevin Dynamics (ICML 2011)"
     href: "https://dl.acm.org/doi/10.5555/3104482.3104568"
 ---
@@ -143,7 +141,7 @@ $$
 
 值得注意的是，我們其實從來不需要算出 $Z_\theta$ 的**數值**（那是一個 3072 維的積分，硬算當然也不可能）；真正躲不掉的是它的**梯度**，而那一項是一個**對模型自己分布取的期望**——要估它，就得先從 $p_\theta$ 抽樣。所以問題變成：**我們本來只是想訓練一個 distribution，結果訓練過程自己先要求我們會從這個 distribution 抽樣。** 那接著就得問：從 $p_\theta$ 抽樣這件事，到底有多難？
 
-**取樣的困難。** 先假設訓練這一關過了，我們手上已經有一個相當精確的 $p_\theta$。要從它抽樣，標準做法是 Langevin dynamics [10]：
+**取樣的困難。** 先假設訓練這一關過了，我們手上已經有一個相當精確的 $p_\theta$。要從它抽樣，可以使用 Welling 與 Teh [10] 採用的 Langevin dynamics：
 
 $$
 x_{k+1}=x_k+\frac{\eta}{2}\,\nabla_x\log p_\theta(x_k)+\sqrt{\eta}\,\epsilon_k,\qquad \epsilon_k\sim\mathcal N(0,I),
@@ -165,7 +163,7 @@ $$
 
 > **我們能不能不要先學 density，直接把 score 學起來？**
 
-這就是 <Ref to="dma-tweedie-and-score"/> 會走到的主線（score matching [9]）。但在這之前，我們先從另一個角度看同一個問題。
+這就是 <Ref to="dma-tweedie-and-score"/> 會走到的主線：Hyvärinen [9] 提出的 score matching。但在這之前，我們先從另一個角度看同一個問題。
 </Answer>
 </Question>
 
@@ -323,7 +321,7 @@ $$
 <Details summary="離散時間的 flow：用網路結構換到好算的 inverse 與 log-det（NICE、Real NVP、MAF / IAF、Glow）">
 前面卡住的是兩件事：inverse 要算得出來、log-det 要算得起。第一代的做法很直接——既然一般的網路層做不到，那就只用**做得到的那種層**來堆出 $G$。
 
-NICE [2] 與 Real NVP [3] 用的是 coupling layer：把座標切成兩半 $x=(x_a,x_b)$，一半原封不動照抄過去，另一半做 affine transformation，而變換的係數由照抄的那半算出來：
+Dinh、Krueger 與 Bengio 的 NICE [2]，以及 Dinh、Sohl-Dickstein 與 Bengio 的 Real NVP [3]，用的都是 coupling layer：把座標切成兩半 $x=(x_a,x_b)$，一半原封不動照抄過去，另一半做 affine transformation，而變換的係數由照抄的那半算出來：
 
 $$
 y_a=x_a,\qquad y_b=x_b\odot\exp\big(s(x_a)\big)+t(x_a).
@@ -331,13 +329,13 @@ $$
 
 這樣設計有兩個好處。第一，反函數不用另外學：既然 $y_a$ 就是 $x_a$，我們手上永遠有算 $s,t$ 需要的東西，把同一組 $s,t$ 反著用就回去了。第二，Jacobian 是三角矩陣，determinant 只是對角線相乘，所以 $\log|\det|=\sum_i s_i(x_a)$，$O(d)$ 就算完。而 $s,t$ 自己可以是任意網路——它們不需要可逆。
 
-MAF 與 IAF [4] 改用 autoregressive 的結構，拿到的也是同樣的三角 Jacobian；Glow [5] 再加上可逆的 $1\times1$ 卷積把通道打散，讓每一層動到的座標不要每次都一樣。
+Papamakarios、Pavlakou 與 Murray 的 MAF，以及 Kingma 等人的 IAF [4]，改用 autoregressive 結構，拿到的也是同樣的三角 Jacobian；Kingma 與 Dhariwal 的 Glow [5] 再加上可逆的 $1\times1$ 卷積把通道打散，讓每一層動到的座標不要每次都一樣。
 
 代價是：每一層只能動一半座標、維度也不能改，單層能做的事情其實很少，要疊很多層才有辦法把一個 Gaussian 慢慢拉成自然圖片的形狀。而且實際上還會看到一個現象——likelihood 的數字很漂亮，但抽出來的樣本常常不夠銳利。
 </Details>
 
 <Details summary="連續時間的 flow：用解 ODE 換任意 vector field（Neural ODE、FFJORD）">
-上面那條路的限制，來自「每一層都要可逆」這個要求。Neural ODE [6] 換了一個想法：不要一層一層去設計，而是讓 $G$ 是一條 ODE 走出來的結果。
+上面那條路的限制，來自「每一層都要可逆」這個要求。Chen、Rubanova、Bettencourt 與 Duvenaud 的 Neural ODE [6] 換了一個想法：不要一層一層去設計，而是讓 $G$ 是一條 ODE 走出來的結果。
 
 $$
 \frac{dx}{dt}=v_\theta(x,t),\qquad x(0)=z,\quad G(z)=x(1).
@@ -352,7 +350,7 @@ $$
 \log p_\theta(x)=\log p_z(z)-\int_0^1 \nabla\!\cdot v_\theta\,dt .
 $$
 
-FFJORD [7] 就順著這條路走下去：$v_\theta$ 可以是任意網路，而 divergence 也不必真的算完整，用 Hutchinson trace estimator $\nabla\!\cdot v=\mathbb E_\epsilon[\epsilon^\top J_v\epsilon]$ 估一下就好，一次 vector-Jacobian product 就夠。到這裡，表達力的限制算是解除了。
+Grathwohl 等人的 FFJORD [7] 就順著這條路走下去：$v_\theta$ 可以是任意網路，而 divergence 也不必真的算完整，用 Hutchinson trace estimator $\nabla\!\cdot v=\mathbb E_\epsilon[\epsilon^\top J_v\epsilon]$ 估一下就好，一次 vector-Jacobian product 就夠。到這裡，表達力的限制算是解除了。
 
 但代價換到了另一個地方：每個訓練樣本都得**解一次 ODE 到 $t=1$、再解一次回來算梯度**（adjoint method），還要沿路估 trace。而且要解幾步不是我們決定的，是 adaptive solver 看情況決定，訓練越久往往還越多步。也就是說，訓練本身變成 simulation-based 的，貴到很難放大。
 </Details>

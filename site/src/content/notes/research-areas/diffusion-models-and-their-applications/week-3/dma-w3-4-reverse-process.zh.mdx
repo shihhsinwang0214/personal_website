@@ -13,7 +13,7 @@ title: "從離散步驟到 Forward / Reverse Dynamics"
 category: "courses"
 group: "Unit 1 · Diffusion Models"
 status: "available"
-updated: 2026-09-22
+updated: 2026-10-04
 summary: "DDPM 已經會從 t 倒退到 t−1，卻仍得依序跑完上千次網路。直接把一步放大，會破壞相鄰 Gaussian 的近似；真正能改的地方，要回到 training objective 才看得見：它固定了每個 noisy marginal，卻沒有固定所有時刻如何連成一條路。沿著這個缺口可以推出較短的 sampling trajectory，再把同一個問題提升成連續時間的 forward 與 reverse dynamics。"
 demos: []
 references:
@@ -59,7 +59,7 @@ import Ref from '../../../components/Ref.astro';
 要怎麼改變播放速度，卻仍然走在正確的 distribution 上？</strong>
 </Ask>
 
-先回顧一下 <Ref to="dma-denoising-regression">U1.2</Ref> 中 DDPM 的生成方式：
+先回顧一下 Ho、Jain 與 Abbeel 的 DDPM [1] 在 <Ref to="dma-denoising-regression">U1.2</Ref> 中使用的生成方式：
 
 $$
 x_{t-1}=\tilde\mu_t\big(x_t,\ \hat x_\theta(x_t,t)\big)+\sqrt{\tilde\beta_t}\,z,
@@ -358,7 +358,7 @@ $$
 
 這裡不是在用「$t$ 的 noise 預測原本 DDPM 在 $s$ 的 noise」。我們已經換了一個 joint；新的 coupling **定義**同一條 trajectory 在 $s$ 時沿用這份 noise。到達 $x_s$ 後，網路會重新計算 $\hat\epsilon_s$，不會把第一次的預測一路用到底。
 
-此時給定起點 $x_T$，之後的整條路都是確定的；所有 randomness 都集中在最初抽到的 $x_T$。這成了一個 implicit probabilistic model：它告訴我們如何從 latent variable 產生樣本，卻不直接給出 likelihood。**到這一步，Song、Meng 與 Ermon 才把它取名為 Denoising Diffusion Implicit Model，也就是 DDIM。**
+此時給定起點 $x_T$，之後的整條路都是確定的；所有 randomness 都集中在最初抽到的 $x_T$。這成了一個 implicit probabilistic model：它告訴我們如何從 latent variable 產生樣本，卻不直接給出 likelihood。**到這一步，Song、Meng 與 Ermon [2] 才把它取名為 Denoising Diffusion Implicit Model，也就是 DDIM。**
 
 有了上面的架構，我們就可以從原本的 $1,\ldots,T$ 中只挑一條較短的 subsequence
 
@@ -458,7 +458,7 @@ $$
 
 這條式子把前面缺的兩塊拼在一起了：forward dynamics 提供原本的 drift 與 noise 強度，U1.3 學到的 score 則告訴反向過程，樣本要往哪裡修正。兩者缺一不可。
 
-Song et al.（2021）[4] 進一步指出：同一條邊際分布路徑還可以由一條**完全沒有隨機項**的 ODE 推動，而且它與上面的 reverse SDE 在每個 $t$ 都有相同的 $p_t$：
+Song 等人（2021）[4] 進一步指出：同一條邊際分布路徑還可以由一條**完全沒有隨機項**的 ODE 推動，而且它與上面的 reverse SDE 在每個 $t$ 都有相同的 $p_t$：
 
 $$
 \frac{dx}{dt}=-\tfrac12\beta(t)\,x-\tfrac12\beta(t)\,\nabla\log p_t(x)
@@ -468,7 +468,7 @@ $$
 注意 score 前面的係數：SDE 是 $\beta$，ODE 只有 $\tfrac12\beta$。
 
 <Remark label="符號" summary="文獻上寫的是通式：$dy_t=[f_t y_t-g_t^2 s_\theta]dt+g_t d\bar W_t$">
-上面三條式子把 DDPM 的 schedule 直接代進去了，所以長得很具體。文獻上（Song et al. [4]、以及本課主要參考 [5] 的 §4.1）通常寫的是**通式**——forward 只要寫成
+上面三條式子把 DDPM 的 schedule 直接代進去了，所以長得很具體。文獻上（Song 等人 [4]、以及本課主要參考 [5] 的 §4.1）通常寫的是**通式**——forward 只要寫成
 
 $$
 dx=f_t\,x\,dt+g_t\,dW_t ,

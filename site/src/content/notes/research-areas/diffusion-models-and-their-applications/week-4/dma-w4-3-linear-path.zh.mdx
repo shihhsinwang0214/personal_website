@@ -9,7 +9,7 @@ title: "Gaussian 起點：DDIM 與 Flow Matching 的交集"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-09-26
+updated: 2026-10-04
 summary: "當起點是 Gaussian，denoiser、score 與 velocity 是同一組 conditional means 的不同寫法；代入 VP path 後，Flow ODE 就接回 DDIM 與 probability-flow ODE。"
 demos: []
 references:
@@ -66,7 +66,7 @@ $$
 X_0=\epsilon\sim\mathcal N(0,I),\qquad X_1\sim p_{\mathrm{data}},
 $$
 
-用 Flow Matching 的語言寫下來就是
+用 Lipman 等人的 Flow Matching [3] 語言寫下來就是
 
 $$
 I_t=\alpha_tX_1+\sigma_tX_0
@@ -178,7 +178,7 @@ $$
 
 到這裡，我們只證明了 U1 的 denoiser 可以換算成 Flow Matching 的 velocity。但開頭問的問題還多了一步：**這個 velocity 真的是 DDIM 背後的 deterministic dynamics 嗎？**
 
-回到 <Ref to="dma-reverse-process" />。在 U1 的時間方向裡，$\tau=0$ 是資料、$\tau=1$ 是 noise。當 $\eta=0$ 時，DDIM 不再加入新的 randomness，而是用同一組 $\widehat x_0$ 與 predicted noise，直接重建另一個 noise level：
+回到 <Ref to="dma-reverse-process" />。在 U1 的時間方向裡，$\tau=0$ 是資料、$\tau=1$ 是 noise。當 $\eta=0$ 時，Song、Meng 與 Ermon 的 DDIM [1] 不再加入新的 randomness，而是用同一組 $\widehat x_0$ 與 predicted noise，直接重建另一個 noise level：
 
 $$
 x_s
@@ -274,7 +274,7 @@ $$
 }
 $$
 
-這就是 U1 的 **probability-flow ODE**。生成時，DDIM 從 noise 端往回走，也就是沿著這條 ODE 把 $\tau$ 從大積到小。
+這就是 Song 等人 [2] 寫下的 **probability-flow ODE**。生成時，DDIM 從 noise 端往回走，也就是沿著這條 ODE 把 $\tau$ 從大積到小。
 
 所以這裡的關係是：DDPM 與 DDIM 用相同的 denoising objective 學 conditional mean；這個 conditional mean 可以換成 VP interpolation 上的 velocity；而 DDIM 的 $\eta=0$ update，則是這條 continuous dynamics 的一種有限步走法。
 

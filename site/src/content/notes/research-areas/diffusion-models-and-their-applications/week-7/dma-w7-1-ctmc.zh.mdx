@@ -11,7 +11,7 @@ title: "CTMC：Rate Matrix 與 Forward Equation"
 category: "courses"
 group: "Unit 5 · Discrete Diffusion II"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "Rate matrix 記錄狀態之間每單位時間流多少機率；forward equation 再把局部流量組成整體分布的變化。它就是離散狀態版的 Fokker–Planck。"
 demos: []
 references:
@@ -56,7 +56,7 @@ import Ref from '../../../components/Ref.astro';
 
 ## 先看三個水桶
 
-上一篇說本單元的新物件是「每單位時間有多少機率從 $x$ 流到 $y$」。先把它畫出來。
+上一篇說本單元的新物件是「每單位時間有多少機率從 $x$ 流到 $y$」。Campbell 等人 [1] 與 Sun 等人 [2] 都用這套 rate 語言建立 continuous-time discrete diffusion；這一篇先把兩者共用的 CTMC 骨架推完。先把它畫出來。
 
 三個水桶 $a$、$b$、$c$，總水量固定是 1（這是機率）。桶與桶之間接水管，每根管子上有一個閥門，標一個數字：**每單位時間，來源桶裡的水有多少比例流過這根管子**。比方說 $a\to b$ 的管子標 2，意思是 $a$ 桶每單位時間漏掉自己水量的 2 倍——當然不是真的漏掉兩倍，而是在很短的 $\Delta t$ 裡漏掉 $2\Delta t$ 的比例；$\Delta t=0.01$ 就漏 2%。
 
@@ -158,7 +158,7 @@ $$
 
 ## 把兩條鏈翻成 rate
 
-現在把 <Ref to="dma-d3pm"/> 的兩條鏈翻成 rate。時間依賴用一個非負函數 $\beta_t$ 承載（單位 1/時間）。
+現在把 Austin 等人的 D3PM [3] 中兩條鏈翻成 rate。時間依賴用一個非負函數 $\beta_t$ 承載（單位 1/時間）。
 
 **Uniform。** 每單位時間以比例 $\beta_t$ 把 token 換成均勻隨機的字。令 $J=\frac1K\mathbb 1\mathbb 1^{\!\top}$（每個元素 $1/K$）：
 
@@ -201,7 +201,7 @@ $$
 \beta_t=-\frac{\dot\alpha_t}{\alpha_t}.
 $$
 
-<Ref to="dma-masked-diffusion"/> 的線性 schedule $\alpha_t=1-t$ 對應 $\beta_t=\frac{1}{1-t}$：越接近 $t=1$ 遮得越急，在 $t=1$ 發散——這是「一定要在 $t=1$ 全部遮完」的代價，和 VP diffusion 的 $\beta_t$ 在終點變大是同一件事。那一篇 Details 裡的連續時間權重 $\frac{-\dot\alpha_t}{1-\alpha_t}=\beta_t\frac{\alpha_t}{1-\alpha_t}$，現在可以讀成「rate 乘上一個機率比」，下一篇會看到它就是反向 rate。
+Sahoo 等人的 MDLM [4] 使用線性 schedule $\alpha_t=1-t$，對應 $\beta_t=\frac{1}{1-t}$：越接近 $t=1$ 遮得越急，在 $t=1$ 發散——這是「一定要在 $t=1$ 全部遮完」的代價，和 VP diffusion 的 $\beta_t$ 在終點變大是同一件事。<Ref to="dma-masked-diffusion"/> 的 Details 裡已經出現連續時間權重 $\frac{-\dot\alpha_t}{1-\alpha_t}=\beta_t\frac{\alpha_t}{1-\alpha_t}$；現在可以讀成「rate 乘上一個機率比」，下一篇會看到它就是反向 rate。
 
 ## 多個 token：一次只跳一個
 

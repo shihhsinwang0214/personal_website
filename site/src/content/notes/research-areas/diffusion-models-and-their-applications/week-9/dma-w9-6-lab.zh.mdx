@@ -10,7 +10,7 @@ title: "實作：MeanFlow、半群檢查，與交叉問題的最終回收"
 category: "courses"
 group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "實作 MeanFlow 與半群檢查，比較多種一步模型的 $W_2$；再用交叉 toy 看見逐點回歸與分佈匹配的差別。"
 demos: []
 references:
@@ -52,6 +52,8 @@ import Answer from '../../../components/Answer.astro';
 **Notebook 內容。** 在解析平移 flow 上直接驗證 identity 與 semigroup，用向量圖關閉 MeanFlow 的「弦−切線−修正」關係，並比較一步平均速度和多步 Euler。`mean_velocity` 是公式 oracle，不是網路 checkpoint。
 
 ## 步驟 1：MeanFlow 的損失
+
+先實作 Geng 等人的 MeanFlow [1] identity。模型輸出平均速度，右側的全導數用 JVP 計算：
 
 ```python
 def meanflow_loss(model, x1, p_same=0.25):
@@ -127,7 +129,7 @@ def sample(model, n, steps):
 
 ## 作業
 
-1. **DMD 在 toy 上。** 學生是一個一步生成器 $G_\theta:\mathbb R^2\to\mathbb R^2$（MLP）。teacher denoiser 用 <Ref to="dma-lab-flow-matching"/> 訓好的 FM 網路換算（FM 慣例下 $z_t=(1-t)\epsilon+t\,x$，denoiser $D\approx\mathbb E[x\mid z_t]$ 給出 score $s=\dfrac{t\,D(z_t,t)-z_t}{(1-t)^2}$）。fake denoiser `D_fake` 用 <Ref to="dma-lab-diffusion"/> 那五行訓，資料換成 `G(z).detach()`。生成器的更新照 <Ref to="dma-distribution-matching"/> 的梯度：
+1. **DMD 在 toy 上。** 依照 Yin 等人的 DMD [2]，學生是一個一步生成器 $G_\theta:\mathbb R^2\to\mathbb R^2$（MLP）。teacher denoiser 用 <Ref to="dma-lab-flow-matching"/> 訓好的 FM 網路換算（FM 慣例下 $z_t=(1-t)\epsilon+t\,x$，denoiser $D\approx\mathbb E[x\mid z_t]$ 給出 score $s=\dfrac{t\,D(z_t,t)-z_t}{(1-t)^2}$）。fake denoiser `D_fake` 用 <Ref to="dma-lab-diffusion"/> 那五行訓，資料換成 `G(z).detach()`。生成器的更新照 <Ref to="dma-distribution-matching"/> 的梯度：
 
    ```python
    x  = G(z); t = ...; eps = torch.randn_like(x)
@@ -141,7 +143,7 @@ def sample(model, n, steps):
 
 2. **交叉問題的最終回收。** 換到 `toy_crossing.py` 的兩 Gaussian 例子。(a) 用 <Ref to="dma-lab-consistency"/> 的 consistency training 訓一步生成器，時間網格 $N\in\{2,4,8,32\}$，畫一步樣本，標出落在 $p_1$ 等高線外、位於兩個上方 mode **之間**的樣本比例；(b) 用作業 1 的 DMD 在同一份資料上訓一步生成器，畫同一張圖。期待：(a) 在 $N$ 小時大量樣本落在中間——這就是 <Ref to="dma-fm-vs-diffusion"/> Q1 的交叉、<Ref to="dma-distribution-matching"/> Q1 的「平均」——$N$ 大時比例下降但不歸零；(b) 幾乎沒有樣本落在中間。用 `exact_flow_map` 對 (a) 的每一顆中間樣本算出它的 $z$ 真正該去的終點，確認它落在幾個終點的平均位置。寫三句話說明這張圖與 <Ref to="dma-fm-vs-diffusion"/> 那張「條件直線交叉 vs 邊際曲線」的關係。
 
-3. **Shortcut。** 把步驟 1 改成 <Ref to="dma-shortcut-ayf"/> 的 progressive 目標：`model(z, t, d)`，$d\in\{0,\tfrac18,\tfrac14,\tfrac12,1\}$，四分之三的樣本走 $d=0$ 的 FM 損失，其餘走 $s(x,t,2d)=\tfrac12[s(x,t,d)+s(x',t+d,d)]$。不需要 `jvp`。與 MeanFlow 比：一步 $W_2$、訓練時間、以及步驟 3 的半群誤差——半群當顯式損失後，誤差應該更小；一步品質誰好？
+3. **Shortcut。** 把步驟 1 改成 Frans、Hafner、Levine 與 Abbeel 提出的 Shortcut [3]，使用的 progressive 目標是：`model(z, t, d)`，$d\in\{0,\tfrac18,\tfrac14,\tfrac12,1\}$，四分之三的樣本走 $d=0$ 的 FM 損失，其餘走 $s(x,t,2d)=\tfrac12[s(x,t,d)+s(x',t+d,d)]$。不需要 `jvp`。與 MeanFlow 比：一步 $W_2$、訓練時間、以及步驟 3 的半群誤差——半群當顯式損失後，誤差應該更小；一步品質誰好？
 
 4. **（選）拿掉 $\tfrac{du}{dt}$。** 把步驟 1 的 `target` 改成只有 `v`（等於對所有 $(r,t)$ 都做 FM 回歸）。訓出來的 $u_\theta(z,r,t)$ 學到什麼？一步取樣長什麼樣？用 <Ref to="dma-meanflow"/> 的三角形圖解釋：少了修正向量，網路把弦學成了切線。
 

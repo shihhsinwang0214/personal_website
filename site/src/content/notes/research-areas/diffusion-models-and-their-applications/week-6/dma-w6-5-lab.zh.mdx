@@ -9,7 +9,7 @@ title: "實作：Parity 與 Markov Toy 上的 Masked Diffusion"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion I"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "用 parity 與 Markov toy 分開量模型誤差、factorization error 與修正能力，並實作 absorbing／uniform 兩條離散 forward chain。"
 demos: []
 references:
@@ -48,7 +48,7 @@ import Ref from '../../../components/Ref.astro';
 - **Parity toy**：長度 $L=8$ 的 0/1 序列，資料是全部 128 條偶數 parity 的序列（均勻）。相依全部藏在「最後一個自由度」上，<Ref to="dma-factorization-error"/> Q1 的三個數字（$\tfrac12$、$1$、$\tfrac12$）可以直接驗證。
 - **Markov toy**：長度 $L=16$ 的 0/1 序列，第一格均勻，之後每格以機率 $0.9$ 等於上一格。相依在相鄰位置之間、處處都有，「步數 vs 誤差」的曲線是漸變的。狀態空間 $2^{16}$，查表仍可行。
 
-網路：小型 transformer（2 層、寬 64、雙向 attention），輸入 $x_t$（含 `[MASK]` 符號的 $K+1=3$ 類 embedding）與 $t$ 的 embedding，對每個位置輸出 $K=2$ 個 logits。若採用 <Ref to="dma-masked-diffusion"/> 說的「網路不需要看 $t$」，可以把 $t$ 拿掉當作業 4 的對照。$T=32$，線性 schedule $\bar\alpha_t=1-t/T$。
+網路：小型 transformer（2 層、寬 64、雙向 attention），輸入 $x_t$（含 `[MASK]` 符號的 $K+1=3$ 類 embedding）與 $t$ 的 embedding，對每個位置輸出 $K=2$ 個 logits。訓練採用 Sahoo 等人的 MDLM objective [1]，forward chain 則沿用 Austin 等人的 D3PM [2]；若採用 <Ref to="dma-masked-diffusion"/> 說的「網路不需要看 $t$」，可以把 $t$ 拿掉當作業 4 的對照。$T=32$，線性 schedule $\bar\alpha_t=1-t/T$。
 
 [下載 Week 6：Discrete diffusion 與 factorization error notebook（.ipynb）](/personal_website/notes/notebooks/diffusion-models-applications/dma-w6-lab.ipynb)
 
@@ -159,7 +159,7 @@ $L=N=8$ 代進去，$q=0.5723$、合法率 **78.6%**。所以量到 78–79% 不
 
 1. **強制每步剛好一格**（在還被遮的位置裡隨機挑一個）。這樣因子化誤差嚴格是 0，合法率會是 100%——這就是 <Ref to="dma-factorization-error"/> 的 demo 做的事，也等於一個任意順序的 autoregressive 模型。
 2. **步數加大**（例如 32 步）。翻開機率變小、最後一次只翻一格的機會上升，合法率往 100% 靠：同一條公式給出 $N=16$ 是 88.4%、$N=32$ 是 94.0%、$N=64$ 是 96.9%。這是「多走幾步」的標準答案，而且收斂得比想像中慢。
-3. **什麼都不改，但把它記在報告裡。** 這才是這一題真正的用意：**「步數 $=L$」不等於「每步一格」**，而 masked diffusion 的論文報數字時如果只寫步數、沒寫每步實際翻開幾格，那個數字就不能直接和 autoregressive 比。<Ref to="dma-factorization-error"/> 引的 Zheng et al. 提醒的正是這件事。
+3. **什麼都不改，但把它記在報告裡。** 這才是這一題真正的用意：**「步數 $=L$」不等於「每步一格」**，而 masked diffusion 的論文報數字時如果只寫步數、沒寫每步實際翻開幾格，那個數字就不能直接和 autoregressive 比。<Ref to="dma-factorization-error"/> 引的 Zheng 等人提醒的正是這件事。
 </Answer>
 </Question>
 

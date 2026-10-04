@@ -9,7 +9,7 @@ title: "資料是 Token 的時候，噪聲是什麼？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion I"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "Token 沒有半個字，也不能加一點 Gaussian noise。離散擴散保留已知 forward process 與反向學習，只把連續加噪換成一條 Markov chain。"
 demos: []
 references:
@@ -88,10 +88,10 @@ import Ref from '../../../components/Ref.astro';
 
 剩下兩個標準選擇：
 
-- **Uniform**：每一步，每個 token 以機率 $\beta_t$ 被換成字典裡**均勻隨機**的一個（可能換回自己）。終點是每個位置獨立均勻的分佈。這是連續世界裡「加 Gaussian noise 直到變成 $\mathcal N(0,I)$」最直接的類比 [1, 2]。
-- **Absorbing / mask**：字典多加一個符號 `[MASK]`。每一步，每個還沒被遮的 token 以機率 $\beta_t$ 變成 `[MASK]`；一旦變成 `[MASK]` 就**永遠留在那裡**。終點是整串全部 `[MASK]`——一個確定的狀態 [1]。
+- **Uniform**：每一步，每個 token 以機率 $\beta_t$ 被換成字典裡**均勻隨機**的一個（可能換回自己）。終點是每個位置獨立均勻的分佈。Austin 等人的 D3PM [1] 與 Hoogeboom 等人的 multinomial diffusion [2] 都採用過這條路，它是連續世界裡「加 Gaussian noise 直到變成 $\mathcal N(0,I)$」最直接的類比。
+- **Absorbing / mask**：字典多加一個符號 `[MASK]`。每一步，每個還沒被遮的 token 以機率 $\beta_t$ 變成 `[MASK]`；一旦變成 `[MASK]` 就**永遠留在那裡**。Austin 等人的 D3PM [1] 也包含這個選擇，終點是整串全部 `[MASK]`——一個確定的狀態。
 
-「embedding 加 Gaussian noise 再 round」是第三條路（Diffusion-LM [3] 走過），它把問題丟回連續空間，於是前三個單元的工具都能用。代價是 round 這一步：噪聲小的時候 round 回原字、噪聲大的時候 round 到隨機字，中間幾乎沒有「介於兩個字之間」的有意義狀態，模型花大量容量在學 embedding 的幾何而不是語言本身。在語言上，mask 的表現長期壓過這條路。這門課接下來只走前兩條。
+「embedding 加 Gaussian noise 再 round」是第三條路，Li 等人的 Diffusion-LM [3] 走的就是這條路。它把問題丟回連續空間，於是前三個單元的工具都能用。代價是 round 這一步：噪聲小的時候 round 回原字、噪聲大的時候 round 到隨機字，中間幾乎沒有「介於兩個字之間」的有意義狀態，模型花大量容量在學 embedding 的幾何而不是語言本身。在語言上，mask 的表現長期壓過這條路。這門課接下來只走前兩條。
 </Answer>
 </Question>
 
@@ -116,7 +116,7 @@ import Ref from '../../../components/Ref.astro';
 
 兩條鏈裡，absorbing 看起來像是比較「偷懶」的那一條——它連噪聲都不是隨機字，只是把字蓋起來。但它有一個 uniform 沒有的性質：**在任何 $t$，$x_t$ 裡沒被遮的 token 一定就是 $x_0$ 的原字**。看到一個沒被遮的位置，你就確定知道它的答案；不確定的資訊全部集中在被遮的位置。
 
-這件事會讓下一篇之後的數學大幅簡化：回歸目標只需要對被遮的位置預測，loss 塌成一個加了時間權重的 masked cross-entropy——也就是 BERT [4] 的 masked language modeling，多了「遮多少比例是隨機的、而且要對所有比例都學會」這一層。MaskGIT [5] 在影像 token 上、之後一系列 masked diffusion language model 在文字上，走的都是這條線。
+這件事會讓下一篇之後的數學大幅簡化：回歸目標只需要對被遮的位置預測，loss 塌成一個加了時間權重的 masked cross-entropy——也就是 Devlin 等人的 BERT [4] 使用的 masked language modeling，多了「遮多少比例是隨機的、而且要對所有比例都學會」這一層。Chang 等人的 MaskGIT [5] 在影像 token 上、之後一系列 masked diffusion language model 在文字上，走的都是這條線。
 
 代價也有，而且和 <Ref to="dma-unified-equation"/> 那個「ODE 沒有自我修正」的觀察是同一件事：被遮的 token 一旦被還原，就**永遠固定**，之後的步驟沒有機會改它。這個單元先只給直覺，<Ref week="dma-week-discrete-ii"/> 有了 rate 的語言之後會把它量化。
 

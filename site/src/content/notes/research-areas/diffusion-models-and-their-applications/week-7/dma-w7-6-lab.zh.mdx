@@ -10,7 +10,7 @@ title: "實作：τ-leaping、Remasking 與比值學習"
 category: "courses"
 group: "Unit 5 · Discrete Diffusion II"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "在同一組離散 toy 上比較精確跳步、$\tau$-leaping 與 remasking，並驗證 score-ratio target 在 absorbing chain 上如何對回 masked cross-entropy。"
 demos: []
 references:
@@ -68,7 +68,7 @@ import Ref from '../../../components/Ref.astro';
 
 ## 步驟 1：τ-leaping 取樣器（圖 a）
 
-CTMC 的精確模擬是 Gillespie 演算法：抽下一次跳躍的時間與位置，一次只跳一個 token。這太慢（$L$ 個位置、幾千次跳躍）。**τ-leaping** [1, 2] 是 CTMC 的 Euler 法：固定一段 $\tau$，用步首的 rate 算每個位置在這段時間內跳的機率，**所有位置獨立地決定要不要跳、跳到哪**。
+CTMC 的精確模擬是 Gillespie 演算法：抽下一次跳躍的時間與位置，一次只跳一個 token。這太慢（$L$ 個位置、幾千次跳躍）。Campbell 等人 [1] 把 Gillespie 的 **τ-leaping** [2] 用在 discrete diffusion sampling；它可以看成 CTMC 的 Euler 法：固定一段 $\tau$，用步首的 rate 算每個位置在這段時間內跳的機率，**所有位置獨立地決定要不要跳、跳到哪**。
 
 ```python
 @torch.no_grad()
@@ -144,9 +144,11 @@ def sample_ctmc(model, n, steps, sigma=0.0):
 
 我們在 <Ref to="dma-remasking"/> 的 demo 上量到的是：用 `exact_conditional` 當網路時，**只有步數少的那一端有明顯好處**（Markov toy 的切換率在 $N=8$ 從 0.14–0.15 掉到 0.13 左右），步數多的一端 $\sigma=0$ 本來就已經打在資料的真值上，沒有空間可以進步。理由是網路沒有誤差時唯一的誤差來源就是因子化，而它隨步數自己變小。
 
-所以這一步**兩種網路都要跑**：`exact_conditional` 與訓出來的網路，把兩組「$\sigma$ vs 指標」畫在一起，看有多少改善來自「修掉因子化的錯」、多少來自「修掉網路的錯」。ReMDM [4] 說的 inference-time scaling 是在真實模型上量的，那裡剩下的誤差是網路在 context 不完整時猜錯——要在 toy 上看到它，得先讓網路真的會錯。
+所以這一步**兩種網路都要跑**：`exact_conditional` 與訓出來的網路，把兩組「$\sigma$ vs 指標」畫在一起，看有多少改善來自「修掉因子化的錯」、多少來自「修掉網路的錯」。Wang 等人的 ReMDM [4] 所說的 inference-time scaling 是在真實模型上量的，那裡剩下的誤差是網路在 context 不完整時猜錯——要在 toy 上看到它，得先讓網路真的會錯。
 
 ## 步驟 3：SEDD 的比值學習 vs MDLM 的 cross-entropy（圖 c）
+
+這一步分別實作 Lou、Meng 與 Ermon 的 SEDD [3]，以及 Sahoo 等人的 MDLM [5]；我們要檢查的不是兩個名字像不像，而是它們在 absorbing 鏈上是否真的只差那個已知係數。
 
 網路換成輸出比值：對每個位置輸出 $K$ 個正數（用 `exp` 或 `softplus`），代表 $s_\theta(x_t)_{\ell,v}\approx p_t(x_t^{(\ell\to v)})/p_t(x_t)$。<Ref to="dma-concrete-score"/> 的 denoising score entropy，權重取 forward rate：
 

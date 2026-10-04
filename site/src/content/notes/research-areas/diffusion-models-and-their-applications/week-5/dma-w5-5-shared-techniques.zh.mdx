@@ -10,7 +10,7 @@ title: "少看幾次方向，還能走得準嗎？"
 category: "courses"
 group: "Unit 3 · 更直、更快的生成路徑"
 status: "available"
-updated: 2026-10-02
+updated: 2026-10-04
 summary: "當 trajectory 已經固定，我們還能重新安排有限次 neural velocity evaluations：高階 solver 用更多資訊走一步，adaptive solver 則在 velocity 變化大的地方自動縮小步長。"
 demos: []
 references:
@@ -94,7 +94,7 @@ x_{t+h}^{\mathrm H}
 =x_t+\frac h2\left(v_t(x_t)+v_{t+h}(\widetilde x_{t+h})\right).
 $$
 
-這就是 **Heun method**。它不再把整段當成同一個方向，而是用起點與預測終點的平均 velocity 近似積分。直覺上就像走到下一個街口前，先看一次導航；預測抵達後再看一次，最後用兩次資訊修正這一步。
+這就是 **Heun method**。Karras 等人 [2] 在 diffusion sampling 中採用了這個二階做法：它不再把整段當成同一個方向，而是用起點與預測終點的平均 velocity 近似積分。直覺上就像走到下一個街口前，先看一次導航；預測抵達後再看一次，最後用兩次資訊修正這一步。
 
 在 trajectory 夠平滑時，Euler 是一階方法，Heun 是二階方法：
 
@@ -145,7 +145,7 @@ $$
 =a(t)x_t+b(t)\,\epsilon_\theta(x_t,t).
 $$
 
-第一項對 $x_t$ 是線性的，第二項才包含複雜的 neural network。DPM-Solver [3] 的想法是：**線性部分可以解析積分，就不要連它一起近似；只把 NFE 花在剩下的 nonlinear term。** 再換到 log-SNR 當時間變數後，就能對 neural term 建立高階近似。
+第一項對 $x_t$ 是線性的，第二項才包含複雜的 neural network。Lu 等人提出的 DPM-Solver [3] 主張：**線性部分可以解析積分，就不要連它一起近似；只把 NFE 花在剩下的 nonlinear term。** 再換到 log-SNR 當時間變數後，就能對 neural term 建立高階近似。
 
 <Details summary="DPM-Solver 和一般 Heun 的差別">
 一般 solver 只把右邊當成一個 black-box function，因此線性項 $a(t)x_t$ 也會產生 discretization error。DPM-Solver 先使用 variation-of-constants formula，把線性部分精確算掉：
@@ -163,7 +163,7 @@ $$
 
 Solver 只負責更準確地解目前這條 ODE。如果 neural velocity 本身估錯了，或是我們刻意換了一個 field，再高階的 solver 也只會更準確地走那條被改過的路。
 
-Classifier-free guidance（CFG）就是後者。條件模型與無條件模型分別給出 $v_t(x\mid c)$ 與 $v_t(x\mid\varnothing)$；sampling 時使用
+Ho 與 Salimans 的 classifier-free guidance（CFG）[1] 就是後者。條件模型與無條件模型分別給出 $v_t(x\mid c)$ 與 $v_t(x\mid\varnothing)$；sampling 時使用
 
 $$
 \widetilde v_t(x\mid c)
@@ -191,7 +191,7 @@ $$
 =\mathbb E_{t\sim q}\!\left[\frac{w(t)}{q(t)}\ell(t)\right],
 $$
 
-objective 才保持不變，改的只是 Monte Carlo estimator 的變異數。Diffusion 文獻常把這些 weight 改寫成 log-SNR 上的函數 [4]；SD3 的 logit-normal sampling [5] 則是把更多 training samples 放在中間時刻。
+objective 才保持不變，改的只是 Monte Carlo estimator 的變異數。Kingma 與 Gao [4] 把這些 weight 改寫成 log-SNR 上的函數；Esser 等人的 SD3 [5] 則使用 logit-normal sampling，把更多 training samples 放在中間時刻。
 
 所以要分清楚：**solver 安排 sampling 時的 NFE；時間抽樣安排 training 時不同 $t$ 得到多少權重。**
 </Remark>

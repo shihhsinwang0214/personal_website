@@ -10,7 +10,7 @@ title: "Masked Diffusion：ELBO 塌成加權的 Cross-Entropy"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion I"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "Absorbing chain 的 ELBO 只在被遮住的位置留下 cross-entropy。訓練像隨機遮罩比例的 BERT，生成則從全 `[MASK]` 開始逐步翻開。"
 demos: []
 references:
@@ -60,7 +60,7 @@ import Ref from '../../../components/Ref.astro';
 
 ## 把上一篇的 ELBO 算到底
 
-上一篇留下一個一般的 bound：中間每一項 $L_{t-1}$ 是 posterior $q(x_{t-1}\mid x_t,x_0)$ 與 model $p_\theta(x_{t-1}\mid x_t)$ 之間的 KL。對一般的鏈，這個 KL 得逐項數值計算。但對 absorbing 鏈，它可以**用手算完**，而且結果簡單到會讓人懷疑是不是算錯了 [1, 2]。
+上一篇留下一個一般的 bound：中間每一項 $L_{t-1}$ 是 posterior $q(x_{t-1}\mid x_t,x_0)$ 與 model $p_\theta(x_{t-1}\mid x_t)$ 之間的 KL。對一般的鏈，這個 KL 得逐項數值計算。但對 absorbing 鏈，它可以**用手算完**，而且結果簡單到會讓人懷疑是不是算錯了。Sahoo 等人的 MDLM [1] 與 Shi 等人的 MD4 [2] 都從這個化簡出發。
 
 先固定一個位置 $\ell$，記 $\bar\alpha_t$ 為它到第 $t$ 步還沒被遮的機率（上一篇的符號）。位置 $\ell$ 在 $x_t$ 裡只有兩種可能，分開看。
 
@@ -89,7 +89,7 @@ $$
 \boxed{\;\mathcal L_{\text{MDM}}=\sum_{t=1}^{T}\ \mathbb E_{x_t\sim q(\cdot\mid x_0)}\Bigg[\ \frac{\bar\alpha_{t-1}-\bar\alpha_t}{1-\bar\alpha_t}\sum_{\ell:\ x_t^\ell=\texttt{[MASK]}}-\log p_\theta\big(x_0^\ell\mid x_t\big)\Bigg].\;}
 $$
 
-讀一遍：**抽一個 $t$、按 $\bar\alpha_t$ 隨機遮掉一些位置、對被遮的位置做 cross-entropy、乘上一個只跟 $t$ 有關的權重。** 沒有 KL、沒有 posterior、沒有輔助 loss；上一篇 D3PM 額外加的 $\lambda$ 項在這裡變成多餘的——ELBO 本身就是這個形狀 [1, 2]。
+讀一遍：**抽一個 $t$、按 $\bar\alpha_t$ 隨機遮掉一些位置、對被遮的位置做 cross-entropy、乘上一個只跟 $t$ 有關的權重。** 沒有 KL、沒有 posterior、沒有輔助 loss；Austin 等人的 D3PM [4] 額外加的 $\lambda$ 項在這裡變成多餘的——MDLM [1] 與 MD4 [2] 都指出，ELBO 本身就是這個形狀。
 
 ![ELBO 為什麼會塌](./imgs/w6-2-1.png)
 
@@ -104,20 +104,20 @@ $$
 \mathcal L_{\text{MDM}}=\int_0^1\frac{-\dot\alpha_t}{1-\alpha_t}\ \mathbb E\Bigg[\sum_{\ell:\ x_t^\ell=\texttt{[MASK]}}-\log p_\theta(x_0^\ell\mid x_t)\Bigg]dt .
 $$
 
-（$\dot\alpha_t<0$，所以權重是正的。）取線性 schedule $\alpha_t=1-t$，權重是 $1/t$；而 $t$ 時刻平均有 $tL$ 個位置被遮，所以 $1/t$ 大致是在把「每個被遮位置的平均 cross-entropy」拉成等權——這是 MDLM [1] 與 MD4 [2] 都指出的事：這個 loss 本質上是一個對「遮罩比例」取平均的 cross-entropy。兩篇也都證明，在連續時間下換任何一條 $\alpha_t$ 都只是把時間重新參數化，loss 的最小值不變；schedule 的選擇只影響訓練時 $t$ 的取樣密度，也就是 <Ref to="dma-fm-vs-diffusion"/> 那**第四個設定：訓練端的加權**（<Ref to="dma-shared-techniques"/> 把它和 SNR 的換算做完了）。
+（$\dot\alpha_t<0$，所以權重是正的。）取線性 schedule $\alpha_t=1-t$，權重是 $1/t$；而 $t$ 時刻平均有 $tL$ 個位置被遮，所以 $1/t$ 大致是在把「每個被遮位置的平均 cross-entropy」拉成等權——這是 Sahoo 等人的 MDLM [1] 與 Shi 等人的 MD4 [2] 都指出的事：這個 loss 本質上是一個對「遮罩比例」取平均的 cross-entropy。兩篇也都證明，在連續時間下換任何一條 $\alpha_t$ 都只是把時間重新參數化，loss 的最小值不變；schedule 的選擇只影響訓練時 $t$ 的取樣密度，也就是 <Ref to="dma-fm-vs-diffusion"/> 那**第四個設定：訓練端的加權**（<Ref to="dma-shared-techniques"/> 把它和 SNR 的換算做完了）。
 </Details>
 
 ## 和 BERT 差在哪
 
-算到這裡會覺得眼熟：**對被遮的位置做 cross-entropy**，就是 BERT [5] 的 masked language modeling。masked diffusion 和 BERT 的差別只有兩件事，而這兩件事把一個「表徵學習的預訓練目標」變成一個「合法的生成模型」：
+算到這裡會覺得眼熟：**對被遮的位置做 cross-entropy**，就是 Devlin 等人的 BERT [5] 使用的 masked language modeling。masked diffusion 和 BERT 的差別只有兩件事，而這兩件事把一個「表徵學習的預訓練目標」變成一個「合法的生成模型」：
 
-1. **遮罩比例是隨機的，而且要對所有比例都學會。** BERT 固定遮 15%；masked diffusion 的 $t$ 從 1 到 $T$ 都抽，對應遮 0% 到 100%。這是必要的，因為取樣時模型要從全部被遮一路走到全部翻開，中間每個比例都會遇到。MaskGIT [6] 在影像 token 上最早把這件事做成生成器。
+1. **遮罩比例是隨機的，而且要對所有比例都學會。** BERT 固定遮 15%；masked diffusion 的 $t$ 從 1 到 $T$ 都抽，對應遮 0% 到 100%。這是必要的，因為取樣時模型要從全部被遮一路走到全部翻開，中間每個比例都會遇到。Chang 等人的 MaskGIT [6] 在影像 token 上最早把這件事做成生成器。
 2. **每個 $t$ 有一個權重。** $\frac{\bar\alpha_{t-1}-\bar\alpha_t}{1-\bar\alpha_t}$ 是 ELBO 給的，它讓加總起來的 loss 是 $-\log p_\theta(x_0)$ 的一個上界，所以訓出來的模型有 likelihood 可以報、可以和 autoregressive 模型比 perplexity。BERT 沒有這一層。
 
 這個權重扮演的角色和 <Ref to="dma-denoising-regression"/>、<Ref to="dma-shared-techniques"/> 談過的「對 noise level 加權」完全一樣——只是在這裡「noise level」變成了「遮掉的比例」。Kingma & Gao [7] 說連續世界的各種 diffusion loss 都是「ELBO 加上一個對 noise level 的權重函數」；masked diffusion 是這句話在離散世界最乾淨的例子。
 
 <Details summary="一個有趣的副產品：網路其實不需要看 t">
-在 absorbing 鏈上，$x_t$ 本身就洩漏了 $t$ 的資訊——被遮的比例大致是 $1-\bar\alpha_t$。更強的是：$p(x_0^\ell\mid x_t)$ 這個條件分佈**根本不依賴 $t$**，它只依賴「哪些位置被遮、沒被遮的位置是什麼字」；因為給定沒被遮的字，$x_0^\ell$ 的條件分佈就是資料分佈的一個條件分佈，跟你是怎麼走到這個遮罩狀態的無關。Ou et al. [3] 把這件事說清楚：absorbing diffusion 學的就是**乾淨資料的所有條件分佈** $p_{\text{data}}(x^\ell\mid x^{\text{未遮}})$，網路可以拿掉時間輸入。這也解釋了它為什麼和 BERT 這麼像——BERT 學的正是這些條件分佈的一部分。
+在 absorbing 鏈上，$x_t$ 本身就洩漏了 $t$ 的資訊——被遮的比例大致是 $1-\bar\alpha_t$。更強的是：$p(x_0^\ell\mid x_t)$ 這個條件分佈**根本不依賴 $t$**，它只依賴「哪些位置被遮、沒被遮的位置是什麼字」；因為給定沒被遮的字，$x_0^\ell$ 的條件分佈就是資料分佈的一個條件分佈，跟你是怎麼走到這個遮罩狀態的無關。Ou 等人 [3] 把這件事說清楚：absorbing diffusion 學的就是**乾淨資料的所有條件分佈** $p_{\text{data}}(x^\ell\mid x^{\text{未遮}})$，網路可以拿掉時間輸入。這也解釋了它為什麼和 BERT 這麼像——BERT 學的正是這些條件分佈的一部分。
 </Details>
 
 <Remark label="補充" summary="為什麼這個權重長成 1/t，以及它在實務上常被改掉">
@@ -145,7 +145,7 @@ $$
 <Answer>
 會失去多樣性，而且會失去正確性。從同一個全 `[MASK]` 出發、每步都 argmax，整個程序變成確定性的（除了硬幣決定翻開哪些位置），所有樣本會擠向同一批「最安全」的句子。更根本的是，$p_\theta(x_0^\ell\mid x_t)$ 是一個 conditional distribution，argmax 只在這個分佈非常尖的時候才接近「從中抽樣」；遮罩比例大時它通常很平，argmax 偏得很遠。
 
-不過這個問題有一個實務上的變種值得留著：MaskGIT [6] 的做法是每步先對所有被遮位置抽樣，再**只保留信心最高的那幾個**，其餘遮回去。那不是 argmax，而是在「哪些位置翻開」上做選擇——它其實在偷偷處理下一篇要談的問題。
+不過這個問題有一個實務上的變種值得留著：Chang 等人的 MaskGIT [6] 每步先對所有被遮位置抽樣，再**只保留信心最高的那幾個**，其餘遮回去。那不是 argmax，而是在「哪些位置翻開」上做選擇——它其實在偷偷處理下一篇要談的問題。
 </Answer>
 </Question>
 

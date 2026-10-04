@@ -9,7 +9,7 @@ title: "Absorbing 與 Uniform：翻錯的字能不能改？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion I"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "Absorbing chain 給模型乾淨的 `[MASK]` 訊號，卻不能修改已生成 token；uniform chain 能反覆修正，卻讓模型分不清哪些位置被破壞。"
 demos: []
 references:
@@ -67,7 +67,7 @@ import Ref from '../../../components/Ref.astro';
 
 ## 那為什麼實務上 absorbing 比較好？
 
-照上面的說法，uniform 能修正、absorbing 不能，uniform 應該更好。但 D3PM [1] 在文字上的實驗、以及之後 SEDD [2] 用連續時間重做的比較，都是 **absorbing 的 perplexity 明顯更好**。原因在 demo 的第二個面板裡：
+照上面的說法，uniform 能修正、absorbing 不能，uniform 應該更好。但 Austin 等人的 D3PM [1] 在文字上的實驗、以及 Lou、Meng 與 Ermon 的 SEDD [2] 用連續時間重做的比較，都是 **absorbing 的 perplexity 明顯更好**。原因在 demo 的第二個面板裡：
 
 **uniform 鏈的 $x_t$ 裡，噪聲字和原字長得一模一樣。** 模型看到「今天想吃壽貓」，得先判斷「貓」是噪聲還是原文的一部分（也許這句本來就在講貓），然後才能決定要不要改。每一步、每個位置都要做這個判斷，而判斷會錯——它可能把原字當噪聲改掉，也可能把噪聲當原字留下。修正能力是有了，但修正本身會引入新的錯誤。
 
@@ -87,9 +87,9 @@ absorbing 鏈把這個判斷**完全拿掉**：`[MASK]` 一眼可辨，沒被遮
 <Answer>
 直覺的設計是：在 absorbing 鏈上**加一點「回到 `[MASK]`」的機會**——一個已經翻開的字，以某個小機率被重新遮起來，之後再重填。這樣噪聲仍然只有一種符號（context 依然乾淨），但錯字不再永遠固定；重新被遮的位置會用當時更完整的 context 重新填一次。
 
-這個想法叫 **remasking**，近期的工作（例如 ReMDM [3]）正是這麼做的。但要把它做對，有幾件事得說清楚：重新遮的機率該是多少？它會不會改變每個 $t$ 的邊際分佈 $q(x_t\mid x_0)$、進而讓訓好的模型不再適用？「每步翻開的比例」和「每步重遮的比例」之間該怎麼平衡？這些問題用本單元離散時間、transition matrix 的語言答起來很笨拙——每個問題都要重新算一次矩陣連乘。
+這個想法叫 **remasking**，Wang 等人的 ReMDM [3] 正是這麼做的。但要把它做對，有幾件事得說清楚：重新遮的機率該是多少？它會不會改變每個 $t$ 的邊際分佈 $q(x_t\mid x_0)$、進而讓訓好的模型不再適用？「每步翻開的比例」和「每步重遮的比例」之間該怎麼平衡？這些問題用本單元離散時間、transition matrix 的語言答起來很笨拙——每個問題都要重新算一次矩陣連乘。
 
-下一個單元換一種語言：連續時間，用 **rate** 描述「每單位時間有多少機率從一個狀態流到另一個狀態」。在那個語言裡，remasking 只是在 absorbing 過程上多加一個 rate，而它對應到的正是 <Ref to="dma-unified-equation"/> 那個「訓練噪聲與取樣噪聲是兩個設定」裡取樣器的 $\varepsilon$。答案會變得很短。
+下一個單元換成 Campbell 等人的 continuous-time framework [4]，用 **rate** 描述「每單位時間有多少機率從一個狀態流到另一個狀態」。在那個語言裡，remasking 只是在 absorbing 過程上多加一個 rate，而它對應到的正是 <Ref to="dma-unified-equation"/> 那個「訓練噪聲與取樣噪聲是兩個設定」裡取樣器的 $\varepsilon$。答案會變得很短。
 </Answer>
 </Question>
 

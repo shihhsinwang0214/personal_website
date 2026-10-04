@@ -3,254 +3,361 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Reflow：讓模型自己生出配對</title>
+<title>Reflow 對少步 Euler 的影響</title>
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body { margin: 0; padding: 16px; font-family: 'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; background: transparent; color: #333; }
   body[data-dark="1"] { color: #e9e6e1; }
-  .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
-  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
-  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
-  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
-  canvas#cv { width: 100%; max-width: 440px; aspect-ratio: 1/1; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
-  canvas#hist { width: 100%; max-width: 440px; aspect-ratio: 16/5; height: auto; display: block; margin: 8px auto 0; border-radius: 10px; }
-  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
-  body[data-dark="1"] .cap { color: #9a988f; }
-  .controls { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
-  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
-  .row > span.lab { font-size: 0.8rem; font-weight: 700; opacity: 0.75; }
-  button { padding: 6px 13px; border-radius: 8px; border: 1px solid #ccc4b8; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; }
-  body[data-dark="1"] button { border-color: #3a3b42; }
-  button.on { background: #2a4ea3; color: #fff; border-color: #2a4ea3; }
-  body[data-dark="1"] button.on { background: #d8a44a; color: #1f2126; border-color: #d8a44a; }
-  .stats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
-  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
-  body[data-dark="1"] .observe { color: #9a988f; }
-  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+  .card { max-width: 700px; margin: 0 auto; padding: 20px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,.10); }
+  body[data-dark="1"] .card { background: #1f2126; box-shadow: 0 4px 15px rgba(0,0,0,.28); }
+  .goal { margin: 0 0 12px; font-size: .9rem; line-height: 1.55; }
+  canvas { width: 100%; max-width: 560px; aspect-ratio: 6 / 5; height: auto; display: block; margin: 0 auto; border-radius: 8px; background: #111; box-shadow: inset 0 0 10px rgba(0,0,0,.5); touch-action: none; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
+  .cap { margin: 8px 0 0; text-align: center; color: #646c78; font-size: .75rem; line-height: 1.55; }
+  body[data-dark="1"] .cap { color: #aaa69c; }
+  .key { white-space: nowrap; }
+  .swatch { display: inline-block; width: 18px; height: 3px; margin: 0 5px 2px 0; vertical-align: middle; border-radius: 2px; }
+  .swatch.pair { height: 2px; background: #60ba82; }
+  .swatch.reference { background: #facc15; }
+  .swatch.euler { background: #a78bfa; }
+  .dot-swatch { display: inline-block; width: 7px; height: 7px; margin: 0 5px 1px 0; vertical-align: middle; border-radius: 50%; background: rgba(6,182,212,.72); }
+  .controls { display: grid; gap: 10px; margin-top: 15px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
+  .lab, label { font-size: .84rem; font-weight: 700; }
+  select, button { padding: 7px 10px; border: 1px solid #ccc4b8; border-radius: 7px; background: transparent; color: inherit; font: inherit; font-size: .82rem; }
+  button { cursor: pointer; font-weight: 700; }
+  body[data-dark="1"] select, body[data-dark="1"] button { border-color: #3a3b42; background: #25272d; }
+  button.on { border-color: #0056b3; background: #0056b3; color: #fff; }
+  body[data-dark="1"] button.on { border-color: #d8a44a; background: #d8a44a; color: #1f2126; }
+  button:disabled, select:disabled { cursor: wait; opacity: .48; }
+  .check { display: inline-flex; align-items: center; gap: 5px; font-size: .82rem; font-weight: 600; }
+  input[type="checkbox"] { accent-color: #0056b3; }
+  .stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; color: #646c78; font-size: .8rem; font-variant-numeric: tabular-nums; }
+  body[data-dark="1"] .stats { color: #aaa69c; }
+  .status { min-height: 1.2em; text-align: center; color: #646c78; font-size: .76rem; }
+  body[data-dark="1"] .status { color: #aaa69c; }
+  .observe { margin: 12px 0 0; color: #646c78; font-size: .81rem; line-height: 1.6; }
+  body[data-dark="1"] .observe { color: #aaa69c; }
+  @media (max-width: 520px) { body { padding: 8px; } .card { padding: 13px; } }
 </style>
 </head>
 <body>
 <div class="card">
-  <p class="goal">學習目標：<b>只換配對，兩端的分布完全不動。</b> 每一輪用上一輪的 ODE 終點當新的配對，觀察 reference directions 的 disagreement、運輸成本與少步數誤差如何改變。</p>
+  <p class="goal">拖動黃色起點，再比較 reflow 0 次與 1 次的結果。0 次沿用 U3.1 的 optimal velocity：起點是完整的 Gaussian，終點則嚴格使用畫面中的 empirical samples；1 次則用原本 ODE 決定的端點配對，重新計算 conditional mean。</p>
 
-  <canvas id="cv" width="560" height="560" aria-label="這一輪的配對與 ODE 軌跡"></canvas>
-  <p class="cap">綠細線＝這一輪的配對直線　靛／金粗線＝這一輪訓出來的邊際 ODE 軌跡　藍點＝起點　橘點＝終點</p>
-  <canvas id="hist" width="560" height="175" aria-label="三個指標隨輪數的變化"></canvas>
-  <p class="cap">三個指標隨輪數的變化（各自除以第 0 輪的值，所以都從 1 出發）</p>
+  <canvas id="cv" width="720" height="600" aria-label="比較不同 reflow 輪數和 Euler 步數的 trajectory"></canvas>
+  <p class="cap">
+    <span class="key"><span class="swatch pair"></span>這一輪的直線 reference path</span>　
+    <span class="key"><span class="swatch reference"></span>細切 ODE trajectory</span>　
+    <span class="key"><span class="swatch euler"></span>Euler trajectory</span>　
+    <span class="key"><span class="dot-swatch"></span>initial distribution</span>
+  </p>
 
   <div class="controls">
-    <div class="row"><span class="lab">reflow 輪數</span>
-      <button data-r="0" class="on">0（獨立配對）</button>
-      <button data-r="1">1</button>
-      <button data-r="2">2</button>
-      <button data-r="3">3</button>
+    <div class="row"><span class="lab">Reflow 輪數</span>
+      <button data-round="0" class="on">0</button><button data-round="1">1</button>
     </div>
-    <div class="row"><span class="lab">資料</span>
-      <button data-s="two_moons" class="on">雙月</button>
-      <button data-s="two_gaussians">雙峰</button>
-      <button data-s="ring">環形</button>
-      <button id="dice">🎲 重抽</button>
+    <div class="row"><span class="lab">Numerical steps</span>
+      <button data-steps="1" class="on">1 步</button><button data-steps="2">2 步</button><button data-steps="3">3 步</button>
     </div>
-    <div class="stats">
-      <span>運輸成本 E‖x₁−x₀‖² = <b id="vc">—</b></span>
-      <span>direction disagreement V = <b id="vst">—</b></span>
-      <span>1 步 Euler 的誤差 = <b id="ve">—</b></span>
-      <span>終點分布與資料的距離 = <b id="vm">—</b></span>
+    <div class="row">
+      <label for="shape">Target distribution</label>
+      <select id="shape">
+        <option value="smile" selected>Smile</option><option value="spiral">漩渦（Spiral）</option>
+        <option value="complex">一堆複雜的形狀</option><option value="mrt">捷運站（3 Gaussians）</option>
+      </select>
+      <label class="check"><input id="show-source" type="checkbox" checked /> 顯示 initial distribution</label>
+      <button id="resample">🎲 重抽</button>
     </div>
+    <div class="stats" aria-live="polite">
+      <span>步長 h = <b id="step-size">1.000</b></span><span>終點誤差 = <b id="endpoint-error">—</b></span>
+      <span>累積 velocity 變化 = <b id="velocity-change">—</b></span>
+    </div>
+    <div id="status" class="status">正在建立 reflow 後的配對…</div>
   </div>
 
-  <p class="observe">從第 0 輪按到第 3 輪：配對直線從交錯成一團變得<b>幾乎互不相交</b>。在這組 toy 裡，第一輪就讓 direction disagreement 從約 1.4 掉到 0.03、1 步 Euler 誤差從約 1.4 掉到 0.1，運輸成本則從約 4.0 掉到 0.6；同時<b>終點分布與資料的距離一直在 0.01 以下</b>。</p>
+  <p class="observe">先固定在 1 步，再比較 reflow 0 次與 1 次。Reflow 改的是新的端點配對；當 ODE trajectory 比較接近等速直線時，只查詢一到三次 velocity 也能更接近黃色軌跡的終點。</p>
 </div>
 
 <script src="./_demo-common.js"></script>
 <script>
 (function () {
-  var NP = 150, NDRAW = 14, ROUNDS = 3, STEPS = 48, W = 0.13, SPAN = 5.6, TE = 0.99;
-  var cv = document.getElementById('cv'), hc = document.getElementById('hist');
-  var d = NDFlow.hiDPICanvas(cv), dh = NDFlow.hiDPICanvas(hc);
-  var vc = document.getElementById('vc'), vst = document.getElementById('vst'), ve = document.getElementById('ve'), vm = document.getElementById('vm');
-  var pal = NDFlow.palette();
-  var round = 0, shape = 'two_moons';
-  var A = [], ends = [], hist = [], draws = [];
-  var LS = new Float64Array(NP), MX = new Float64Array(NP), MY = new Float64Array(NP);
+  'use strict';
+  var TARGET_N = 420, SOURCE_N = 320, SIGMA = 1.5;
+  var GRID_N = 29, GRID_LIMIT = 5.7, BUILD_STEPS = 30, REFERENCE_STEPS = 280;
+  var ASSIGN_TIME = 0.985, REFERENCE_TIME = 0.992, GRID_SPAN = 12;
+  var centers = [[0, 4.25], [-3.55, -3.0], [3.55, -3.0]];
+  var cv = document.getElementById('cv'), display = NDFlow.hiDPICanvas(cv);
+  var shapeEl = document.getElementById('shape'), showSourceEl = document.getElementById('show-source');
+  var resampleEl = document.getElementById('resample'), stepSizeEl = document.getElementById('step-size');
+  var endpointErrorEl = document.getElementById('endpoint-error'), velocityChangeEl = document.getElementById('velocity-change');
+  var statusEl = document.getElementById('status'), pal = NDFlow.palette();
+  var round = 0, numericalSteps = 1, seed = 21, rebuilding = false;
+  var targets = [], sources = [], labels = [null, null];
+  var start = [0.38, 0.22], referencePath = [], eulerPath = [], pairedEndpoint = null, dragging = false;
+  var logs = new Float64Array(TARGET_N), candidateX = new Float64Array(TARGET_N), candidateY = new Float64Array(TARGET_N);
 
-  function resample() {
-    A = [];
-    var tg = NDFlow.sampleTarget(shape, NP);
-    ends = [];
-    for (var i = 0; i < NP; i++) { A.push([NDFlow.randn(), NDFlow.randn()]); ends.push([tg[i][0], tg[i][1]]); }
+  function makeRng(initialSeed) {
+    var state = initialSeed >>> 0;
+    return function () { state = (1664525 * state + 1013904223) >>> 0; return state / 4294967296; };
   }
-  // v_t(x) = Σ w_i (b_i − a_i)，w_i ∝ exp(−|x − x_t^{(i)}|²/2W²)
-  function vel(B, px, py, t) {
-    var s2 = 2 * W * W, mx = -Infinity, i;
-    for (i = 0; i < NP; i++) {
-      var mi = (1 - t) * A[i][0] + t * B[i][0], mj = (1 - t) * A[i][1] + t * B[i][1];
-      MX[i] = mi; MY[i] = mj;
-      var dx = px - mi, dy = py - mj, l = -(dx * dx + dy * dy) / s2;
-      LS[i] = l; if (l > mx) mx = l;
-    }
-    var sum = 0, ux = 0, uy = 0;
-    for (i = 0; i < NP; i++) { LS[i] = Math.exp(LS[i] - mx); sum += LS[i]; }
-    for (i = 0; i < NP; i++) { var w = LS[i] / sum; ux += w * (B[i][0] - A[i][0]); uy += w * (B[i][1] - A[i][1]); }
-    return [ux, uy];
+  function randnWith(rng) {
+    var u = 0, v = 0; while (u === 0) u = rng(); while (v === 0) v = rng();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
   }
-  function solve(B, x, n, keep) {
-    var h = TE / n, path = keep ? [[x[0], x[1]]] : null;
-    for (var k = 0; k < n; k++) {
-      var t = k * h, v = vel(B, x[0], x[1], t);
-      var mid = [x[0] + h * v[0], x[1] + h * v[1]], v2 = vel(B, mid[0], mid[1], t + h);
-      x = [x[0] + h * 0.5 * (v[0] + v2[0]), x[1] + h * 0.5 * (v[1] + v2[1])];
-      if (keep) path.push([x[0], x[1]]);
+
+  function sampleAll() {
+    var rng = makeRng(seed); targets = [];
+    for (var i = 0; i < TARGET_N; i++) {
+      var x = 0, y = 0, angle, radius, u, c;
+      if (shapeEl.value === 'spiral') {
+        angle = 0.35 + rng() * 4.05 * Math.PI; radius = 0.28 + 0.32 * angle;
+        x = radius * Math.cos(angle) + randnWith(rng) * 0.10; y = radius * Math.sin(angle) * 0.92 + randnWith(rng) * 0.10;
+      } else if (shapeEl.value === 'smile') {
+        u = rng();
+        if (u < 0.50) { angle = rng() * Math.PI * 2; radius = 3.75 + randnWith(rng) * 0.08; x = radius * Math.cos(angle); y = radius * Math.sin(angle); }
+        else if (u < 0.66) { angle = rng() * Math.PI * 2; radius = 0.48 + randnWith(rng) * 0.05; x = -1.25 + radius * Math.cos(angle); y = 1.25 + radius * Math.sin(angle); }
+        else if (u < 0.78) { x = 0.65 + rng() * 1.35 + randnWith(rng) * 0.05; y = 1.38 + 0.16 * Math.sin((x - 0.65) * Math.PI / 1.35) + randnWith(rng) * 0.05; }
+        else { angle = 0.12 * Math.PI + rng() * 0.76 * Math.PI; x = 2.25 * Math.cos(angle) + randnWith(rng) * 0.07; y = -0.72 - 1.42 * Math.sin(angle) + randnWith(rng) * 0.07; }
+      } else if (shapeEl.value === 'complex') {
+        var which = i % 4, segment, fraction, a0, a1, r0, r1;
+        if (which === 0) {
+          segment = Math.floor(rng() * 10); fraction = rng(); a0 = -Math.PI / 2 + segment * Math.PI / 5; a1 = -Math.PI / 2 + (segment + 1) * Math.PI / 5;
+          r0 = segment % 2 === 0 ? 1.15 : 0.48; r1 = (segment + 1) % 2 === 0 ? 1.15 : 0.48;
+          x = -2.55 + (1 - fraction) * r0 * Math.cos(a0) + fraction * r1 * Math.cos(a1);
+          y = 1.85 + (1 - fraction) * r0 * Math.sin(a0) + fraction * r1 * Math.sin(a1);
+        } else if (which === 1) {
+          angle = rng() * Math.PI * 2; x = 2.15 + 0.075 * 16 * Math.pow(Math.sin(angle), 3);
+          y = 1.65 + 0.075 * (13 * Math.cos(angle) - 5 * Math.cos(2 * angle) - 2 * Math.cos(3 * angle) - Math.cos(4 * angle));
+        } else if (which === 2) {
+          var bolt = [[-3.35,-0.45],[-2.05,-1.15],[-2.65,-1.35],[-1.35,-3.35],[-1.75,-2.05],[-0.95,-2.10]];
+          segment = Math.floor(rng() * (bolt.length - 1)); fraction = rng();
+          x = bolt[segment][0] * (1 - fraction) + bolt[segment + 1][0] * fraction;
+          y = bolt[segment][1] * (1 - fraction) + bolt[segment + 1][1] * fraction;
+        } else { angle = rng() * Math.PI * 2; radius = 1.15 * Math.cos(5 * angle); x = 2.25 + radius * Math.cos(angle); y = -2.05 + radius * Math.sin(angle); }
+        x += randnWith(rng) * 0.045; y += randnWith(rng) * 0.045;
+      } else {
+        c = centers[i % centers.length]; x = c[0] + randnWith(rng) * 0.48; y = c[1] + randnWith(rng) * 0.48;
+      }
+      targets.push([x, y]);
     }
-    return keep ? path : x;
+    sources = []; for (var j = 0; j < SOURCE_N; j++) sources.push([randnWith(rng) * SIGMA, randnWith(rng) * SIGMA]);
   }
-  function metrics(B) {
-    var i, cost = 0, S = 0, err = 0, TT = 12;
-    for (i = 0; i < NP; i++) {
-      var dx = B[i][0] - A[i][0], dy = B[i][1] - A[i][1];
-      cost += dx * dx + dy * dy;
+
+  function posteriorMean(x, y, t) {
+    var tau = Math.min(Math.max(t, 0), 0.999999), remaining = 1 - tau;
+    var variance = remaining * remaining * SIGMA * SIGMA, minDistance = Infinity, i;
+    for (i = 0; i < targets.length; i++) {
+      var dx = x - tau * targets[i][0], dy = y - tau * targets[i][1]; minDistance = Math.min(minDistance, dx * dx + dy * dy);
     }
-    // V = ∫ E‖(x1−x0) − E[x1−x0 | x_t]‖² dt，t 取 TT 個格點
-    for (var q = 0; q < TT; q++) {
-      var t = (q + 0.5) / TT;
-      for (i = 0; i < NP; i += 2) {
-        var xx = (1 - t) * A[i][0] + t * B[i][0], yy = (1 - t) * A[i][1] + t * B[i][1];
-        var v = vel(B, xx, yy, t);
-        var ex = (B[i][0] - A[i][0]) - v[0], ey = (B[i][1] - A[i][1]) - v[1];
-        S += ex * ex + ey * ey;
+    var weightSum = 0, expectedX = 0, expectedY = 0;
+    for (i = 0; i < targets.length; i++) {
+      var ox = x - tau * targets[i][0], oy = y - tau * targets[i][1], distance = ox * ox + oy * oy;
+      var weight = Math.exp(-(distance - minDistance) / (2 * variance));
+      weightSum += weight; expectedX += weight * targets[i][0]; expectedY += weight * targets[i][1];
+    }
+    return [expectedX / weightSum, expectedY / weightSum];
+  }
+  function independentField(x, y, t) {
+    var mean = posteriorMean(x, y, t), remaining = Math.max(1e-6, 1 - t);
+    return [(mean[0] - x) / remaining, (mean[1] - y) / remaining];
+  }
+  function gridCoordinate(value) { return (value + GRID_LIMIT) * (GRID_N - 1) / (2 * GRID_LIMIT); }
+  function membership(whichRound, x, y, targetIndex) {
+    var grid = labels[whichRound]; if (!grid) return 0;
+    var gx = gridCoordinate(x), gy = gridCoordinate(y);
+    if (gx < 0 || gy < 0 || gx > GRID_N - 1 || gy > GRID_N - 1) return 0;
+    var x0 = Math.min(GRID_N - 2, Math.floor(gx)), y0 = Math.min(GRID_N - 2, Math.floor(gy));
+    var fx = gx - x0, fy = gy - y0;
+    var ids = [y0 * GRID_N + x0, y0 * GRID_N + x0 + 1, (y0 + 1) * GRID_N + x0, (y0 + 1) * GRID_N + x0 + 1];
+    var ws = [(1 - fx) * (1 - fy), fx * (1 - fy), (1 - fx) * fy, fx * fy], total = 0;
+    for (var i = 0; i < 4; i++) if (grid[ids[i]] === targetIndex) total += ws[i];
+    return total;
+  }
+  function pairedField(whichRound, x, y, t) {
+    var remaining = Math.max(1e-5, 1 - t), maxLog = -Infinity, i;
+    for (i = 0; i < targets.length; i++) {
+      candidateX[i] = (x - t * targets[i][0]) / remaining; candidateY[i] = (y - t * targets[i][1]) / remaining;
+      var m = membership(whichRound, candidateX[i], candidateY[i], i);
+      if (m <= 1e-12) { logs[i] = -Infinity; continue; }
+      logs[i] = Math.log(m) - (candidateX[i] * candidateX[i] + candidateY[i] * candidateY[i]) / (2 * SIGMA * SIGMA);
+      if (logs[i] > maxLog) maxLog = logs[i];
+    }
+    if (!isFinite(maxLog)) return independentField(x, y, t);
+    var sum = 0, vx = 0, vy = 0;
+    for (i = 0; i < targets.length; i++) {
+      if (!isFinite(logs[i])) continue;
+      var w = Math.exp(logs[i] - maxLog); sum += w;
+      vx += w * (targets[i][0] - candidateX[i]); vy += w * (targets[i][1] - candidateY[i]);
+    }
+    return [vx / sum, vy / sum];
+  }
+  function field(whichRound, x, y, t) { return whichRound === 0 ? independentField(x, y, t) : pairedField(whichRound, x, y, t); }
+
+  function rk4Step(whichRound, x, y, t, dt) {
+    var k1 = field(whichRound, x, y, t);
+    var k2 = field(whichRound, x + 0.5 * dt * k1[0], y + 0.5 * dt * k1[1], t + 0.5 * dt);
+    var k3 = field(whichRound, x + 0.5 * dt * k2[0], y + 0.5 * dt * k2[1], t + 0.5 * dt);
+    var k4 = field(whichRound, x + dt * k3[0], y + dt * k3[1], t + dt);
+    return [x + dt * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]) / 6,
+      y + dt * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]) / 6];
+  }
+  function integrateRK4(whichRound, point, steps, endTime, keep) {
+    var dt = endTime / steps, x = point[0], y = point[1], path = keep ? [[x, y]] : null;
+    for (var k = 0; k < steps; k++) {
+      var next = rk4Step(whichRound, x, y, k * dt, dt); x = next[0]; y = next[1];
+      if (keep) path.push([x, y]);
+    }
+    return keep ? path : [x, y];
+  }
+  function nearestTarget(point) {
+    var best = 0, bestDistance = Infinity;
+    for (var i = 0; i < targets.length; i++) {
+      var dx = point[0] - targets[i][0], dy = point[1] - targets[i][1], distance = dx * dx + dy * dy;
+      if (distance < bestDistance) { bestDistance = distance; best = i; }
+    }
+    return best;
+  }
+  function buildAssignment(whichRound) {
+    var grid = new Uint16Array(GRID_N * GRID_N), index = 0;
+    for (var gy = 0; gy < GRID_N; gy++) {
+      var y = -GRID_LIMIT + 2 * GRID_LIMIT * gy / (GRID_N - 1);
+      for (var gx = 0; gx < GRID_N; gx++) {
+        var x = -GRID_LIMIT + 2 * GRID_LIMIT * gx / (GRID_N - 1);
+        grid[index++] = nearestTarget(integrateRK4(whichRound - 1, [x, y], BUILD_STEPS, ASSIGN_TIME, false));
       }
     }
-    S /= (TT * Math.ceil(NP / 2));
-    // 1 步 Euler 的終點與精細解的差
-    for (i = 0; i < NP; i += 3) {
-      var ref = solve(B, [A[i][0], A[i][1]], STEPS, false);
-      var v0 = vel(B, A[i][0], A[i][1], 0);
-      var one = [A[i][0] + TE * v0[0], A[i][1] + TE * v0[1]];
-      err += Math.hypot(one[0] - ref[0], one[1] - ref[1]);
+    labels[whichRound] = grid;
+  }
+  function pairedTargetAt(whichRound, point) {
+    if (whichRound === 0 || !labels[whichRound]) return null;
+    var grid = labels[whichRound], gx = Math.round(gridCoordinate(point[0])), gy = Math.round(gridCoordinate(point[1]));
+    gx = Math.max(0, Math.min(GRID_N - 1, gx)); gy = Math.max(0, Math.min(GRID_N - 1, gy));
+    return targets[grid[gy * GRID_N + gx]];
+  }
+  function integrateEuler(whichRound, point, steps) {
+    var dt = 1 / steps, x = point[0], y = point[1], path = [[x, y]];
+    for (var k = 0; k < steps; k++) {
+      var velocity = field(whichRound, x, y, k * dt); x += dt * velocity[0]; y += dt * velocity[1]; path.push([x, y]);
     }
-    err /= Math.ceil(NP / 3);
-    return { cost: cost / NP, S: S, err: err };
+    return path;
   }
 
-  function edist(Aa, Bb) {
-    var i, j, sxy = 0, sxx = 0, syy = 0, na = Aa.length, nb = Bb.length;
-    for (i = 0; i < na; i++) for (j = 0; j < nb; j++) sxy += Math.hypot(Aa[i][0] - Bb[j][0], Aa[i][1] - Bb[j][1]);
-    for (i = 0; i < na; i++) for (j = 0; j < na; j++) sxx += Math.hypot(Aa[i][0] - Aa[j][0], Aa[i][1] - Aa[j][1]);
-    for (i = 0; i < nb; i++) for (j = 0; j < nb; j++) syy += Math.hypot(Bb[i][0] - Bb[j][0], Bb[i][1] - Bb[j][1]);
-    return 2 * sxy / (na * nb) - sxx / (na * na) - syy / (nb * nb);
-  }
-
-  var rounds = [];
-  function build() {
-    rounds = [];
-    var B = ends.map(function (p) { return [p[0], p[1]]; });
-    for (var r = 0; r <= ROUNDS; r++) {
-      var m = metrics(B);
-      var dr = [];
-      for (var q = 0; q < NDRAW; q++) {
-        var j = Math.floor(q * NP / NDRAW);
-        dr.push(solve(B, [A[j][0], A[j][1]], 40, true));
-      }
-      m.ed = edist(B, ends);
-      rounds.push({ B: B, m: m, draw: dr });
-      if (r < ROUNDS) {
-        var NB = [];
-        for (var i = 0; i < NP; i++) NB.push(solve(B, [A[i][0], A[i][1]], STEPS, false));
-        B = NB;
-      }
+  function recompute() {
+    if (rebuilding) return;
+    referencePath = integrateRK4(round, start, REFERENCE_STEPS, REFERENCE_TIME, true);
+    var nearEnd = referencePath[referencePath.length - 1], exactEnd = targets[nearestTarget(nearEnd)];
+    referencePath.push([exactEnd[0], exactEnd[1]]); eulerPath = integrateEuler(round, start, numericalSteps);
+    pairedEndpoint = pairedTargetAt(round, start);
+    var eulerEnd = eulerPath[eulerPath.length - 1];
+    var error = Math.hypot(eulerEnd[0] - exactEnd[0], eulerEnd[1] - exactEnd[1]);
+    var velocityChange = 0, previousVelocity = null;
+    for (var i = 0; i < referencePath.length - 1; i += 3) {
+      var t = Math.min(REFERENCE_TIME, i / REFERENCE_STEPS * REFERENCE_TIME);
+      var velocity = field(round, referencePath[i][0], referencePath[i][1], t);
+      if (previousVelocity) velocityChange += Math.hypot(velocity[0] - previousVelocity[0], velocity[1] - previousVelocity[1]);
+      previousVelocity = velocity;
     }
-    hist = rounds.map(function (x) { return x.m; });
+    stepSizeEl.textContent = (1 / numericalSteps).toFixed(3); endpointErrorEl.textContent = error.toFixed(3);
+    velocityChangeEl.textContent = velocityChange.toFixed(3);
+    statusEl.textContent = '第 ' + round + ' 輪：使用 ' + numericalSteps + ' 步 Euler（每步查詢一次 velocity）';
+    window.__reflowDemo = { round: round, numericalSteps: numericalSteps, sourceStd: SIGMA,
+      sourceUsesAnalyticGaussian: true, targetUsesEmpiricalSamples: true, deterministicCouplingUsesEndpointPartition: true,
+      endpointError: error, accumulatedVelocityChange: velocityChange, referenceEndpoint: exactEnd.slice(), eulerEndpoint: eulerEnd.slice() };
+    draw();
   }
 
-  function T2(s) {
-    var k = Math.min(s.w, s.h) / SPAN;
-    return { x: function (v) { return s.w / 2 + v * k; }, y: function (v) { return s.h / 2 - v * k; } };
+  function transform(size) {
+    var scale = Math.min(size.w, size.h) / GRID_SPAN;
+    return { x: function (v) { return size.w / 2 + v * scale; }, y: function (v) { return size.h / 2 - v * scale; },
+      invX: function (v) { return (v - size.w / 2) / scale; }, invY: function (v) { return (size.h / 2 - v) / scale; } };
+  }
+  function drawPath(ctx, tr, path, color, width, dashed) {
+    if (!path || path.length < 2) return;
+    ctx.save(); if (dashed) ctx.setLineDash([5, 5]); ctx.beginPath(); ctx.moveTo(tr.x(path[0][0]), tr.y(path[0][1]));
+    for (var i = 1; i < path.length; i++) ctx.lineTo(tr.x(path[i][0]), tr.y(path[i][1]));
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke(); ctx.restore();
   }
   function draw() {
-    var s = d.resize(), ctx = d.ctx, tr = T2(s), i;
-    var R = rounds[round], B = R.B;
-    ctx.clearRect(0, 0, s.w, s.h);
-    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
-
-    ctx.strokeStyle = 'rgba(96,186,130,0.22)'; ctx.lineWidth = 1.2;
-    for (i = 0; i < NP; i++) {
-      ctx.beginPath(); ctx.moveTo(tr.x(A[i][0]), tr.y(A[i][1])); ctx.lineTo(tr.x(B[i][0]), tr.y(B[i][1])); ctx.stroke();
+    var size = display.resize(), ctx = display.ctx, tr = transform(size), i;
+    ctx.clearRect(0, 0, size.w, size.h); ctx.fillStyle = '#111'; ctx.fillRect(0, 0, size.w, size.h);
+    ctx.strokeStyle = 'rgba(255,255,255,.055)'; ctx.lineWidth = 1;
+    for (var g = -5; g <= 5; g++) {
+      ctx.beginPath(); ctx.moveTo(tr.x(g), 0); ctx.lineTo(tr.x(g), size.h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, tr.y(g)); ctx.lineTo(size.w, tr.y(g)); ctx.stroke();
     }
-    ctx.fillStyle = 'rgba(' + pal.noise[0] + ',' + pal.noise[1] + ',' + pal.noise[2] + ',0.42)';
-    for (i = 0; i < NP; i++) { ctx.beginPath(); ctx.arc(tr.x(A[i][0]), tr.y(A[i][1]), 1.5, 0, 6.284); ctx.fill(); }
-    ctx.fillStyle = 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',0.46)';
-    for (i = 0; i < NP; i++) { ctx.beginPath(); ctx.arc(tr.x(B[i][0]), tr.y(B[i][1]), 1.5, 0, 6.284); ctx.fill(); }
-
-    ctx.strokeStyle = pal.accent; ctx.lineWidth = 2.1; ctx.lineJoin = 'round';
-    R.draw.forEach(function (p) {
-      ctx.beginPath();
-      for (var k = 0; k < p.length; k++) k ? ctx.lineTo(tr.x(p[k][0]), tr.y(p[k][1])) : ctx.moveTo(tr.x(p[k][0]), tr.y(p[k][1]));
-      ctx.stroke();
-    });
-
-    vc.textContent = R.m.cost.toFixed(2);
-    vst.textContent = R.m.S.toFixed(3);
-    ve.textContent = R.m.err.toFixed(3);
-    vm.textContent = R.m.ed.toFixed(4);
-    drawHist();
-  }
-  function drawHist() {
-    var s = dh.resize(), ctx = dh.ctx;
-    ctx.clearRect(0, 0, s.w, s.h);
-    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
-    var L = 34, Rr = 58, T = 12, B = 22;
-    var X = function (r) { return L + r / ROUNDS * (s.w - L - Rr); };
-    var Y = function (v) { return T + (1.05 - v) / 1.15 * (s.h - T - B); };
-    var series = [
-      { k: 'cost', name: '成本', col: 'rgba(255,255,255,0.55)' },
-      { k: 'S', name: 'S', col: 'rgb(96,186,130)' },
-      { k: 'err', name: '1 步誤差', col: pal.accent }
-    ];
-    ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = 1;
-    [0, 0.5, 1].forEach(function (g) { ctx.beginPath(); ctx.moveTo(L, Y(g)); ctx.lineTo(s.w - Rr, Y(g)); ctx.stroke(); });
-    ctx.font = '500 9px "Plus Jakarta Sans", system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.textAlign = 'right';
-    [0, 0.5, 1].forEach(function (g) { ctx.fillText(g.toFixed(1), L - 4, Y(g) + 3); });
-    ctx.textAlign = 'center';
-    for (var r = 0; r <= ROUNDS; r++) ctx.fillText(String(r), X(r), s.h - 6);
-    series.forEach(function (se) {
-      var base = Math.max(1e-9, hist[0][se.k]);
-      ctx.strokeStyle = se.col; ctx.lineWidth = 2;
-      ctx.beginPath();
-      for (var r2 = 0; r2 <= ROUNDS; r2++) {
-        var v = hist[r2][se.k] / base;
-        r2 ? ctx.lineTo(X(r2), Y(v)) : ctx.moveTo(X(r2), Y(v));
-      }
-      ctx.stroke();
-      ctx.fillStyle = se.col;
-      for (var r3 = 0; r3 <= ROUNDS; r3++) { ctx.beginPath(); ctx.arc(X(r3), Y(hist[r3][se.k] / base), 2.6, 0, 6.284); ctx.fill(); }
-    });
-    // 固定圖例，避免三條線在右端擠在一起
-    ctx.font = '700 10px "Plus Jakarta Sans", system-ui, sans-serif';
-    ctx.textAlign = 'left';
-    series.forEach(function (se, k) {
-      ctx.fillStyle = se.col;
-      ctx.fillRect(s.w - Rr + 5, T + 4 + k * 13, 12, 2.5);
-      ctx.fillText(se.name, s.w - Rr + 21, T + 9 + k * 13);
-    });
+    if (showSourceEl.checked) {
+      ctx.fillStyle = 'rgba(6,182,212,.24)';
+      for (i = 0; i < sources.length; i++) { ctx.beginPath(); ctx.arc(tr.x(sources[i][0]), tr.y(sources[i][1]), 2.1, 0, Math.PI * 2); ctx.fill(); }
+    }
+    ctx.fillStyle = 'rgba(234,88,12,.42)';
+    for (i = 0; i < targets.length; i++) { ctx.beginPath(); ctx.arc(tr.x(targets[i][0]), tr.y(targets[i][1]), 2.7, 0, Math.PI * 2); ctx.fill(); }
+    if (pairedEndpoint) drawPath(ctx, tr, [start, pairedEndpoint], 'rgba(96,186,130,.82)', 1.8, true);
+    drawPath(ctx, tr, referencePath, 'rgba(250,204,21,.90)', 2.7, false);
+    drawPath(ctx, tr, eulerPath, 'rgba(167,139,250,.98)', 2.7, false);
+    for (i = 1; i < eulerPath.length - 1; i++) {
+      ctx.beginPath(); ctx.arc(tr.x(eulerPath[i][0]), tr.y(eulerPath[i][1]), 3.7, 0, Math.PI * 2);
+      ctx.fillStyle = '#a78bfa'; ctx.fill(); ctx.strokeStyle = '#ede9fe'; ctx.lineWidth = 1; ctx.stroke();
+    }
+    if (referencePath.length && eulerPath.length) {
+      var refEnd = referencePath[referencePath.length - 1], eulerEnd = eulerPath[eulerPath.length - 1];
+      ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(248,113,113,.88)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(tr.x(refEnd[0]), tr.y(refEnd[1])); ctx.lineTo(tr.x(eulerEnd[0]), tr.y(eulerEnd[1])); ctx.stroke(); ctx.restore();
+      ctx.beginPath(); ctx.arc(tr.x(refEnd[0]), tr.y(refEnd[1]), 5, 0, Math.PI * 2); ctx.fillStyle = '#facc15'; ctx.fill();
+      ctx.beginPath(); ctx.rect(tr.x(eulerEnd[0]) - 4.5, tr.y(eulerEnd[1]) - 4.5, 9, 9); ctx.fillStyle = '#a78bfa'; ctx.fill();
+    }
+    ctx.beginPath(); ctx.arc(tr.x(start[0]), tr.y(start[1]), 6.4, 0, Math.PI * 2);
+    ctx.fillStyle = '#facc15'; ctx.shadowBlur = 8; ctx.shadowColor = 'rgba(250,204,21,.78)'; ctx.fill(); ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#fff4b0'; ctx.lineWidth = 1.3; ctx.stroke();
+    ctx.font = '700 11px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillStyle = '#facc15';
+    ctx.fillText('拖動起點', tr.x(start[0]) + 10, tr.y(start[1]) - 10);
   }
 
-  function seg(sel, attr, set) {
-    Array.prototype.forEach.call(document.querySelectorAll(sel), function (b) {
-      b.onclick = function () {
-        Array.prototype.forEach.call(document.querySelectorAll(sel), function (o) { o.classList.remove('on'); });
-        b.classList.add('on'); set(b.dataset[attr]); draw();
-      };
+  function pointerState(event) {
+    var rect = cv.getBoundingClientRect(), tr = transform({ w: rect.width, h: rect.height });
+    var sx = event.clientX - rect.left, sy = event.clientY - rect.top;
+    return { sx: sx, sy: sy, x: tr.invX(sx), y: tr.invY(sy), tr: tr };
+  }
+  function beginDrag(event) {
+    if (rebuilding) return; var state = pointerState(event);
+    if (Math.hypot(state.sx - state.tr.x(start[0]), state.sy - state.tr.y(start[1])) > 28) return;
+    dragging = true; cv.classList.add('dragging'); cv.setPointerCapture(event.pointerId);
+  }
+  function moveDrag(event) {
+    if (!dragging) return; var state = pointerState(event);
+    start = [Math.max(-5.4, Math.min(5.4, state.x)), Math.max(-5.4, Math.min(5.4, state.y))]; recompute();
+  }
+  function endDrag(event) {
+    if (!dragging) return; dragging = false; cv.classList.remove('dragging');
+    if (cv.hasPointerCapture(event.pointerId)) cv.releasePointerCapture(event.pointerId);
+  }
+  function setControlsDisabled(disabled) {
+    Array.prototype.forEach.call(document.querySelectorAll('button,select,input'), function (element) { element.disabled = disabled; });
+  }
+  function nextPaint() { return new Promise(function (resolve) { requestAnimationFrame(function () { requestAnimationFrame(resolve); }); }); }
+  async function rebuild() {
+    rebuilding = true; setControlsDisabled(true); labels = [null, null]; sampleAll();
+    referencePath = []; eulerPath = []; pairedEndpoint = null; draw();
+    statusEl.textContent = '正在計算 rectification 後的配對…'; await nextPaint(); buildAssignment(1);
+    rebuilding = false; setControlsDisabled(false); statusEl.textContent = ''; recompute();
+  }
+  function bindSegment(selector, attribute, callback) {
+    Array.prototype.forEach.call(document.querySelectorAll(selector), function (button) {
+      button.addEventListener('click', function () {
+        Array.prototype.forEach.call(document.querySelectorAll(selector), function (other) { other.classList.remove('on'); });
+        button.classList.add('on'); callback(parseInt(button.dataset[attribute], 10)); recompute();
+      });
     });
   }
-  seg('[data-r]', 'r', function (v) { round = parseInt(v, 10); });
-  seg('[data-s]', 's', function (v) { shape = v; resample(); build(); });
-  document.getElementById('dice').onclick = function () { resample(); build(); draw(); };
-  window.addEventListener('resize', function () { draw(); });
+  bindSegment('[data-round]', 'round', function (value) { round = value; });
+  bindSegment('[data-steps]', 'steps', function (value) { numericalSteps = value; });
+  shapeEl.addEventListener('change', function () { seed = 21; rebuild(); });
+  resampleEl.addEventListener('click', function () { seed += 97; rebuild(); }); showSourceEl.addEventListener('change', draw);
+  cv.addEventListener('pointerdown', beginDrag); cv.addEventListener('pointermove', moveDrag);
+  cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag); window.addEventListener('resize', draw);
   function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
-  NDFlow.onThemeChange(applyTheme);
-  resample(); build(); applyTheme();
+  NDFlow.onThemeChange(applyTheme); applyTheme(); rebuild();
 })();
 </script>
 </body>

@@ -10,7 +10,7 @@ title: "不走了，直接學那一步"
 category: "courses"
 group: "Unit 6 · Consistency Models"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "把路拉直仍不等於一步走完。這一篇改問：能不能略過數值積分，直接學會把噪聲送到資料的 flow map？"
 demos: []
 references:
@@ -49,7 +49,7 @@ import Ref from '../../../components/Ref.astro';
 
 ## 路已經拉直，為什麼一步還是不準？
 
-<Ref to="dma-error-theory"/> 把三個單元的主線收在一條不等式上：Euler 取樣的全域誤差 $\lesssim C_L\,h\int_0^1\|a_t(x_t)\|\,dt$。步長 $h$ 是預算，積分量的是沿 trajectory 累積了多少 velocity 變化，包括方向改變、加速與減速。<Ref to="dma-rectified-flow"/> 與 <Ref to="dma-minibatch-ot"/> 接著做了一件事：改配對，把積分壓小。<Ref to="dma-lab-interpolants"/> 的圖 b 上，四個模型落在一條斜線上——積分小的，同樣步數誤差就小。
+<Ref to="dma-error-theory"/> 把三個單元的主線收在一條不等式上：Euler 取樣的全域誤差 $\lesssim C_L\,h\int_0^1\|a_t(x_t)\|\,dt$。步長 $h$ 是預算，積分量的是沿 trajectory 累積了多少 velocity 變化，包括方向改變、加速與減速。Liu、Gong 與 Liu 的 Rectified Flow [2] 和 <Ref to="dma-minibatch-ot"/> 接著做了一件事：改配對，把積分壓小。<Ref to="dma-lab-interpolants"/> 的圖 b 上，四個模型落在一條斜線上——積分小的，同樣步數誤差就小。
 
 現在把這條斜線往左看到底。積分**恰好是零**只有一種情形：所有粒子沿等速直線走，$S(\pi)=0$。reflow 迭代的極限逼近它，但每一輪都在累積上一輪的模型誤差，實務上一到兩輪就停；停下來的時候積分還不是零。而只要它不是零，$h=1$——一步——就一定有誤差，不等式只告訴你誤差有多小，沒有辦法讓它消失。
 
@@ -69,7 +69,7 @@ import Ref from '../../../components/Ref.astro';
 我們手上有一個訓好的 FM（或 diffusion）模型，可以跑 ODE。**最笨、最直接的做法是什麼？它哪裡好、哪裡不好？**
 
 <Answer>
-最直覺的做法幾乎只有一個：用 teacher 跑 ODE，從 $x_0$ 算到 $x_1=\psi_{0\to1}(x_0)$，收集一大堆 $(x_0,x_1)$ 配對，然後訓一個網路做回歸 $G_\theta(x_0)\approx x_1$。這確實就是最早的做法（Luhman & Luhman [1]），值得認真分析，因為它把這個單元所有方法要解決的問題都攤在桌上了。
+最直覺的做法幾乎只有一個：用 teacher 跑 ODE，從 $x_0$ 算到 $x_1=\psi_{0\to1}(x_0)$，收集一大堆 $(x_0,x_1)$ 配對，然後訓一個網路做回歸 $G_\theta(x_0)\approx x_1$。Luhman 與 Luhman [1] 採用的就是這個做法；它把這個單元所有方法要解決的問題都攤在桌上了。
 
 **好的地方，而且比想像中好。** 回歸的目標是 MSE，<Ref to="dma-tweedie-and-score"/> 說 MSE 的最小值是 conditional expectation $\mathbb E[x_1\mid x_0]$。<Ref to="dma-what-are-we-learning"/> 提醒過，如果一個 $x_0$ 可以對到很多個 $x_1$，回歸會輸出它們的平均、變成一團糊。但這裡不會：**$\psi_{0\to1}$ 是 ODE 的解，一個起點對到一個終點**，$\mathbb E[x_1\mid x_0]$ 就是 $\psi_{0\to1}(x_0)$ 本身。沒有 mode averaging。這件事的來源是 <Ref to="dma-flows-and-continuity"/> 的「ODE 軌跡不交叉」，也是 <Ref to="dma-rectified-flow"/> 的第三個性質——同一個事實。
 
@@ -102,7 +102,7 @@ reflow 學的是**速度**，所以產物仍然是要積分的東西，只是軌
 
 ## 切換時間方向
 
-接下來三篇要跟著 Consistency Models 原文 [4] 與 EDM [5] 的慣例走，那套慣例的時間方向和 <Ref week="dma-week-flow-matching"/>、<Ref week="dma-week-interpolants"/> **相反**：$t=0$ 是資料、$t$ 大是噪聲，和 <Ref week="dma-week-diffusion"/> 的 DDPM 方向相同。這是認知負荷不是數學難度，所以花半頁把它一次講清楚，之後不再回頭。
+接下來三篇要跟著 Song 等人的 Consistency Models [4] 與 Karras 等人的 EDM [5] 使用的慣例走，那套慣例的時間方向和 <Ref week="dma-week-flow-matching"/>、<Ref week="dma-week-interpolants"/> **相反**：$t=0$ 是資料、$t$ 大是噪聲，和 <Ref week="dma-week-diffusion"/> 的 DDPM 方向相同。這是認知負荷不是數學難度，所以花半頁把它一次講清楚，之後不再回頭。
 
 **本單元的 forward process** 用 EDM 的 variance-exploding（VE）形式：
 
@@ -188,7 +188,7 @@ ODE 的速度定義是「$t$ 增加時 $x_t$ 怎麼變」，而 $t$ 增加是往
 </QuizBlock>
 
 <Bridge to="dma-progressive-distillation">
-直接回歸 flow map 不必積分，而且 ODE 配對是一對一，不會被 MSE 平均成模糊答案；問題是每筆資料都要 teacher 先走完整條路。能不能別先走完全程，只讓學生一次模仿 teacher 的兩小步？<Ref to="dma-progressive-distillation"/> 從這個問題出發。
+直接回歸 flow map 不必積分，而且 ODE 配對是一對一，不會被 MSE 平均成模糊答案；問題是每筆資料都要 teacher 先走完整條路。能不能別先走完全程，只讓學生一次模仿 teacher 的兩小步？Salimans 與 Ho 的 progressive distillation [3] 從這個問題出發。
 </Bridge>
 
 ## 參考文獻

@@ -9,7 +9,7 @@ title: "Shortcut 與 Align Your Flow：同一張表的其他格子"
 category: "courses"
 group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "Shortcut 用「兩小步合成一大步」從 flow matching 逐級學到長跳躍；省下 JVP，卻讓小步誤差沿著階梯傳上去。"
 demos: []
 references:
@@ -48,11 +48,11 @@ import Answer from '../../../components/Answer.astro';
 
 ## 同一個輸出，換一條恆等式
 
-上一篇 MeanFlow 把網路輸出定成平均速度 $u(z,r,t)$，用 Eulerian 恆等式訓練。<Ref to="dma-flow-map-matching"/> 的表上還有第三條恆等式——progressive，兩小步等於一大步。**如果輸出一樣是平均速度，但改用 progressive 恆等式，會長什麼樣？** 那就是 Shortcut model。
+上一篇介紹了 Geng 等人的 MeanFlow [4]：把網路輸出定成平均速度 $u(z,r,t)$，用 Eulerian 恆等式訓練。Boffi、Albergo 與 Vanden-Eijnden 的 Flow Map Matching [5] 還有第三條恆等式——progressive，兩小步等於一大步。**如果輸出一樣是平均速度，但改用 progressive 恆等式，會長什麼樣？** 那就是 Shortcut model。
 
 ## Shortcut：兩個 $d$ 步的平均等於一個 $2d$ 步
 
-Shortcut model（Frans et al. [1]）的網路是 $s_\theta(x_t,t,d)$，第三個輸入是**步長** $d$：從 $x_t$ 往資料端跳 $d$ 這麼長的時間，落點是
+Frans、Hafner、Levine 與 Abbeel 的 Shortcut model [1]，網路是 $s_\theta(x_t,t,d)$，第三個輸入是**步長** $d$：從 $x_t$ 往資料端跳 $d$ 這麼長的時間，落點是
 
 $$
 x_{t+d}=x_t+d\;s_\theta(x_t,t,d).
@@ -107,7 +107,7 @@ $$
 
 ## Align Your Flow：distillation 設定下同時用兩條
 
-前兩個方法都從頭訓練。若手上**有** teacher，<Ref to="dma-flow-map-matching"/> 的表多出一條可用的路：Lagrangian——$v$ 在輸出點，只有 teacher 能給。Align Your Flow（AYF，Sabour, Fidler & Kreis [2]）就在這個設定下，把 Eulerian 與 Lagrangian 兩條恆等式都寫成**連續時間**的 distillation 目標（原文稱 AYF-EMD 與 AYF-LMD），全導數同樣用 JVP 算，$v$ 一律由 teacher 提供。
+前兩個方法都從頭訓練。若手上**有** teacher，<Ref to="dma-flow-map-matching"/> 的表多出一條可用的路：Lagrangian——$v$ 在輸出點，只有 teacher 能給。Sabour、Fidler 與 Kreis 的 Align Your Flow（AYF）[2] 就在這個設定下，把 Eulerian 與 Lagrangian 兩條恆等式都寫成**連續時間**的 distillation 目標（原文稱 AYF-EMD 與 AYF-LMD），全導數同樣用 JVP 算，$v$ 一律由 teacher 提供。
 
 AYF 明確指出 consistency model 是 flow map 把目標時刻釘在資料端的特例，並且**證明**（對 Gaussian 資料）存在一個次佳的 consistency model，使得步數變多之後 $W_2$ 反而上升——這就是 <Ref to="dma-multistep-limit"/> 說的「ODE 那個 $O(1/N)$ 的保證在多步 CM 上沒有」，而 AYF 把「沒有保證」補成了一個具體的反例。flow map 沒有這個問題，因為多步不需要回到資料端再加噪。另一個觀察是它不單押一條恆等式，而是把 EMD 與 LMD 搭配使用，並加上 tangent normalization 這類 <Ref to="dma-ict-scm"/> 談過的穩定手段。至於兩條各自在哪個區域比較不穩、為什麼要搭配，我沒有核對到原文的具體敘述，這裡只記結構——**要照著做之前，先讀原文 [2] 的實驗那一節**。此外 AYF 在蒸餾時對 teacher 用 autoguidance、在最後階段加 adversarial finetuning——這兩項屬於工程加料，放進表上時只記主線：**AYF = Eulerian + Lagrangian，連續時間，要 teacher。**
 
@@ -131,7 +131,7 @@ Shortcut 與 MeanFlow 都不用 teacher。但 MeanFlow 的恆等式對**任何**
 
 ## 回頭看 CTM
 
-<Ref to="dma-flow-map"/> 介紹 CTM 時已經寫出它的損失：$G_\theta(x_t,t\to s)\approx G_{\theta^-}(\tilde x_u,u\to s)$，$\tilde x_u$ 由 teacher 從 $t$ 解 ODE 到 $u$。現在有了三條恆等式的名字，可以確定它的格子：這是 **progressive 恆等式** $\psi_{t\to s}=\psi_{u\to s}\circ\psi_{t\to u}$，其中第一段 $\psi_{t\to u}$ 不是學生自己，而是 teacher 的 solver。所以 CTM 和 Shortcut 同一欄（progressive），差在底層：Shortcut 的底層是 FM 自己、逐級 bootstrap；CTM 的底層是 teacher、一次到位。而 $u$ 貼近 $t$ 的極限則滑向 Eulerian——這就是 soft consistency matching 的「soft」：它在 progressive 與 Eulerian 兩格之間連續移動。
+Kim 等人的 CTM [3] 已經寫出它的損失：$G_\theta(x_t,t\to s)\approx G_{\theta^-}(\tilde x_u,u\to s)$，$\tilde x_u$ 由 teacher 從 $t$ 解 ODE 到 $u$。現在有了三條恆等式的名字，可以確定它的格子：這是 **progressive 恆等式** $\psi_{t\to s}=\psi_{u\to s}\circ\psi_{t\to u}$，其中第一段 $\psi_{t\to u}$ 不是學生自己，而是 teacher 的 solver。所以 CTM 和 Shortcut 同一欄（progressive），差在底層：Shortcut 的底層是 FM 自己、逐級 bootstrap；CTM 的底層是 teacher、一次到位。而 $u$ 貼近 $t$ 的極限則滑向 Eulerian——這就是 soft consistency matching 的「soft」：它在 progressive 與 Eulerian 兩格之間連續移動。
 
 另一個差別是輸出物件：CTM 的 $G_\theta$ 輸出**位置**，用 <Ref to="dma-consistency-function"/> 那套 $c_{\text{skip}}$、$c_{\text{out}}$ 參數化保證恆等條件；Shortcut 與 MeanFlow 輸出**平均速度**，恆等條件自動成立。這是兩種座標的選擇，不影響用哪條恆等式。
 

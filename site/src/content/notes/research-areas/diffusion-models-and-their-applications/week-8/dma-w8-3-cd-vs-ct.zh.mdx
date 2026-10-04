@@ -12,7 +12,7 @@ title: "Consistency Distillation 與 Consistency Training：沒有老師，憑�
 category: "courses"
 group: "Unit 6 · Consistency Models"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "CD 請 teacher 沿 ODE 走一步；CT 用同一組資料與噪聲重建相鄰點。後者看似走錯路，取後驗平均後卻正好得到前者。"
 demos: []
 references:
@@ -53,7 +53,7 @@ $$
 \mathcal L_{\text{CM}}=\mathbb E\Big[\lambda(t_n)\,d\Big(f_\theta\big(x_{t_{n+1}},t_{n+1}\big),\ f_{\theta^-}\big(\hat x_{t_n},t_n\big)\Big)\Big]
 $$
 
-裡，$x_{t_{n+1}}=x_0+t_{n+1}\epsilon$ 是普通的加噪聲，唯一沒說清楚的是 $\hat x_{t_n}$：「從 $x_{t_{n+1}}$ 出發，沿同一條 PF-ODE 軌跡往乾淨端走一格的點」。真實的那個點 $x_{t_n}$ 需要解 ODE，我們沒有；但我們只需要一個夠好的近似。Song et al. [1] 給了兩個。
+裡，$x_{t_{n+1}}=x_0+t_{n+1}\epsilon$ 是 Karras 等人的 EDM [3] 所使用的 VE 座標。唯一沒說清楚的是 $\hat x_{t_n}$：「從 $x_{t_{n+1}}$ 出發，沿同一條 PF-ODE 軌跡往乾淨端走一格的點」。真實的那個點 $x_{t_n}$ 需要解 ODE，我們沒有；但我們只需要一個夠好的近似。Song 等人 [1] 給了兩個。
 
 **Consistency distillation（CD）。** 有一個訓好的 teacher 給 score $s_\phi(x,t)\approx\nabla\log p_t(x)$。<Ref to="dma-learn-the-map"/> 說本單元的 PF-ODE 是 $\frac{dx}{dt}=-t\nabla\log p_t(x)$，從 $t_{n+1}$ 往 $t_n$ 走一步 Euler：
 
@@ -109,7 +109,7 @@ $$
 
 *細節二：Euler 本身相對真實軌跡就有誤差。* 就算完美地平均成 $\hat x^{\text{CD}}_{t_n}$，它也只是真實 $x_{t_n}$ 的一步 Euler 近似，差 $\tfrac12\Delta t^2\|a_t(x_t)\|$。這一項 CD 也有；它是 <Ref to="dma-error-theory"/> 的局部誤差，係數是**acceleration**，同樣隨 $\Delta t\to0$ 消失。
 
-兩項合起來，就是 Song et al. [1] 那條定理的精神：**在 $\Delta t\to0$ 時，CT 的損失與（用真實 score 的）CD 損失只差 $o(\Delta t)$**，兩者訓出同一個 $f$。（定理的精確條件——$d$ 的形式、對 $f$ 的 Lipschitz 與二階可微假設、$\theta^-=\theta$——請查原文；這裡只用它的結論。）
+兩項合起來，就是 Song 等人 [1] 那條定理的精神：**在 $\Delta t\to0$ 時，CT 的損失與（用真實 score 的）CD 損失只差 $o(\Delta t)$**，兩者訓出同一個 $f$。（定理的精確條件——$d$ 的形式、對 $f$ 的 Lipschitz 與二階可微假設、$\theta^-=\theta$——請查原文；這裡只用它的結論。）
 
 這個結果可以收成一句話：**CT 不是「沒有 teacher」，它的 teacher 是資料本身**——$(x_0,\epsilon)$ 這一組配對就是一條條件軌跡，而條件軌跡的後驗平均就是真實的 PF-ODE。
 </Answer>
@@ -123,12 +123,12 @@ $$
 
 Q1 的兩個細節給了一張很實用的圖。固定一個 $x_{t_{n+1}}$，看 CT 那一側的目標 $f_{\theta^-}(x_0+t_n\epsilon,t_n)$：
 
-- 它的**期望**偏離真實的 $f(x_{t_n},t_n)$，偏離量是 $O(\Delta t^2)$ 乘上 acceleration（Euler 誤差）與 $f$ 的二階導數（Jensen gap）。這是 **bias**。$N$ 個網格點的 bias 疊起來，整個 $f_\theta$ 偏離真值 $O(\Delta t)$——這是 Song et al. [1] 定理裡「CD 損失為零則 $\|f_\theta-f\|=O(\Delta t)$」的內容，係數受到沿 trajectory 的 velocity 變化控制。
+- 它的**期望**偏離真實的 $f(x_{t_n},t_n)$，偏離量是 $O(\Delta t^2)$ 乘上 acceleration（Euler 誤差）與 $f$ 的二階導數（Jensen gap）。這是 **bias**。$N$ 個網格點的 bias 疊起來，整個 $f_\theta$ 偏離真值 $O(\Delta t)$——這是 Song 等人 [1] 定理裡「CD 損失為零則 $\|f_\theta-f\|=O(\Delta t)$」的內容，係數受到沿 trajectory 的 velocity 變化控制。
 - 它的**散佈**來自不同的 $(x_0,\epsilon)$ 退向不同方向，標準差是 $O(\Delta t)$。這是 **variance**。
 
 單看兩項都隨 $\Delta t$ 變小，似乎 $\Delta t$ 越小越好。但損失比較的是 $f_\theta(x_{t_{n+1}})$ 與 $f_{\theta^-}(\hat x_{t_n})$ 的**差**，這個差本身在 $\Delta t\to0$ 時也趨近零——真正有資訊的訊號（兩點輸出的真實差距）是 $O(\Delta t)$ 量級，而目標的 noise 也是 $O(\Delta t)$。$\Delta t$ 一小，**訊噪比不再改善**，梯度被 variance 主導，訓練變慢、甚至不收斂 [1, 2]。
 
-於是有一個真正的取捨：$\Delta t$ 大（$N$ 小）→ 訊號強、好訓，但 bias 大，$f_\theta$ 學到的是「假設每一段是直線」的錯誤終點；$\Delta t$ 小（$N$ 大）→ bias 小，但訊號被淹沒。Song et al. 的解法是**時間網格的 curriculum**：訓練初期用小 $N$（$N=2$ 起），$f_\theta$ 快速學到一個粗糙但方向正確的版本；然後逐步增加 $N$（到 150 或更多），每次加細都在把上一階段的 bias 消掉，而因為 $f_\theta$ 已經接近真值、相鄰兩點的輸出已經很接近，variance 造成的擾動相對可控。改進版本 [2] 把這條 curriculum 改成指數成長（$N$ 每隔固定步數翻倍，到 1280），這是下一篇的內容。
+於是有一個真正的取捨：$\Delta t$ 大（$N$ 小）→ 訊號強、好訓，但 bias 大，$f_\theta$ 學到的是「假設每一段是直線」的錯誤終點；$\Delta t$ 小（$N$ 大）→ bias 小，但訊號被淹沒。Song 等人的解法是**時間網格的 curriculum**：訓練初期用小 $N$（$N=2$ 起），$f_\theta$ 快速學到一個粗糙但方向正確的版本；然後逐步增加 $N$（到 150 或更多），每次加細都在把上一階段的 bias 消掉，而因為 $f_\theta$ 已經接近真值、相鄰兩點的輸出已經很接近，variance 造成的擾動相對可控。Song 與 Dhariwal 的改進版本 [2] 把這條 curriculum 改成指數成長（$N$ 每隔固定步數翻倍，到 1280），這是下一篇的內容。
 
 <Details summary="「CT 的目標其實是假設這一段是直線」——把 Q1 接回配對交叉">
 Q1 裡三個點的幾何值得再說一次。從 $x_{t_{n+1}}$ 往乾淨端走 $\Delta t$：CT 走的是**這一筆條件直線的方向 $-\epsilon$**；Euler 走的是**經過此點的所有條件直線方向的後驗平均 $-\mathbb E[\epsilon\mid x_{t_{n+1}}]$**；真實軌跡則讓 velocity 沿途繼續改變。前兩者的差別在方向是「自己的」還是「平均的」——這正是 <Ref to="dma-fm-vs-diffusion"/> Q1 的圖。CT 的 bias 有兩層：條件方向對平均方向的偏差（零均值、進 variance）、把後續 velocity 固定在起點值所造成的 Euler 誤差（不是零均值、進 bias）。第二層就是 <Ref to="dma-error-theory"/> 的 acceleration term 在 CM 裡的樣子。

@@ -12,7 +12,7 @@ title: "讓 CT 訓得起來：iCT 與連續時間的 sCM"
 category: "courses"
 group: "Unit 6 · Consistency Models"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "iCT 分別處理 boundary、bias 與 variance；sCM 再把時間間隔推到零，將相鄰點一致改寫成沿軌跡的全導數為零。"
 demos: []
 references:
@@ -55,7 +55,7 @@ import Answer from '../../../components/Answer.astro';
 - **bias**：目標的期望偏離真實終點——來自 Euler 對彎曲軌跡的 $O(\Delta t^2)$ 誤差、$f_{\theta^-}$ 非線性的 Jensen gap，以及任何讓「目標」與「真值」系統性不同的東西。
 - **variance**：目標本身的隨機散佈——條件目標退向自己的 $\epsilon$、極端樣本、以及 $\Delta t$ 小時訊噪比變差。
 
-這一篇不引入新的損失，**新的物件只有一個**：沿軌跡的全導數。前半是離散時間的修補（iCT [1]），後半是把 $\Delta t$ 推到零（連續時間 CM，sCM [2]）。
+這一篇不引入新的損失，**新的物件只有一個**：沿軌跡的全導數。前半是 Song 與 Dhariwal 的 iCT [1]，修補離散時間的訓練；後半是 Lu 與 Song 的 sCM [2]，把 $\Delta t$ 推到零。
 
 <Question id="Q1">
 iCT 的第一個改動是**把 target 網路的 EMA 拿掉**。這和一般直覺相反：目標會動的訓練（bootstrapping）不是都要靠 EMA 才不發散嗎？
@@ -82,7 +82,7 @@ CT 的目標是 $f_{\theta^-}(x_{t_n},t_n)$，看起來也是自己。但它被�
 
 ## iCT：五個改動，各對一格
 
-Song & Dhariwal [1] 把 2023 年的 CT 從「勉強能訓、品質明顯輸 CD」改到「不用 teacher 也能追上或超過 CD」。改動有五個，每一個都能對回上面的三格。
+Song 與 Dhariwal [1] 把 2023 年的 CT 從「勉強能訓、品質明顯輸 CD」改到「不用 teacher 也能追上或超過 CD」。改動有五個，每一個都能對回上面的三格。
 
 **一、拿掉 target 的 EMA（bias）。** 原版用 $\theta^-=\text{EMA}(\theta)$ 當目標網路。直覺上 EMA 是在壓 variance——讓目標平滑一點。但 iCT 證明它其實引入 **bias**：上一篇說 CT 損失與 CD 損失在 $\Delta t\to0$ 時只差 $o(\Delta t)$，那條定理的條件是 $\theta^-=\theta$；一旦 $\theta^-$ 是一個滯後的 EMA，極限就變成另一個目標，$f_\theta$ 不再收斂到 consistency function。改成 $\theta^-=\text{stopgrad}(\theta)$——目標是**當前**參數、只是不回傳梯度——後品質大幅提升。這一條值得記住，因為它反直覺：一個看起來是穩定器的東西，在這裡是 bias 的來源。（<Ref to="dma-consistency-function"/> 說的「目標側要 stop-gradient」仍然成立，只是不再另加 EMA。）
 
@@ -122,7 +122,7 @@ $$
 
 這是這一篇唯一的新物件。逐項讀：第一項是「時間往前走、位置不動」時 $f$ 的變化；第二項是「位置隨軌跡移動」帶來的變化，$\frac{dx_t}{dt}$ 是 PF-ODE 的速度（本單元座標下 $=\mathbb E[\epsilon\mid x_t]$）。兩項要**恰好相消**。<Ref to="dma-error-theory"/> 裡出現過同一個算子——那裡是對速度場 $v$ 取 $\partial_t v+(v\cdot\nabla)v$ 得到加速度；這裡是對 $f$ 取，得到「$f$ 沿軌跡的漂移」。
 
-Song et al. [3] 已經推出：$\ell_2$ 版的 CM 損失在 $N\to\infty$ 時，梯度趨近
+Song 等人 [3] 已經推出：$\ell_2$ 版的 CM 損失在 $N\to\infty$ 時，梯度趨近
 
 $$
 \nabla_\theta\ \mathbb E\Big[f_\theta(x_t,t)^{\!\top}\ \frac{d}{dt}f_{\theta^-}(x_t,t)\Big]
@@ -148,7 +148,7 @@ tangent 用 $(v,1)$：$x$ 方向擾動 $v$、$t$ 方向擾動 $1$，輸出就是
 
 ## sCM：為什麼原本訓不穩，怎麼穩住
 
-連續時間的目標在 2023 年就寫出來了，但當時**訓不穩** [3]。Lu & Song [2] 花了一整篇找原因，結論是：問題不在目標，在**全導數 $\frac{d}{dt}f_{\theta^-}$ 這個量的數值行為**。把它拆開來看每一項，是這篇最值得學的方法論。
+連續時間的目標在 2023 年就寫出來了，但當時**訓不穩** [3]。Lu 與 Song [2] 花了一整篇找原因，結論是：問題不在目標，在**全導數 $\frac{d}{dt}f_{\theta^-}$ 這個量的數值行為**。把它拆開來看每一項，是這篇最值得學的方法論。
 
 **TrigFlow 參數化（boundary）。** 先把路徑換成
 
@@ -213,7 +213,7 @@ $$
 | Tangent normalization / clipping | sCM | variance | 只改權重不改方向 |
 | Tangent warmup、時間 embedding、double normalization | sCM | variance（$\frac{dF}{dt}$ 的穩定） | 讓 $f$ 對 $t$ 平滑 |
 
-三格都填滿了。最終那一格「$\Delta t\to0$」把 bias 整個消掉，代價是必須算全導數、必須面對 $\frac{dF}{dt}$ 的數值行為——sCM 的其餘技術幾乎都是為了付這個代價。Lu & Song 用這套方法把 CT 放大到十億級參數、在 ImageNet 512 上兩步取樣接近 teacher 的品質 [2]。
+三格都填滿了。最終那一格「$\Delta t\to0$」把 bias 整個消掉，代價是必須算全導數、必須面對 $\frac{dF}{dt}$ 的數值行為——sCM 的其餘技術幾乎都是為了付這個代價。Lu 與 Song 用這套方法把 CT 放大到十億級參數、在 ImageNet 512 上兩步取樣接近 teacher 的品質 [2]。
 
 ## 先消化一下
 

@@ -11,7 +11,7 @@ title: "反向 Rate 與 Concrete Score"
 category: "courses"
 group: "Unit 5 · Discrete Diffusion II"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "CTMC 的反向 rate 等於反向的 forward rate 乘上邊際機率比。離散 score 因此不是梯度，而是相鄰狀態之間的 density ratio。"
 demos: []
 references:
@@ -73,7 +73,7 @@ p_t(x)\,\bar R_t(x\to y)=p_t(y)\,R_t(y\to x)
 \boxed{\;\bar R_t(x\to y)=R_t(y\to x)\,\frac{p_t(y)}{p_t(x)}\;}\qquad(y\ne x).
 $$
 
-這是「把每根水管的流量倒過來」。左邊的式子叫 flux balance——每一對狀態之間，反向的流量等於 forward 的流量反向；它和 Markov chain 裡的 detailed balance 長得一樣，只是這裡不需要鏈是 reversible，因為兩邊的 rate 是**不同的**鏈（一條是 forward、一條是 reverse）。
+這是「把每根水管的流量倒過來」。左邊的式子叫 flux balance——每一對狀態之間，反向的流量等於 forward 的流量反向；它和 Markov chain 裡的 detailed balance 長得一樣，只是這裡不需要鏈是 reversible，因為兩邊的 rate 是**不同的**鏈（一條是 forward、一條是 reverse）。Campbell 等人 [3] 與 Sun 等人 [4] 都用這條 reverse rate 建立 continuous-time discrete diffusion。
 
 用 Bayes 定理也能一行推出來，而且會看到「反向」與「posterior」的關係——<Ref to="dma-d3pm"/> 的 $q(x_{t-1}\mid x_t,x_0)$ 是多知道 $x_0$ 的反向一步，這裡是不知道 $x_0$ 的反向一小步：
 
@@ -102,7 +102,7 @@ $$
 =\sum_{x\ne y}p_t(y)R_t(y\to x)-\sum_{x\ne y}p_t(x)R_t(x\to y)=-(p_tR_t)(y)=-\dot p_t(y).
 $$
 
-所以在倒轉的時間 $s=1-t$ 裡 $\frac{d}{ds}p=p\bar R$——反向鏈的邊際恰好沿著 forward 的邊際往回走。這是 <Ref to="dma-unified-equation"/> 那個 Fokker–Planck 代入驗證的離散版；Anderson [5] 的 reverse-time SDE 是連續狀態的同一件事。
+所以在倒轉的時間 $s=1-t$ 裡 $\frac{d}{ds}p=p\bar R$——反向鏈的邊際恰好沿著 forward 的邊際往回走。這是 <Ref to="dma-unified-equation"/> 那個 Fokker–Planck 代入驗證的離散版；Anderson 的 reverse-time SDE [5] 是連續狀態的同一件事。
 </Details>
 
 讀這條式子。$\bar R_t(x\to y)$ 是兩個因子的乘積：
@@ -128,7 +128,7 @@ $$
 \partial_x\log p(x)=\lim_{h\to0}\frac{\log p(x+h)-\log p(x)}{h}\approx\frac1h\Big(\frac{p(x+h)}{p(x)}-1\Big),
 $$
 
-score 是「往旁邊挪一小步，密度比變成多少」的極限。離散空間沒有「一小步」可以無限縮小，鄰居就是最小的一步，所以極限拿掉、$h$ 拿掉，剩下比值本身。Meng et al. [2] 把這個量叫 **concrete score**，Lou–Meng–Ermon [1] 用它建出 SEDD。
+score 是「往旁邊挪一小步，密度比變成多少」的極限。離散空間沒有「一小步」可以無限縮小，鄰居就是最小的一步，所以極限拿掉、$h$ 拿掉，剩下比值本身。Meng 等人 [2] 把這個量叫 **concrete score**，Lou、Meng 與 Ermon [1] 用它建出 SEDD。
 
 它在反向過程裡的位置也和 score 完全對應。連續：reverse SDE 的 drift 是「已知的 forward drift 反向」加上「$g^2\nabla\log p_t$」；離散：反向 rate 是「已知的 forward rate 反向」**乘上**「$p_t(y)/p_t(x)$」。一個是加、一個是乘，因為連續的 score 是 $\log$ 的導數、離散的比值沒有取 $\log$；把比值寫成 $\exp(\log p_t(y)-\log p_t(x))$，第二類答案的「差」就出現了。
 
@@ -175,13 +175,13 @@ $$
 | 通式 | $b_t$、$\eta_t$ | $\dot\alpha_tx_0+\dot\beta_tx_1+\dot\gamma_tz$、$z$ | <Ref to="dma-unified-equation"/> |
 | 比值 | $p_t(y)/p_t(x)$ | 條件比值 $q_t(y\mid x_0)/q_t(x\mid x_0)$ | 本篇 |
 
-這張表不是我們自己歸納出來的巧合。<Ref to="dma-denoising-regression"/> 的主要參考把同一件事寫成一整節（[8] Section 6.1，標題就叫 *Conditional Tricks: The Secret Sauce of Diffusion Models*）：variational、score-based、flow-based 三個視角各自從不同動機出發，卻**獨立地想到同一招**——條件在 $x_0$ 上，然後每一條都是「條件版 $=$ 邊際版 $+$ 一個與參數無關的常數」。
+這張表不是我們自己歸納出來的巧合。Lai 等人 [8] 把同一件事寫成一整節（Section 6.1，標題就叫 *Conditional Tricks: The Secret Sauce of Diffusion Models*）：variational、score-based、flow-based 三個視角各自從不同動機出發，卻**獨立地想到同一招**——條件在 $x_0$ 上，然後每一條都是「條件版 $=$ 邊際版 $+$ 一個與參數無關的常數」。
 
 前面幾列的「回歸」不是 KL 就是 MSE；比值這一列的目標是**正數**，用 MSE 也行但不自然（比值可以是 0 也可以很大）。SEDD 換了一個 loss。
 
 ## SEDD：直接回歸比值
 
-網路 $s_\theta(x,t)\in\mathbb R_{>0}^{\,L(K-1)}$ 對 $x$ 的每個鄰居 $y$ 輸出一個正數，目標是 $p_t(y)/p_t(x)$。Lou–Meng–Ermon [1] 的 **score entropy**：
+網路 $s_\theta(x,t)\in\mathbb R_{>0}^{\,L(K-1)}$ 對 $x$ 的每個鄰居 $y$ 輸出一個正數，目標是 $p_t(y)/p_t(x)$。Lou、Meng 與 Ermon [1] 使用的 **score entropy** 是：
 
 $$
 \mathcal L_{\text{SE}}=\mathbb E_{x\sim p_t}\sum_{y\ne x}w_{xy}\Big[\,s_\theta(x)_y-\frac{p_t(y)}{p_t(x)}\log s_\theta(x)_y+h\!\Big(\frac{p_t(y)}{p_t(x)}\Big)\Big],\qquad h(a)=a(\log a-1).
@@ -219,7 +219,7 @@ $$
 \frac{p_t(y)}{p_t(x)}=\frac{\alpha_t}{1-\alpha_t}\;p\big(x_0^\ell=v\ \big|\ x_t=x\big).
 $$
 
-比值等於「$x_0$-posterior 在位置 $\ell$ 的 marginal」乘一個只跟 $t$ 有關的常數。也就是說，**<Ref to="dma-masked-diffusion"/> 用 cross-entropy 訓出來的 $p_\theta(x_0^\ell\mid x_t)$，乘上 $\alpha_t/(1-\alpha_t)$，就是 concrete score。** 兩條路——SEDD 的 score entropy 與 MDLM 的加權 cross-entropy——在 absorbing 鏈上學的是同一組數字，差別只在 parametrization 與 loss 的形狀 [6, 7]。這是 <Ref to="dma-lab-ctmc"/> 要實際驗證的事。
+比值等於「$x_0$-posterior 在位置 $\ell$ 的 marginal」乘一個只跟 $t$ 有關的常數。也就是說，**<Ref to="dma-masked-diffusion"/> 用 cross-entropy 訓出來的 $p_\theta(x_0^\ell\mid x_t)$，乘上 $\alpha_t/(1-\alpha_t)$，就是 concrete score。** Ou 等人 [6] 與 Sahoo 等人 [7] 都指出：SEDD 的 score entropy 與 MDLM 的加權 cross-entropy，在 absorbing 鏈上學的是同一組數字，差別只在 parametrization 與 loss 的形狀。這是 <Ref to="dma-lab-ctmc"/> 要實際驗證的事。
 
 代回反向 rate（forward rate 是 $\beta_t=-\dot\alpha_t/\alpha_t$）：
 

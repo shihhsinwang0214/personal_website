@@ -9,7 +9,7 @@ title: "要把「改」說清楚，需要什麼語言？"
 category: "courses"
 group: "Unit 5 · Discrete Diffusion II"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "要讓 token 可以反悔，真正需要的是控制『每單位時間改多少』。Transition matrix 把整步結果綁在一起；rate 才能把 forward chain 與取樣方式拆開。"
 demos: []
 references:
@@ -65,7 +65,7 @@ import Ref from '../../../components/Ref.astro';
 
 ## 用 transition matrix 試一次
 
-<Ref to="dma-d3pm"/> 的語言是：forward 每一步是一個 $K\times K$ 的 transition matrix $Q_t$，$t$ 步的邊際是連乘 $\bar Q_t=Q_1\cdots Q_t$。那就直接在 $Q_t$ 上動手。
+Austin 等人的 D3PM [2] 使用的語言是：forward 每一步是一個 $K\times K$ 的 transition matrix $Q_t$，$t$ 步的邊際是連乘 $\bar Q_t=Q_1\cdots Q_t$。那就直接在 $Q_t$ 上動手。
 
 absorbing 的 $Q_t=(1-\beta_t)I+\beta_t\mathbb 1e_m^{\!\top}$，`[MASK]` 那一列是 $e_m^{\!\top}$——進去就不出來。要讓字「有機會被改」，最直接的是把 `[MASK]` 列改掉，讓它以某個機率 $\gamma_t$ 回到某個字；或者反過來，在**反向**取樣時額外以某個機率把已翻開的字遮回去。兩種都試，會撞到三面牆。
 
@@ -83,7 +83,7 @@ absorbing 的 $Q_t=(1-\beta_t)I+\beta_t\mathbb 1e_m^{\!\top}$，`[MASK]` 那一�
 
 停下來對照 <Ref week="dma-week-diffusion"/>。DDPM 也是離散時間：$T=1000$ 步、每步一個 $\beta_t$、取樣器是「反著走 posterior」。<Ref to="dma-reverse-process"/> 遇到的問題和上面幾乎一樣——DDPM 與 DDIM 用同一個網路卻是兩種取樣器，「為什麼都對、差在哪」在 $T$ 步的語言裡說不清楚。
 
-解法是換成連續時間：forward 寫成 SDE $dx=f\,dt+g\,dW$，邊際 $p_t$ 的演化寫成 Fokker–Planck。有了這個語言之後，<Ref to="dma-unified-equation"/> 才能寫出一整族取樣器
+解法是換成連續時間：forward 寫成 SDE $dx=f\,dt+g\,dW$，邊際 $p_t$ 的演化寫成 Fokker–Planck。連續 diffusion 的 reverse-time dynamics 可以追溯到 Anderson [4]；有了這個語言之後，<Ref to="dma-unified-equation"/> 才能寫出一整族取樣器
 
 $$
 dX_t=\big[b_t+\varepsilon_t s_t\big]dt+\sqrt{2\varepsilon_t}\,dW_t ,
@@ -111,11 +111,11 @@ $$
 Q_{t\to t+\Delta t}\approx I+R_t\,\Delta t .
 $$
 
-反過來說，$R_t$ 是「$Q$ 減掉 identity 再除以 $\Delta t$」——transition matrix 的導數。這就是 continuous-time Markov chain（CTMC）[1]。$\Delta t$ 從模型的定義裡消失了：forward chain 由 $R_t$ 描述，「一步走多久」是取樣器的事。
+反過來說，$R_t$ 是「$Q$ 減掉 identity 再除以 $\Delta t$」——transition matrix 的導數。這就是 continuous-time Markov chain（CTMC）的語言。Campbell 等人 [1] 用它把離散 diffusion 搬到連續時間；$\Delta t$ 從模型的定義裡消失了：forward chain 由 $R_t$ 描述，「一步走多久」是取樣器的事。
 
 有了這個物件，上面三個小問題會在接下來幾篇裡各得到一個短答案：
 
-- **改多少？** 是一個 rate $\sigma_t$，單位 1/時間（<Ref to="dma-remasking"/>）。
+- **改多少？** 是一個 rate $\sigma_t$，單位 1/時間；Wang 等人的 ReMDM [3] 就用這個設定控制 remasking 強度（<Ref to="dma-remasking"/>）。
 - **會不會動到邊際？** 有一個和 <Ref to="dma-unified-equation"/> 逐字對應的條件，滿足它就不動（<Ref to="dma-remasking"/>）。
 - **能不能連續地調？** $\sigma_t$ 從 0 連續調上去，absorbing 是 $\sigma\equiv0$ 那一端（<Ref to="dma-remasking"/>）。
 

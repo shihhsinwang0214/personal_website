@@ -9,7 +9,7 @@ title: "不回到終點，能不能直接跳到中間？"
 category: "courses"
 group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "Consistency function 只會直達終點；flow map 再多學一個目標時間，讓模型能從任何 $t$ 沿同一條軌跡直接跳到任意 $s$。"
 demos: []
 references:
@@ -45,7 +45,7 @@ import Ref from '../../../components/Ref.astro';
 
 ## 只會直達終點，反而走不了中途
 
-<Ref to="dma-multistep-limit"/> 收在一個問題上。Consistency model 學到的是 $f(x_t,t)$：把軌跡上任何一點直接送到資料端。一步生成就是 $f(x_T,T)$。想多花幾步換品質，唯一的辦法是：跳到資料端、**重新加噪聲**到某個中間時刻、再跳一次。實驗上多花步數的增益很快就小下去，而且 ODE 那個「多走幾步誤差就小」的保證在那裡不成立。那一篇給了三個理由——每次重新加噪都是一次獨立配對，把 <Ref to="dma-fm-vs-diffusion"/> Q1 的交叉問題重新請回來，所以整個程序不在逼近任何連續極限；每一跳的誤差都是**滿的**，最後一跳的誤差不會因為前面多跳了幾次而變小；而 $f$ 是確定映射、沒有 score，所以也沒有 <Ref to="dma-unified-equation"/> 那種把偏掉的樣本拉回來的機制。
+<Ref to="dma-multistep-limit"/> 收在一個問題上。Song 等人的 Consistency Models [3] 學到的是 $f(x_t,t)$：把軌跡上任何一點直接送到資料端。一步生成就是 $f(x_T,T)$。想多花幾步換品質，唯一的辦法是：跳到資料端、**重新加噪聲**到某個中間時刻、再跳一次。實驗上多花步數的增益很快就小下去，而且 ODE 那個「多走幾步誤差就小」的保證在那裡不成立。那一篇給了三個理由——每次重新加噪都是一次獨立配對，把 <Ref to="dma-fm-vs-diffusion"/> Q1 的交叉問題重新請回來，所以整個程序不在逼近任何連續極限；每一跳的誤差都是**滿的**，最後一跳的誤差不會因為前面多跳了幾次而變小；而 $f$ 是確定映射、沒有 score，所以也沒有 <Ref to="dma-unified-equation"/> 那種把偏掉的樣本拉回來的機制。
 
 把三個理由並排看，會發現它們指向同一個動作：**「回到終點再加噪」**。這就像一班車只會開到總站：想在中途站下車，竟得先坐到總站，再換車折返。我們真正缺的不是更多次「直達總站」，而是能從 $x_t$ **直接**到 $x_s$ 的方法；$s$ 可以是任何想停下來的中間時刻。
 
@@ -102,7 +102,7 @@ $$
 
 第二式說：flow matching 學的速度場，是 flow map 在 $s\to t$ 時的**無窮小極限**。<Ref week="dma-week-flow-matching"/> 學的是這個物件的一階 Taylor 項，<Ref week="dma-week-consistency"/> 學的是它在 $s=1$ 的切片，這個單元要學整張表。
 
-四個條件不獨立：三推得一（取 $s=t=r$），三加四可以推得一切（無窮多個小跳接起來）。但拆成四條有一個好處——下一篇會看到，**每一條都可以變成一個損失函數**，而且對應到一個已知的方法。
+四個條件不獨立：三推得一（取 $s=t=r$），三加四可以推得一切（無窮多個小跳接起來）。Boffi、Albergo 與 Vanden-Eijnden 的 Flow Map Matching [2] 把這套條件系統化；拆成四條的好處是——下一篇會看到，**每一條都可以變成一個損失函數**，而且對應到一個已知的方法。
 </Answer>
 </Question>
 
@@ -112,7 +112,7 @@ $$
 
 ## 第一個具體實作：CTM
 
-有了四個條件，最直接的問題是：拿 <Ref week="dma-week-consistency"/> 已經會的東西，能不能改一改就變成 flow map？**Consistency Trajectory Models**（CTM，Kim et al. [1]）就是這麼做的。
+有了四個條件，最直接的問題是：拿 <Ref week="dma-week-consistency"/> 已經會的東西，能不能改一改就變成 flow map？Kim 等人的 **Consistency Trajectory Models**（CTM）[1] 就是這麼做的。
 
 <Ref to="dma-consistency-function"/> 的 consistency 損失說：同一條軌跡上相鄰兩點 $x_{t}$、$x_{t'}$，$f_\theta$ 的輸出要一樣。CTM 把 $f_\theta(x,t)$ 換成三個輸入的 $G_\theta(x,t,s)$，並把「輸出要一樣」推廣成：**從 $x_t$ 直接跳到 $s$，要等於先走一段再跳到 $s$**。「先走一段」用 teacher 的速度場做——從 $t$ 用 ODE solver 走到某個中間時刻 $u\in[s,t)$，得到 $\tilde x_u$，然後
 

@@ -9,7 +9,7 @@ title: "實作：三種「一步」放在同一張圖上"
 category: "courses"
 group: "Unit 6 · Consistency Models"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "在同一個 2D toy 上比較 CD、CT 與 reflow×2 的一步品質，再實測 CT 的網格取捨與多步 CM 是否真的受益於更多步。"
 demos: []
 references:
@@ -45,7 +45,7 @@ import Answer from '../../../components/Answer.astro';
 
 ## 設定
 
-沿用 `toy.py`（月牙資料、MLP、`exact_score`）與 <Ref to="dma-lab-interpolants"/> 的 `fm.py`、`couplings.py`（reflow×2 的權重直接載入）。本單元新增 `cm.py`：VE 座標下的加噪、時間網格、參數化、CD / CT 損失、一步與多步取樣。
+沿用 `toy.py`（月牙資料、MLP、`exact_score`）與 <Ref to="dma-lab-interpolants"/> 的 `fm.py`、`couplings.py`（reflow×2 的權重直接載入）。本單元新增 `cm.py`：實作 Song 等人的 CM [1]，並加入 Song 與 Dhariwal 的 iCT 改動 [2]；VE 座標、時間網格與參數化則沿用 Karras 等人的 EDM [3]。
 
 三件事要先定下來。**座標**：本單元是 $x_t=x_0+t\epsilon$，$t\in[\varepsilon,T]$，$\varepsilon=0.002$；資料已標準化，toy 上 $T=10$ 就夠遠（$x_T$ 幾乎是純噪聲）。**teacher**：2D toy 的好處在這裡最明顯——真實 score 可以精確算，所以 CD 可以用 `exact_score` 當 teacher，把「teacher 誤差」這一項從實驗裡拿掉，剩下的就只有 Euler 漏掉 velocity 變化造成的誤差。作業會再用 <Ref to="dma-lab-diffusion"/> 訓好的 $\epsilon_\theta$ 當 teacher 對照。**評估**：所有方法都用 2000 個樣本對資料的 $W_2$（`ot.emd2`），與 <Ref to="dma-lab-interpolants"/> 圖 b 同一把尺。
 
@@ -104,7 +104,7 @@ def train_cm(mode, N, steps, teacher=exact_score_ve):
 `huber` 是 pseudo-Huber $\sqrt{\|x-y\|^2+c^2}-c$，$c=0.00054\sqrt{2}$；先用固定 $N=40$ 各訓 CD 與 CT 一個模型。檢查點：訓練中隨機抓一條精確軌跡（用 `exact_score_ve` 細步積分），沿軌跡取 8 個 $(x_t,t)$，`cm(x_t, t)` 的輸出應幾乎相同，且接近軌跡終點——這就是 <Ref to="dma-consistency-function"/> 核心 demo 裡那條「平線」。CD 的平線通常比 CT 更平、更早出現。
 
 <Details summary="CT 的 N curriculum：如果固定 N 訓不起來">
-固定 $N=40$ 的 CT 在 toy 上通常可以直接收斂；若 loss 卡住或樣本糊成一團，把 `N` 改成隨訓練步數翻倍的排程（<Ref to="dma-ict-scm"/> 的 $N(k)=\min(s_0 2^{\lfloor k/K'\rfloor},s_1)+1$，toy 上 $s_0=4$、$s_1=128$），並確認 `target` 那一行**沒有**用 EMA。這兩件事是 iCT 的第一與第五項。
+固定 $N=40$ 的 CT 在 toy 上通常可以直接收斂；若 loss 卡住或樣本糊成一團，把 `N` 改成隨訓練步數翻倍的排程（<Ref to="dma-ict-scm"/> 的 $N(k)=\min(s_0 2^{\lfloor k/K'\rfloor},s_1)+1$，toy 上 $s_0=4$、$s_1=128$），並確認 `target` 那一行**沒有**用 EMA。這兩件事來自 Song 與 Dhariwal 的 iCT [2]，分別是第一與第五項。
 </Details>
 
 ## 步驟 3：CT 的 bias 對 $N$（圖 a）
@@ -136,7 +136,7 @@ print((ct.mean(0) - euler).norm())                      # 應 ≲ 5e-3（500 組
 
 - **CD**（$N=128$、精確 score teacher）：$f_\theta(x_T,T)$。
 - **CT**（步驟 3 的最佳 $N$）：$f_\theta(x_T,T)$。
-- **reflow×2**（<Ref to="dma-lab-interpolants"/> 載入）：一步 Euler。注意座標轉換——reflow 模型活在 FM 座標 $s\in[0,1]$，起點是 $\mathcal N(0,I)$；用 $x_T/(1+T)$ 當它的起點（<Ref to="dma-learn-the-map"/> 的對照表：$x^{\text{FM}}_s=s\,x_t$，$t=\frac{1-s}{s}$，所以 $t=T$ 對應 $s=\frac1{1+T}$，$x^{\text{FM}}_s=x_T/(1+T)$；$T=10$ 時寫成 $x_T/T$ 會差 10%）。
+- **reflow×2**（Liu、Gong 與 Liu 的 Rectified Flow [4]；從 <Ref to="dma-lab-interpolants"/> 載入）：一步 Euler。注意座標轉換——reflow 模型活在 FM 座標 $s\in[0,1]$，起點是 $\mathcal N(0,I)$；用 $x_T/(1+T)$ 當它的起點（<Ref to="dma-learn-the-map"/> 的對照表：$x^{\text{FM}}_s=s\,x_t$，$t=\frac{1-s}{s}$，所以 $t=T$ 對應 $s=\frac1{1+T}$，$x^{\text{FM}}_s=x_T/(1+T)$；$T=10$ 時寫成 $x_T/T$ 會差 10%）。
 
 畫三組樣本並排（同一座標範圍）、下方一張 $W_2$ 長條圖。預期：CD 最好（teacher 是精確的、$N$ 大）；CT 略差（variance 極限）；reflow×2 與 CT 接近或稍差（仍有沿途 velocity 變化）。三根長條旁各寫一句「誤差來源」：CD——MLP 逼近極限；CT——bias–variance 極限；reflow×2——$\int\|a_t(x_t)\|dt$ 尚未為零。
 

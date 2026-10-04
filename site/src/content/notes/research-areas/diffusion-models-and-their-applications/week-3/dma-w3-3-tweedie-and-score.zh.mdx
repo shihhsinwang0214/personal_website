@@ -14,7 +14,7 @@ title: "Tweedie 公式：Denoiser 和 Data Distribution 有什麼關係？"
 category: "courses"
 group: "Unit 1 · Diffusion Models"
 status: "available"
-updated: 2026-09-22
+updated: 2026-10-04
 summary: "ELBO 解釋的是帶加權的 objective，但我們真正拿去跑的是 simple MSE——它到底在學什麼？固定一個 noise level，這個回歸的最佳解是 E[ε|x_t]；而把 p_t 對 x_t 微分之後，被積函數正好就是 −ε/σ_t，score 自己冒出來：Tweedie 公式。於是不必靠 ELBO，也能直接說出這個 regression 在估計什麼。最後才回頭看，為什麼 score 這個對象剛好繞得過 normalizing constant 那面牆。"
 demos: []
 references:
@@ -198,6 +198,8 @@ $$
 
 > **訓好的 denoiser 就是 $p_t$ 的 score function $\nabla_{x_t}\log p_t(x_t)$。**
 
+這個把 noisy observation 的 posterior mean 與 marginal score 連起來的關係，就是 **Tweedie formula**；這裡的寫法可以對照 Efron [1] 的整理。
+
 ## 原來 denoiser 學到的是 $p_t$ 的局部幾何
 
 把 Tweedie 乘開來讀：$-\mathbb E[\epsilon\mid x_t]=\sigma_t\nabla\log p_t(x_t)$。再用上面那個 affine 換算換成 $x_0$ 的語言：
@@ -244,7 +246,7 @@ $$
 
 因為 $Z_\theta$ 對 $x$ 是常數。**score 對 normalizing constant 免疫。**
 
-所以 Tweedie 公式真正的意義不只是「denoiser 和 score 相等」，而是：**我們要的那個量，剛好是那面牆管不到的量**，而且有一支五行的回歸程式可以拿到它。
+所以 Tweedie 公式真正的意義不只是「denoiser 和 score 相等」，而是：**我們要的那個量，剛好是那面牆管不到的量**，而且有一支五行的回歸程式可以拿到它。這個繞過 normalizing constant 的建模方向，從 Hyvärinen 的 score matching [2] 開始；Song 與 Ermon [3] 再把 score 作為生成模型的學習對象。
 </Answer>
 </Question>
 

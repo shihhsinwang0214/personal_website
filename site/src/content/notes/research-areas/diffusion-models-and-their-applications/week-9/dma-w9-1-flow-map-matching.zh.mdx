@@ -10,7 +10,7 @@ title: "Flow Map Matching：三條恆等式，三種損失"
 category: "courses"
 group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "把 flow map 的條件改寫成 Lagrangian、Eulerian 與 progressive 三條恆等式；速度場出現在哪裡，決定訓練是否需要 teacher。"
 demos: []
 references:
@@ -83,7 +83,7 @@ $$
 
 交叉項因 $\mathbb E[\delta\mid x_t]=0$ 消失，但第二項**依賴 $\theta$**——它在懲罰 $\psi_\theta$ 的 Jacobian，會把最小值拉偏。這和 <Ref to="dma-conditional-flow-matching"/> 的情形不同：那裡的 $v_\theta$ 是「被回歸的量」，條件速度是「目標」，變異數項不含 $\theta$；這裡 $v$ 卻乘在 $\nabla\psi_\theta$ 上。
 
-解法是把含 $v$ 的部分**移到 stop-gradient 的目標裡**，讓目標對 $v$ 是線性的。<Ref to="dma-cd-vs-ct"/> 的 consistency training、<Ref to="dma-ict-scm"/> 的 sCM 都是這個結構：把 $\tfrac{d}{dt}\psi_\theta$（用條件速度算的）整個當成不回傳梯度的目標。這時 squared loss 對隨機目標取期望，等於對目標的條件期望回歸再加一個與 $\theta$ 無關的常數——這就是 <Ref to="dma-denoising-regression"/> 的 **conditional trick**，代換在期望上精確。下一篇 MeanFlow 的 Q1 會把這句話說完整。
+解法是把含 $v$ 的部分**移到 stop-gradient 的目標裡**，讓目標對 $v$ 是線性的。Song 等人的 consistency training [3]、<Ref to="dma-ict-scm"/> 的 sCM 都是這個結構：把 $\tfrac{d}{dt}\psi_\theta$（用條件速度算的）整個當成不回傳梯度的目標。這時 squared loss 對隨機目標取期望，等於對目標的條件期望回歸再加一個與 $\theta$ 無關的常數——這就是 <Ref to="dma-denoising-regression"/> 的 **conditional trick**，代換在期望上精確。下一篇 MeanFlow 的 Q1 會把這句話說完整。
 </Details>
 
 <Question id="Q1">
@@ -104,7 +104,7 @@ $$
 
 所以「要不要 teacher」不是這三條恆等式的附帶性質，而是**由「$v$ 被求值的位置」直接決定的**。這一欄也解釋了下一篇為什麼走得通：MeanFlow 換了座標，但 $v$ 仍然只在輸入點被需要。
 
-（progressive 那一列是另一種依賴：它不要 teacher 的 $v$，但要學生自己先會走 $t\to u$ 那一段，所以是 bootstrapping——<Ref to="dma-shortcut-ayf"/> 的 Shortcut 就付這個代價。）
+（progressive 那一列是另一種依賴：它不要 teacher 的 $v$，但要有人先走 $t\to u$ 那一段，所以是 bootstrapping。Kim 等人的 CTM [4] 把這一段交給 teacher；<Ref to="dma-shortcut-ayf"/> 的 Shortcut 則由學生自己逐級學。）
 </Answer>
 </Question>
 
@@ -116,7 +116,7 @@ $$
 \psi_{t\to r}(x)=\psi_{s\to r}\big(\psi_{t\to s}(x)\big),\qquad t<s<r .
 $$
 
-損失就是兩邊的距離。它**完全不出現速度場**——這是它最特別的地方。那動力學的資訊從哪裡進來？從**最小的那一步**：兩個時間很近時，條件四說 $\psi_{t\to t+h}(x)\approx x+h\,v_t(x)$。所以 progressive 損失一定要配一個「底層」：要嘛底層由 teacher 提供（<Ref to="dma-progressive-distillation"/>：teacher 走兩小步、學生學一大步，一輪一輪把步數減半），要嘛底層是 flow matching 自己（本單元的 Shortcut：步長為零時就是 FM 損失），從小步一路 bootstrap 到大步。
+損失就是兩邊的距離。它**完全不出現速度場**——這是它最特別的地方。那動力學的資訊從哪裡進來？從**最小的那一步**：兩個時間很近時，條件四說 $\psi_{t\to t+h}(x)\approx x+h\,v_t(x)$。所以 progressive 損失一定要配一個「底層」：要嘛像 Salimans 與 Ho 的 progressive distillation [2]，由 teacher 走兩小步、學生學一大步，一輪一輪把步數減半；要嘛底層是 flow matching 自己（本單元的 Shortcut：步長為零時就是 FM 損失），從小步一路 bootstrap 到大步。
 
 代價是**誤差累積**：每一級大步都以上一級小步為目標，小步的誤差會一級一級往上帶。<Ref to="dma-progressive-distillation"/> 的逐輪退化與 <Ref to="dma-rectified-flow"/> reflow 的多輪誤差是同一件事。
 

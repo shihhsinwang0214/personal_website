@@ -10,7 +10,7 @@ title: "另一條路：分佈匹配"
 category: "courses"
 group: "Unit 7 · Flow Maps 與分佈匹配"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "DMD 不替每個輸入指定答案，只要求學生與 teacher 的輸出分佈相同；它避開多值回歸的平均，代價是即時估計兩個 score。"
 demos: []
 references:
@@ -59,7 +59,7 @@ import Ref from '../../../components/Ref.astro';
 
 ## 只要求分佈一樣
 
-Distribution Matching Distillation（DMD，Yin et al. [1]）的出發點是：我們其實不在乎學生把哪個 $z$ 送到哪個 $x$，只在乎**學生輸出的分佈** $p_\theta$ 要等於 teacher 的分佈 $p_{\text{real}}$（teacher 多步取樣得到的分佈，實務上當作資料分佈）。學生是一個一步生成器 $x=G_\theta(z)$，$z\sim\mathcal N(0,I)$。目標寫成 KL：
+Yin 等人提出的 Distribution Matching Distillation（DMD）[1]，出發點是：我們其實不在乎學生把哪個 $z$ 送到哪個 $x$，只在乎**學生輸出的分佈** $p_\theta$ 要等於 teacher 的分佈 $p_{\text{real}}$（teacher 多步取樣得到的分佈，實務上當作資料分佈）。學生是一個一步生成器 $x=G_\theta(z)$，$z\sim\mathcal N(0,I)$。目標寫成 KL：
 
 $$
 \min_\theta\ \mathrm{KL}\big(p_\theta\,\|\,p_{\text{real}}\big)=\mathbb E_{x\sim p_\theta}\big[\log p_\theta(x)-\log p_{\text{real}}(x)\big].
@@ -95,9 +95,9 @@ $$
 \nabla_\theta\mathcal L_{\text{DMD}}=\mathbb E_{t,z,\epsilon}\Big[w(t)\big(s_{\text{fake}}(x_t,t)-s_{\text{real}}(x_t,t)\big)\frac{\partial x_t}{\partial\theta}\Big].
 $$
 
-兩個 score 都是**denoiser**：$s_{\text{real}}(x_t,t)$ 由 teacher 的 denoiser 經 Tweedie 換算——這是 teacher 本來就會的事，任何 $t$ 都給得出來；$s_{\text{fake}}(x_t,t)$ 由一個「fake denoiser」給，它用 <Ref to="dma-denoising-regression"/> 那五行程式碼訓練，只是資料換成學生的輸出 $G_\theta(z)$。因為學生一直在變，fake denoiser 要**同步更新**——交替訓練：一步更新生成器、一步（或幾步）更新 fake denoiser。這個「一個生成器、一個追著它的 score 網路」的結構最早出現在 ProlificDreamer 的 variational score distillation（VSD，Wang et al. [3]），那裡用來做 text-to-3D；DMD 把它搬到蒸餾上。
+兩個 score 都是**denoiser**：$s_{\text{real}}(x_t,t)$ 由 teacher 的 denoiser 經 Tweedie 換算——這是 teacher 本來就會的事，任何 $t$ 都給得出來；$s_{\text{fake}}(x_t,t)$ 由一個「fake denoiser」給，它用 <Ref to="dma-denoising-regression"/> 那五行程式碼訓練，只是資料換成學生的輸出 $G_\theta(z)$。因為學生一直在變，fake denoiser 要**同步更新**——交替訓練：一步更新生成器、一步（或幾步）更新 fake denoiser。這個「一個生成器、一個追著它的 score 網路」的結構最早出現在 Wang 等人的 ProlificDreamer [3]，在那裡稱為 variational score distillation（VSD），用來做 text-to-3D；DMD 把它搬到蒸餾上。
 
-$w(t)$ 是 <Ref to="dma-fm-vs-diffusion"/> 那第四個設定、訓練端的加權（<Ref to="dma-shared-techniques"/> 有它和 SNR 的換算）——DMD 用一個依樣本正規化的權重讓各 noise level 的梯度量級相當。DMD 原版還加了一個小的回歸項（用少量 teacher 的 $(z,x)$ 配對），DMD2 [2] 把它拿掉、讓 fake denoiser 更新得比生成器頻繁（two time-scale update）、加一個 GAN 判別器補品質，並把一步推廣到少步。主線只需要記住：**DMD 的訓練訊號是兩個 score 的差，其中一個 score 要即時估計。**
+$w(t)$ 是 <Ref to="dma-fm-vs-diffusion"/> 那第四個設定、訓練端的加權（<Ref to="dma-shared-techniques"/> 有它和 SNR 的換算）——DMD 用一個依樣本正規化的權重讓各 noise level 的梯度量級相當。DMD 原版還加了一個小的回歸項（用少量 teacher 的 $(z,x)$ 配對）；Yin 等人的 DMD2 [2] 把它拿掉、讓 fake denoiser 更新得比生成器頻繁（two time-scale update）、加一個 GAN 判別器補品質，並把一步推廣到少步。主線只需要記住：**DMD 的訓練訊號是兩個 score 的差，其中一個 score 要即時估計。**
 
 <Question id="Q1">
 回歸式蒸餾（consistency、MeanFlow、Shortcut……）與分佈匹配式蒸餾（DMD），**各自的失敗模式是什麼？** 請分別說出它壞掉時樣本長什麼樣、以及病根在哪一個數學性質上。
@@ -119,7 +119,7 @@ $w(t)$ 是 <Ref to="dma-fm-vs-diffusion"/> 那第四個設定、訓練端的加�
 
 ## 延伸閱讀：同一族的其他成員
 
-分佈匹配不只 KL 一種寫法。**Adversarial Diffusion Distillation**（ADD，Sauer et al. [4]）直接用 GAN 的判別器衡量學生與 teacher 的分佈差，再加一個 score distillation 項——把「分佈層面的訊號」交給判別器而不是 score 差。**Inductive Moment Matching**（IMM，Zhou et al. [5]）用 moment matching（MMD）比較「從 $t$ 一步跳到 $s$」與「先走到中間再跳到 $s$」兩批樣本的**分佈**——它同時是分佈匹配式的（比較的是樣本分佈而非逐點），又用了 flow map 的半群結構，而且不需要 teacher。這兩篇不在主線裡展開，但它們說明了一件事：**「回歸 vs 分佈匹配」是訓練訊號的分類，「學什麼物件」是另一個獨立的軸**——IMM 學的是 flow map，訊號卻是分佈層面的。下一篇的表把這兩個軸分開列。
+分佈匹配不只 KL 一種寫法。Sauer 等人的 **Adversarial Diffusion Distillation**（ADD）[4] 直接用 GAN 的判別器衡量學生與 teacher 的分佈差，再加一個 score distillation 項——把「分佈層面的訊號」交給判別器而不是 score 差。Zhou 等人的 **Inductive Moment Matching**（IMM）[5] 用 moment matching（MMD）比較「從 $t$ 一步跳到 $s$」與「先走到中間再跳到 $s$」兩批樣本的**分佈**——它同時是分佈匹配式的（比較的是樣本分佈而非逐點），又用了 flow map 的半群結構，而且不需要 teacher。這兩篇不在主線裡展開，但它們說明了一件事：**「回歸 vs 分佈匹配」是訓練訊號的分類，「學什麼物件」是另一個獨立的軸**——IMM 學的是 flow map，訊號卻是分佈層面的。下一篇的表把這兩個軸分開列。
 
 ## 先消化一下
 

@@ -14,7 +14,7 @@ title: "Denoising：倒著走一步，要怎麼學？"
 category: "courses"
 group: "Unit 1 · Diffusion Models"
 status: "available"
-updated: 2026-09-13
+updated: 2026-10-04
 summary: "倒著走一步該從哪個分布抽？Bayes 卡在兩個算不出來的邊際。於是改成「學一個分布去逼近它」，而一條等價定理說：把 x₀ 放進條件裡，目標只差一個與參數無關的常數，最佳解仍然是那個邊際。剩下的選擇是模型族——取固定變異數的 Gaussian，KL 就塌成一個加權的平方誤差，而它學到的量我們先講出來、證明留到下一篇；把學到的 x̂ 代回 posterior mean，就是取樣時跑的那一行。"
 demos: []
 references:
@@ -295,7 +295,7 @@ $$
 所以 training 時雖然用了額外知道的 $x_0$，模型最後學到的仍然是我們真正想要的那個 reverse distribution。
 </Try>
 
-這個「取平均」的、將不可算變成可以算的技巧，這門課中會反覆看到，以下都叫它 **conditional trick**。它每一次出現的形狀都一樣：**不可算的目標是一個邊際量，而把某個東西放進條件裡之後就算得出來，剩下的平均交給 loss 自己做。** 這一篇用的是 KL 版本；<Ref to="dma-tweedie-and-score"/> 會用到 MSE 版本，而 <Ref week="dma-week-flow-matching"/> 的 conditional flow matching 是速度版本。
+這個「取平均」的、將不可算變成可以算的技巧，這門課中會反覆看到，以下都叫它 **conditional trick**。Lai、Song、Kim、Mitsufuji 與 Ermon [2] 系統性地整理了它在 diffusion models 裡的不同版本。它每一次出現的形狀都一樣：**不可算的目標是一個邊際量，而把某個東西放進條件裡之後就算得出來，剩下的平均交給 loss 自己做。** 這一篇用的是 KL 版本；<Ref to="dma-tweedie-and-score"/> 會用到 MSE 版本，而 <Ref week="dma-week-flow-matching"/> 的 conditional flow matching 是速度版本。
 
 ## 把 $q(x_{t-1}\mid x_t,x_0)$ 算出來
 
@@ -568,14 +568,14 @@ $$
 
 **$x_0$-prediction**：直接輸出 $\hat x_0$，也就是〈DDPM 的訓練〉推出來的那個 loss。
 
-**$\epsilon$-prediction**（DDPM 原文 [1]）：讓網路去猜那個總噪聲。
+**$\epsilon$-prediction**（Ho、Jain 與 Abbeel 的 DDPM 原文 [1]）：讓網路去猜那個總噪聲。
 
 $$
 \mathcal L_\epsilon=\mathbb E\big[\|\epsilon_\theta(x_t,t)-\epsilon\|^2\big],
 \qquad \hat x_0=\frac{x_t-\sigma_t\epsilon_\theta}{\sqrt{\bar\alpha_t}} .
 $$
 
-**$v$-prediction** [3]：把 $(\sqrt{\bar\alpha_t},\sigma_t)$ 看成 $(\cos\phi_t,\sin\phi_t)$，定義
+**$v$-prediction**（Salimans 與 Ho [3]）：把 $(\sqrt{\bar\alpha_t},\sigma_t)$ 看成 $(\cos\phi_t,\sin\phi_t)$，定義
 
 $$
 v=\sqrt{\bar\alpha_t}\,\epsilon-\sigma_t\,x_0 .
@@ -646,7 +646,7 @@ $$
 > **forward process 決定我們怎麼製造不同 noise level 的資料；** <br />
 > **weighting 決定 training 時多重視哪些 noise level。**
 
-兩件事其實可以分開設計。因此，即使 forward process 不變，我們仍然可以改變不同 $t$ 在 loss 裡的 weighting。代價是前面那個 ELBO 的不等式跟著失效：加權一換，被界住的就不再是原來那個 $-\log p_\theta(x_0)$。理想情況下這不改變每個 $t$ 對應的最佳 predictor，但會改變實際訓練時模型把 capacity 和 optimization effort 放在哪些地方。<Ref week="dma-week-flow-matching"/> 比較 diffusion 與 flow matching 時，這個 distinction 還會再出現。
+兩件事其實可以分開設計。因此，即使 forward process 不變，我們仍然可以改變不同 $t$ 在 loss 裡的 weighting。代價是前面那個 ELBO 的不等式跟著失效：加權一換，被界住的就不再是原來那個 $-\log p_\theta(x_0)$。Kingma 與 Gao [4] 系統性地整理了這些 diffusion objectives 與 ELBO 的關係。理想情況下，改變 weighting 不會動到每個 $t$ 對應的最佳 predictor，但會改變實際訓練時模型把 capacity 和 optimization effort 放在哪些地方。<Ref week="dma-week-flow-matching"/> 比較 diffusion 與 flow matching 時，這個 distinction 還會再出現。
 
 ## DDPM 的訓練核心其實就這五行
 

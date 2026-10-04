@@ -12,7 +12,7 @@ title: "Stochastic Interpolant: 統一 Flow 與 Diffusion"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-09-30
+updated: 2026-10-04
 summary: "Stochastic interpolant 把端點、路徑與額外 randomness 寫進同一個物件，再從它導出 marginal path、velocity、score、ODE 與 SDE；同一套架構也說清楚 regression error 分別如何控制 ODE 的 Wasserstein error 與 SDE 的 KL error。"
 demos:
   - "notes/research_areas/diffusion-models-applications/w5-0-gamma.html"
@@ -21,7 +21,7 @@ references:
     href: "https://arxiv.org/abs/2303.08797"
   - label: "Albergo & Vanden-Eijnden, Building Normalizing Flows with Stochastic Interpolants (ICLR 2023)"
     href: "https://arxiv.org/abs/2209.15571"
-  - label: "Ma et al., SiT: Exploring Flow and Diffusion-Based Generative Models with Scalable Interpolant Transformers (ICCV 2023)"
+  - label: "Ma et al., SiT: Exploring Flow and Diffusion-Based Generative Models with Scalable Interpolant Transformers (2024)"
     href: "https://arxiv.org/abs/2401.08740"
   - label: "Benton, Deligiannidis & Doucet, Error Bounds for Flow Matching Methods (TMLR 2024)"
     href: "https://arxiv.org/abs/2305.16860"
@@ -124,7 +124,7 @@ $$
 (X_0,X_1)\sim\pi,\qquad X_t=I_t(X_0,X_1).
 $$
 
-固定端點後，$I_t(x_0,x_1)$ 是一條沒有隨機性的 reference path；但端點本身是隨機抽出的，所以 $X_t$ 是 random variable，整個 $\{X_t\}_{t\in[0,1]}$ 就叫做 **stochastic interpolant**。
+固定端點後，$I_t(x_0,x_1)$ 是一條沒有隨機性的 reference path；但端點本身是隨機抽出的，所以 $X_t$ 是 random variable。Albergo、Boffi 與 Vanden-Eijnden [1] 把這樣連接兩端 distributions 的 random process $\{X_t\}_{t\in[0,1]}$ 稱為 **stochastic interpolant**；這套架構延續了 Albergo 與 Vanden-Eijnden [2] 先前用 stochastic interpolants 建立 normalizing flows 的做法。
 
 從我們在起點與終點看到的 particles 出發，先按照 $\pi$ 決定每個人要去哪一站，再按照 $I_t$ 算出他們在時間 $t$ 的位置；所有位置形成的 distribution 就是
 
@@ -162,7 +162,7 @@ Reference path 是用來製造 training label 的路；stochastic interpolant �
 
 回到散場的例子，如果許多 reference paths 在同一個路口交叉，人群可能在某個時刻全擠進一條很窄的巷子。這時 $p_t$ 會變得很尖，甚至塌在低維的區域；附近的 velocity 也可能快速改變，讓神經網路與 numerical solver 都更難處理。
 
-那能不能保留起點與終點，卻讓中間的人群不要擠得那麼尖？Albergo 等人的做法是：在 reference path 外，再加入一個獨立的 Gaussian random variable $Z$，
+那能不能保留起點與終點，卻讓中間的人群不要擠得那麼尖？這套架構的做法是：在 reference path 外，再加入一個獨立的 Gaussian random variable $Z$，
 
 $$
 \boxed{
@@ -195,7 +195,7 @@ p_t^{(\gamma)}
 p_t^{(0)}*\mathcal N(0,\gamma_t^2I).
 $$
 
-也就是把原本的 distribution 做一次 Gaussian smoothing。論文 [1] 在其 regularity assumptions 下證明：當 $\gamma_t>0$ 時，中間的 density 與 velocity field 都會在空間上變得平滑。作者因此指出，生成時所需的 numerical integration 也會比較容易。
+也就是把原本的 distribution 做一次 Gaussian smoothing。Albergo、Boffi 與 Vanden-Eijnden [1] 在其 regularity assumptions 下證明：當 $\gamma_t>0$ 時，中間的 density 與 velocity field 都會在空間上變得平滑。作者因此指出，生成時所需的 numerical integration 也會比較容易。
 
 後來的研究把這個好處說得更具體：
 
@@ -203,7 +203,7 @@ $$
 - **讓有限資料提供更密的 supervision。** 對兩端都是 empirical distribution 的情況，原本每一組資料只畫出一條細線；加上 $\gamma_tZ$ 後，同一組端點會在周圍產生一整片 training points。Su 等人 [7] 證明，Gaussian smoothing 後的 empirical interpolant 與 population interpolant 之間的 $W_1$ 距離不會更大，因此能縮小他們分析的 generalization gap。實驗中，完整的 stochastic-injection 方法在五個 image-to-image tasks 上比 standard Flow Matching 平均改善 13 FID；ablation 也顯示，單獨拿掉 interpolant noise 就會使結果變差。
 - **降低某些 deterministic paths 的 memorization。** Reu 等人 [6] 證明，在他們分析的 straight-path setting 中，即使 training paths 彼此交叉，仍可能存在一個記住 training pairings 的 velocity field；在 CelebA 的實驗裡，加入少量 noise 後才恢復 generalization。這說明「每條線都穿過很多地方」不代表 supervision 已經足夠。
 
-這個 Gaussian 還提供了一個訓練時已知的 label $Z$。論文 [1] 進一步證明，它的 conditional expectation 可以直接換成 $p_t$ 的 score；所以下面除了 velocity，我們也能用 L2 regression 學到 score，進而建立 ODE 與 SDE。
+這個 Gaussian 還提供了一個訓練時已知的 label $Z$。三位作者 [1] 進一步證明，它的 conditional expectation 可以直接換成 $p_t$ 的 score；所以下面除了 velocity，我們也能用 L2 regression 學到 score，進而建立 ODE 與 SDE。
 
 不過，這些結果不能簡化成「加入越多 noise 一定越好」。$\gamma_t$ 會改變整條 $p_t$，而且 schedule 與 scale 都要選：Su 等人 [7] 的 ablation 裡，不同 schedule 的差距很大。Bertrand 等人 [8] 也在一端為 Gaussian 的 high-dimensional setting 中發現，把 stochastic regression target 換成 conditional mean 並不會傷害 generalization，有時反而更好。雖然他們研究的不是 $\gamma_tZ$，但這提醒我們：**interpolant smoothing、sampling randomness 與 noisy training target 是三種不同的 randomness，不能混成同一個「noise 有幫助」的理由。**
 </Remark>
@@ -230,6 +230,8 @@ $$
 <Ref to="dma-flows-and-continuity">U2.1</Ref> 已經介紹過 $(1-t,t)$ 如何畫出 linear path；DDPM／DDIM 的 $\alpha_t$ 是 data amplitude、$\sigma_t$ 是 noise amplitude，兩者如何由 VP noise schedule 得到，則可以回顧 <Ref to="dma-forward-process">U1.1</Ref>。
 
 DDPM 與 DDIM 會放在同一列，是因為這張表記錄的是 stochastic interpolant 如何定義每個時刻的 $p_t$。兩者使用相同的 VP path，只差在最後生成時怎麼 sample。
+
+Ma 等人的 SiT [3] 則把同一套 interpolant 架構用到大規模影像生成，系統性地比較不同 path、training objective 與 deterministic／stochastic sampler。
 
 這一列的 $\gamma_t=0$ 也不表示沒有 noise：$X_0$ 本身已經是 Gaussian noise。$\gamma_tZ$ 是在 $X_0$ 與 $X_1$ 之外，另外加入、用來改變中間 $p_t$ 的 randomness。
 
@@ -557,7 +559,7 @@ $$
 \big[\|v_\theta(X_t,t)-v_t(X_t)\|^2\big]\,\mathrm dt.
 $$
 
-這正是 population Flow Matching loss 超過最佳值的部分。在這些條件下，
+這正是 population Flow Matching loss 超過最佳值的部分。Benton、Deligiannidis 與 Doucet [4] 給出的 error bound 說，在這些條件下，
 
 $$
 \boxed{
@@ -708,7 +710,7 @@ $X_0$ 與 $Z$ 是不同的 random variables。只有在 diffusion 把起點選�
 
 1. Albergo, M. S., Boffi, N. M., Vanden-Eijnden, E. [*Stochastic Interpolants: A Unifying Framework for Flows and Diffusions.*](https://arxiv.org/abs/2303.08797) 2023.
 2. Albergo, M. S., Vanden-Eijnden, E. [*Building Normalizing Flows with Stochastic Interpolants.*](https://arxiv.org/abs/2209.15571) ICLR 2023.
-3. Ma, N., et al. [*SiT: Exploring Flow and Diffusion-Based Generative Models with Scalable Interpolant Transformers.*](https://arxiv.org/abs/2401.08740) ICCV 2023.
+3. Ma, N., Goldstein, M., Albergo, M. S., Boffi, N. M., Vanden-Eijnden, E., Xie, S. [*SiT: Exploring Flow and Diffusion-Based Generative Models with Scalable Interpolant Transformers.*](https://arxiv.org/abs/2401.08740) 2024.
 4. Benton, J., Deligiannidis, G., Doucet, A. [*Error Bounds for Flow Matching Methods.*](https://arxiv.org/abs/2305.16860) TMLR 2024.（以 velocity 的 L2 approximation error 與 Lipschitz constant 控制 deterministic Flow Matching 的 $W_2$ error。）
 5. Gao, Y., Huang, J., Jiao, Y. [*Gaussian Interpolation Flows.*](https://www.jmlr.org/papers/v25/23-1515.html) JMLR 2024.（證明 Gaussian interpolation velocity 的 Lipschitz regularity、flow 的存在唯一性，以及 $W_2$ stability。）
 6. Reu, T., Dromigny, S., Bronstein, M., Vargas, F. [*Gradient Variance Reveals Failure Modes in Flow-Based Generative Models.*](https://arxiv.org/abs/2510.18118) NeurIPS 2025.（deterministic straight-path training 的 memorization 結果；noise 改善 generalization 的部分為實驗觀察。）

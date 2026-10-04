@@ -9,7 +9,7 @@ title: "指定路徑的方法：Forward Process"
 category: "courses"
 group: "Unit 1 · Diffusion Models"
 status: "available"
-updated: 2026-09-08
+updated: 2026-10-04
 summary: "路徑自己定，那就先挑一條我們本來就會走的路：一步一步加噪聲。寫出 DDPM 的 forward process，用「兩個 Gaussian 相加還是 Gaussian」一步跳到 q(x_t|x_0)，並看清 variance-preserving 與 schedule 各自在管什麼。"
 demos: []
 references:
@@ -19,6 +19,8 @@ references:
     href: "https://arxiv.org/abs/2006.11239"
   - label: "Nichol & Dhariwal, Improved Denoising Diffusion Probabilistic Models (ICML 2021)"
     href: "https://arxiv.org/abs/2102.09672"
+  - label: "Song et al., Score-Based Generative Modeling through Stochastic Differential Equations (ICLR 2021)"
+    href: "https://arxiv.org/abs/2011.13456"
 ---
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
@@ -159,11 +161,11 @@ $$
 
 也就是：**把上一個狀態稍微縮小一點，再補上一點新的 Gaussian noise。** 其中 $\beta_t$ 控制第 $t$ 步要加多少 noise。
 
-這一組選擇——Gaussian、線性縮放、係數挑成 $\sqrt{1-\beta_t}$——就是 **DDPM**（denoising diffusion probabilistic models，Ho et al. [2]）的 forward process，也是這門課接下來預設的那一條路。
+「先逐步加噪、再學著倒回來」的構想可以追溯到 Sohl-Dickstein、Weiss、Maheswaranathan 與 Ganguli [1]。這裡這一組選擇——Gaussian、線性縮放、係數挑成 $\sqrt{1-\beta_t}$——則是 Ho、Jain 與 Abbeel 提出的 **DDPM**（denoising diffusion probabilistic models）[2] 的 forward process，也是這門課接下來預設的那一條路。
 
 這條式子中有兩個我們特別設計的地方。
 
-**為什麼要乘 $\sqrt{1-\beta_t}$？** 如果只加噪聲、不縮小，變異數會一路累積到超大然後爆掉——也真的有人這樣設計，叫 **variance-exploding（VE）**（[Song et al., 2021](https://arxiv.org/abs/2011.13456)；<Ref week="dma-week-consistency"/> 就會用到它）。但如果我們考慮用 $\sqrt{1-\beta_t}$ 來縮放，這時候如果假設 $\operatorname{Var}(x_{t-1})=I$，那麼
+**為什麼要乘 $\sqrt{1-\beta_t}$？** 如果只加噪聲、不縮小，變異數會一路累積到超大然後爆掉——也真的有人這樣設計，Song 等人 [4] 稱它為 **variance-exploding（VE）**；<Ref week="dma-week-consistency"/> 就會用到它。但如果我們考慮用 $\sqrt{1-\beta_t}$ 來縮放，這時候如果假設 $\operatorname{Var}(x_{t-1})=I$，那麼
 
 $$
 \operatorname{Var}(x_t)=(1-\beta_t)\,I+\beta_t I=I .
@@ -181,7 +183,7 @@ $$
 - $\sigma_t^2=1-\bar\alpha_t$：對應累積起來的噪聲強度，兩者永遠滿足 $\bar\alpha_t+\sigma_t^2=1$。
 - $\mathrm{SNR}(t)=\bar\alpha_t/(1-\bar\alpha_t)$：signal-to-noise ratio，「還剩多少信號比得上噪聲」。$t$ 越大，SNR 越小。
 
-$\beta_t$ 隨 $t$ 怎麼變，稱為 **schedule**（linear、cosine…）。schedule 一旦定了，$\bar\alpha_t$ 就定了，這條路的「速度」也就定了。
+$\beta_t$ 隨 $t$ 怎麼變，稱為 **schedule**。DDPM 原文 [2] 使用 linear schedule；Nichol 與 Dhariwal [3] 後來提出 cosine schedule。schedule 一旦定了，$\bar\alpha_t$ 就定了，這條路的「速度」也就定了。
 </Remark>
 
 記號齊了，就可以看整條路是怎麼一步一步加出來的——其實就是把上面那一行一直套下去：

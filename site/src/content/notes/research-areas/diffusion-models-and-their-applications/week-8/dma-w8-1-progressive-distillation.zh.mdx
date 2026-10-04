@@ -9,7 +9,7 @@ title: "Progressive Distillation：學生一步，等於老師兩步"
 category: "courses"
 group: "Unit 6 · Consistency Models"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-04
 summary: "讓學生一步模仿 teacher 兩步，再把學生升格為下一輪 teacher；步數逐輪減半，誤差也逐輪留下。"
 demos: []
 references:
@@ -44,7 +44,7 @@ import Answer from '../../../components/Answer.astro';
 
 ## 不要先造資料，邊走邊教
 
-直接學終點的第一個問題是：每一筆訓練配對都要 teacher 跑完整條 ODE。Salimans & Ho [1] 的觀察是，這件事沒有必要一次做完。
+直接學終點的第一個問題是：每一筆訓練配對都要 teacher 跑完整條 ODE。Salimans 與 Ho [1] 的觀察是，這件事沒有必要一次做完。
 
 想像 teacher 是一個要走 $N$ 步的取樣器（本單元座標下，從 $t=T$ 走到 $t=0$，每步是 <Ref to="dma-lab-diffusion"/> 的 DDIM，也就是 PF-ODE 的一步 Euler）。我們不要求學生一口氣學會整條路，只要求：**學生走一步，要到 teacher 走兩步的地方。** 學好之後，學生是一個 $N/2$ 步的取樣器。然後把學生當成新的 teacher，再訓一個 $N/4$ 步的學生。重複 $\log_2 N$ 輪。
 
@@ -54,7 +54,7 @@ import Answer from '../../../components/Answer.astro';
 每一輪的老師都是上一輪的學生。**那為什麼不乾脆讓第一個學生直接學「teacher 的 $N$ 步」，一次到位？** 反正最後要的就是那個一步的映射。
 
 <Answer>
-「一次到位」就是 <Ref to="dma-learn-the-map"/> 的直接回歸——那一篇已經分析過它，所以真正要問的是：逐輪減半到底換到了什麼？
+「一次到位」就是 Luhman 與 Luhman 的直接回歸法 [2]——<Ref to="dma-learn-the-map"/> 已經分析過它，所以真正要問的是：逐輪減半到底換到了什麼？
 
 **換到的第一件事是資料成本。** 直接回歸要 teacher 跑完整條 ODE 才生出一筆配對；PD 每一筆只要 teacher 走兩步。但這件事上面那一節已經說了。
 
@@ -91,7 +91,7 @@ $$
 **學生從 teacher 初始化。** 第一輪的學生就是 teacher 的權重複製一份；每一輪學的只是「把兩小步合成一大步」這個差量，訓練很快收斂。
 
 <Details summary="為什麼把 target 寫在 x₀ 空間，以及 v-parametrization 從哪裡來">
-可以直接在 $x_{t''}$ 空間算 loss（$\|$學生一步$-\tilde x\|^2$），但學生的一步是 $\frac{t''}{t}x_t+(1-\frac{t''}{t})\hat x_0^\theta$，兩者只差一個 $(1-t''/t)$ 的縮放，所以等價於在 $x_0$ 空間算 loss 再乘上 $(1-t''/t)^2$ 的權重。Salimans & Ho 選擇明確寫成 $x_0$ 空間、再自己選權重 $w(t)$——他們建議的權重是 $\max(\text{SNR}(t),1)$（「truncated SNR」），這是 <Ref to="dma-shared-techniques"/> 那個「選 $t$ 的權重＝選 $\log$SNR 上的權重函數」在蒸餾裡的樣子。
+可以直接在 $x_{t''}$ 空間算 loss（$\|$學生一步$-\tilde x\|^2$），但學生的一步是 $\frac{t''}{t}x_t+(1-\frac{t''}{t})\hat x_0^\theta$，兩者只差一個 $(1-t''/t)$ 的縮放，所以等價於在 $x_0$ 空間算 loss 再乘上 $(1-t''/t)^2$ 的權重。Salimans 與 Ho [1] 選擇明確寫成 $x_0$ 空間、再自己選權重 $w(t)$——他們建議的權重是 $\max(\text{SNR}(t),1)$（「truncated SNR」），這是 <Ref to="dma-shared-techniques"/> 那個「選 $t$ 的權重＝選 $\log$SNR 上的權重函數」在蒸餾裡的樣子。
 
 另一個細節：當步數減到很少時，$t$ 很大的那一格 $\hat\epsilon=(x_t-\hat x_0)/t$ 幾乎不含資訊、而 $\hat x_0$ 又要從幾乎純噪聲裡直接猜整張圖，兩種 parametrization 各有一端不穩。他們因此提出 $v$-prediction（<Ref to="dma-denoising-regression"/> 已經介紹過的那個座標），它在兩端都有界。這是 $v$-parametrization 最早的出處。
 </Details>
@@ -100,7 +100,7 @@ $$
 
 每一輪，學生逼近的是 **teacher 的兩步**，不是真實的 PF-ODE。所以每一輪有兩種誤差進入學生：teacher 自己已經帶著的誤差，加上學生這一輪的逼近誤差。$\log_2N$ 輪之後，最終那個一步模型身上疊了每一輪的逼近誤差。
 
-這和 <Ref to="dma-rectified-flow"/> 說的 reflow 代價是同一件事：「第 $k$ 輪的配對來自第 $k-1$ 輪模型的 ODE 解，模型誤差與數值誤差一起進入下一輪的訓練資料」。兩者都是**一連串蒸餾**，每一輪的老師是上一輪的學生。差別是每一輪在學什麼——reflow 每輪學一個更直的速度場，PD 每輪學一個步長翻倍的跳躍。
+這和 Liu、Gong 與 Liu 的 Rectified Flow [3] 中 reflow 的代價是同一件事：「第 $k$ 輪的配對來自第 $k-1$ 輪模型的 ODE 解，模型誤差與數值誤差一起進入下一輪的訓練資料」。兩者都是**一連串蒸餾**，每一輪的老師是上一輪的學生。差別是每一輪在學什麼——reflow 每輪學一個更直的速度場，PD 每輪學一個步長翻倍的跳躍。
 
 還有一個更細的觀察。前幾輪（$N$ 很大、$\Delta$ 很小）幾乎沒有東西要學：teacher 的兩小步本來就接近一大步，因為那一小段的 velocity 幾乎不變。真正困難的是**最後幾輪**：從 4 步到 2 步、從 2 步到 1 步，這時一步要跨過整條軌跡最難學的中段。<Ref to="dma-error-theory"/> 的問題在這裡以另一種形式回來——不再是 Euler 的離散誤差，而是「這一大步的 flow map 有多難用網路表達」。實務上 PD 蒸餾到 4 步左右品質仍好，1 步明顯下降 [1]。
 
