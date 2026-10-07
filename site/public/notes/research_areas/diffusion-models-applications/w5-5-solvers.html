@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>同一條二維 ODE，不同 solver 怎麼使用 velocity queries？</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 700px; margin: 0 auto; padding: 18px; border: 1px solid #e7e0d6; border-radius: 14px; background: #fffdfb; }
+  body[data-dark="1"] .card { border-color: #2c2d31; background: #1f2126; }
+  .goal { margin: 0 0 12px; font-size: .9rem; line-height: 1.6; }
+  .goal b { color: #2a4ea3; }
+  body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { display: block; width: 100%; max-width: 610px; height: auto; aspect-ratio: 4 / 3; margin: 0 auto; border-radius: 10px; }
+  .cap { margin: 8px 0 0; text-align: center; color: #646c78; font-size: .74rem; line-height: 1.65; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .key { white-space: nowrap; }
+  .swatch { display: inline-block; width: 18px; height: 3px; margin: 0 5px 2px 0; vertical-align: middle; border-radius: 2px; }
+  .swatch.exact { background: #efc34f; }
+  .swatch.euler { background: #8b72d9; }
+  .swatch.heun { background: #43b77a; }
+  .swatch.adaptive { background: #39a9b8; }
+  .controls { display: grid; gap: 11px; margin-top: 15px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
+  [hidden] { display: none !important; }
+  .lab { font-size: .82rem; font-weight: 700; }
+  button { padding: 7px 13px; border: 1px solid #ccc4b8; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: .8rem; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; }
+  button.on { border-color: #2a4ea3; background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] button.on { border-color: #d8a44a; background: #d8a44a; color: #1f2126; }
+  input[type="range"] { width: 285px; max-width: 58vw; accent-color: #2a4ea3; }
+  .value { min-width: 78px; font-size: .82rem; font-variant-numeric: tabular-nums; }
+  .stats { display: grid; gap: 5px; justify-content: center; color: #646c78; font-size: .8rem; font-variant-numeric: tabular-nums; }
+  body[data-dark="1"] .stats { color: #aaa69c; }
+  .stats-line { display: grid; grid-template-columns: 52px repeat(3, auto); gap: 10px; align-items: baseline; }
+  .stats-line .name { font-weight: 800; }
+  .stats-line.euler .name { color: #7657c8; }
+  .stats-line.heun .name { color: #26965c; }
+  body[data-dark="1"] .stats-line.euler .name { color: #b7a2ff; }
+  body[data-dark="1"] .stats-line.heun .name { color: #72d59d; }
+  .observe { margin: 13px 0 0; color: #646c78; font-size: .82rem; line-height: 1.65; }
+  body[data-dark="1"] .observe { color: #aaa69c; }
+  .observe b { color: #1f2733; }
+  body[data-dark="1"] .observe b { color: #e9e6e1; }
+  @media (max-width: 520px) {
+    body { padding: 8px; }
+    .card { padding: 13px; }
+    input[type="range"] { max-width: 66vw; }
+    .stats-line { grid-template-columns: 46px repeat(3, auto); gap: 6px; font-size: .74rem; }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">這是一個平滑的<b>二維旋轉 velocity field</b>。先固定相同 NFE，比較 Euler 與固定步長 Heun；再切到 adaptive mode，看 Euler–Heun 這一對近似如何用差距調整步長。</p>
+
+  <canvas id="cv" width="800" height="600" aria-label="相同 NFE 下 Euler 與 Heun，以及 adaptive Heun 的二維軌跡"></canvas>
+  <p class="cap" id="cap"></p>
+
+  <div class="controls">
+    <div class="row" aria-label="選擇比較方式">
+      <span class="lab">模式</span>
+      <button data-method="compare" class="on">固定 NFE 比較</button>
+      <button data-method="adaptive">Adaptive</button>
+    </div>
+    <div class="row" id="budget-row">
+      <label class="lab" for="budget">共同 NFE 預算</label>
+      <input id="budget" type="range" min="8" max="40" step="2" value="12" />
+      <b id="budget-value" class="value">12 NFE</b>
+    </div>
+    <div class="row" id="tolerance-row" hidden>
+      <label class="lab" for="tolerance">Tolerance</label>
+      <input id="tolerance" type="range" min="0" max="100" step="1" value="18" />
+      <b id="tolerance-value" class="value">—</b>
+    </div>
+    <div class="stats" id="fixed-stats" aria-live="polite">
+      <div class="stats-line euler"><span class="name">Euler</span><span>步數 <b id="euler-steps">—</b></span><span>NFE <b id="euler-nfe">—</b></span><span>終點誤差 <b id="euler-error">—</b></span></div>
+      <div class="stats-line heun"><span class="name">Heun</span><span>步數 <b id="heun-steps">—</b></span><span>NFE <b id="heun-nfe">—</b></span><span>終點誤差 <b id="heun-error">—</b></span></div>
+    </div>
+    <div class="stats" id="adaptive-stats" hidden aria-live="polite">
+      <div class="stats-line"><span class="name">Adaptive</span><span>接受步數 <b id="adaptive-steps">—</b></span><span>NFE <b id="adaptive-nfe">—</b></span><span>終點誤差 <b id="adaptive-error">—</b></span></div>
+    </div>
+  </div>
+
+  <p class="observe" id="observe"></p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  'use strict';
+  var cv = document.getElementById('cv');
+  var display = NDFlow.hiDPICanvas(cv);
+  var budgetEl = document.getElementById('budget');
+  var toleranceEl = document.getElementById('tolerance');
+  var budgetRow = document.getElementById('budget-row');
+  var toleranceRow = document.getElementById('tolerance-row');
+  var budgetValue = document.getElementById('budget-value');
+  var toleranceValue = document.getElementById('tolerance-value');
+  var fixedStats = document.getElementById('fixed-stats');
+  var adaptiveStats = document.getElementById('adaptive-stats');
+  var cap = document.getElementById('cap');
+  var observe = document.getElementById('observe');
+  var method = 'compare', pal = NDFlow.palette(), fixed = null, adaptive = null;
+
+  function angle(t) { return Math.PI * t + 0.35 * Math.sin(2 * Math.PI * t); }
+  function angularSpeed(t) { return Math.PI + 0.70 * Math.PI * Math.cos(2 * Math.PI * t); }
+  function exact(t) { var a = angle(t); return [Math.cos(a), Math.sin(a)]; }
+  function velocity(t, x) { var w = angularSpeed(t); return [-w * x[1], w * x[0]]; }
+  function add(x, v, h) { return [x[0] + h * v[0], x[1] + h * v[1]]; }
+  function distance(a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1]); }
+
+  function solveEuler(budget) {
+    var x = exact(0), path = [[0, x[0], x[1]]], queries = [], h = 1 / budget;
+    for (var k = 0; k < budget; k++) {
+      var t = k * h, v = velocity(t, x);
+      queries.push([t, x[0], x[1], false]);
+      x = add(x, v, h);
+      path.push([t + h, x[0], x[1]]);
+    }
+    return { path: path, queries: queries, steps: budget, nfe: budget, rejected: 0 };
+  }
+
+  function solveHeun(budget) {
+    var count = Math.max(2, Math.floor(budget / 2));
+    var x = exact(0), path = [[0, x[0], x[1]]], queries = [], h = 1 / count;
+    for (var k = 0; k < count; k++) {
+      var t = k * h, k1 = velocity(t, x), predicted = add(x, k1, h), k2 = velocity(t + h, predicted);
+      queries.push([t, x[0], x[1], false]);
+      queries.push([t + h, predicted[0], predicted[1], true]);
+      x = [x[0] + 0.5 * h * (k1[0] + k2[0]), x[1] + 0.5 * h * (k1[1] + k2[1])];
+      path.push([t + h, x[0], x[1]]);
+    }
+    return { path: path, queries: queries, steps: count, nfe: 2 * count, rejected: 0 };
+  }
+
+  function toleranceFromSlider() {
+    var r = Number(toleranceEl.value) / 100;
+    return Math.pow(10, -1.30 - 2.10 * r);
+  }
+
+  function solveAdaptive(tol) {
+    var t = 0, x = exact(0), h = 0.16, nfe = 0, rejected = 0, guard = 0;
+    var path = [[0, x[0], x[1]]];
+    while (t < 1 - 1e-10 && guard++ < 600) {
+      h = Math.min(h, 1 - t);
+      var k1 = velocity(t, x), predicted = add(x, k1, h), k2 = velocity(t + h, predicted);
+      var corrected = [x[0] + 0.5 * h * (k1[0] + k2[0]), x[1] + 0.5 * h * (k1[1] + k2[1])];
+      var discrepancy = distance(corrected, predicted);
+      var scale = tol * (1 + Math.hypot(corrected[0], corrected[1]));
+      nfe += 2;
+      if (discrepancy <= scale || h <= 0.0015) {
+        t += h; x = corrected; path.push([t, x[0], x[1]]);
+        var grow = discrepancy < 1e-12 ? 2 : 0.88 * Math.sqrt(scale / discrepancy);
+        h *= Math.max(0.55, Math.min(1.9, grow));
+      } else {
+        rejected++;
+        var shrink = 0.82 * Math.sqrt(scale / discrepancy);
+        h *= Math.max(0.20, Math.min(0.75, shrink));
+      }
+    }
+    return { path: path, steps: path.length - 1, nfe: nfe, rejected: rejected };
+  }
+
+  function endError(result) {
+    var last = result.path[result.path.length - 1];
+    return distance([last[1], last[2]], exact(1));
+  }
+
+  function calculate() {
+    var budget = Number(budgetEl.value), tol = toleranceFromSlider();
+    budgetValue.textContent = budget + ' NFE';
+    toleranceValue.textContent = tol.toExponential(1);
+    if (method === 'compare') {
+      fixed = { euler: solveEuler(budget), heun: solveHeun(budget) };
+      document.getElementById('euler-steps').textContent = fixed.euler.steps;
+      document.getElementById('euler-nfe').textContent = fixed.euler.nfe;
+      document.getElementById('euler-error').textContent = endError(fixed.euler).toFixed(3);
+      document.getElementById('heun-steps').textContent = fixed.heun.steps;
+      document.getElementById('heun-nfe').textContent = fixed.heun.nfe;
+      document.getElementById('heun-error').textContent = endError(fixed.heun).toFixed(3);
+      cap.innerHTML = '<span class="key"><span class="swatch exact"></span>精確 trajectory</span>　<span class="key"><span class="swatch euler"></span>Euler</span>　<span class="key"><span class="swatch heun"></span>Heun</span>';
+      observe.innerHTML = '兩者使用<b>相同 NFE</b>：Euler 每一步只問一次，所以能走 ' + fixed.euler.steps + ' 步；Heun 每一步問兩次，只能走 ' + fixed.heun.steps + ' 步。即使步數較少，前後 velocity 的梯形修正仍讓綠線更接近精確軌跡。';
+    } else {
+      adaptive = solveAdaptive(tol);
+      document.getElementById('adaptive-steps').textContent = adaptive.steps;
+      document.getElementById('adaptive-nfe').textContent = adaptive.nfe;
+      document.getElementById('adaptive-error').textContent = endError(adaptive).toFixed(3);
+      cap.innerHTML = '<span class="key"><span class="swatch exact"></span>精確 trajectory</span>　<span class="key"><span class="swatch adaptive"></span>adaptive Heun</span>　圓點＝接受的時間節點';
+      observe.innerHTML = '這裡使用 Euler predictor 與 Heun corrector 的差來估計 local error。角速度變化較明顯時，節點會變密；平穩處則走大步。這次另有 <b>' + adaptive.rejected + '</b> 個候選步因 discrepancy 太大而被拒絕。';
+    }
+  }
+
+  function transform(size) {
+    var pad = 30, scale = Math.min(size.w - 2 * pad, size.h - 2 * pad) / 4.6;
+    return { x: function (v) { return size.w / 2 + v * scale; }, y: function (v) { return size.h / 2 - v * scale; } };
+  }
+
+  function drawLine(ctx, tr, points, color, width) {
+    ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.beginPath();
+    for (var i = 0; i < points.length; i++) {
+      var p = points[i], x = tr.x(p[1]), y = tr.y(p[2]);
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.stroke(); ctx.restore();
+  }
+
+  function drawNodes(ctx, tr, points, color, hollowPredictors) {
+    for (var i = 0; i < points.length; i++) {
+      var p = points[i], hollow = hollowPredictors && p[3];
+      ctx.beginPath(); ctx.arc(tr.x(p[1]), tr.y(p[2]), hollow ? 3.4 : 3.1, 0, Math.PI * 2);
+      ctx.fillStyle = hollow ? pal.bg : color; ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.fill(); ctx.stroke();
+    }
+  }
+
+  function draw() {
+    var size = display.resize(), ctx = display.ctx, tr = transform(size);
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, size.w, size.h);
+    ctx.strokeStyle = pal.grid; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(tr.x(-2.3), tr.y(0)); ctx.lineTo(tr.x(2.3), tr.y(0)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(tr.x(0), tr.y(-2.3)); ctx.lineTo(tr.x(0), tr.y(2.3)); ctx.stroke();
+
+    var exactPath = [];
+    for (var i = 0; i <= 360; i++) { var t = i / 360, p = exact(t); exactPath.push([t, p[0], p[1]]); }
+    drawLine(ctx, tr, exactPath, '#efc34f', 4.2);
+
+    if (method === 'compare') {
+      var eulerColor = pal.dark ? '#b7a2ff' : '#7657c8';
+      var heunColor = pal.dark ? '#72d59d' : '#26965c';
+      drawLine(ctx, tr, fixed.euler.path, eulerColor, 2.8);
+      drawNodes(ctx, tr, fixed.euler.queries, eulerColor, false);
+      drawLine(ctx, tr, fixed.heun.path, heunColor, 3.2);
+      drawNodes(ctx, tr, fixed.heun.queries, heunColor, true);
+    } else {
+      var adaptiveColor = pal.dark ? '#72d4df' : '#238b98';
+      drawLine(ctx, tr, adaptive.path, adaptiveColor, 3.2);
+      drawNodes(ctx, tr, adaptive.path.slice(0, -1), adaptiveColor, false);
+    }
+
+    var start = exact(0), end = exact(1);
+    ctx.fillStyle = pal.dark ? '#72d4df' : '#238b98';
+    ctx.beginPath(); ctx.arc(tr.x(start[0]), tr.y(start[1]), 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ef8354';
+    ctx.beginPath(); ctx.arc(tr.x(end[0]), tr.y(end[1]), 6, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function update() { calculate(); draw(); }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-method]'), function (button) {
+    button.onclick = function () {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-method]'), function (other) { other.classList.remove('on'); });
+      button.classList.add('on'); method = button.dataset.method;
+      budgetRow.hidden = method !== 'compare'; toleranceRow.hidden = method !== 'adaptive';
+      fixedStats.hidden = method !== 'compare'; adaptiveStats.hidden = method !== 'adaptive';
+      update();
+    };
+  });
+  budgetEl.oninput = update;
+  toleranceEl.oninput = update;
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme);
+  calculate(); applyTheme();
+})();
+</script>
+</body>
+</html>

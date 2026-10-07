@@ -5,18 +5,18 @@ prereqs:
   - math-markov-chain
   - math-kl
 lang: "zh"
-title: "實作：Parity 與 Markov Toy 上的 Masked Diffusion"
+title: "實作 A：每格機率都對，整串還會錯嗎？"
 category: "courses"
-group: "Unit 4 · Discrete Diffusion I"
+group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-04
-summary: "用 parity 與 Markov toy 分開量模型誤差、factorization error 與修正能力，並實作 absorbing／uniform 兩條離散 forward chain。"
+updated: 2026-10-06
+summary: "用完整列舉的 parity toy 比較 joint reverse 與 factorized reverse，先排除模型誤差，再檢查平行填字漏掉的相依。"
 demos: []
 references:
-  - label: "Sahoo et al., Simple and Effective Masked Diffusion Language Models (NeurIPS 2024)"
-    href: "https://arxiv.org/abs/2406.07524"
-  - label: "Austin et al., Structured Denoising Diffusion Models in Discrete State-Spaces (NeurIPS 2021)"
+  - label: "Austin et al., Structured Denoising Diffusion Models in Discrete State-Spaces (2021)"
     href: "https://arxiv.org/abs/2107.03006"
+  - label: "Sahoo et al., Simple and Effective Masked Diffusion Language Models (2024)"
+    href: "https://arxiv.org/abs/2406.07524"
 ---
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
@@ -31,174 +31,105 @@ import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 
-# 實作：Parity 與 Markov Toy 上的 Masked Diffusion
+# 實作 A：每格機率都對，整串還會錯嗎？
 
 <Objectives>
-- **建立 parity 與 Markov 兩個離散 toy。** 前者把相依藏在全域 parity，後者把相依放在相鄰位置，兩者都能算精確 conditional marginal。
-- **實作 masked diffusion 的訓練與跳步取樣。** 包含 absorbing forward 與加權 masked cross-entropy。
-- **用三張圖分辨三種誤差。** 比較模型逼近、每步翻開數造成的 factorization，以及 uniform chain 的修正能力。
+- **建立可以完整列舉的離散資料。** 用偶數 parity 序列算精確 conditional，不把網路預測當標準答案。
+- **比較 joint 與逐位置獨立抽樣。** 固定同一張 noisy snapshot，只改填字方式，量出合法率的差別。
+- **分開模型誤差與 factorization error。** 先用 oracle，再把自己訓練的 denoiser 放進相同評估。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 為什麼是這兩個 toy
+## 怎麼確定錯的是網路，還是抽樣？
 
-<Ref to="dma-lab-diffusion"/> 選 2D 月牙，是因為真實的 $p_t$、score 可以精確算。離散世界的對應要求是：**狀態空間小到可以把所有 conditional marginal $p(x_0^\ell\mid x_t)$ 用查表算出來**，這樣網路學得好不好有標準答案，而且因子化誤差可以和模型誤差分開量。
+<Ref to="dma-factorization-error"/> 說，即使每格的 conditional marginal 都正確，一起獨立填完仍可能出錯。要驗證這件事，最直接的方法就是選一個小到可以列出所有合法資料的問題，先把網路拿掉。
 
-- **Parity toy**：長度 $L=8$ 的 0/1 序列，資料是全部 128 條偶數 parity 的序列（均勻）。相依全部藏在「最後一個自由度」上，<Ref to="dma-factorization-error"/> Q1 的三個數字（$\tfrac12$、$1$、$\tfrac12$）可以直接驗證。
-- **Markov toy**：長度 $L=16$ 的 0/1 序列，第一格均勻，之後每格以機率 $0.9$ 等於上一格。相依在相鄰位置之間、處處都有，「步數 vs 誤差」的曲線是漸變的。狀態空間 $2^{16}$，查表仍可行。
+這次使用長度 $L=8$ 的 bit 序列，資料是全部 $128$ 條偶數 parity，均勻抽樣。只有「$1$ 的數量必須是偶數」這個限制；所以任何結果都能直接檢查。
 
-網路：小型 transformer（2 層、寬 64、雙向 attention），輸入 $x_t$（含 `[MASK]` 符號的 $K+1=3$ 類 embedding）與 $t$ 的 embedding，對每個位置輸出 $K=2$ 個 logits。訓練採用 Sahoo 等人的 MDLM objective [1]，forward chain 則沿用 Austin 等人的 D3PM [2]；若採用 <Ref to="dma-masked-diffusion"/> 說的「網路不需要看 $t$」，可以把 $t$ 拿掉當作業 4 的對照。$T=32$，線性 schedule $\bar\alpha_t=1-t/T$。
+[下載實作 A notebook：Discrete diffusion 與 factorization error](/personal_website/notes/notebooks/diffusion-models-applications/dma-w6-lab.ipynb)
 
-[下載 Week 6：Discrete diffusion 與 factorization error notebook（.ipynb）](/personal_website/notes/notebooks/diffusion-models-applications/dma-w6-lab.ipynb)
+Notebook 需要 NumPy 與 Matplotlib，依序執行 cells。程式使用完整列舉的 conditional probabilities；訓練自己的模型是最後的延伸練習。
 
-**Notebook 內容。** 在長度 8 的偶數 parity 狀態上實作 absorbing forward，列舉精確 conditional marginal，再把 exact joint reverse 與 factorized reverse 的合法率分開比較。狀態空間可完整列舉，所以標準答案不來自網路。
+## 第一步：找出這張 snapshot 可能的原文
 
-## 步驟 1：forward 與訓練
+令 $x_t$ 中的 MASK 用 $-1$ 表示。程式先留下所有與可見字相容的資料，再計算每個位置的 $0$、$1$ 比例：
 
-```python
-MASK = 2                                      # 第 K+1 個符號
+| 函式 | 計算的物件 |
+| --- | --- |
+| <code>compatible_states(xt)</code> | 所有與 $x_t$ 相容的合法原文 |
+| <code>exact_conditional(xt)</code> | 每個位置的 $p(x_0^\ell=0\mid x_t)$、$p(x_0^\ell=1\mid x_t)$ |
+| <code>sample_joint(xt)</code> | 從相容原文中抽一整串 |
+| <code>sample_factorized(xt)</code> | 按各位置 conditional marginal，獨立填入 MASK |
 
-def q_sample(x0, t):                          # absorbing forward 的 closed form
-    keep = torch.rand_like(x0.float()) < alpha_bar[t][:, None]
-    return torch.where(keep, x0, torch.full_like(x0, MASK))
+因為資料均勻、absorbing 的同一個 mask pattern 對所有相容原文有相同機率，相容原文的 posterior 也均勻。這就是列舉能直接給出正確 conditional 的原因。
 
-def weight(t):                                # (ᾱ_{t-1} − ᾱ_t) / (1 − ᾱ_t)
-    return (alpha_bar[t - 1] - alpha_bar[t]) / (1 - alpha_bar[t])
+## 第二步：只換抽樣方式
 
-for step in range(n_steps):                   # 加權 masked cross-entropy
-    x0 = sample_data(batch)
-    t  = torch.randint(1, T + 1, (batch,))
-    xt = q_sample(x0, t)
-    logits = model(xt, t)                     # (batch, L, K)
-    ce = F.cross_entropy(logits.transpose(1, 2), x0, reduction='none')  # (batch, L)
-    masked = (xt == MASK).float()
-    loss = (weight(t)[:, None] * ce * masked).sum(1).mean()
-    loss.backward(); opt.step(); opt.zero_grad()
-```
+固定被遮的格數，先從真實資料造出 snapshot，再分別用 joint 與 factorized sampler 填完。對每個設定重複抽樣，量「$1$ 的數量為偶數」的比例。
 
-與 <Ref to="dma-lab-diffusion"/> 的五行逐行對照：`q_sample` 從「乘 $\sqrt{\bar\alpha}$ 加噪聲」變成「以 $\bar\alpha$ 的機率保留、否則遮掉」；loss 從 MSE 變成只在被遮位置計算、帶時間權重的 cross-entropy。**其他一行都沒變。**
+你應該看到：joint 始終只抽合法資料；只剩一格 MASK 時，factorized 也能補對；但兩格以上一起填時，factorized 的合法率約為 $\tfrac12$。**這個差別不可能來自網路，因為兩邊都沒有使用網路。**
 
-檢查點：Markov toy 上，把 `logits.softmax(-1)` 與 `exact_conditional(xt)` 在被遮位置比對，平均 KL 應在幾千步內降到 $10^{-2}$ 以下。parity toy 上，注意「只剩一個被遮位置」的樣本：網路應學到接近確定的輸出（其他情形下 marginal 都該是 0.5）。
+![Parity 與局部相依](./imgs/w6-5-1.png)
 
-## 步驟 2：模型誤差 vs 因子化誤差（圖 a）
-
-這一步要把兩種誤差分開。對 Markov toy：
-
-- **模型誤差**：對一批 $x_t$，算 $\mathrm{KL}\big(\text{exact}\,\|\,\text{model}\big)$ 在被遮位置的平均，對 $t$ 畫曲線。期待：$t$ 大（幾乎全遮）時網路容易——marginal 接近 0.5；$t$ 中段最難。
-- **因子化誤差**：用 `exact_conditional`（**不用網路**）跑取樣，每步翻開 $k$ 個隨機位置，對 $k\in\{1,2,4,8,16\}$ 算 `kl_to_data`。這條曲線只含因子化誤差。
-
-把兩條線放在同一張圖上：模型誤差幾乎不隨 $k$ 變，因子化誤差隨 $k$ 單調上升。這張圖是 <Ref to="dma-factorization-error"/> 那張對照表的實證。
-
-<Ask>
-一張圖上兩種誤差，<br />
-怎麼一眼看出哪一段是誰的責任？
-
-</Ask>
-
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w6-5-decompose.html" class="demo-frame" title="兩種誤差分開看：互動 demo" style="height: 760px; width: 100%; border: none;"></iframe>
-
-**互動 demo：兩種誤差分開看。** 這是圖 a 的「標準答案版」：Markov toy、conditional marginal 用前向後向精確算，模型誤差用一個設定 $\epsilon$ 模擬（把 marginal 往均勻拉 $\epsilon$）。縱軸用一個好懂的統計量——**樣本的切換率**（相鄰兩格不同的比例），資料的真值是 **0.10**。讀法就兩句話：**三條線在 $k=1$ 的高低差是模型誤差**（完美網路實測 0.09～0.11，$\epsilon=0.15$ 是 0.17～0.18），**同一條線隨 $k$ 爬升的那一段是因子化誤差**（完美網路一路爬到 $k=16$ 的 **0.50**，也就是「每格獨立擲硬幣」）。
-
-<Remark label="補充" summary="為什麼用切換率，而不是直接算 KL">
-Markov toy 的狀態空間是 $2^{16}$，理論上可以查表算精確的 KL，但用有限樣本估 KL 會有很大的偏差（沒出現過的序列該算多少？），在 $k$ 小的時候那個偏差會蓋掉真正的訊號。
-
-切換率是這個資料分佈的一個**充分好用的摘要**：它有一個已知的真值（0.10），而因子化誤差恰好會讓它往「每格獨立」的 0.50 移動，所以偏差的方向和大小都讀得出來。實作時建議兩個都算：KL 用來確認整體，切換率用來看趨勢。
-</Remark>
-
-## 步驟 3：每步翻開幾個 vs 合法率（圖 b）
-
-```python
-@torch.no_grad()
-def sample(model, n, steps, chain='absorbing'):
-    xt = torch.full((n, L), MASK)
-    ts = torch.linspace(T, 0, steps + 1).long()      # 跳步：T → … → 0
-    for t, s in zip(ts[:-1], ts[1:]):
-        probs = model(xt, t.expand(n)).softmax(-1)
-        flip  = torch.rand(n, L) < (alpha_bar[s] - alpha_bar[t]) / (1 - alpha_bar[t])
-        new   = torch.distributions.Categorical(probs).sample()
-        xt = torch.where((xt == MASK) & flip, new, xt)   # 翻開就固定
-    return xt
-```
-
-對 parity toy，步數 $\{1,2,4,8\}$ 各抽 2000 條，畫 `legal` 的比例。期待：1 步是 50%（<Ref to="dma-factorization-error"/> Q1 算過的數字），2 步幾乎沒有進步（約 52%），4 步約 64%，8 步爬到 **78–79%**——但**不是** 100%。8 步為什麼不是 100%、而且為什麼是卡在 79% 而不是別的數，正是下面 Q1 要問的事，先寫下你的猜測再往下讀。倒過來，如果連 1、2 步都明顯低於 50%，那才是網路本身有問題，回步驟 1 的檢查點。
-
-對 Markov toy，步數 $\{1,2,4,8,16\}$，畫 `kl_to_data`。期待一條隨步數下降、漸變的曲線。**把這張圖留好，<Ref week="dma-week-discrete-ii"/> 加上 remasking 之後會在同一張圖上疊新的線。**
-
-## 步驟 4：absorbing vs uniform 的修正實驗（圖 c）
-
-另訓一個 uniform 鏈的模型（`q_sample` 改成「以 $1-\bar\alpha_t$ 的機率換成均勻隨機字」，loss 改回 <Ref to="dma-d3pm"/> 的一般 KL 形式——參考解答提供 `d3pm_loss`）。在 Markov toy 上重做 <Ref to="dma-absorbing-vs-uniform"/> demo 的實驗：第 2 步強制植入一個與鄰格相反的字，之後照常取樣，統計 200 次裡錯字最後被改掉的比例，以及最終樣本的 `kl_to_data`。
-
-期待：absorbing 的修正率是 0%；uniform 有非零的修正率，但整體 `kl_to_data` 未必更好——把兩個數字並排，寫兩句話說明 <Ref to="dma-absorbing-vs-uniform"/> 講的「修正能力 vs 乾淨 context」在這個 toy 上是哪一邊贏。
+*圖：本次先用全域 parity 檢查相依；延伸到 Markov toy 時，相依則分布在相鄰位置。*
 
 <Question id="Q1">
-步驟 3 在 parity toy 上用 8 步、$L=8$，所以「每步平均翻開一格」。但實際跑出來的合法率是 **78–79%**，不是 100%。
-
-**哪裡出問題？**
+如果 factorized sampler 的合法率只有 $\tfrac12$，把訓練資料增加十倍，這個實验會改善嗎？
 
 <Answer>
-不是模型，也不是實作 bug。問題在「平均翻開一格」和「每步剛好翻開一格」不是同一件事。
-
-看那一行程式：`flip = torch.rand(n, L) < (ᾱ_s − ᾱ_t)/(1 − ᾱ_t)`。每個位置**各自**擲一枚硬幣，所以一步之內翻開幾格是一個 Binomial 隨機變數——期望值是 1，但**有相當的機率是 0 或 2 以上**。
-
-parity 的相依全部藏在最後一個自由度，所以真正該問的不是「有沒有哪一步翻開兩格」，而是**最後一次翻開了幾格**。只要還有兩格以上被遮，每一格的 marginal 就恰好是 0.5——網路學得再好也只能給 0.5，這是 parity 這個資料本身的性質；只有「剩一格」時，那一格才被 parity 決定。
-
-> **這條樣本合法，等價於最後一次翻開只翻了一格。**
-
-否則最後那一批全是公平銅板，parity 有一半的機會湊成偶數。
-
-這個 toy 小到可以把數字算死。線性 schedule 之下第 $i$ 步的翻開機率是 $\frac{1}{N-i}$，而這一組機率等價於**每個位置各自獨立抽一個 $\{0,\dots,N-1\}$ 上的均勻標籤**——位置 $\ell$ 第一次被翻開在第 $i$ 步的機率是 $\prod_{j<i}\frac{N-1-j}{N-j}\cdot\frac{1}{N-i}=\frac1N$，和 $i$ 無關。於是「最後一次只翻一格」就是「最大的那個標籤只有一個位置拿到」：
-
-$$
-\text{合法率}=\frac{1+q}{2},\qquad q=\Pr[\text{最大標籤唯一}]=\frac{L}{N^{L}}\sum_{k=0}^{N-1}k^{\,L-1}.
-$$
-
-$L=N=8$ 代進去，$q=0.5723$、合法率 **78.6%**。所以量到 78–79% 不是實作沒調好——那就是這個設定的天花板，剩下的 21.4% 全部是因子化誤差。
-
-三種修法，各對應不同的意思：
-
-1. **強制每步剛好一格**（在還被遮的位置裡隨機挑一個）。這樣因子化誤差嚴格是 0，合法率會是 100%——這就是 <Ref to="dma-factorization-error"/> 的 demo 做的事，也等於一個任意順序的 autoregressive 模型。
-2. **步數加大**（例如 32 步）。翻開機率變小、最後一次只翻一格的機會上升，合法率往 100% 靠：同一條公式給出 $N=16$ 是 88.4%、$N=32$ 是 94.0%、$N=64$ 是 96.9%。這是「多走幾步」的標準答案，而且收斂得比想像中慢。
-3. **什麼都不改，但把它記在報告裡。** 這才是這一題真正的用意：**「步數 $=L$」不等於「每步一格」**，而 masked diffusion 的論文報數字時如果只寫步數、沒寫每步實際翻開幾格，那個數字就不能直接和 autoregressive 比。<Ref to="dma-factorization-error"/> 引的 Zheng 等人提醒的正是這件事。
+不會。這裡已經使用真實資料分布算出的精確 conditional marginals，沒有 estimation error 可以改善。要改的是抽樣規則，例如先填一部分、重新計算 conditional，再填剩下的部分；或用能表達 joint dependence 的抽樣方式。這是 <Ref to="dma-factorization-error"/> 的結構性誤差。
 </Answer>
 </Question>
 
-![兩個 toy，兩種相依](./imgs/w6-5-1.png)
+## 第三步：把誤差來源分開記錄
 
-*圖：Parity toy 把全域相依集中在最後一個自由位元；Markov toy 則把相依分散到每一對相鄰 token。*
+Notebook 另檢查 forward MASK 比例是否跟 $1-\bar\alpha_t=t$ 一致。它回答的是 snapshot 有沒有造對，不是 joint reverse 有沒有抽對。
 
-## 作業
+下面的 Markov toy demo 再把 conditional prediction 人為往均勻分布拉一點，模擬可調整的模型誤差。固定每步填字數，比較不同 prediction errors；再固定 prediction error，比較每步填幾格。
 
-1. **Uniform vs absorbing 的合法率**。在 parity toy 上對兩條鏈各畫步數 vs 合法率。uniform 鏈在 8 步時是否也接近 100%？若不是，說明是哪一種誤差（提示：uniform 鏈的 $x_t$ 裡「只剩一個不確定的位置」這個狀態，模型認得出來嗎？）。
-2. **信心排序**。把步驟 3 的 `flip` 改成「每步翻開 marginal 最尖（entropy 最低）的 $k$ 個位置」（MaskGIT 式），重畫 Markov toy 的曲線。改善多少？在 parity toy 上呢——為什麼那裡幾乎沒有幫助？
-3. **換 parametrization**。把網路改成直接預測 $x_{t-1}$（而非 $x_0$），用 <Ref to="dma-d3pm"/> 的一般 ELBO 訓練。比較：(a) 訓練是否更難收斂；(b) 能不能跳步取樣。寫下你觀察到的差別與 <Ref to="dma-d3pm"/> Q1 的對應。
-4. **（選）拿掉 $t$**。把網路的 $t$ 輸入移除、重訓 absorbing 模型。loss 曲線與步驟 3 的合法率是否改變？用 <Ref to="dma-masked-diffusion"/> 那個 `<Details>` 裡的論證解釋為什麼。
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w6-5-decompose.html" class="demo-frame" title="分開比較 prediction error 與平行填字誤差" style="height: 760px; width: 100%; border: none;"></iframe>
+
+*Demo 的「模型誤差」是明確設定的 surrogate，不是實際訓練結果。切換率是摘要統計量，不等於整個 distribution 的 KL。*
+
+## 延伸練習
+
+1. 把資料改成「$1$ 的數量可被 $3$ 整除」，同時修改合法性判斷。不同 MASK 數量下，哪些位置 marginals 看不出 joint constraint？
+2. 將一次填完改成每次只填一格，每次都重新查 conditional。確認偶數 parity 的合法率如何改變。
+3. 訓練自己的 denoiser：輸入 token sequence 與時間，輸出每位置 logits；用 <Ref to="dma-d3pm"/> 的 masked cross-entropy。先比較 logits 的 conditional KL，再放入相同 sampler 比較合法率。這兩個評估分別檢查預測與生成。
+4. 換成相鄰 bit 有相依的 Markov toy，觀察每步填字數的影響。不要只記步數，也記每步實際填幾格、seed 與抽樣數。
+
+## 快速回顧一下
 
 <QuizBlock id="w6-5-a">
-步驟 1 的 loss 只在被遮位置計算。若把沒被遮的位置也算進 cross-entropy，會發生什麼？
-<Option>loss 變成 ELBO 的更緊上界。</Option>
-<Option correct>那些位置的目標就是輸入本身，網路學會照抄即可，這部分 loss 迅速變零、對訓練沒有資訊，只是浪費容量與計算，並且讓 loss 不再是 <Ref to="dma-masked-diffusion"/> 推出的 ELBO。</Option>
-<Option>會讓模型學會修正錯字。</Option>
-<Explanation>
-沒被遮的位置對 ELBO 的貢獻是零（posterior 與 model 都是確定的）。多算它們不會帶來修正能力——absorbing 鏈的取樣程序根本不會碰已翻開的位置。
-</Explanation>
+本 notebook 的 conditional probabilities 來自：
+<Option>訓練好的 Transformer。</Option>
+<Option correct>列舉所有與可見字相容的合法原文。</Option>
+<Option>對 token 編號取平均。</Option>
+<Explanation>這讓我們可以先排除模型誤差，只比較抽樣假設。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w6-5-b">
-Parity toy 上 8 步取樣的合法率是 78–79%，而不是接近 100%。最可能的原因是：
-<Option>模型誤差：網路在「只剩一格被遮」的狀態沒學到確定的輸出。</Option>
-<Option correct>因子化誤差：$L=8$、8 步時每步**平均**翻開一個，但每個位置各自擲硬幣，所以有相當的機率某一步同時翻開兩格以上——那一步就漏掉 parity 的相依。</Option>
-<Option>schedule 選錯了。</Option>
-<Explanation>
-「平均翻開一格」和「每步剛好翻開一格」不是同一件事：一步之內翻開幾格是 Binomial，期望值 1、但常常是 0 或 2 以上。用 `exact_conditional` 取代網路重跑一次，合法率仍然停在 78.6%（Q1 把這個數算出來了）——那一整塊都是因子化誤差，和網路無關。要讓它歸零，得改成「每步剛好翻開一格」。
-</Explanation>
+同一張 snapshot，joint 與 factorized sampler 的差別是：
+<Option>Forward mask probability 不同。</Option>
+<Option correct>前者抽整串相容原文；後者獨立抽各位置，可能漏掉相依。</Option>
+<Option>前者使用更多 training data。</Option>
+<Explanation>Conditional marginals 的來源相同，差在它們怎麼組成一次抽樣。</Explanation>
 </QuizBlock>
 
-<Bridge to="dma-why-continuous-time">
-U4 已經能訓練與取樣，但「修正多少」仍只能靠換掉整條 transition matrix 來回答。U5 把時間步縮小到只剩瞬間跳轉的 rate，讓 forward process、反向 score 與取樣時的 remasking 可以分開設計。
+<QuizBlock id="w6-5-c">
+Forward MASK 比例正確，能證明什麼？
+<Option>生成的整串資料一定正確。</Option>
+<Option correct>這個 snapshot 統計量符合指定 schedule；reverse joint 還需要另外檢查。</Option>
+<Option>Factorization error 為零。</Option>
+<Explanation>Forward snapshot、預測準確度與 reverse sampling 是不同層次。</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-lab-ctmc">
+現在我們已經能把平行填字的誤差單獨量出來。下一次實作把同一個問題寫成 rates，比較小時間近似造成的偏差，再真的把已填字遮回去重選，看看修改的機會在有限步下有什麼效果。
 </Bridge>
 
 ## 參考文獻
 
-1. Sahoo, S. S. et al. [*Simple and Effective Masked Diffusion Language Models.*](https://arxiv.org/abs/2406.07524) NeurIPS 2024.（步驟 1 的 loss 與步驟 3 的取樣程序。）
-2. Austin, J. et al. [*Structured Denoising Diffusion Models in Discrete State-Spaces.*](https://arxiv.org/abs/2107.03006) NeurIPS 2021.（步驟 4 uniform 鏈的一般 loss。）
+1. Austin, J. et al. [*Structured Denoising Diffusion Models in Discrete State-Spaces.*](https://arxiv.org/abs/2107.03006) NeurIPS 2021.
+2. Sahoo, S. S. et al. [*Simple and Effective Masked Diffusion Language Models.*](https://arxiv.org/abs/2406.07524) NeurIPS 2024.

@@ -5,9 +5,9 @@ prereqs:
   - math-kl
   - math-conditional-expectation
 lang: "en"
-title: "因子化誤差：離散取樣一步走太大的代價"
+title: "Do correct token marginals make a correct sequence?"
 category: "courses"
-group: "Unit 4 · Discrete Diffusion I"
+group: "Unit 4 · Discrete Diffusion"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

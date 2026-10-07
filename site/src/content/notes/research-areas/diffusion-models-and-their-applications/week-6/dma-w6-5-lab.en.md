@@ -5,9 +5,9 @@ prereqs:
   - math-markov-chain
   - math-kl
 lang: "en"
-title: "實作：Parity 與 Markov Toy 上的 Masked Diffusion"
+title: "Lab A: Correct marginals, incorrect sequences?"
 category: "courses"
-group: "Unit 4 · Discrete Diffusion I"
+group: "Unit 4 · Discrete Diffusion"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

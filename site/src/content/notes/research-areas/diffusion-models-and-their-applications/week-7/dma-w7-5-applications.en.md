@@ -7,7 +7,7 @@ prereqs:
 lang: "en"
 title: "應用：語言模型、蛋白質序列、圖"
 category: "courses"
-group: "Unit 5 · Discrete Diffusion II"
+group: "Unit 4 · Discrete Diffusion"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

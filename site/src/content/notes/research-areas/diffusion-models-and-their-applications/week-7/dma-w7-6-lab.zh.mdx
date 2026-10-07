@@ -6,24 +6,20 @@ prereqs:
   - math-time-reversal
   - math-kl
 lang: "zh"
-title: "實作：τ-leaping、Remasking 與比值學習"
+title: "實作 B：Rate 取樣、Remasking 與比值"
 category: "courses"
-group: "Unit 5 · Discrete Diffusion II"
+group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-04
-summary: "在同一組離散 toy 上比較精確跳步、$\tau$-leaping 與 remasking，並驗證 score-ratio target 在 absorbing chain 上如何對回 masked cross-entropy。"
+updated: 2026-10-06
+summary: "比較 frozen-rate 小步與 closed-form reveal probabilities，實作配平的 finite-step remasking，再驗證 absorbing ratio 與 weighted cross-entropy。"
 demos: []
 references:
-  - label: "Campbell et al., A Continuous Time Framework for Discrete Denoising Models (NeurIPS 2022)"
+  - label: "Campbell et al., A Continuous Time Framework for Discrete Denoising Models (2022)"
     href: "https://arxiv.org/abs/2205.14987"
-  - label: "Gillespie, Approximate Accelerated Stochastic Simulation of Chemically Reacting Systems (J. Chem. Phys. 2001)"
-    href: "https://doi.org/10.1063/1.1378322"
-  - label: "Lou, Meng & Ermon, Discrete Diffusion Modeling by Estimating the Ratios of the Data Distribution (ICML 2024)"
-    href: "https://arxiv.org/abs/2310.16834"
   - label: "Wang et al., Remasking Discrete Diffusion Models with Inference-Time Scaling (2025)"
     href: "https://arxiv.org/abs/2503.00307"
-  - label: "Sahoo et al., Simple and Effective Masked Diffusion Language Models (NeurIPS 2024)"
-    href: "https://arxiv.org/abs/2406.07524"
+  - label: "Lou, Meng & Ermon, Discrete Diffusion Modeling by Estimating the Ratios of the Data Distribution (2024)"
+    href: "https://arxiv.org/abs/2310.16834"
 ---
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
@@ -38,174 +34,137 @@ import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 
-# 實作：τ-leaping、Remasking 與比值學習
+# 實作 B：Rate 取樣、Remasking 與比值
 
 <Objectives>
-- **把離散跳步取樣改寫成 CTMC 的 $\tau$-leaping。** 確認 absorbing chain 上兩種實作還原同一條步數曲線。
-- **實作 remasking 與補償 rate。** 驗證邊際不變，並畫出強度對合法率與 KL 的影響。
-- **比較 SEDD ratio target 與 MDLM cross-entropy。** 在 absorbing chain 上驗證兩者只差已知係數，再到 uniform chain 看差異。
+- **比較 closed-form reveal 與 frozen-rate 近似。** 不混入 endpoint completion，先量每個時刻的 MASK 比例。
+- **實作真的會修改已填字的 remasking。** 寫出有限步的遮回與補償機率，分清 conditional snapshot 保留與生成時的因子化。
+- **驗證 absorbing ratio 與 weighted cross-entropy 的換算。** 用同一個 toy 算兩邊，不靠模型名稱判斷它們是否相關。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-<Ask>
-上一個單元的取樣器和這個單元的 rate 語言，<br />
-跑出來是同一條曲線嗎？
-</Ask>
+## 同一條路，換成 Rate 來走會差多少？
 
-## 沿用上一個單元的 toy
+<Ref to="dma-lab-discrete-time"/> 已經把平行抽字的問題分開量出來。本次加入時間近似：只拿現在的 rate 走一整段，會不會和 closed-form 的 snapshot probabilities 有差？再加入 remasking，讓前面已填的字也能修改。
 
-一切都建在 <Ref to="dma-lab-discrete-time"/> 的 `toy_discrete.py` 上：parity toy（$L=8$）、Markov toy（$L=16$）、`exact_conditional(xt)`、`legal(x)`、`kl_to_data(samples)`。這個單元多兩個精確工具，都用查表做：
+[下載實作 B notebook：Rate、remasking 與 absorbing ratios](/personal_website/notes/notebooks/diffusion-models-applications/dma-w7-lab.ipynb)
 
-- `exact_marginal(xt, t)`：$p_t(x_t)=\sum_{x_0}q_t(x_t\mid x_0)\,p(x_0)$。
-- `exact_ratios(xt, t)`：對 $x_t$ 的每個鄰居 $y$ 算 $p_t(y)/p_t(x_t)$——<Ref to="dma-concrete-score"/> 說它等於 `exact_conditional` 乘 $\alpha_t/(1-\alpha_t)$（absorbing），這是第一個要用程式驗證的等式。
+程式需要 NumPy 與 Matplotlib，沿用完整列舉的 bit toy。這次資料設成 **$99\%$ 偶數 parity、$1\%$ 奇數 parity**，讓所有完整序列都有正機率；有限步抽出不理想的組合後，posterior 仍有定義。它不是上一個 notebook 的純偶數資料。
 
-時間改成連續 $t\in[0,1]$，線性 schedule $\alpha_t=1-t$，forward rate $\beta_t=1/(1-t)$，翻開 rate $u_t=-\dot\alpha_t/(1-\alpha_t)=1/t$。上一個單元的網路吃整數 $t\in\{1,\dots,32\}$，這個單元要用它時餵 `round(t*32)`；或者用下面步驟 3 的方式重訓一個吃連續 $t$ 的版本（loss 一模一樣，只是 $t\sim\mathrm{Uniform}[0,1]$、權重 $1/t$）。
+## 第一步：先只檢查 MASK 比例
 
-[下載 Week 7：CTMC、τ-leaping 與 remasking notebook（.ipynb）](/personal_website/notes/notebooks/diffusion-models-applications/dma-w7-lab.ipynb)
+選 $\alpha_t=1-t$。<Ref to="dma-concrete-score"/> 的 reverse reveal rate 是 $1/t$；從 $t$ 退到 $s=t-h$，closed-form 的翻開機率為
+$$
+w_{t,s}=\frac{\alpha_s-\alpha_t}{1-\alpha_t}
+=\frac ht.
+$$
+若把步首 rate $1/t$ 凍結在整段 $h$，則翻開機率為
+$$
+1-e^{-h/t}.
+$$
+這是 **frozen-rate 的 $\tau$-leaping 型近似**：一段時間內不再更新 rates 與 context。兩者在 $h\to0$ 時有相同一階項，但有限 $h$ 不相同。
 
-**Notebook 內容。** 將 absorbing schedule 寫成連續時間 reveal rate，觀察 τ-leaping 步長誤差，再以 parity oracle 比較一次 factorized reveal 與反覆 remasking。`noisy_probs` 是明確標示的人工 surrogate，可單獨調整誤差。
+Notebook 先停在 $t=0.02$，不把最後補完混進實驗。畫出不同步數的 MASK 比例，與目標 $1-\alpha_t=t$ 比較；closed-form 那條則檢查是否在 Monte Carlo 誤差內一致。
 
-## 步驟 1：τ-leaping 取樣器（圖 a）
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w7-6-tauleap.html" class="demo-frame" title="比較 snapshot probabilities 與 frozen-rate 取樣" style="height: 1000px; width: 100%; border: none;"></iframe>
 
-CTMC 的精確模擬是 Gillespie 演算法：抽下一次跳躍的時間與位置，一次只跳一個 token。這太慢（$L$ 個位置、幾千次跳躍）。Campbell 等人 [1] 把 Gillespie 的 **τ-leaping** [2] 用在 discrete diffusion sampling；它可以看成 CTMC 的 Euler 法：固定一段 $\tau$，用步首的 rate 算每個位置在這段時間內跳的機率，**所有位置獨立地決定要不要跳、跳到哪**。
-
-```python
-@torch.no_grad()
-def tau_leap_step(model, xt, t, tau, sigma=0.0):
-    n, L = xt.shape
-    probs = model(xt, t).softmax(-1)                      # p_θ(x0^ℓ | x_t), (n, L, K)
-    alpha = 1 - t
-    u = 1 / t                                              # 翻開 rate  −α̇/(1−α)
-    u_total = u + sigma * alpha / (1 - alpha)              # remasking 的補償（步驟 2）
-    masked = xt == MASK
-    # 被遮位置：以機率 1−exp(−u_total τ) 翻開，翻成哪個字按 p_θ 抽
-    flip = masked & (torch.rand(n, L) < 1 - torch.exp(-u_total * tau))
-    new  = torch.distributions.Categorical(probs).sample()
-    xt = torch.where(flip, new, xt)
-    # 已翻開位置：以機率 1−exp(−σ τ) 遮回去（步驟 2；σ=0 時不動）
-    remask = (~masked) & (torch.rand(n, L) < 1 - torch.exp(-sigma * tau))
-    return torch.where(remask, torch.full_like(xt, MASK), xt)
-
-def sample_ctmc(model, n, steps, sigma=0.0):
-    xt = torch.full((n, L), MASK)
-    ts = torch.linspace(1, 0, steps + 1)                   # t: 1 → 0
-    for t, s in zip(ts[:-1], ts[1:]):
-        xt = tau_leap_step(model, xt, t, tau=t - s, sigma=sigma)
-    return xt                                              # 最後一步 t→0 時 u→∞，記得把殘留的 [MASK] 全部翻開
-```
-
-與 <Ref to="dma-lab-discrete-time"/> 步驟 3 的 `sample` 逐行對照：那裡翻開的機率是 $\frac{\bar\alpha_s-\bar\alpha_t}{1-\bar\alpha_t}$，這裡是 $1-e^{-u_t\tau}$。兩者在 $\tau\to0$ 時一致；在有限 $\tau$ 下前者是**精確**的跳步（用了 $\bar Q$ 的 closed form），後者是 Euler 近似。**圖 a**：對 parity toy 畫步數 $\{1,2,4,8,16,32\}$ 的合法率，兩個取樣器各一條線。期待：兩條線很接近但**不重合**，而且都離 100% 還有一段距離——4／8／32 步大致落在 **57–65 / 73–79 / 93–95%**（下面的 demo 量的就是這條線），1、2 步更低。精確跳步那條線有標準答案可以對：<Ref to="dma-lab-discrete-time"/> Q1 那條 $(1+q)/2$ 在 4／8／32 步分別給出 **64.1 / 78.6 / 94.0%**。差距集中在步數最少的那幾個點。
-
-檢查點：τ-leaping 裡「所有位置獨立決定」那一行，就是因子化誤差的來源；把 `steps` 開到 256（每步幾乎最多跳一個位置），兩條線都會到 100%。**同一個 toy、同一個網路，換了語言，得到差不多同一張圖**——這是這個單元想讓你確認的第一件事，而「差多少」正好是下面 demo 要量的。
-
-<Remark label="補充" summary="兩端的 rate 會發散，程式裡要怎麼收">
-線性 schedule 下翻開 rate 是 $u_t=1/t$，$t\to0$ 時發散；forward rate $\beta_t=1/(1-t)$ 在 $t\to1$ 發散。這不是 bug——<Ref to="dma-ctmc"/> 說過它的意思是「剩下的少數 `[MASK]` 要以很快的速度翻開」。
-
-程式裡有兩種收法：把最後一步的 $t$ clamp 在一個小的 $t_{\min}$（例如 $10^{-3}$），或者直接規定最後一步把所有殘留的 `[MASK]` 依 $p_\theta$ 一次填完。兩種都會引入一點偏差；後者比較常見，因為它保證輸出裡沒有 `[MASK]`。**這一項偏差和步數無關**，所以在畫「步數 vs 合法率」時它是一條水平的地板，不要把它算成因子化誤差。
-</Remark>
-
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w7-6-tauleap.html" class="demo-frame" title="精確跳步與 τ-leaping 的合法率：互動 demo" style="height: 1000px; width: 100%; border: none;"></iframe>
-
-**互動 demo：兩個取樣器差多少。** parity toy（$L=8$），橫軸步數、縱軸合法率，每個點 2000 條樣本。兩條線很接近但不重合：4／8／32 步的合法率是精確跳步 **63–65 / 78–79 / 94–95%**（理論值 64.1 / 78.6 / 94.0%，三個點全部對上）、τ-leaping **57–59 / 73–74 / 93–94%**，最大差 **5–8 個百分點**，而且**差距集中在步數最少的那幾個點**——那裡的 $\tau$ 最大、一階近似最粗。切到「強制每步剛好一格」差別大得多：精確跳步在 8 步（$=L$）就衝到 **100%**，τ-leaping 只有 **71–72%**，因為它的每步機率不同，有些步一格都不開、最後被迫一次補完好幾格。每個點 2000 條樣本，數字每次跑都會動一兩個百分點。
+*Demo 使用純偶數 parity，另比較最後填完後的合法率；notebook 的第一張圖只看內部時間的 MASK 比例。兩者測量的物件不同。*
 
 <Question id="Q1">
-上面量到精確跳步在每一個步數上都不輸 τ-leaping，而且它**不需要 rate**——只要 $\bar\alpha$ 的 closed form 就能算每步翻開的機率。**那我們為什麼還要學 τ-leaping？**
+既然 closed-form 的 reveal probability 更直接，為什麼還要學 rate sampling？
 
 <Answer>
-會被想到的回答大概是「τ-leaping 比較快」或「精確跳步只是 τ-leaping 的特例」。兩個都不對：兩者每步都只呼叫網路一次，成本一樣；而精確跳步用的是**closed form**，不是把 $\tau$ 取小的極限。
+因為新設計不一定有好算的整段 transition。例如 rate 依賴當下完整 context，或加入新的修改規則時，一整段時間內可能多次改變狀態與 rates。Rate sampler 可以只使用當下的局部轉移資訊。
 
-真正的理由是**closed form 只對「寫得出 $\bar Q_t$」的鏈存在**。這一整個單元在做的事都在破壞那個前提：
-
-- 加上 remasking 之後，反向鏈的 rate 依賴 $\sigma_t$ 與網路輸出，沒有 $\bar Q$ 可以查（<Ref to="dma-remasking"/>）。
-- 逐位置不同的 source 與 $\kappa_t^\ell$、混合路徑（<Ref to="dma-discrete-flow-matching"/>），一樣沒有一個統一的 closed form。
-- 用比值直接寫反向 rate 時（步驟 3），我們手上只有 rate，本來就沒有機率的 closed form。
-
-τ-leaping 只需要「現在每根管子的 rate 是多少」，所以上面每一種情形它都能跑。**rate 是比 $\bar Q$ 更通用的介面**，這就是換語言換到的東西。
-
-上面的數字還有一件事要讀出來：精確跳步的「精確」是**逐位置**的精確——每個位置在 $[s,t]$ 之間翻開的機率算得完全對。但它在 4 步時也只有 63–65%，離 100% 很遠。缺的那一塊不是機率算錯，是**同時翻開的位置被獨立抽**（<Ref to="dma-factorization-error"/>）。所以「精確跳步」精確的是邊際，不是 joint；兩個取樣器的差距（5–8 個百分點）比因子化誤差（4 步的 63% 到 32 步的 95%，三十幾個百分點）小得多，這個數量級的對比本身就是步驟 1 的結論。
+但在本例，closed form 精確的是「各位置是否翻開」的機率；把翻開的字獨立抽出來，仍有 <Ref to="dma-factorization-error"/> 的問題。時間近似與因子化不能混成同一個誤差。
 </Answer>
 </Question>
 
-![τ-leaping 的一步：三件事，各自的誤差](./imgs/w7-6-1.png)
+![有限步取樣的不同誤差](./imgs/w7-6-1.png)
 
-*圖：τ-leaping 一步先凍結步首 rate、逐位置獨立抽樣；若啟用 remasking，已填位置還會再擲一次 coin。時間離散與因子化會隨 $\tau\to0$ 消失，端點偏差則要另外處理。*
+*圖：凍結 rates、平行抽字與端點補完是不同操作，評估時要分開檢查。*
 
-## 步驟 2：remasking 強度 vs 合法率（圖 b，疊在上一個單元的圖上）
+## 第二步：Remasking 不只是晚一點才填字
 
-上面的 `sigma` 參數已經把 <Ref to="dma-remasking"/> 寫進去了：已翻開位置以 rate $\sigma$ 遮回去，被遮位置的翻開 rate 加大 $\sigma\alpha_t/(1-\alpha_t)$。先做**邊際檢查**：對 Markov toy 跑 2000 條軌跡到 $t=0.5$，數 `[MASK]` 的比例，對 $\sigma\in\{0,0.5,1,2\}$ 應該都是 $0.5\pm$ 抽樣誤差；把補償那一行拿掉（`u_total = u`）再跑一次，比例會隨 $\sigma$ 明顯上升。這兩個數字寫進 notebook。
+依信心先保留一些新字、其餘留著 MASK，不一定真的會修改**已經保留的字**。本 notebook 則明確加入遮回操作。
 
-然後畫圖 b：
+對 $t>s$，若可見字以機率 $r$ 遮回去，固定原文時，原本可見的比例 $\alpha_t$ 變成 $\alpha_t(1-r)$。為了到達 $\alpha_s$，每個 MASK 的翻開機率應滿足
+$$
+\alpha_t(1-r)+(1-\alpha_t)a=\alpha_s.
+$$
+解出
+$$
+a=\frac{\alpha_s-\alpha_t+r\alpha_t}{1-\alpha_t}.
+$$
+因此 $r$ 還要滿足 $0\leq r\leq(1-\alpha_s)/\alpha_t$，才能讓 $a\leq1$。程式以 rate-inspired 的 $r=1-e^{-\sigma(t-s)}$ 為起點，再套用這個限制；這是有限步 kernel，**不是把所有機率直接寫成 rate 乘步長**。這類保留 conditional marginals 的設計見 ReMDM [2]。
 
-- 對 Markov toy，橫軸步數 $\{4,8,16,32,64,128\}$（對數刻度，與上一個單元相同），縱軸 `kl_to_data`，對 $\sigma\in\{0,0.5,1,2\}$ 各一條線。$\sigma=0$ 那條就是上一個單元的圖 b，把它疊回去。
-- 對 parity toy 畫同樣的圖，縱軸換成合法率。
+先給定真實 $x_0$，翻開時填原字，檢查新的 MASK 比例是否為 $1-\alpha_s$。接著改用 posterior marginals 抽新字，比較不同 steps 與 $\sigma$ 的合法率；這時仍有平行抽字的因子化誤差。
 
-**先寫下你的猜測再跑**：$\sigma>0$ 的線會在哪些步數壓到 $\sigma=0$ 底下？把預測寫在 notebook 裡再看結果。
+<Remark label="補充" summary="為什麼需要所有轉移都用更新前的狀態？">
+這一步同時決定哪些原 MASK 翻開、哪些原可見字遮回。若先修改陣列，再用修改後的 MASK 判斷第二個操作，剛填的字也可能立刻被遮掉；那就不是上式描述的 kernel。Notebook 先保存舊的 mask pattern，再一次更新。
+</Remark>
 
-我們在 <Ref to="dma-remasking"/> 的 demo 上量到的是：用 `exact_conditional` 當網路時，**只有步數少的那一端有明顯好處**（Markov toy 的切換率在 $N=8$ 從 0.14–0.15 掉到 0.13 左右），步數多的一端 $\sigma=0$ 本來就已經打在資料的真值上，沒有空間可以進步。理由是網路沒有誤差時唯一的誤差來源就是因子化，而它隨步數自己變小。
+## 第三步：把模型誤差另外加進來
 
-所以這一步**兩種網路都要跑**：`exact_conditional` 與訓出來的網路，把兩組「$\sigma$ vs 指標」畫在一起，看有多少改善來自「修掉因子化的錯」、多少來自「修掉網路的錯」。Wang 等人的 ReMDM [4] 所說的 inference-time scaling 是在真實模型上量的，那裡剩下的誤差是網路在 context 不完整時猜錯——要在 toy 上看到它，得先讓網路真的會錯。
+程式把精確的 token=1 posterior 往 $\tfrac12$ 拉：
+$$
+\tilde f^\ell=(1-\epsilon)f^\ell+\epsilon\frac12.
+$$
+$\epsilon=0$ 是 oracle，其他值是可控的 prediction surrogate，不是訓練好的 neural network。固定 steps，比較不同 remasking 強度；再固定 $\sigma$，改變 $\epsilon$。
 
-## 步驟 3：SEDD 的比值學習 vs MDLM 的 cross-entropy（圖 c）
+不要預設每條線都單調改善。記錄 remasking 在哪些計算預算下有幫助，哪些設定反而更差；理想 rate 的 marginal-preservation theorem，不能直接當作 finite-step quality guarantee。
 
-這一步分別實作 Lou、Meng 與 Ermon 的 SEDD [3]，以及 Sahoo 等人的 MDLM [5]；我們要檢查的不是兩個名字像不像，而是它們在 absorbing 鏈上是否真的只差那個已知係數。
+## 第四步：Ratio 和 denoiser，真的只差係數嗎？
 
-網路換成輸出比值：對每個位置輸出 $K$ 個正數（用 `exp` 或 `softplus`），代表 $s_\theta(x_t)_{\ell,v}\approx p_t(x_t^{(\ell\to v)})/p_t(x_t)$。<Ref to="dma-concrete-score"/> 的 denoising score entropy，權重取 forward rate：
+選一張只剩一個 MASK 的 $x$，把它填成 $v$ 得到 $y$。程式分別直接列舉 $p_t(y)/p_t(x)$，以及計算
+$$
+\frac{\alpha_t}{1-\alpha_t}
+p(x_0^\ell=v\mid x_t=x),
+$$
+用 assertion 比較兩者。
 
-```python
-def score_entropy_loss(s, xt, x0, t):                     # s: (n, L, K) 正數
-    alpha = (1 - t)[:, None, None]
-    masked = (xt == MASK)[:, :, None]                      # absorbing 下只有被遮位置有鄰居
-    a = alpha / (1 - alpha) * F.one_hot(x0, K)             # 條件比值 q(y|x0)/q(x|x0)
-    K_a = torch.where(a > 0, a * (a.log() - 1), torch.zeros_like(a))
-    bregman = s - a * s.log() + K_a                        # s − a log s + a(log a − 1)
-    w = (1 / (1 - t))[:, None, None]                       # 權重 = forward rate β_t
-    return (w * bregman * masked).sum((1, 2)).mean()
-```
+最後令 $s_\theta(v)=\alpha_t f_\theta(v)/(1-\alpha_t)$，檢查 SEDD [3] 的 absorbing denoising score entropy 與 weighted CE：比較兩組不同預測的 **loss 差值**，確認不含參數的常數相消後，兩者一致。完整推導可回顧 <Ref to="dma-concrete-score"/>。
 
-訓好後在一批 $(x_t,t)$ 上做三件事：
+## 延伸練習
 
-1. **比值 vs 精確比值**：`s` 與 `exact_ratios` 在被遮位置的相對誤差，對 $t$ 畫曲線。
-2. **比值 vs MDLM 網路**：把上一個單元（或步驟 1 重訓）的 `model(xt,t).softmax(-1)` 乘 $\alpha_t/(1-\alpha_t)$，與 `s` 比對。期待：兩者在資料密集區幾乎重合——**同一組數字、兩種 parametrization**。
-3. **取樣**：用比值直接寫反向 rate $\bar R_t(\texttt{[MASK]}\to v)=\beta_t\,s_\theta(x_t)_{\ell,v}$ 做 τ-leaping，與步驟 1 的曲線比。
+1. 固定 steps，比較 $\sigma=0,2,5$；增加修改頻率是否每次都更好？
+2. 把 prediction surrogate 換成自己的 masked model，保留相同介面與評估。記錄 seed、模型規模、posterior queries 與抽樣數。
+3. 換成其他具有正機率 support 的相依資料，重新測量；不要只用 MASK 比例判定完整 distribution 正確。
+4. 改回純偶數 parity 時，記錄哪些 generated contexts 的真 posterior 沒有定義。這些 off-support states 不能當作 oracle 自動提供了正確答案。
 
-**圖 c**：三個子圖並排。若 (2) 的差距明顯大於 (1) 的誤差，檢查 $a$ 的常數與權重——最常見的 bug 是把 $\alpha_t/(1-\alpha_t)$ 寫反。
-
-## 作業
-
-1. **Uniform 鏈上的比值。** 對 uniform 鏈推出條件比值 $q_t(y\mid x_0)/q_t(x\mid x_0)$（位置 $\ell$ 從字 $x^\ell$ 換成 $y^\ell$；提示：只剩位置 $\ell$ 的因子，分子分母各是 $\alpha_t\mathbb 1[\cdot=x_0^\ell]+(1-\alpha_t)/K$），寫出它的後驗平均是 $p(x_0^\ell\mid x_t)$ 的什麼函數。訓一個 uniform 鏈的比值網路，與 <Ref to="dma-lab-discrete-time"/> 作業 1 的 D3PM 網路比較合法率。哪一個 target 在 uniform 鏈上訓得比較穩？
-2. **$\sigma_t$ 的 schedule。** 把常數 $\sigma$ 換成鐘形（中段大、兩端小），在圖 b 上再疊一條線。與常數 $\sigma$ 在相同總「重遮量」$\int\sigma_t(1-m_t)\,dt$（$m_t$ 是 `[MASK]` 的比例，見 <Ref to="dma-remasking"/>）下比較。
-3. **信心排序 vs remasking。** 把 <Ref to="dma-lab-discrete-time"/> 作業 2 的信心排序與這個單元的 $\sigma>0$ 放在同一張圖。信心排序不保持邊際、remasking 保持——在 toy 上哪一個更好？用步驟 2 的邊際檢查量化前者偏了多少。
-4. **（選）精確模擬。** 實作 Gillespie 演算法（一次跳一個 token），確認它在 parity toy 上的合法率是 100%、且與 τ-leaping 在 `steps` 很大時一致。它就是 <Ref to="dma-factorization-error"/> 說的「任意順序 AR」。
+## 快速回顧一下
 
 <QuizBlock id="w7-6-a">
-τ-leaping 一步裡「所有位置獨立決定要不要跳、跳到哪」這一行，對應的是：
-<Option>CTMC 的精確模擬。</Option>
-<Option correct>離散世界的 Euler 法——用步首的 rate 走一整段 $\tau$，同時跳的位置被獨立抽樣；這正是因子化誤差的來源，$\tau\to0$ 時消失。</Option>
-<Option>remasking。</Option>
-<Explanation>
-真實的 CTMC 在任一瞬間只跳一個 token（<Ref to="dma-ctmc"/>）。τ-leaping 把一段時間內的跳躍一次算完，多個位置的跳躍被當成獨立事件——<Ref to="dma-factorization-error"/> 的假設。Gillespie 才是精確模擬；remasking 是另外加的 rate。
-</Explanation>
+$1-e^{-h/t}$ 與 $h/t$ 的關係是：
+<Option>對任意步長都相同。</Option>
+<Option correct>小步時一階一致；前者凍結 rate，有限步時有時間近似。</Option>
+<Option>前者一定沒有因子化誤差。</Option>
+<Explanation>是否精確計算 reveal probability，與字之間怎麼 joint 抽樣，是兩件事。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w7-6-b">
-步驟 3 裡 SEDD 網路輸出的比值與 MDLM 網路輸出的 $p_\theta(x_0^\ell\mid x_t)$ 在 absorbing 鏈上「幾乎重合」，重合的方式是：
-<Option>兩者相等。</Option>
-<Option>兩者相差一個與位置 $\ell$ 有關的常數。</Option>
-<Option correct>比值等於 $p_\theta(x_0^\ell=v\mid x_t)$ 乘 $\alpha_t/(1-\alpha_t)$——一個只跟 $t$ 有關的常數。</Option>
-<Explanation>
-這是 <Ref to="dma-concrete-score"/> 最後一節的式子：條件比值是 $\alpha_t\mathbb 1[x_0^\ell=v]/(1-\alpha_t)$，後驗平均後常數留著。兩個網路學的是同一份資訊，差別在 parametrization 與 loss。
-</Explanation>
+有限步 remasking 中，補償機率 $a$ 的來源是：
+<Option>任意多填幾格。</Option>
+<Option correct>讓 $\alpha_t(1-r)+(1-\alpha_t)a=\alpha_s$。</Option>
+<Option>要求兩邊轉移機率相同。</Option>
+<Explanation>來源比例乘上轉移機率，才是被搬動的 probability mass。</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w7-6-c">
+檢查 SEDD 與 CE 的換算，為什麼比較兩組預測的 loss 差值？
+<Option>為了讓模型更容易訓練。</Option>
+<Option correct>兩種寫法可能相差不含參數的常數；差值把它消掉。</Option>
+<Option>因為兩者永遠完全相等，包含所有常數。</Option>
+<Explanation>Training gradient 或最佳解一致，不代表報出的原始 loss 數字必須相同。</Explanation>
 </QuizBlock>
 
 <Bridge to="dma-learn-the-map">
-U4–U5 都在改善「怎麼走」：連續模型減少沿 trajectory 的 velocity 變化，離散模型減少 factorization error 或允許 remasking。但只要還要走很多步，有限步成本就不會消失。U6 因此換一個問題：能不能不學每一步的方向，直接學從現在到終點的映射？
+我們現在能從連續速度或離散 rates 建立生成過程，也看過有限步的近似與修改方式。但每一步仍要計算模型的預測。如果想把整段生成濃縮成一次預測，除了改「怎麼走」，能不能直接學「走完會到哪裡」？下一個單元從這個問題出發。
 </Bridge>
 
 ## 參考文獻
 
-1. Campbell, A., Benton, J., De Bortoli, V., Rainforth, T., Deligiannidis, G., Doucet, A. [*A Continuous Time Framework for Discrete Denoising Models.*](https://arxiv.org/abs/2205.14987) NeurIPS 2022.（τ-leaping 用於離散擴散取樣。）
-2. Gillespie, D. T. [*Approximate Accelerated Stochastic Simulation of Chemically Reacting Systems.*](https://doi.org/10.1063/1.1378322) J. Chem. Phys. 115, 1716 (2001).（τ-leaping 的出處。）
-3. Lou, A., Meng, C., Ermon, S. [*Discrete Diffusion Modeling by Estimating the Ratios of the Data Distribution.*](https://arxiv.org/abs/2310.16834) ICML 2024.（步驟 3 的 loss。）
-4. Wang, G., Schiff, Y., Sahoo, S. S., Kuleshov, V. [*Remasking Discrete Diffusion Models with Inference-Time Scaling.*](https://arxiv.org/abs/2503.00307) 2025.（步驟 2。）
-5. Sahoo, S. S. et al. [*Simple and Effective Masked Diffusion Language Models.*](https://arxiv.org/abs/2406.07524) NeurIPS 2024.（步驟 1 的 MDLM 網路。）
+1. Campbell, A. et al. [*A Continuous Time Framework for Discrete Denoising Models.*](https://arxiv.org/abs/2205.14987) NeurIPS 2022.
+2. Wang, G. et al. [*Remasking Discrete Diffusion Models with Inference-Time Scaling.*](https://arxiv.org/abs/2503.00307) 2025.
+3. Lou, A., Meng, C., Ermon, S. [*Discrete Diffusion Modeling by Estimating the Ratios of the Data Distribution.*](https://arxiv.org/abs/2310.16834) ICML 2024.

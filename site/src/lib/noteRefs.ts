@@ -19,6 +19,11 @@ import {
   noteOrderIndex,
   noteRoute,
   plannedNotes,
+  mergedNoteAliases,
+  isListedNote,
+  isPublishedNote,
+  courseRoute,
+  lectureAnchor,
 } from './notes';
 import { withBase } from './url';
 
@@ -54,8 +59,17 @@ async function noteIndex(): Promise<Map<string, NoteEntry[]>> {
         else map.set(key, [note]);
       };
       for (const note of notes) {
+        if (mergedNoteAliases[note.data.slug]) continue;
         push(note.data.slug, note);
         if (note.data.label && note.data.label !== note.data.slug) push(note.data.label, note);
+      }
+      for (const note of notes) {
+        const target = mergedNoteAliases[note.data.slug];
+        if (!target) continue;
+        const entries = map.get(target);
+        if (!entries) continue;
+        map.set(note.data.slug, entries);
+        if (note.data.label) map.set(note.data.label, entries);
       }
       return map;
     });
@@ -117,7 +131,9 @@ async function codeIndex(): Promise<CodeTables> {
         if (set) set.add(slug);
         else slugsByGroup.set(group, new Set([slug]));
       };
-      for (const note of notes) addToGroup(note.data.group, note.data.slug);
+      for (const note of notes) {
+        if (isListedNote(note)) addToGroup(note.data.group, note.data.slug);
+      }
       for (const planned of Object.values(plannedNotes)) addToGroup(planned.group, planned.slug);
 
       const bySlug = new Map<string, string>();
@@ -236,13 +252,13 @@ export async function resolveWeekRef(label: string, lang: Lang): Promise<Resolve
   if (!hit) return undefined;
   const all = await getCollection('notes');
   const first = all
-    .filter((n) => n.data.group === hit.lecture.group && n.data.lang === lang)
+    .filter((n) => n.data.group === hit.lecture.group && n.data.lang === lang && isPublishedNote(n) && n.data.status !== 'missing')
     .sort((a, b) => noteOrderIndex(a.data.slug) - noteOrderIndex(b.data.slug))[0];
   return {
     code: groupCode(hit.lecture.group),
     group: hit.lecture.group,
     courseTitle: hit.course.title[lang],
-    href: first ? withBase(noteRoute(first.data.slug, lang)) : withBase(lang === 'zh' ? 'zh/notes' : 'notes'),
+    href: first ? withBase(noteRoute(first.data.slug, lang)) : withBase(`${courseRoute(hit.course.key, lang)}#${lectureAnchor(hit.lecture.group)}`),
   };
 }
 
@@ -258,7 +274,9 @@ export async function usedBy(slugOrLabel: string, lang: Lang): Promise<UsedByGro
   const targets = new Set((index.get(slugOrLabel) ?? []).flatMap((n) => [n.data.slug, n.data.label ?? n.data.slug]));
   if (targets.size === 0) return [];
   const all = await getCollection('notes');
-  const usesTarget = (n: NoteEntry) => n.data.prereqs.some((p) => targets.has(p));
+  const usesTarget = (n: NoteEntry) => isPublishedNote(n) && n.data.prereqs.some((p) =>
+    targets.has(p) || (index.get(p) ?? []).some((target) => targets.has(target.data.slug)),
+  );
   // Prefer the current language's entries; a note whose zh side declares prereqs but whose
   // en stub does not is still listed (declarations live on whichever side is authored).
   const users = [

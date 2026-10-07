@@ -6,26 +6,16 @@ prereqs:
   - math-conditional-expectation
   - ml-autoregressive
 lang: "zh"
-title: "因子化誤差：離散取樣一步走太大的代價"
+title: "每格都猜對，整句話就會對嗎？"
 category: "courses"
-group: "Unit 4 · Discrete Diffusion I"
+group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-04
-summary: "一次生成多個 token，等於用 marginal 的乘積近似真正的 conditional joint。這個 factorization error 是離散生成少步取樣的主要結構性成本。"
+updated: 2026-10-06
+summary: "即使 conditional marginals 完全正確，平行獨立抽樣仍可能漏掉 joint dependence；用 parity 分開模型誤差與因子化誤差。"
 demos: []
 references:
-  - label: "Ou et al., Your Absorbing Discrete Diffusion Secretly Models the Conditional Distributions of Clean Data (ICLR 2025)"
-    href: "https://arxiv.org/abs/2406.03736"
-  - label: "Hoogeboom et al., Autoregressive Diffusion Models (ICLR 2022)"
-    href: "https://arxiv.org/abs/2110.02037"
-  - label: "Chang et al., MaskGIT: Masked Generative Image Transformer (CVPR 2022)"
-    href: "https://arxiv.org/abs/2202.04200"
-  - label: "Liu, Liu & Van den Broeck, Discrete Copula Diffusion (ICLR 2025)"
-    href: "https://arxiv.org/abs/2410.01949"
-  - label: "Zheng et al., Masked Diffusion Models are Secretly Time-Agnostic Masked Models and Exploit Inaccurate Categorical Sampling (ICLR 2025)"
+  - label: "Zheng et al., Masked Diffusion Models are Secretly Time-Agnostic Masked Models and Exploit Inaccurate Categorical Sampling (2024)"
     href: "https://arxiv.org/abs/2409.02908"
-  - label: "Sahoo et al., Simple and Effective Masked Diffusion Language Models (NeurIPS 2024)"
-    href: "https://arxiv.org/abs/2406.07524"
 ---
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
@@ -36,158 +26,142 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 
-# 因子化誤差：離散取樣一步走太大的代價
+# 每格都猜對，整句話就會對嗎？
 
 <Objectives>
-- **說出同時翻開多格隱含的獨立假設。** 並在 parity toy 上算出完美 marginal 仍會產生多少非法序列。
-- **把 factorization error 寫成 KL。** 比較真正的 conditional joint 與各位置 conditional marginal 的乘積，並說出它何時為零。
-- **對照離散與連續的少步誤差。** 連續模型會漏掉一步內的 velocity 變化，離散模型會把相依 token 拆開生成；autoregressive 則用速度換掉這項誤差。
+- **用 parity 說明 marginal 正確不等於 joint 正確。** 算出一次獨立填完與逐格填入時，各自的合法率。
+- **寫出 factorization error 比較的兩個 distributions。** 它量的是 conditional joint 與 conditional marginals 的乘積，而不是網路預測誤差。
+- **說明步長為什麼會影響這個誤差。** 同一步填越多格，可能漏掉更多相依；但不是所有資料都隨步數單調改善。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
+## 問題可能不在網路
+
+在 <Ref to="dma-d3pm"/>，每個 MASK 都有一個原字的預測分布。我們可以一次呼叫網路，平行填入很多字；這看起來比一格一格生成快得多。但一句話的合理性不是每個字各自合理就夠了：前面選了「一隻」，後面接「貓」或「桌子」，結果並不一樣。
+
+先把網路誤差拿掉，假設我們已經知道**精確的 conditional marginal**。這樣一次填很多格，問題還會存在嗎？
+
+## 只有 0、1，就能看出差別
+
+考慮長度 $L=3$ 的 bit 序列。資料只有偶數 parity，也就是 $1$ 的數量為偶數：
+$$
+p_0(000)=p_0(011)=p_0(101)=p_0(110)=\frac14.
+$$
+從全 MASK 看，每一格的 $0$、$1$ 機率都是 $\tfrac12$。如果把三格獨立抽出來，八種序列都會出現，合法率只有 $\tfrac12$。
+
+但若先填前兩格，再讓網路看更新後的 context，最後一格就被 parity 決定了。例如前兩格是 $01$，最後一格只能是 $1$。這樣逐格使用精確 conditional，合法率是 $1$。
+
 <Ask>
-上一篇說步數可以壓到 8 步、甚至 1 步。<br />
-那同時翻開很多格，代價是什麼？
+各格的機率都算對了，<br />
+那一次填完時，到底漏掉了什麼？
 </Ask>
 
-## 每格都猜對，不代表整句合理
+## 漏掉的是同一步裡的相依
 
-上一篇結尾留了一個問題：步數越少、每步同時翻開的格子越多，會出什麼問題？先把「網路給的是什麼」說精確。
-
-網路看到 $x_t$，對**每個**被遮的位置 $\ell$ 輸出一個分佈 $p_\theta(x_0^\ell\mid x_t)$。這是一個 **marginal**——「在看到 $x_t$ 的前提下，位置 $\ell$ 單獨來看是哪個字的機率」。它沒有告訴我們位置 $\ell$ 和位置 $\ell'$ **一起**會是什麼；網路沒有輸出任何 joint。
-
-取樣時如果這一步只翻開一個位置，marginal 就是我們需要的全部。但如果同時翻開一組位置 $S$，我們實際上是從
-
+令 $A$ 是已看見的位置，$B$ 是這一步要填的位置。真正需要的是
 $$
-\prod_{\ell\in S}p_\theta(x_0^\ell\mid x_t)
+p(x_0^B\mid x_0^A),
 $$
+逐位置抽樣卻使用
+$$
+\prod_{\ell\in B}p(x_0^\ell\mid x_0^A).
+$$
+兩者的 KL 就是這裡的 **factorization error（因子化誤差）**：
+$$
+\mathrm{FE}(A,B)
+=\mathbb E_{x_0^A}D_{\mathrm{KL}}
+\left(p(x_0^B\mid x_0^A)
+\,\middle\|\,
+\prod_{\ell\in B}p(x_0^\ell\mid x_0^A)\right).
+$$
+它比較的是「一起填時應該怎麼搭配」與「各自填時的乘積」。Zheng 等人 [1] 也將平行 decoding 視為重用舊預測的近似；這裡用精確 conditional marginals，把同一步漏掉的相依單獨量出來。
 
-抽樣。而正確的目標是 conditional joint $p(x_0^S\mid x_t)$。兩者相等的條件是：**給定 $x_t$，$S$ 裡的位置彼此 conditionally independent。** 語言裡這幾乎從不成立——「今天想吃 `[MASK]` `[MASK]`」的兩個空格，「牛肉／麵」和「壽／司」各自都合理，「牛肉／司」不合理，而 marginal 的乘積會以不小的機率生出它。
+在全 MASK 的 parity 例子，真實 joint 對四種合法序列各給 $\tfrac14$，乘積分布則各給 $\tfrac18$，所以
+$$
+\mathrm{FE}(\varnothing,\{1,2,3\})
+=4\cdot\frac14\log\frac{1/4}{1/8}
+=\log2.
+$$
+**即使模型已經完美，這個誤差仍然存在。**
 
-這就是同時翻開多個 token 的全部代價：**用乘積代替了 joint，忽略了條件相依。**
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w6-3-parity.html" class="demo-frame" title="Parity 的 joint 與獨立填字" style="height: 810px; width: 100%; border: none;"></iframe>
+
+<Remark label="補充" summary="每個 head 獨立抽樣，不代表網路只能看一個字">
+Transformer 的每個 output head 可以看整句 context，學到的位置機率也可以完全正確。因子化發生在**同一步怎麼抽出多個 token**：它們還沒看見彼此剛抽出的答案。問題不是 attention 看不到其他位置，而是 conditional marginals 不能替代 conditional joint。
+</Remark>
 
 <Question id="Q1">
-既然如此，最省事的做法——一步把所有 token 全部翻開——會壞到什麼程度？請先在下面這個小例子上算：長度 8 的 0/1 序列，資料分佈是所有**偶數個 1** 的序列（共 128 條，均勻）。假設網路是完美的（輸出的 marginal 就是真實的 conditional marginal），從全 `[MASK]` 出發一步翻開全部，得到合法序列的機率是多少？如果改成每步翻開一個、走 8 步呢？每步翻開兩個、走 4 步呢？
+在 parity toy 裡，先填很多格，最後只剩一格；或者每一步都填得很少，但最後還有兩格一起填。哪一種能保證合法？這表示「步數越多一定越好」嗎？
 
 <Answer>
-從全 `[MASK]` 出發，每個位置的真實 marginal 都是 $\tfrac12$（偶數 parity 的序列裡每個位置是 0 或 1 的機率各半）。一步翻開全部，就是從 $\{0,1\}^8$ 均勻抽一條，落在偶數 parity 的機率是 **$\tfrac12$**。一半的樣本不合法。
+用精確 conditional 時，**最後只剩一格**就能補對 parity；前面怎麼填都還有合法的 completion。若最後兩格一起獨立填，它們的 marginals 仍各半，合法率只有 $\tfrac12$。
 
-每步翻開一個、走 8 步：前 7 個位置的 marginal 依然各是 $\tfrac12$（少於 8 個已知的位置時，剩下的位置仍可以配成任一 parity），第 8 個位置的 conditional 是**確定的**——它必須把 parity 補成偶數。完美的網路會輸出一個機率 1 的 marginal，合法率 **1**。
-
-每步翻開兩個、走 4 步：前三步都沒問題（任何少於 8 個位置的子集，joint 就是均勻的乘積），但**最後一步**同時翻開最後兩個位置——它們的 conditional joint 只允許兩種組合（01 或 10，或 00 與 11，取決於前六個的 parity），marginal 的乘積卻允許四種。合法率 **$\tfrac12$**。
-
-把三個數字放在一起會看到這個例子想說的事：誤差**不是**由步數均勻地決定，它出現在「同時翻開的位置之間存在條件相依」的那一步。parity 的相依全部藏在最後一個自由度上，所以只有最後一步翻開超過一個位置時才會出錯；真實語言的相依散在各處（相鄰字、主謂一致、括號配對），所以每一步都會漏一點。**步數越少、每步翻開越多，漏掉的相依越多。**
+因此這個例子看的是「最後剩下的相依有沒有被一起拆掉」，不是步數本身。增加步數通常讓同時填的格數變少，但不能不看實際的 reveal schedule，就宣稱每次加一步都一定改善。
 </Answer>
 </Question>
 
-## 把誤差寫成一個數
+![同時填與逐格填](./imgs/w6-3-1.png)
 
-上面的例子可以寫成一般式。在某一步，模型從 $x_t$ 同時翻開位置集合 $S$。這一步應該抽的是 $p(x_0^S\mid x_t)$，實際抽的是 $\prod_{\ell\in S}p(x_0^\ell\mid x_t)$（先假設網路完美，只看因子化本身的代價）。兩者之間的差距：
+*圖：逐格填時，下一格會看見前一格的結果；同時獨立填時，這批 token 之間的限制可能被漏掉。*
 
+<Details summary="每一步的因子化誤差怎麼連到整個生成分布？">
+先固定一個與資料無關的 reveal partition $B_1,\ldots,B_N$，令 $A_n$ 是第 $n$ 步前已填的位置。假設所有 conditional marginals 都精確，生成分布為
 $$
-\mathrm{FE}(S\mid x_t)\;=\;\mathrm{KL}\Big(p(x_0^S\mid x_t)\;\Big\|\;\prod_{\ell\in S}p(x_0^\ell\mid x_t)\Big).
+\hat p_0(x)=\prod_{n=1}^N\prod_{\ell\in B_n}
+p(x^\ell\mid x^{A_n}).
 $$
-
-這個量在資訊理論裡叫 **total correlation**（多變數版本的 mutual information）：它衡量一組變數「合起來看」比「分開看」多知道多少。它 $\ge0$，且**等於零若且唯若 $S$ 裡的位置在給定 $x_t$ 下 conditionally independent**。$|S|=1$ 時它恆為零——一次翻開一個位置永遠沒有因子化誤差。
-
-整個取樣程序的因子化誤差，是每一步這個量的和（對每步的 $x_t$ 取期望）。parity 例子裡，前面各步的 $\mathrm{FE}$ 都是零，最後一步翻開兩個位置時 $\mathrm{FE}=\log 2$——正好對應「一半樣本不合法」。
-
-<Details summary="為什麼是 KL、以及它和 loss 的關係">
-取樣程序真正生成的分佈是把每一步的乘積分佈串起來得到的 $\tilde p(x_0)$。用 chain rule 把 $\log\frac{p(x_0)}{\tilde p(x_0)}$ 沿著翻開的順序拆開，每一步貢獻的正是 $\log\frac{p(x_0^{S}\mid x_t)}{\prod_\ell p(x_0^\ell\mid x_t)}$，取期望就是上面的 KL。所以 $\mathrm{KL}(p\,\|\,\tilde p)=\sum_{\text{steps}}\mathbb E\,\mathrm{FE}(S\mid x_t)$——**生成分佈與真實分佈的差距，就是所有步的因子化誤差之和**（網路完美時）。
-
-這個誤差**不在訓練 loss 裡**。Sahoo 等人的 MDLM [6] 所使用的 ELBO，是對「每步翻開一個位置」的鏈算的（$T\to\infty$ 時每步幾乎只翻開零或一個位置），它的最小值是完美的 marginal。因子化誤差純粹是取樣時「一步走太大」造成的——這和 <Ref to="dma-error-theory"/> 的情形一模一樣：訓練目標是精確的速度場，Euler 誤差是離散化造成的。
+真實資料可以按相同順序用 chain rule 分解：
+$$
+p_0(x)=\prod_{n=1}^N p(x^{B_n}\mid x^{A_n}).
+$$
+把兩者代入 KL，先拆開 log，再對已填位置取期望：
+$$
+\begin{aligned}
+D_{\mathrm{KL}}(p_0\|\hat p_0)
+&=\mathbb E_{p_0}\sum_n
+\log\frac{p(x^{B_n}\mid x^{A_n})}
+{\prod_{\ell\in B_n}p(x^\ell\mid x^{A_n})}\\
+&=\sum_n\mathrm{FE}(A_n,B_n).
+\end{aligned}
+$$
+若 reveal order 本身隨機，這個等式先對**固定的 order**成立；把 order 平均掉後，由 KL 的凸性，terminal KL **不超過**各 order 的 KL 平均。若順序還依賴模型信心，就要另外分析那個選擇規則，不能直接沿用等式。
 </Details>
 
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w6-3-parity.html" class="demo-frame" title="marginal 的乘積 vs 真實的 joint：互動 demo" style="height: 810px; width: 100%; border: none;"></iframe>
-
-**互動 demo：marginal 的乘積 vs 真實的 joint。** 就是上面那個 parity 例子，只是把兩張表並排畫出來。按 $k=1$：每一步只翻開一格，$\mathrm{FE}$ 一直是 **0**，跑 1000 次的合法率 **100%**。按 $k=2$ 或更大：$\mathrm{FE}$ 在前面幾步還是 0，**只有最後那一步跳到 $\log 2\approx0.693$**，合法率掉到 **50%** 上下（實測 $k=2$ 是 49.8%、$k=4$ 是 48.3%、$k=8$ 是 52.6%）。$k=8$ 時兩張表會畫成一排細柱：真實 joint 的 256 個組合裡只有 **128 個機率不是 0**，marginal 的乘積卻 **256 個都有值**。
-
-## 兩個世界，都在為「一步走太大」付代價
-
-把這一篇和 <Ref to="dma-error-theory"/> 並排，會看到同一個結構：
-
-| | 連續（<Ref to="dma-error-theory" />） | 離散（本單元） |
-|---|---|---|
-| 訓練學到的物件 | 精確的速度場 $v_t(x)$ | 精確的 marginal $p(x_0^\ell\mid x_t)$ |
-| 一步走太大時假設了什麼 | velocity 在這一步內**不變** | 這一步翻開的位置**條件獨立** |
-| 誤差的來源 | 加速度積分 $\int\|a_t(x_t)\|\,dt$ | 條件相依（total correlation） |
-| 何時為零 | trajectory 是等速直線 | 每步只翻開一個位置 |
-| 減少誤差的做法 | 多走幾步；讓 velocity 沿 trajectory 少變化（reflow、OT 配對）；高階 solver | 多走幾步；挑「相依弱」的位置先翻（信心排序）；顯式建模相依 |
-
-這張表是這個單元最重要的一張。它說的是：**有限步取樣的誤差，在兩個世界裡都來自「一步之內假設了太簡單的結構」。** 連續世界假設 velocity 不變，離散世界假設獨立。<Ref to="dma-rectified-flow"/>、<Ref to="dma-minibatch-ot"/> 在連續世界做的「拉直」，在離散世界沒有直接對應——沒有「直的配對」這回事——所以離散世界減少誤差的手段目前主要落在最後一行的後兩項：Chang 等人的 MaskGIT [3] 用信心排序挑位置；Liu、Liu 與 Van den Broeck 的 Discrete Copula Diffusion [4] 則試著在取樣時補回相依的結構。這條線還在發展中。
-
-## 那不如直接用 autoregressive？
-
-表格最後一列還說了另一件事。「每步只翻開一個位置」在因子化誤差上是零，而它就是 **autoregressive**（AR）模型的做法——只是 AR 固定從左到右，masked diffusion 每步隨機挑一個位置。Ou 等人 [1] 與更早由 Hoogeboom 等人提出的 ARDM [2] 都指出：absorbing diffusion 學到的 $p(x_0^\ell\mid x_t)$ 是乾淨資料的所有 conditional，所以每步翻一個的 masked diffusion 就是一個**任意順序**的 AR 模型。
-
-於是兩者的取捨可以講得很乾脆：
-
-- **AR**：一次一個 token，固定順序，factorization 精確、沒有因子化誤差；代價是 $L$ 個 token 要 $L$ 次網路呼叫，**無法平行**。
-- **Masked diffusion**：任意順序，一步可以翻開很多個、**可以平行**，$L/k$ 次呼叫；代價是每步翻開的位置之間的因子化誤差。此外它天生能做填空（雙向 context），AR 需要額外設計。
-
-這是 <Ref to="dma-error-theory"/> 那個「步數 vs 誤差」的取捨換了一套詞。Zheng 等人 [5] 提醒了一件實務上的事：比較 masked diffusion 與 AR 的 perplexity 時，若取樣步數不夠、或類別抽樣的數值實作不精確，會把因子化誤差誤讀成別的東西；比較時要把「每步翻開幾個」當成明確的實驗變數。
-
-![一步之內假設了太簡單的結構](./imgs/w6-3-1.png)
-
-*圖：逐格揭露會讓後一步看見更新後的 context；同時揭露多格若把 joint 拆成 marginals，就可能違反 parity 約束。*
-
-## 先消化一下
+## 快速回顧一下
 
 <QuizBlock id="w6-3-a">
-Masked diffusion 一步同時翻開位置集合 $S$，等價於假設：
-<Option>$S$ 裡的位置在資料分佈下互相獨立。</Option>
-<Option correct>給定當前的 $x_t$，$S$ 裡的位置彼此 conditionally independent。</Option>
-<Option>網路對 $S$ 裡每個位置的 marginal 都是正確的。</Option>
-<Explanation>
-關鍵字是「給定 $x_t$」——已翻開的 context 會消掉一部分相依，剩下的才是問題。marginal 正確與否是另一個獨立的誤差來源（模型誤差）；即使 marginal 完美，因子化誤差仍在。
-</Explanation>
+Factorization error 可以在什麼情況下仍存在？
+<Option>只有網路沒訓練好時。</Option>
+<Option correct>Conditional marginals 完全正確，但同一步獨立填入相依的多個位置時。</Option>
+<Option>只有 uniform corruption 才會發生。</Option>
+<Explanation>它來自 joint 的分解假設，不是 marginal 預測不準。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w6-3-b">
-Parity toy 裡，每步翻開兩個、走 4 步的合法率是 $\tfrac12$，而不是比一步全翻開好。這說明：
-<Option>步數對誤差沒有影響。</Option>
-<Option correct>因子化誤差出現在「同時翻開的位置有條件相依」的那一步；parity 的相依全藏在最後一個自由度，所以只要最後一步翻開超過一個位置，就會漏掉它。</Option>
-<Option>網路不夠好。</Option>
-<Explanation>
-這個例子刻意讓相依集中在最後。真實語言的相依散在各處，步數增加會逐步減少漏掉的相依，曲線是漸變的（<Ref to="dma-lab-discrete-time"/> 的 Markov toy 會把這條曲線畫出來）。網路在這個例子裡假設是完美的。
-</Explanation>
+Parity toy 最後只剩一格時，精確 conditional 為什麼能補對？
+<Option correct>已填位置決定了最後一個 bit，posterior 是確定的。</Option>
+<Option>因為網路一定看過同一個 training pair。</Option>
+<Option>因為最後一步沒有隨機性就一定正確。</Option>
+<Explanation>確定性來自資料的 parity constraint；一般資料的最後一格不必是確定的。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w6-3-c">
-連續世界的有限步誤差來自一步內漏掉的 velocity 變化，離散世界的來自因子化。兩者共同的結構是：
-<Option>兩者都可以靠增加網路容量消除。</Option>
-<Option>兩者都在訓練 loss 裡被最小化。</Option>
-<Option correct>兩者都是「一步之內假設了太簡單的結構」——velocity 不變／條件獨立——而訓練目標本身是精確的，誤差只在取樣時一步走太大才出現。</Option>
-<Explanation>
-訓練學到的是精確的速度場或精確的 marginal；誤差是離散化造成的，不在 loss 裡，也不是容量問題。這正是為什麼兩個世界都有「步數 vs 品質」的曲線。
-</Explanation>
-</QuizBlock>
-
-<QuizBlock id="w6-3-d">
-「每步只翻開一個位置」的 masked diffusion 與 autoregressive 模型的關係是：
-<Option>兩者完全不同，因為 masked diffusion 有時間變數。</Option>
-<Option correct>它就是一個任意順序的 autoregressive 模型——學到的是同一組 conditional distribution，只是翻開的順序隨機而非固定從左到右。</Option>
-<Option>masked diffusion 在這個設定下仍有因子化誤差。</Option>
-<Explanation>
-$|S|=1$ 時 total correlation 恆為零。差別只剩順序（任意 vs 固定）與呼叫次數（相同，都是 $L$ 次）；masked diffusion 的優勢——平行——正是在 $|S|>1$ 時才出現，代價也在那時才出現。
-</Explanation>
+為什麼縮小 reveal batch 常常有幫助？
+<Option>因為它會自動消除模型誤差。</Option>
+<Option correct>先填的結果能進入下一步 context，較少相依被拆在同一步。</Option>
+<Option>因為 token 變成連續數值。</Option>
+<Explanation>它改善抽樣方式，仍不能保證有限網路的預測也精確。</Explanation>
 </QuizBlock>
 
 <Bridge to="dma-absorbing-vs-uniform">
-Factorization error 解釋了為什麼少步會錯，卻沒有回答錯了之後能不能補救。Absorbing chain 把翻開的字固定；uniform chain 則允許任何字再次改動。下一篇比較這兩種走法，看看「可以反悔」會買到什麼、又犧牲什麼。
+少填幾格可以讓下一步看見更多 context，但 absorbing sampler 還有另一個限制：剛才填錯的字，之後不會再碰它。如果要給模型修改的機會，我們該換一條 forward chain，還是可以只改生成時的規則？
 </Bridge>
 
 ## 參考文獻
 
-1. Ou, J., Nie, S., Xue, K., Zhu, F., Sun, J., Li, Z., Li, C. [*Your Absorbing Discrete Diffusion Secretly Models the Conditional Distributions of Clean Data.*](https://arxiv.org/abs/2406.03736) ICLR 2025.（absorbing diffusion 學到的是乾淨資料的 conditional；與任意順序 AR 的關係。）
-2. Hoogeboom, E., Gritsenko, A. A., Bastings, J., Poole, B., van den Berg, R., Salimans, T. [*Autoregressive Diffusion Models.*](https://arxiv.org/abs/2110.02037) ICLR 2022.（ARDM：任意順序 AR 與 absorbing diffusion 的等價。）
-3. Chang, H., Zhang, H., Jiang, L., Liu, C., Freeman, W. T. [*MaskGIT: Masked Generative Image Transformer.*](https://arxiv.org/abs/2202.04200) CVPR 2022.（信心排序的平行解碼。）
-4. Liu, A., Liu, O., Van den Broeck, G. [*Discrete Copula Diffusion.*](https://arxiv.org/abs/2410.01949) ICLR 2025.（把平行解碼漏掉的相依顯式補回。）
-5. Zheng, K., Chen, Y., Mao, H., Liu, M.-Y., Zhu, J., Zhang, Q. [*Masked Diffusion Models are Secretly Time-Agnostic Masked Models and Exploit Inaccurate Categorical Sampling.*](https://arxiv.org/abs/2409.02908) ICLR 2025.（比較 MDM 與 AR 時的實驗陷阱。）
-6. Sahoo, S. S. et al. [*Simple and Effective Masked Diffusion Language Models.*](https://arxiv.org/abs/2406.07524) NeurIPS 2024.
+1. Zheng, K. et al. [*Masked Diffusion Models are Secretly Time-Agnostic Masked Models and Exploit Inaccurate Categorical Sampling.*](https://arxiv.org/abs/2409.02908) 2024.

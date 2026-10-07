@@ -7,9 +7,9 @@ prereqs:
   - math-fokker-planck
   - math-continuity-equation
 lang: "en"
-title: "CTMC：Rate Matrix 與 Forward Equation"
+title: "How do token jump rates change a distribution?"
 category: "courses"
-group: "Unit 5 · Discrete Diffusion II"
+group: "Unit 4 · Discrete Diffusion"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

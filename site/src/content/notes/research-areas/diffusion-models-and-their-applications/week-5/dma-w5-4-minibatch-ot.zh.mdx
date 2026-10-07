@@ -8,11 +8,12 @@ prereqs:
 lang: "zh"
 title: "拉直（二）：不依靠反覆訓練，能不能用別的方法決定好的 coupling？"
 category: "courses"
-group: "Unit 3 · 更直、更快的生成路徑"
+group: "Unit 3 · 減少 ODE 的離散化誤差"
 status: "available"
-updated: 2026-10-04
-summary: "Reflow 要先訓練與取樣，minibatch OT 則在每個 batch 當下直接重排端點。它保留兩端 marginals，並用較有結構的 coupling 減少方向衝突。"
-demos: []
+updated: 2026-10-05
+summary: "若想在訓練前就減少 reference velocities 的衝突，可以先用二次成本安排端點；minibatch OT 在每個 batch 內精確解 OT，再沿用原本的 CFM objective，但有限 batch 不等於 population OT，也不保證 learned ODE 已經是等速直線。"
+demos:
+  - "notes/research_areas/diffusion-models-applications/w5-4-batch-ot.html"
 references:
   - label: "Tong et al., Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport (TMLR 2024)"
     href: "https://arxiv.org/abs/2302.00482"
@@ -25,71 +26,205 @@ import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
-import Details from '../../../components/Details.astro';
 import Question from '../../../components/Question.astro';
 import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 
 # 拉直（二）：不依靠反覆訓練，能不能用別的方法決定好的 coupling？
 
 <Objectives>
-- **用交換兩個終點的計算推出 OT 單調性。** 分清一維的零交叉與高維的單調條件。
-- **寫出 minibatch OT-CFM 的訓練步驟。** 在 batch 內解指派並重排資料，其餘 CFM 不變。
-- **分清 marginals 正確與 coupling 最佳。** 小 batch 仍保留兩端 distributions，但只在 batch 內最佳；高維時還要確認選用的距離是否真的有辨別力。
+- **把「比較不凌亂的配對」寫成二次成本的 OT 問題。** 給定兩批端點，寫出 permutation objective，並用交換兩個終點的計算推出單調條件。
+- **寫出 minibatch OT-CFM 的 training objective。** 在 batch 內解指派、重畫直線 reference paths，再沿用 U2.1 的 velocity regression。
+- **說出 minibatch OT 只近似了什麼。** 每個 batch 內解的是精確 OT，但有限 batch 誘導出的整體 coupling 不一定是 population OT，也不保證 learned ODE 已經完全變成等速直線。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
 ## Reflow 的迴圈可以省掉嗎？
 
-<Ref to="dma-rectified-flow"/> 先訓練模型、解完整條 ODE，再用新的端點重訓。這會產生比較有結構的 coupling，但每一輪都要重新取樣與訓練，而且上一輪的模型誤差也會一起進入新配對。
+這個單元想改善的是解 ODE 時產生的 discretization error。我們在 <Ref to="dma-error-theory">U3.1</Ref> 看過：**如果能讓 trajectory 更接近等速直線，使用 Euler method 解 ODE 時，discretization error 就能比較小。**
 
-如果目標只是讓 reference directions 少一點衝突，一個更直接的想法是：**在 training 當下，看著這一批起點與終點，立刻替它們找一組比較合理的配對。**
-
-「合理」需要一個可以計算的標準。沿用 <Ref to="dma-what-are-we-learning"/> 的搬貨問題，最自然的第一個選擇是讓配對後的總位移平方最小，也就是 optimal transport（OT）。
+在 <Ref to="dma-rectified-flow">U3.2</Ref> 中，我們也介紹了 Reflow：利用模型生成新的起點與終點配對，再重新訓練，透過迴圈逐步拉直生成軌跡。但是這個方法每一輪都要解 ODE、重新訓練模型，新的配對也可能受到上一輪 discretization error 的影響。雖然實作上很好用，但聽起來仍沒有把問題解決得很徹底。
 
 <Ask>
-讓總位移最小的 coupling，<br />
-也會讓 reference directions 少一點互相打架嗎？
+<strong>能不能不先訓練一輪，也不先解 ODE，<br />
+仍然保留 Flow Matching 的 simulation-free training？</strong>
 </Ask>
 
-## 交換一次就看出來了
+一個自然的想法，是在訓練開始前就先安排一種**比較不容易讓 reference paths 互相打架**的搬運方式。我們在 <Ref to="dma-fm-vs-diffusion">U3.0</Ref> 已經觀察過：當同一個位置附近的 reference velocities 互相衝突時，L2 regression 會把它們平均起來，learned ODE trajectory 就可能會改變方向。
 
-在一維裡，答案就是「會」；到了高維，更精確的結論叫做**單調性**。理由只需要交換兩個終點。
+想像有一批貨物，分散在幾個出發位置，要送到同樣數量的目的地，每個目的地收一件。即使每件貨物都沿直線搬運，隨便配對仍可能讓路線交錯：到了同一個地方，有的要往左、有的要往右，模型學到的平均方向就可能隨位置改變，讓生成軌跡彎曲。
 
-假設某個配對把 $a$ 送到 $A$、把 $b$ 送到 $B$。如果**交換終點**（$a\to B$、$b\to A$），二次成本的變化是
+這種凌亂的配對，常常也伴隨著「捨近求遠」：左邊的貨物被送到很遠的右邊，右邊的貨物反而被送回左邊。這提醒我們，也許可以先從一個比較容易檢查的目標開始：**不要讓整批貨物搬得比必要的更遠。**
+
+## 什麼叫做「比較省的配對」？
+
+先想只有三件貨物的情況。三個起點分別記成 $x_0^{(1)},x_0^{(2)},x_0^{(3)}$，三個終點則記成 $x_1^{(1)},x_1^{(2)},x_1^{(3)}$。一種配對方式可以是
+
+$$
+x_0^{(1)}\to x_1^{(2)},\qquad
+x_0^{(2)}\to x_1^{(3)},\qquad
+x_0^{(3)}\to x_1^{(1)}.
+$$
+
+也就是說，第一件貨物送到第 2 個終點，第二件送到第 3 個終點，第三件則送到第 1 個終點。把右邊的終點編號依序記下來，就得到 $(2,3,1)$。這串編號剛好把 $1,2,3$ 各使用一次；也就是把原本依序的 $(1,2,3)$ 重新排成 $(2,3,1)$。所以，我們可以把這個動作稱為 **permutation（置換）**。
+
+像 $(2,2,1)$ 就不合法：第 2 個終點收了兩件貨物，第 3 個終點卻完全沒有收到。**Permutation 要表達的，就是重新排列終點，但不能重複或漏掉任何一個。**
+
+推廣到 $n$ 個起點與 $n$ 個終點後，我們用 $\sigma$ 記錄這張重新排列的名單。$\sigma(i)=j$ 的意思是：第 $i$ 個起點 $x_0^{(i)}$，會被送到第 $j$ 個終點 $x_1^{(j)}$。因此，第 $i$ 組配對可以統一寫成
+
+$$
+x_0^{(i)}\longrightarrow x_1^{(\sigma(i))}.
+$$
+
+如果搬運成本是距離的平方，這組配對的總成本就是
+
+$$
+C(\sigma)
+=
+\sum_{i=1}^{n}
+\left\|x_0^{(i)}-x_1^{(\sigma(i))}\right\|^2.
+$$
+
+我們想找的，是所有合法配對中讓這個總和最小的那一個：
+
+$$
+\sigma^\star
+\in
+\underset{\sigma}{\arg\min}\;C(\sigma).
+$$
+
+這就是有限樣本上的 **quadratic optimal transport（二次成本最優傳輸）**，後面簡稱 OT；也就是 <Ref to="dma-rectified-flow">U3.2</Ref> 最後稍微提過的問題。生活例子裡，$\sigma$ 是整張送貨名單；OT 做的事情，就是在不增減任何出發地與目的地的前提下，找出總搬運距離平方最小的名單。
+
+不過，我們真正關心的不是省運費，而是 learned ODE 的 discretization error。**搬得比較近，真的也會讓 reference directions 比較不容易互相衝突嗎？** 我們可以先從兩組貨物開始看。
+
+## 交換兩個目的地，會發生什麼？
+
+先想一維的例子。起點在 $0$ 與 $3$，終點在 $1$ 與 $4$。如果交叉著配，$0\to4$、$3\to1$，總成本是
+
+$$
+(0-4)^2+(3-1)^2=20.
+$$
+
+把兩個終點交換，改成 $0\to1$、$3\to4$，總成本立刻降成
+
+$$
+(0-1)^2+(3-4)^2=2.
+$$
+
+在這個例子裡，**交換不只讓搬運距離變短，也拿掉了兩條彼此交叉的 reference paths。** 接著把同一個計算寫成一般形式。假設某個配對把 $a$ 送到 $A$、把 $b$ 送到 $B$；若交換終點，改成 $a\to B$、$b\to A$，新成本減掉舊成本會是
 
 $$
 \big(\|a-B\|^2+\|b-A\|^2\big)-\big(\|a-A\|^2+\|b-B\|^2\big)=2\,(a-b)^\top(A-B).
 $$
 
-（展開之後 $\|a\|^2,\|b\|^2,\|A\|^2,\|B\|^2$ 全部消掉，只剩交叉項。）
-
-所以：**如果 $(a-b)^\top(A-B) \lt 0$，交換一定更省。** 一個最佳的配對不可能還有這種可以改進的對，於是它必須滿足
+展開平方後，$\|a\|^2,\|b\|^2,\|A\|^2,\|B\|^2$ 都會前後抵消，只剩右邊的內積。因此，如果
 
 $$
-(a-b)^\top\big(T(a)-T(b)\big)\ \ge\ 0\qquad\text{對所有配對成立}.
+(a-b)^\top(A-B)<0,
 $$
 
-這就是**單調**。在一維，單調等於依照位置順序配對，reference lines 不會交叉。高維裡沒有同一條左右順序可以使用，因此單調不等於「所有線段都不相交」；它只保證不存在上面那種交換後立刻變便宜的兩組配對。
+交換後的成本就會更低。OT 已經是所有配對中最小的那一個，所以裡面不可能還留著這種「交換一下就更省」的兩組端點。
 
-<Remark label="補充" summary="Brenier 定理說了什麼">
-在 $p_0$ 有密度、二次成本的條件下，OT 耦合其實是一個**確定映射** $X_1=T(X_0)$，而且 $T=\nabla\varphi$ 是某個凸函數的梯度。凸函數的梯度天生單調，這是上面那個不等式的另一種來源。
+接下來只是換一個比較方便的寫法。用 $T$ 表示 OT 排出的送貨表：如果 $a$ 被分配到 $A$，就寫成 $T(a)=A$；如果 $b$ 被分配到 $B$，就寫成 $T(b)=B$。把 $A=T(a)$、$B=T(b)$ 代回剛才的條件，就得到
 
-</Remark>
+$$
+(a-b)^\top\big(T(a)-T(b)\big)\ge 0.
+$$
 
-在二次成本、regularity 條件成立，而且真的拿得到全域 OT map 時，線性 interpolation 會形成 dynamic OT 的 constant-speed paths。這些 paths 可以直接由對應的 velocity field 產生，因此一步 Euler 就能精確走完。
+這就是這組 OT 配對的**單調性**。它說的是：從 $b$ 指向 $a$，以及從 $T(b)$ 指向 $T(a)$ 的兩個向量，不能指向彼此相反的方向。在一維裡更直接：如果 $a>b$，就必須有 $T(a)\ge T(b)$。起點的左右順序不能在終點反過來，因此兩條直線不會交叉。
 
-但真實資料量很大。若直接在 $n$ 個起點與 $n$ 個終點之間建立成本矩陣，再解完整的指派問題，儲存與計算都會隨 $n$ 快速成長。我們需要一個只看小部分樣本的近似。
+![交換一次，就看出單調](./imgs/w5-4-1.png)
 
-## 只在目前的 batch 裡配對
+*圖：在一維，交叉配對交換終點後會更短，因此 OT 會保留端點的左右順序。*
 
-Tong 等人的 OT-CFM [1] 與 Pooladian 等人的 multisample FM [2] 採用的做法是：**只在目前的 batch 裡解 OT。**
+不過，高維沒有單一的「左右順序」。那這個條件還能幫我們減少 reference directions 的衝突嗎？考慮 $a$ 與 $b$ 對應的 linear reference paths：
+
+$$
+I_t(a)=(1-t)a+tT(a),
+\qquad
+I_t(b)=(1-t)b+tT(b).
+$$
+
+兩條路在時間 $t$ 相隔多少，可以先看它們的差和 $a-b$ 的內積：
+
+$$
+\begin{aligned}
+(a-b)^\top\big(I_t(a)-I_t(b)\big)
+&=(1-t)\|a-b\|^2 \\
+&\quad+t(a-b)^\top\big(T(a)-T(b)\big).
+\end{aligned}
+$$
+
+若 $a\ne b$ 且 $0\le t<1$，第一項嚴格大於 $0$；第二項則因為 OT 的單調性而大於等於 $0$。所以整個內積一定大於 $0$，也就不可能有
+
+$$
+I_t(a)=I_t(b).
+$$
+
+換句話說，**兩條 linear reference paths 不會在同一個時間抵達同一個位置。** 這正是 Flow Matching 在意的「不衝突」：同一個輸入 $(x,t)$ 不會同時收到兩條不同的 reference velocities，L2 regression 也就不必在這兩個方向之間取平均。
+
+這不代表高維裡畫出的兩條線段完全不會碰到。它們仍可能在**不同時間**經過同一個空間位置；但因為模型的輸入還包含 $t$，這不會形成同一個 training input 上的衝突。
+
+因此，如果完整 distributions 之間的 quadratic OT coupling 可以寫成上述的 $T$，並使用 linear interpolation，那麼給定 $(I_t,t)$ 就能認出它屬於哪一條 reference path，optimal velocity 便是那條路從頭到尾不變的 $T(a)-a$。學到的 ODE trajectory 也會是等速直線，正是 <Ref to="dma-error-theory">U3.1</Ref> 裡 Euler 最容易近似的情況。
+
+## 怎麼算 **quadratic optimal transport**？
+
+要先分清楚我們現在想算的是哪一個 OT。對一般的兩個 distributions $p_0,p_1$，我們要找的是所有可能 couplings $\pi(x_0,x_1)$ 中成本最低的一個；這是一個作用在 distributions 上的最佳化問題。除了少數特殊情況，population-level OT 通常沒有 closed-form solution；而在生成模型裡，$p_1$ 又只有 samples，因此我們不能期待直接算出兩個完整 distributions 之間的精確 OT。更一般的 formulation 可以回顧 <Ref to="math-warehouse-ot">搬倉庫問題：Monge、Kantorovich 與 Coupling</Ref>。
+
+我們現在多了一個限制，也因此得到一個能算的版本：手上有 $n$ 個起點與 $n$ 個終點，兩邊都只看成 finite empirical distribution，而且每個點的權重同樣是 $1/n$。在這個**樣本數相同、權重也相同**的情況下，至少有一個最佳 coupling 可以寫成一對一的 permutation $\sigma^\star$。如果兩邊數量不同或每個點的權重不同，最佳解一般就會是一張 transport plan $\pi$，不能只用一個 $\sigma$ 表示。
+
+因此，這個 finite quadratic OT 的 objective 告訴我們，最佳配對 $\sigma^\star$ 應該讓總距離平方最小；但寫下 $\arg\min$，還沒有告訴我們怎麼把它找出來。如果有 $n$ 個終點，所有可能的送貨表一共有 $n!$ 種，一張一張列出來比較顯然不可行。
+
+我們可以先把第 $i$ 個起點送到第 $j$ 個終點的成本全部算好，排成一張 $n\times n$ 的成本矩陣：
+
+$$
+C_{ij}=\left\|x_0^{(i)}-x_1^{(j)}\right\|^2,
+$$
+
+每一列代表一個起點，每一欄代表一個終點。現在的任務就是：**每一列選一格、每一欄也剛好被選一次，並讓選中格子的總和最小。** 這是一個 linear assignment problem（線性指派問題），可以用 Hungarian algorithm（匈牙利演算法）等 solver 找到精確的最佳置換：
+
+$$
+\sigma^\star
+\in
+\underset{\sigma}{\arg\min}
+\sum_{i=1}^{n}C_{i,\sigma(i)}.
+$$
+
+solver 回傳的 $\sigma^\star(i)$，就是第 $i$ 個起點應該被送到哪一個終點。所以，**這個 finite、equal-weight 的 quadratic OT 確實有精確算法；問題是資料一多，計算成本就會太高。** 真實資料可能有幾十萬、幾百萬筆，光是存下所有兩兩距離就需要 $O(n^2)$ 的空間，常見的精確 assignment algorithm 則大約需要 $O(n^3)$ 的時間。
+
+訓練神經網路時，我們本來就不會一次讀完整個資料集，而是每次抽一小批樣本，也就是一個 **batch**。因此，一個自然的近似是：只讓目前這 $B$ 個起點，在目前這 $B$ 個終點裡找最佳配對。把上面的 $n\times n$ 矩陣換成 $B\times B$，再用同一個 assignment solver，就會得到這個 batch 裡的 $\sigma^\star$。
+
+一旦 $\sigma^\star$ 算出來，接回 Flow Matching 的 framework 就很自然了。第 $i$ 個起點改成和 $x_1^{(\sigma^\star(i))}$ 配對，兩者之間的 reference path 與 reference velocity 分別是
+
+$$
+I_t^{(i)}
+=(1-t)x_0^{(i)}+t x_1^{(\sigma^\star(i))},
+\qquad
+\dot I_t^{(i)}
+=x_1^{(\sigma^\star(i))}-x_0^{(i)}.
+$$
+
+接下來仍然使用 <Ref to="dma-flows-and-continuity">U2.1</Ref> 的 velocity regression：
+
+$$
+\mathcal L_{\mathrm{OT\text{-}CFM}}(\theta)
+=
+\mathbb E\!\left[
+\frac1B\sum_{i=1}^{B}
+\left\|
+v_\theta(I_t^{(i)},t)-\dot I_t^{(i)}
+\right\|^2
+\right].
+$$
+
+這個期望值包含抽 batch 與抽時間 $t$ 的 randomness。**CFM objective 的形式沒有改；改的是哪些 $x_0$ 與 $x_1$ 會被拿來畫同一條 reference path。**
+
+Tong 等人把這個版本稱為 **OT-CFM** [1]；Pooladian 等人的 **Multisample Flow Matching** 也使用 batch 內的 coupling [2]。這種只在目前 batch 裡近似完整 OT 的做法，通常就叫 **minibatch OT**。
 
 ```
 repeat
@@ -98,28 +233,131 @@ repeat
   C  ← 成本矩陣  C[i,j] = ‖x0[i] − x1[j]‖²
   σ  ← 解指派問題  argmin_σ Σ_i C[i, σ(i)]     # scipy.optimize.linear_sum_assignment
   x1 ← x1[σ]                                    # 重排，讓 x0[i] 對到 x1[σ(i)]
-  之後與 conditional flow matching 完全相同：抽 t、算 xt、target = x1 − x0
+  抽 t，計算 I_t = (1−t)x0 + tx1
+  用 target = x1 − x0 訓練 v_θ(I_t,t)
 ```
 
-和原本 CFM 相比，真正新增的是「解指派」與「依指派重排終點」兩步。常見的精確指派演算法成本約為 $O(B^3)$；batch 較大時，可以改用 Cuturi 的 Sinkhorn 近似 [3]。
+和原本 CFM 相比，真正新增的是「解指派」與「依指派重排終點」兩步。常見的精確指派演算法成本約為 $O(B^3)$。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-4-batch-ot.html" class="demo-frame" title="Batch 內解一次 OT：互動 demo" style="height: 970px; width: 100%; border: none;"></iframe>
 
 **互動 demo：batch 內解一次 OT。** 從「獨立」按到「192（全域）」，這組 2D toy 裡的線段交叉比例約為 **20% → 9% → 4% → 1.4% → 0.6%**，1 步 Euler error 約為 **1.5 → 0.77 → 0.41 → 0.21 → 0.08**。Batch 越大，每個起點可以比較的候選終點越多；改善逐漸變小，但不會在某個固定 batch size 突然結束。
 
-> **OT 配對真正保證的是「單調」，不是「不交叉」。**
+> **OT 排除的是同一個 $(x,t)$ 上的衝突，不是高維線段在圖上完全不相交。**
 
-一維的單調等於零交叉；高維只保證上面的內積條件，不能直接推出「零交叉」。Demo 顯示的是這個 2D toy 裡交叉比例也跟著下降。
+上面的推導保證，使用同一個時間 $t$ 計算位置時，兩條 linear reference paths 不會相遇。Demo 計算的則是兩條線段在平面上有沒有幾何交點；即使它們在不同時間經過那個交點，仍會被算成相交。因此，圖上的交叉比例下降是這個 2D toy 的觀察，不是單調性直接保證的結論。
 
-## 兩端 distributions 沒變，差別在中間怎麼連
+<Remark label="補充" summary="Batch 較大時，Sinkhorn 算的是什麼？">
+Exact BatchOT 會得到一個 permutation：每個起點只配到一個終點。但 $B$ 變大後，精確解 assignment 的成本也會快速增加。實作上常改用 Cuturi 提出的 **Sinkhorn algorithm** [3]，解加入 entropy regularization 的版本：
 
-Batch 內重排只是一個**置換**：$x_0$ 與 $x_1$ 的樣本集合都沒有變，只有誰和誰配在一起。因此每個 batch 的兩端 empirical marginals 都保持不變；把抽 batch 的隨機性一起考慮後，$\pi_B$ 仍然是 $p_0$ 與 $p_1$ 的合法 coupling。理想 CFM velocity 最後仍會抵達 $p_1$。
+$$
+\pi_\varepsilon
+\in
+\underset{\pi\in\Pi_B}{\arg\min}
+\left\{
+\sum_{i,j}\pi_{ij}C_{ij}
++\varepsilon\sum_{i,j}\pi_{ij}(\log\pi_{ij}-1)
+\right\}.
+$$
 
-和全域 OT 的差別在 coupling：一個 batch 裡的 $x_0$ 只能選同一批中的 $x_1$。Batch 小時候選者少，reference directions 仍可能互相衝突；在適當條件下，batch size 增加時才會逐漸接近全域 OT construction。
+其中，$\Pi_B$ 是所有非負矩陣中，每一列、每一欄加總都等於 $1/B$ 的集合。第一項仍希望搬運距離小；第二項則鼓勵 probability mass 不要全擠在少數格子裡。
 
-所以，minibatch OT 不是要改變終點 distribution，而是希望減少 reference velocities 的衝突，讓 learned velocity 沿 trajectory 少一點變化。若加速度積分因此變小，同一個 solver、同樣的步長下，finite-step error 的上界也會跟著下降；但 solver 本身的階數並沒有改變。
+所以 Sinkhorn 通常得到的不是單一 permutation，而是一個 **soft coupling**：同一個 $x_0^{(i)}$ 可以用不同權重配到多個 $x_1^{(j)}$。訓練時可以依照 $\pi_{\varepsilon,ij}$ 抽取端點對，或直接用這些權重計算 regression objective。
+
+Sinkhorn 只需要反覆調整矩陣的 row sums 與 column sums，容易平行化，因此 batch 較大時很常使用。不過，只要 $\varepsilon>0$，它解的就是 **entropic OT（BatchEOT）**，不是上面的 exact BatchOT；當 $\varepsilon\to0$ 時，才會逐漸靠近沒有 entropy regularization 的 OT solution。
+</Remark>
+
+## 每個 batch 都解了 OT，整體也會是真的 OT、真的很直嗎？
+
+使用 exact assignment 時，每一次抽到的 batch 確實都解出了**這兩批 empirical samples 之間的 quadratic OT**。但一個 batch 裡的 $x_0$ 只能從同一批 $x_1$ 挑選；如果更合適的終點這次沒有被抽進來，batch 內的最佳選擇仍可能不是完整 distributions 之間的最佳選擇。
+
+把很多次 training runs 合起來看，每次重新抽 batch 都可能得到不同的配對。因此，這些配對共同形成的是一個合法的 coupling，但一般不會剛好等於 $p_0,p_1$ 之間的 population OT。**「每個 batch 裡都是 OT」不等於「合起來就是完整 distributions 的 OT」。**
+
+那 learned ODE 至少會變成等速直線嗎？在單一 batch 裡，exact OT 會排除同一個 $(x,t)$ 上互相衝突的 linear reference paths；但神經網路看到的是所有 batches。不同 batches 仍可能在同一個區域提供不同的 reference velocities，L2 regression 還是必須把它們平均起來，所以 learned velocity 沿著 trajectory 仍可能改變。
+
+要讀懂 Pooladian 等人的結果，我們先把他們控制的三個量分開。令 $\pi_B$ 表示 BatchOT 在抽 batch 的 randomness 平均後形成的 coupling，並定義
+
+$$
+(X_0,X_1)\sim\pi_B,
+\qquad
+I_t=(1-t)X_0+tX_1,
+$$
+
+$$
+v_t^{(B)}(x)
+=
+\mathbb E[X_1-X_0\mid I_t=x].
+$$
+
+下面先考慮理想情況：模型真的學到 $v_t^{(B)}$，ODE 也被精確解出來。把真正生成時的 trajectory 記成 $Z_t$：
+
+$$
+\frac{\mathrm d Z_t}{\mathrm dt}
+=v_t^{(B)}(Z_t),
+\qquad
+Z_0\sim p_0.
+$$
+
+**Transport cost 看 learned flow 最後把每個起點搬了多遠。** 定義
+
+$$
+C_B=\mathbb E\|Z_1-Z_0\|^2.
+$$
+
+這裡量的是 learned ODE 產生的起終點配對，不是某一次 batch 裡 assignment solver 算出的 $\frac1B\sum_i\|x_1^{(\sigma(i))}-x_0^{(i)}\|^2$。所有 population couplings 中能達到的最小值，才是 $W_2^2(p_0,p_1)$。
+
+**Straightness 看真正生成的 ODE trajectory 是否等速直走。** 定義
+
+$$
+S_B
+=
+\int_0^1
+\mathbb E\left[
+\left\|
+v_t^{(B)}(Z_t)-(Z_1-Z_0)
+\right\|^2
+\right]\mathrm dt.
+$$
+
+這就是 <Ref to="dma-rectified-flow">U3.2</Ref> 使用的 straightness：它比較「當下的 velocity」與「從起點直達終點所需的固定 velocity」。$S_B=0$ 時，每條 $Z_t$ 都是等速直線。它和 <Ref to="dma-error-theory">U3.1</Ref> 的加速度積分不是同一個量；後者直接量 velocity 沿 trajectory 改變了多少。$S_B=0$ 會讓加速度也等於零，但有限的 $S_B$ 並不能直接代替 U3.1 的 finite-step error bound。
+
+**Regression target variance 看同一個位置收到的 reference velocities 是否一致。** 定義
+
+$$
+V_B
+=
+\int_0^1
+\mathbb E\left[
+\left\|
+(X_1-X_0)-v_t^{(B)}(I_t)
+\right\|^2
+\right]\mathrm dt.
+$$
+
+因為 $v_t^{(B)}(I_t)$ 是 $X_1-X_0$ 給定 $I_t$ 的 conditional mean，$V_B$ 正是 optimal L2 regression 剩下的 conditional variance，也就是 <Ref to="dma-rectified-flow">U3.2</Ref> 的 $V(\pi)$。它不是 neural network 沒有學好造成的 approximation error；即使模型已經達到最佳解，只要同一個 $(x,t)$ 仍對應到不同的 reference velocities，$V_B$ 就不會是零。
+
+Pooladian 等人證明，在適當的 regularity 條件下，當 $B\to\infty$ 時 [2]，
+
+$$
+\begin{aligned}
+C_B&\longrightarrow W_2^2(p_0,p_1),\\
+S_B&\longrightarrow 0,\\
+V_B&\longrightarrow 0.
+\end{aligned}
+$$
+
+這三行分別表示：learned flow 的 transport cost 逐漸達到 population OT、生成 trajectories 逐漸接近等速直線，而同一個位置的 regression targets 也逐漸不再衝突。這是 $B\to\infty$ 的**漸近結果**，不是說 batch size 每增加一次，三個量都一定單調下降。因此，有限的 $B$ 既不保證得到 population OT，也不保證 learned ODE 已經是等速直線。
+
+對 finite-step error 來說，我們最後仍要回到 <Ref to="dma-error-theory">U3.1</Ref> 的量：只有當 learned velocity 沿 trajectory 的加速度積分也跟著下降，同一個 solver、同樣步長下的 error bound 才會變小。Minibatch OT 改的是 training coupling，沒有改變 solver 本身的階數。
 
 這一點和 reflow 不同：minibatch OT 不必先用上一輪 neural ODE 產生終點，因此不會把上一輪模型與 solver 的誤差寫進配對。
+
+<Remark label="補充" summary="重新配對會改變兩端的 distributions 嗎？">
+不會。Batch 內重排只是一個 permutation：$x_0$ 與 $x_1$ 的樣本集合都沒有變，只有誰和誰配在一起。想像送貨表被重新排序，但每個倉庫仍然出一件貨、每個目的地也仍然收一件貨，因此這個 batch 的兩端 empirical marginals 完全不變。
+
+把抽 batch 的 randomness 一起考慮後，這個程序誘導出的 joint distribution 仍然是一個兩端 marginals 分別為 $p_0,p_1$ 的合法 coupling [2]。所以在理想 velocity 與精確 ODE 下，<Ref to="dma-conditional-flow-matching">U2.2</Ref> 的結論仍然適用：沿著學到的 velocity field 走，最後仍會抵達 $p_1$。
+
+</Remark>
 
 ## reflow 與 minibatch OT，差在哪？
 
@@ -128,7 +366,7 @@ Batch 內重排只是一個**置換**：$x_0$ 與 $x_1$ 的樣本集合都沒有
 | 改配對的時機 | 訓完一輪之後 | 每個 batch 當下 |
 | 額外計算 | 整輪 ODE 取樣 ＋ 重訓 | 每 batch 一次 $O(B^3)$ 指派 |
 | 實作中的終點 | 受上一輪模型與 solver 誤差影響 | batch 內只是置換，不會因配對改變 |
-| 理論保證 | 前 $K$ 輪至少一輪有 $S+V=O(1/K)$；不一定是 OT | 適當條件下，coupling size 增加時接近 OT construction |
+| 理論保證 | 理想條件下 $S+V\to0$；不保證逐輪單調，也不保證得到 OT | 適當條件下，$B\to\infty$ 時 straightness 與 transport cost 分別趨近 $0$ 與完整 OT cost |
 | 對模型的依賴 | 新配對來自上一輪 neural ODE | 配對只依賴目前 batch 與成本函數 |
 | 高維的困難 | 要重新訓練與取樣 | 成本使用的距離可能失去辨別力 |
 
@@ -155,10 +393,6 @@ $$
 </Answer>
 </Question>
 
-![交換一次，就看出單調](./imgs/w5-4-1.png)
-
-*圖：交換一次，就看出單調。在一維，交叉配對交換終點後會更短；高維對應的必要條件是 $(a-b)^\top(A-B)\ge0$。*
-
 ## 消化一下
 
 <QuizBlock id="w5-4-a">
@@ -167,17 +401,17 @@ OT 配對為什麼是單調的？
 <Option correct>因為交換任何一對終點會讓成本改變 $2(a-b)^\top(A-B)$，所以最佳解不可能存在 $(a-b)^\top(A-B) \lt 0$ 的對。</Option>
 <Option>因為 OT 只在一維成立。</Option>
 <Explanation>
-一行展開就得到那個差值，剩下的是「最佳解沒有可改進的地方」。Brenier 定理（$T=\nabla\varphi$、凸函數梯度）是同一件事的另一種說法。
+一行展開就得到那個差值，剩下的是「最佳解沒有可改進的地方」。再把這個單調條件代進 linear interpolation，就能證明兩條 reference paths 不會在同一個時間抵達同一個位置。
 </Explanation>
 </QuizBlock>
 
 <QuizBlock id="w5-4-b">
-用很小的 $B$（例如 $B=4$）做 minibatch OT 訓練，終點分布會怎樣？
-<Option>偏離 $p_1$，因為配對不是全域最佳。</Option>
-<Option correct>仍然是 $p_1$。只是 learned velocity 通常比大 $B$ 時變化得更劇烈，少步取樣的誤差比較大。</Option>
-<Option>塌到少數幾個點上。</Option>
+每個 batch 裡都解出了精確 OT，可以直接推出什麼？
+<Option>所有 batches 合起來後，一定就是 $p_0,p_1$ 之間的 population OT。</Option>
+<Option correct>只能確定目前這個 batch 裡的配對最佳；有限 batch 不保證整體 coupling 是 population OT，也不保證 learned ODE 已經是等速直線。</Option>
+<Option>learned ODE 的一個 Euler step 一定精確。</Option>
 <Explanation>
-batch 內重排是一個置換，兩邊的樣本集合都沒動，所以保邊際。$B$ 影響的是 reference velocities 的衝突，以及 learned velocity 沿 trajectory 的變化，不是兩端的 distributions。
+每個起點只能從同一個 batch 的終點中選擇；跨過不同 batches，模型仍可能看到彼此不同的 reference velocities。Pooladian 等人的結果是在適當條件下讓 $B\to\infty$，才能得到 transport cost 與 straightness 的漸近結論。
 </Explanation>
 </QuizBlock>
 

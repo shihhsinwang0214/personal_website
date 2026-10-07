@@ -5,21 +5,22 @@ prereqs:
   - math-euler-error
   - math-w2
 lang: "zh"
-title: "實作：把加速度積分與 Euler 誤差畫在一起"
+title: "實作：換了資料與模型，前面的方法還能沿用嗎？"
 category: "courses"
-group: "Unit 3 · 更直、更快的生成路徑"
+group: "Unit 3 · 減少 ODE 的離散化誤差"
 status: "available"
-updated: 2026-10-04
-summary: "在同一個 toy 上分開量配對、加速度積分、solver 與取樣噪聲；先診斷誤差來源，再判斷 reflow、OT、ODE 或 SDE 哪一個真的有幫助。"
-demos:
-  - "notes/research_areas/diffusion-models-applications/w5-1-epsilon.html"
+updated: 2026-10-06
+summary: "把 Flow Matching 中反覆出現的 training 與 sampling 收進同一個 class，再分別換掉 model、資料、coupling 與 solver，實作 Reflow、minibatch OT，以及相同 NFE 下的 Euler／Heun sampling。"
+demos: []
 references:
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
+    href: "https://arxiv.org/abs/2210.02747"
   - label: "Liu, Gong & Liu, Flow Straight and Fast: Rectified Flow (ICLR 2023)"
     href: "https://arxiv.org/abs/2209.03003"
   - label: "Tong et al., Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport (TMLR 2024)"
     href: "https://arxiv.org/abs/2302.00482"
-  - label: "Albergo, Boffi & Vanden-Eijnden, Stochastic Interpolants: A Unifying Framework for Flows and Diffusions (2023)"
-    href: "https://arxiv.org/abs/2303.08797"
+  - label: "Karras et al., Elucidating the Design Space of Diffusion-Based Generative Models (NeurIPS 2022)"
+    href: "https://arxiv.org/abs/2206.00364"
 ---
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
@@ -33,192 +34,312 @@ import Explanation from '../../../components/Explanation.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 
-# 實作：把加速度積分與 Euler 誤差畫在一起
+# 實作：換了資料與模型，前面的方法還能沿用嗎？
 
 <Objectives>
-- **比較獨立配對、reflow 與 minibatch OT。** 固定網路與 solver，只看配對如何改變軌跡。
-- **數值估計加速度積分與 Euler 終點誤差。** 驗證兩者的關係，並在離群點出現時檢查 Lipschitz 常數。
-- **掃描 $\gamma_t$、$\varepsilon_t$ 與步數。** 分開模型誤差、ODE 離散化誤差與 SDE 噪聲成本，再解釋何時出現交叉。
+- **寫出可以換 model、資料與 reference path 的 Flow Matching class。** 只要新的 model 仍接受 $(x,t)$ 並輸出相同 shape 的 velocity，就能沿用同一套 training code。
+- **把 Reflow 與 minibatch OT 寫成兩種 coupling。** Minibatch OT 在每個 batch 重新排列終點；Reflow 則先用目前的 ODE 產生新的端點配對，再重新訓練 model。
+- **在相同 NFE 下比較 Euler 與 Heun。** Euler 每步詢問一次 velocity，Heun 每步詢問兩次；比較 sampling 結果時，要先讓兩邊使用相同次數的 model evaluations。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 設定
+在 <Ref to="dma-rectified-flow">U3.2</Ref> 與 <Ref to="dma-minibatch-ot">U3.3</Ref> 中，我們改變起點與終點的 coupling，希望 learned ODE trajectory 更接近等速直線。到了 <Ref to="dma-shared-techniques">U3.4</Ref>，我們不再修改 training，而是在 sampling 時改用 Heun，更準確地近似同一條 ODE。
 
-沿用 `toy.py` 與 `fm.py`。這個單元新增三個檔：`couplings.py`（Liu、Gong 與 Liu 的 reflow [1]、Tong 等人的 minibatch OT [2]）、`interpolant.py`（Albergo、Boffi 與 Vanden-Eijnden 的 stochastic interpolant [3]）、`acceleration.py`。所有模型同架構、同 seed、同步數——**只有配對不一樣。**
-
-[下載 Week 5：Stochastic Interpolants、加速度積分與 reflow notebook（.ipynb）](/personal_website/notes/notebooks/diffusion-models-applications/dma-w5-lab.ipynb)
-
-**Notebook 內容。** 比較 deterministic path 與帶 $\gamma_t z$ 的 interpolant，再用解析旋轉速度場將 reflow 配對拉成弦，實測加速度積分和一步 Euler 誤差的關係。解析公式完整寫在 notebook 裡，不需要外部權重。
-
-## 步驟 1：四種配對
-
-```python
-# (a) 獨立：flow matching 實作篇的模型，直接載入
-# (b) reflow×1
-x0 = torch.randn(N, 2)
-x1 = euler_sample(model_indep, x0, n_steps=200)[-1]   # 用模型自己的 ODE 產生配對
-model_reflow1 = train_fm(pairs=(x0, x1))               # 用這組固定配對重訓
-# (c) reflow×2：對 model_reflow1 再做一次
-# (d) minibatch OT
-from scipy.optimize import linear_sum_assignment
-def ot_pair(x0, x1):
-    C = torch.cdist(x0, x1) ** 2
-    _, col = linear_sum_assignment(C.numpy())
-    return x0, x1[col]
-model_ot = train_fm(pair_fn=ot_pair, batch=256)
-```
-
-訓練迴圈唯一的改動是 `x0, x1` 從哪裡來。**其他一行都沒動。**
-
-## 步驟 2：軌跡圖（圖 a）
-
-四個模型、相同的 32 個起點、Euler 10 步，並排畫。
-
-**會看到的事情是**：由左到右越來越直，reflow×2 與 OT 已經接近直線，而殘餘的彎曲集中在兩個月牙之間——那裡是條件直線交叉最密的地方。
-
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-6-four-couplings.html" class="demo-frame" title="四種配對放在一起量：互動 demo" style="height: 1070px; width: 100%; border: none;"></iframe>
-
-**互動 demo：四種配對放在一起量。** 這是圖 a 加上步驟 4 的表格的「標準答案版」——速度場精確算出來，所以沒有網路誤差混進去。四個指標的實測值：獨立配對 S ≈ 1.6、1 步誤差 ≈ 1.5、交叉比例 ≈ 23%；reflow×1 把 S 壓到 0.03、誤差 0.12、交叉 1%；batch OT（32）走到 S 0.22、誤差 0.30；全域 OT 是 S 0.02、誤差 0.06。**reflow×1 和全域 OT 在「直」上打成平手，但運輸成本 OT 一貫略低**——「直」和「省」真的是兩件事。
-
-四種配對的加速度積分差好幾倍，而它們的兩端分布完全一樣——**設定動的是路，不是終點。** 至於「加速度積分小，誤差是不是真的跟著小」，那要等下一步把兩個量畫在同一張圖上才知道。
-
-## 步驟 3：加速度積分 vs 誤差（圖 b）
-
-```python
-def acceleration_integral(model, x0, n_fine=1000):
-    traj = euler_sample(model, x0, n_fine)          # 細步當成真實軌跡
-    v = (traj[1:] - traj[:-1]) * n_fine             # 速度 ≈ 差分
-    a = (v[1:] - v[:-1]) * n_fine                   # 加速度
-    return a.norm(dim=-1).mean(dim=0).mean()        # 對 t 積分、再對起點平均
-```
-
-對四個模型算 $\mathbb E\int\|a_t(x_t)\|\,dt$，以及 Euler 10 步終點的 $W_2$，畫成散點、兩軸取對數。
-
-**會看到的事情是**：四個點近似共線、斜率約 1。這張圖顯示的是 <Ref to="dma-error-theory"/> 那條不等式裡的關係：在這組設定中，加速度積分越大，Euler endpoint error 也越大。<Ref to="dma-error-theory"/> 的 demo 已經先用精確場畫過一次（六個設定、$r$ 通常在 0.95 以上），這裡要看的是**換成訓練出來的網路之後還成不成立**。
-
-再加一組步數（$N\in\lbrace 5,10,20 \rbrace$）：點會整體上下平移，但相對順序不變。
+現在要把這些方法真正寫進程式裡，問題就出現了：如果每換一個 coupling、model 或 solver，都重新寫一套 training loop，我們很快就會分不清楚**哪些步驟本來就一樣，哪些才是這個方法真正改動的地方。**
 
 <Ask>
-加速度積分小，誤差就一定小嗎？<br />
-這件事能不能在自己的圖上驗一次？
+能不能把共同的 Flow Matching training 寫成同一個 class，<br />
+換問題時，只替換真的不同的部分？
 </Ask>
 
-## 步驟 4：direction disagreement 與 transport cost
+## 這份程式會跑出什麼？
 
-對每個模型算 $V$（<Ref to="dma-rectified-flow"/>）與 $\mathbb E\|X_1-X_0\|^2$，做成一張表。這裡的 $V$ 比較 reference velocity 與 conditional mean，不是沿 ODE trajectory 定義的 $S(Z)$。
+我們仍然使用熟悉的二維 toy：起點是 Gaussian，終點是 two moons。完整範例可以從這裡下載：
 
-**會看到的事情是**：reflow 的兩個數都單調下降，而 OT 的運輸成本最低。把 OT 的成本和全域 OT（2000 點精確解）比一下，就知道 reflow 的極限離 OT 有多遠。
+[下載 U3.5：Flow Matching、Reflow、Minibatch OT 與 Heun（.py）](/personal_website/notes/notebooks/diffusion-models-applications/dma-u3-flow-matching-reflow-ot.py)
 
-## 步驟 5：ODE 與 SDE 在第幾步交叉（圖 c）
+先安裝需要的 packages：
 
-用 `interpolant.py` 訓一個 $\gamma_t=0.3\sqrt{2t(1-t)}$ 的模型，兩個 head 同時輸出 $v_t$ 與 $\eta_t$。取樣器：
-
-```python
-def sde_step(x, t, h, eps_t):
-    u, eta = model(x, t)
-    s = -eta / gamma(t)
-    return x + h * (u + eps_t * s) + (2 * eps_t * h) ** 0.5 * torch.randn_like(x)
+```bash
+pip install torch numpy scipy matplotlib
 ```
 
-在自己訓練之前，可以先用下面的 demo 分開看兩件事：調整 $c$ 會改變 trajectories 的抖動程度；按下「把所有樣本推歪」則可以測試 Langevin 項能否把偏差拉回來。
+再執行：
 
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-1-epsilon.html" class="demo-frame" title="同一組 marginals，不同 sampling randomness" style="height: 1000px; width: 100%; border: none;"></iframe>
+```bash
+python dma-u3-flow-matching-reflow-ot.py
+```
 
-理想 fields、連續時間下，不同 $\varepsilon_t$ 會共享同一組 marginals；demo 真正要比較的是 finite-step 與人為偏差出現後，ODE 和 SDE 如何累積或修正誤差。
+程式會先用 independent coupling 訓練一個 baseline，接著分別用 Reflow 與 minibatch OT 改變 coupling，最後輸出 `u3_5_results.png`。同一張圖也會固定 baseline model，比較相同 NFE 下的 Euler 與 Heun。這樣我們可以分開看見：**改 coupling 影響學到的 ODE；改 solver 則影響我們怎麼近似它。**
 
-對 $\varepsilon\in\lbrace 0,\,0.1,\,0.5 \rbrace$ 與步數 $\lbrace 10,50,200,1000 \rbrace$ 算 $W_2$，畫成三條曲線。**先寫下你的猜測：這三條會不會交叉？** 這張圖要驗的是 <Ref to="dma-reverse-process"/> 的判準——不是「哪一個比較好」，而是「在這個設定下，哪一種誤差佔上風」。
+如果想先用較短的訓練確認環境與程式是否正常，可以執行：
 
-<Remark label="補充" summary="這一步很容易得到和文獻相反的結論，原因在哪">
-「少步數 ODE 贏、多步數 SDE 贏」這個說法有前提，而那些前提很容易在 toy 上不成立。
+```bash
+python dma-u3-flow-matching-reflow-ot.py --steps 100 --reflow-pairs 1000 --eval-samples 500
+```
 
-第一，**$\varepsilon_t$ 的尺度**。如果照 $\varepsilon_t=c\,\gamma_t^2$ 取而 $\gamma$ 又很小，那每步注入的噪聲 $\sqrt{2\varepsilon h}$ 就很小，而 score 那一項提供的是一個很強的收縮——這時候 SDE 幾乎在所有步數都比 ODE 好，因為它其實是一個更穩定的積分器，不是「多了噪聲」。要重現文獻的圖像，$\varepsilon$ 得取到 diffusion reverse SDE 那個量級。
+## 換一個 model，需要重寫 Flow Matching 嗎？
 
-第二，**score 是精確的還是學出來的**。SDE 那一族的邊際不變性用到了 $s_t$ 是真正的 score（<Ref to="dma-unified-equation"/> 的證明只有那一步用到它）。$s_t$ 有誤差時，$\varepsilon$ 越大偏得越多——文獻上「多步 SDE 更好」的圖像其實同時包含了「噪聲能抵掉一部分網路誤差」，而 toy 上如果 score 幾乎精確，就看不到這一面。
+二維 toy 使用 MLP，但換成影像資料後，我們可能會使用 U-Net；其他問題又可能需要完全不同的架構。如果 model 被直接寫死在 `FlowMatching` 裡，每換一次資料，就得連 training code 一起改掉。
 
-所以這一步的正確做法是：**先把 $\varepsilon$ 掃過一個大範圍**（不要只試一兩個值），並且**同時報告用精確 score 與用訓練 score 的兩組曲線**。得到和文獻不同的結論不一定是做錯了，但一定要說清楚是在哪個設定下量到的。
+比較自然的做法，是先在 class 外建立 model，再把它傳進 `FlowMatching`：
+
+```python
+model = VelocityMLP(data_dim=2, hidden_dim=128)
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+fm = FlowMatching(
+    model=model,
+    source_sampler=sample_gaussian,
+    target_sampler=sample_two_moons,
+    device=device,
+)
+```
+
+`FlowMatching` 對 model 的要求可以寫成：
+
+```python
+model(x, t).shape == x.shape
+```
+
+也就是給定目前的位置 `x` 與時間 `t`，model 要回傳一個與 `x` shape 相同的 velocity。二維點使用 `VelocityMLP`；若 `x` 是影像，就可以換成接受 `(image,t)` 的 U-Net。**Model 變了，但 Flow Matching 仍然在學同一個物件 $v_\theta(x,t)$。**
+
+資料也用同樣的方式從外面傳進來。`source_sampler(batch_size, device)` 與 `target_sampler(batch_size, device)` 只要回傳 shape 相同的 tensors，就能換成其他 distributions 或 datasets。
+
+<Remark label="程式介面" summary="哪些部分可以獨立替換？">
+完整程式留下四個可以替換的部分：
+
+- `model`：近似 $v_t(x)$ 的 neural network；
+- `source_sampler`、`target_sampler`：決定 $p_0$ 與 $p_1$；
+- `path`：給定 $(x_0,x_1,t)$，回傳 $I_t$ 與 $\dot I_t$；
+- `pairer` 或 `pair_dataset`：決定一個 $x_0$ 應該和哪個 $x_1$ 配在一起。
+
+這篇使用 linear path，但也可以傳入另一個 `path` function。換到新的問題時，我們只要先確認改變的是資料、model、path 還是 coupling，再替換對應的部分。
 </Remark>
 
-再做一件事：在 $t=0.3$ 對所有樣本注入 $+0.5$ 的人為偏移，看三條曲線終點的 $W_2$。$\varepsilon=0$ 的偏移會完整保留，$\varepsilon \gt 0$ 會被吸收掉一部分；吸收的程度取決於 $\varepsilon$ 的大小和剩下多少時間。
+## Training 時，真正需要的是哪兩個量？
+
+不論 model 長什麼樣子，Flow Matching 的 training step 都需要同一組資料：reference path 在時間 $t$ 的位置 $I_t$，以及這個位置對應的 reference velocity $\dot I_t$。以 linear path 為例：
+
+```python
+def linear_path(x0, x1, t):
+    tau = t.reshape(t.shape[0], *([1] * (x0.ndim - 1)))
+    xt = (1 - tau) * x0 + tau * x1
+    reference_velocity = x1 - x0
+    return xt, reference_velocity
+```
+
+`tau` 被 reshape 成可以和 `x0` broadcast 的形狀。因此，只要兩端的 shape 相同，這段程式不只可以處理 `[batch,2]` 的二維點，也可以處理 `[batch,channels,height,width]` 的影像。
+
+拿到 $(I_t,\dot I_t)$ 後，training step 就和 <Ref to="dma-flows-and-continuity">U2.1</Ref> 的 objective 完全一樣：
+
+```python
+x0, x1 = self._draw_pairs(
+    batch_size,
+    pairer=pairer,
+    pair_dataset=pair_dataset,
+)
+t = torch.rand(batch_size, device=self.device)
+xt, reference_velocity = self.path(x0, x1, t)
+
+prediction = self.model(xt, t)
+loss = F.mse_loss(prediction, reference_velocity)
+
+self.optimizer.zero_grad(set_to_none=True)
+loss.backward()
+self.optimizer.step()
+```
+
+Independent coupling、minibatch OT 與 Reflow 都使用這個 MSE loss。三者真正不同的是：`_draw_pairs` 會抽出哪一組 $(x_0,x_1)$，也就是 training 時使用哪一個 coupling。
+
+## 先從 independent coupling 出發
+
+先看我們在 U2 使用的情況。如果沒有傳入 `pairer` 或 `pair_dataset`，程式會分別從 $p_0$ 與 $p_1$ 獨立抽樣：
+
+```python
+baseline = FlowMatching(
+    model=VelocityMLP(),
+    source_sampler=sample_gaussian,
+    target_sampler=sample_two_moons,
+)
+
+baseline.fit(steps=2500, batch_size=256)
+```
+
+這就是 U2 使用的 linear Conditional Flow Matching [1]。下面要實作的 Reflow 與 minibatch OT 都保留相同的 path 與 loss，**只改變這些端點如何被配在一起。**
+
+## Minibatch OT 改了哪一行？
+
+<Ref to="dma-minibatch-ot">U3.3</Ref> 的做法是：仍然先從 $p_0$ 與 $p_1$ 各抽一批點，但在畫 reference paths 之前，先重新排列終點，讓這個 batch 的搬運距離平方總和最小。這個動作可以獨立寫成 `pairer`：
+
+```python
+def minibatch_ot_pair(x0, x1):
+    from scipy.optimize import linear_sum_assignment
+
+    flat_x0 = x0.detach().flatten(1)
+    flat_x1 = x1.detach().flatten(1)
+    cost = torch.cdist(flat_x0, flat_x1).square().cpu().numpy()
+    rows, cols = linear_sum_assignment(cost)
+
+    rows = torch.as_tensor(rows, device=x0.device)
+    cols = torch.as_tensor(cols, device=x1.device)
+    return x0[rows], x1[cols]
+```
+
+`flatten(1)` 讓每個 sample 先攤平成一個向量，再用完整的 Euclidean distance 計算 cost。因此，二維點與影像 tensors 都能使用同一段程式。不過 cost matrix 的大小是 $B\times B$；batch 越大，需要的記憶體與 assignment 計算也會一起增加。
+
+Training 時，只要把這個 `pairer` 傳進原本的 `fit`：
+
+```python
+batch_ot = FlowMatching(
+    model=VelocityMLP(),
+    source_sampler=sample_gaussian,
+    target_sampler=sample_two_moons,
+)
+
+batch_ot.fit(
+    steps=2500,
+    batch_size=128,
+    pairer=minibatch_ot_pair,
+)
+```
+
+每一步仍然重新從 $p_0,p_1$ 抽樣；`pairer` 只把目前 batch 裡的終點重新排列，沒有增加或刪掉任何樣本。因此兩端的 empirical marginals 不變，改變的是中間會畫出哪些 reference paths。
+
+## Reflow 的配對要從哪裡來？
+
+Reflow [2] 需要的配對不是在 batch 裡解 assignment 得到的。按照 <Ref to="dma-rectified-flow">U3.2</Ref> 的做法，我們要先抽一批起點，讓它們沿著目前學到的 ODE 走到終點：
+
+```python
+reflow_pairs = baseline.make_reflow_dataset(
+    n_samples=20000,
+    batch_size=1024,
+    n_steps=50,
+    solver="heun",
+)
+```
+
+這裡得到的是
+
+$$
+(X_0,Z_1^{(1)}),\qquad
+\frac{\mathrm dZ_t^{(1)}}{\mathrm dt}
+=v_t^{(0)}(Z_t^{(1)}).
+$$
+
+每個起點與它實際抵達的終點，會被存成一組新的 pair。接著我們建立一個**新的 model**，在這些端點之間重新畫直線，再做一次 Flow Matching：
+
+```python
+reflow = FlowMatching(
+    model=VelocityMLP(),
+    source_sampler=sample_gaussian,
+    target_sampler=sample_two_moons,
+)
+
+reflow.fit(
+    steps=2500,
+    batch_size=256,
+    pair_dataset=reflow_pairs,
+)
+```
+
+這一次，`pair_dataset` 取代了原本的 independent sampling；objective、path 與 optimizer 都維持不變。若要再做一輪 Reflow，就讓 `reflow` 產生下一組 pairs，再訓練一個新的 model。
+
+<Remark label="實作提醒" summary="產生 Reflow pairs 時為什麼使用較細的 Heun？">
+理論上的 rectification 使用目前 ODE 的精確終點；實作時只能用 numerical solver 近似。若產生 pairs 時走得太粗，solver error 也會跟著進入下一輪 training data。
+
+範例使用 50 步 Heun 產生 pairs，並不是 Reflow 規定要使用 Heun，而是希望產生配對時的 numerical error 不要成為主要差異。實際使用時，可以逐漸增加 solver steps，檢查得到的 endpoints 是否已經不再明顯改變。
+</Remark>
+
+## Sampling 時，要怎麼公平比較 Euler 與 Heun？
+
+Coupling 決定 training 時使用哪些 reference paths；sampling 時，我們還要決定怎麼近似學到的 ODE。`integrate` 支援 Euler 與 Heun：
+
+```python
+if solver == "euler":
+    x = x + h * v0
+else:
+    predicted = x + h * v0
+    v1 = self.model(predicted, t1)
+    x = x + 0.5 * h * (v0 + v1)
+```
+
+Euler 每一步詢問一次 model；Heun 先做 predictor，再在預測終點詢問一次，因此每一步需要 2 NFE。若兩邊的預算都是 20 NFE，應該比較：
+
+```python
+x_euler = baseline.integrate(x0, n_steps=20, solver="euler")
+x_heun  = baseline.integrate(x0, n_steps=10, solver="heun")
+```
+
+如果兩者都走 20 步，實際上比較的是 20 NFE 與 40 NFE。這時即使 Heun 的結果比較好，我們也無法判斷原因是 solver 的近似更準，還是它多詢問了 20 次 model。
+
+![同一個 FlowMatching class 的實作流程：Independent、minibatch OT 與 Reflow 提供不同端點配對，但共用相同 path 與 regression loss；固定模型後，以相同 20 NFE 比較 Euler 20 步和 Heun 10 步。](./imgs/w5-6-1.png)
+
+**圖：改 coupling 與改 solver，是不同的程式改動。** 左邊改的是 training pairs：minibatch OT 用 `pairer` 重排目前 batch，Reflow 用 `pair_dataset` 保存目前 ODE 產生的端點配對；三者共用相同的 path 與 velocity regression。右邊固定 trained model，只改積分方法；Euler 20 步與 Heun 10 步同樣使用 20 NFE。圖中的配對與路徑是示意，不是實測結果。
 
 <Question id="Q1">
-圖 b 上有一個點明顯落在那條共線之上——同樣的加速度積分，誤差卻大了一截。
-
-**第一個該懷疑什麼？**
+如果要把這份程式從 two moons 換到影像資料，**只更換 `target_sampler` 就夠了嗎？**
 
 <Answer>
-不一定是加速度積分算錯，也不一定只是步數不夠（步數主要會讓整條線平移）。
+不夠。至少要一起確認三個介面：
 
-回到 <Ref to="dma-error-theory"/> 的不等式：
+1. `source_sampler` 與 `target_sampler` 必須回傳相同 shape，例如 `[batch,3,32,32]`；
+2. 外部傳入的 model 必須接受 `(x,t)`，並輸出和影像相同 shape 的 velocity；
+3. 記憶體是否允許 minibatch OT 建立 $B\times B$ cost matrix。
 
-$$
-\text{Euler 全域誤差}\ \lesssim\ C_L\,h\int_0^1\|a_t(x_t)\|\,dt .
-$$
-
-它有**兩個**因子。畫散點圖的時候我們默默假設了各個模型的 $C_L$ 差不多，於是誤差只隨積分變化。所以某個點偏高，第一個該懷疑的就是**那個模型的速度場 Lipschitz 常數比較大**——場更「陡」，同樣的局部誤差被放大得更多。
-
-怎麼檢查？幾個實際的做法：
-
-- 在一批隨機的 $(x,t)$ 上估 $\|\partial v_\theta/\partial x\|$ 的譜範數（用幾次 power iteration，或直接 finite difference 取最大方向）。
-- 看那個模型的權重範數與有沒有用 weight decay／spectral norm。
-- 看它的誤差是不是集中在少數幾個起點（$C_L$ 大通常表現成「大部分軌跡很好，少數幾條爆掉」），而不是均勻分布。
-
-如果 $C_L$ 也差不多，那才輪到懷疑量測本身：加速度積分用的 `n_fine` 夠不夠細（對 velocity 做數值差分，對步長很敏感）、$W_2$ 的樣本數夠不夠、以及**有沒有樣本走到不同的 mode**（那種樣本的誤差是 $O(1)$，和步數幾乎無關，會把平均值整個拉歪——<Ref to="dma-lab-flow-matching"/> 用中位數就是為了避開它）。
+`FlowMatching.fit`、Reflow 的 fixed-pair training 與 Euler／Heun integration 不必因為資料從二維點換成影像而重寫。真正需要換的是資料與 model；minibatch OT 的 batch size 則要依計算成本重新選擇。
 </Answer>
 </Question>
 
-> **點偏離那條線的時候，先懷疑 $C_L$，不要先懷疑理論。**
-
-## 作業
-
-1. **Guidance 與加速度積分。** 用兩類月牙訓一個條件 FM（條件 dropout 0.1）。對 $w\in\lbrace 1,2,4,8 \rbrace$ 算加速度積分與 Euler 10 步的 $W_2$。它們還落在圖 b 的那條線上嗎？順便量一下終點的散布，對照 <Ref to="dma-shared-techniques"/> demo 的結論。
-2. **Heun。** 用 Heun 重跑步驟 3。斜率變成多少？哪個模型改善最多、哪個最少？用 <Ref to="dma-shared-techniques"/> 的三階導數論證解釋。
-3. **時間加權。** 回到 <Ref to="dma-lab-flow-matching"/> 作業 2：用 logit-normal 抽 $t$ 重訓獨立配對的 FM，畫它在圖 b 上的位置。它移動的是橫座標還是縱座標？為什麼？
-4. **$\gamma$ 與 coupling。** 對 $\gamma$ 幅度 $\lbrace 0,\,0.1,\,0.3,\,1.0 \rbrace$ 各訓一個 OT 配對的模型，畫「加速度積分」與「最佳 $\varepsilon$ 下 SDE 1000 步的 $W_2$」對 $\gamma$ 的兩條曲線。這一步檢查的是 <Ref to="dma-unified-equation"/> 加入 extra randomness 後，ODE geometry 與 SDE sampling 如何一起改變。
-5. **（選）高維。** 在 MNIST 上重做步驟 1 的 (a) 與 (d)，比較 Euler 10 步的 FID。增益是不是像 <Ref to="dma-minibatch-ot"/> 預測的比 2D 小？順便量一下成本矩陣的變異係數，看它是不是接近 $\sqrt{2/d}$。
-
-![三個單元一張圖](./imgs/w5-6-1.png)
-
-*圖：三個單元，一張圖。由 denoising 回歸得到 score，將 score 換成 velocity，再用加速度積分連到少步 ODE 的終點誤差。*
-
-## 消化一下
+## 快速回顧一下
 
 <QuizBlock id="w5-6-a">
-圖 b 中若某個模型的點明顯落在共線之上（同樣加速度積分、誤差更大），最可能的原因是什麼？
-<Option>加速度積分算錯了。</Option>
-<Option correct>那個模型速度場的 Lipschitz 常數比較大，把誤差放大了（<Ref to="dma-error-theory"/> 的 $C_L$）。</Option>
-<Option>步數不夠。</Option>
+Independent coupling 與 minibatch OT 的 training code，真正不同的是哪一部分？
+<Option>Flow Matching 的 L2 objective。</Option>
+<Option correct>抽出兩批端點後，是否先用 `pairer` 重新排列配對。</Option>
+<Option>使用的 ODE solver。</Option>
 <Explanation>
-不等式除了步長，還有加速度積分與 $C_L$。共線的前提是 $C_L$ 相近，所以偏離時先檢查速度場的正則性。改變步數主要會讓整條線上下平移。
+兩者都使用相同的 linear path 與 velocity regression。Minibatch OT 改的是 batch 內的 coupling，不是 loss 或 sampling solver。
 </Explanation>
 </QuizBlock>
 
 <QuizBlock id="w5-6-b">
-步驟 5 中若 $\varepsilon \gt 0$ 的曲線在少步時較差，理由是什麼？
-<Option>score 估得不準。</Option>
-<Option correct>每步注入的噪聲是 $\sqrt{2\varepsilon h}$，$h$ 大的時候它很大，而修正來不及發揮，離散誤差反而增加。</Option>
-<Option>$\gamma_t$ 太小。</Option>
+Reflow 為什麼需要建立一個新的 model？
+<Option>舊 model 無法使用 Heun。</Option>
+<Option correct>新的 coupling 會產生新的 reference paths 與 regression targets，需要重新學對應的 marginal velocity。</Option>
+<Option>Reflow 必須更換 target distribution。</Option>
 <Explanation>
-自我修正是連續極限的性質，需要足夠多步才顯現。這是「有修正不代表更好」的定量樣子。不過要注意 $\varepsilon$ 取得很小的時候未必量得到這個現象——見上面那則補充。
+Reflow 保留兩端 distributions，但改變誰和誰配在一起。Training data 已經不同，不能把同一個已訓練 model 當成新一輪結果。
 </Explanation>
 </QuizBlock>
 
 <QuizBlock id="w5-6-c">
-根據 demo 量到的數字，關於「直」與「省」下列哪一句正確？
-<Option>reflow 同時把兩者都壓到最低。</Option>
-<Option correct>reflow×1 和全域 OT 的 direction disagreement 幾乎一樣，但 transport cost 是 OT 略低——方向一致與成本最小是兩件事。</Option>
-<Option>batch OT 的 direction disagreement 已經和全域 OT 一樣。</Option>
+Euler 20 步與 Heun 20 步是不是相同計算預算？
+<Option>是，因為兩者都走 20 步。</Option>
+<Option correct>不是；Euler 是 20 NFE，Heun 通常是 40 NFE。</Option>
+<Option>只有資料維度大於二時才不同。</Option>
 <Explanation>
-batch OT（32）的 $S$ 約 0.22，全域 OT 約 0.02，差一個量級——但它相對獨立配對的 1.6 已經走完八成六，而且完全不必重訓。這就是「便宜」與「有效」之間的取捨。
+比較 neural ODE sampling cost 要數 model evaluations。固定 20 NFE 時，應比較 Euler 20 步與 Heun 10 步。
 </Explanation>
 </QuizBlock>
 
+## 把二維 toy 換成自己的問題
+
+1. 把 `sample_two_moons` 換成另一個二維 distribution，觀察哪些程式完全不需要改動。
+2. 把 `VelocityMLP` 換成自己的 model，並保留 `model(x,t).shape == x.shape` 這個介面。
+3. 改變 minibatch OT 的 batch size，記錄 training time 與 Euler sampling 的結果。
+4. 再做一輪 Reflow，分開記錄「產生 pairs」與「重新 training」各自需要的時間。
+
 <Bridge to="dma-discrete-data">
-連續資料的主線到這裡閉合了：回歸給出 score 或 velocity，路徑與配對決定軌跡，solver 與取樣噪聲決定有限步誤差。下一個問題是，token 沒有「中間位置」，也不能直接加 Gaussian noise；當連續空間的直線、梯度與 ODE 都不能照搬時，這套想法要留下什麼、又必須換掉什麼？
+現在我們把 U3 的兩條方法真正寫進了程式：Reflow 與 minibatch OT 改變 coupling，Euler 與 Heun 則改變 sampling 時使用的 numerical solver。Model、資料與 reference path 都從外面傳入，所以換問題時，不需要把整套 Flow Matching 重新寫一次。
+
+下一個單元會拿掉這個前提。Token 沒有可以直接相加的中間位置，也不能沿著一支連續 velocity 移動；我們要重新問，離散資料的 path、velocity 與 sampling 分別應該換成什麼。
 </Bridge>
 
 ## 參考文獻
 
-1. Liu, X., Gong, C., Liu, Q. [*Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow.*](https://arxiv.org/abs/2209.03003) ICLR 2023. （步驟 1 的 (b)(c)。）
-2. Tong, A., et al. [*Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport.*](https://arxiv.org/abs/2302.00482) TMLR 2024. （步驟 1 的 (d)。）
-3. Albergo, M. S., Boffi, N. M., Vanden-Eijnden, E. [*Stochastic Interpolants: A Unifying Framework for Flows and Diffusions.*](https://arxiv.org/abs/2303.08797) 2023. （步驟 5 的 $\gamma_t$ 訓練與一族取樣器。）
+1. Lipman, Y., et al. [*Flow Matching for Generative Modeling.*](https://arxiv.org/abs/2210.02747) ICLR 2023. （Linear Conditional Flow Matching。）
+2. Liu, X., Gong, C., Liu, Q. [*Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow.*](https://arxiv.org/abs/2209.03003) ICLR 2023. （Rectification 與 Reflow。）
+3. Tong, A., et al. [*Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport.*](https://arxiv.org/abs/2302.00482) TMLR 2024. （Minibatch OT coupling。）
+4. Karras, T., Aittala, M., Aila, T., Laine, S. [*Elucidating the Design Space of Diffusion-Based Generative Models.*](https://arxiv.org/abs/2206.00364) NeurIPS 2022. （Heun sampling 與 NFE 比較。）

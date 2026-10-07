@@ -6,9 +6,9 @@ prereqs:
   - math-time-reversal
   - math-kl
 lang: "en"
-title: "實作：τ-leaping、Remasking 與比值學習"
+title: "Lab B: Rate sampling, remasking, and ratios"
 category: "courses"
-group: "Unit 5 · Discrete Diffusion II"
+group: "Unit 4 · Discrete Diffusion"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>交叉配對經過 rectification 與 reflow 後如何變直</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; background: transparent; color: #333; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 700px; margin: 0 auto; padding: 20px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,.10); }
+  body[data-dark="1"] .card { background: #1f2126; box-shadow: 0 4px 15px rgba(0,0,0,.28); }
+  .goal { margin: 0 0 12px; font-size: .9rem; line-height: 1.55; }
+  canvas { width: 100%; max-width: 560px; aspect-ratio: 6 / 5; height: auto; display: block; margin: 0 auto; border-radius: 8px; background: #111; box-shadow: inset 0 0 10px rgba(0,0,0,.5); }
+  .cap { margin: 8px 0 0; text-align: center; color: #646c78; font-size: .75rem; line-height: 1.55; }
+  body[data-dark="1"] .cap { color: #aaa69c; }
+  .key { white-space: nowrap; }
+  .swatch { display: inline-block; width: 18px; height: 3px; margin: 0 5px 2px 0; vertical-align: middle; border-radius: 2px; }
+  .swatch.reference { background: #60ba82; }
+  .swatch.rectified { background: #facc15; }
+  .swatch.reflow { background: #a78bfa; }
+  .dot-swatch { display: inline-block; width: 7px; height: 7px; margin: 0 5px 1px 0; vertical-align: middle; border-radius: 50%; }
+  .dot-swatch.source { background: rgba(6,182,212,.80); }
+  .dot-swatch.target { background: rgba(234,88,12,.80); }
+  .controls { display: grid; gap: 10px; margin-top: 15px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
+  .lab, label { font-size: .84rem; font-weight: 700; }
+  button { padding: 7px 10px; border: 1px solid #ccc4b8; border-radius: 7px; background: transparent; color: inherit; font: inherit; font-size: .82rem; cursor: pointer; font-weight: 700; }
+  body[data-dark="1"] button { border-color: #3a3b42; background: #25272d; }
+  button.on { border-color: #0056b3; background: #0056b3; color: #fff; }
+  body[data-dark="1"] button.on { border-color: #d8a44a; background: #d8a44a; color: #1f2126; }
+  button:disabled, input:disabled { cursor: wait; opacity: .48; }
+  input[type="range"] { width: 300px; max-width: 58vw; accent-color: #0056b3; }
+  .value { min-width: 42px; font-size: .84rem; font-variant-numeric: tabular-nums; }
+  .stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; color: #646c78; font-size: .8rem; font-variant-numeric: tabular-nums; }
+  body[data-dark="1"] .stats { color: #aaa69c; }
+  .status { min-height: 1.2em; text-align: center; color: #646c78; font-size: .76rem; }
+  body[data-dark="1"] .status { color: #aaa69c; }
+  .observe { margin: 12px 0 0; color: #646c78; font-size: .81rem; line-height: 1.6; }
+  body[data-dark="1"] .observe { color: #aaa69c; }
+  @media (max-width: 520px) {
+    body { padding: 8px; }
+    .card { padding: 13px; }
+    input[type="range"] { max-width: 66vw; }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <p class="goal">先把左上配到右下、左下配到右上。切換三個階段，再拖動時間：直線 reference paths 會交叉；它們平均出的 ODE 會繞開交叉；把 ODE 的新端點配回去重訓後，trajectory 會更接近直線。</p>
+
+  <canvas id="cv" width="720" height="600" aria-label="比較交叉 reference paths、rectified ODE trajectories 與 reflow 後 trajectories"></canvas>
+  <p class="cap">
+    <span class="key"><span class="swatch reference"></span>交叉 reference paths</span>　
+    <span class="key"><span class="swatch rectified"></span>rectified ODE</span>　
+    <span class="key"><span class="swatch reflow"></span>reflow 後 ODE</span><br />
+    <span class="key"><span class="dot-swatch source"></span>p₀ samples</span>　
+    <span class="key"><span class="dot-swatch target"></span>p₁ samples</span>
+  </p>
+
+  <div class="controls">
+    <div class="row"><span class="lab">顯示階段</span>
+      <button data-stage="reference" class="on">交叉配對</button>
+      <button data-stage="rectified">Rectified ODE</button>
+      <button data-stage="reflow">Reflow 1 次</button>
+    </div>
+    <div class="row">
+      <label for="time">時間 t</label>
+      <input id="time" type="range" min="0" max="100" step="1" value="50" />
+      <b id="time-value" class="value">0.50</b>
+      <button id="play">▶ 播放</button>
+      <button id="resample">🎲 重抽</button>
+    </div>
+    <div class="stats" aria-live="polite">
+      <span>平均額外路程 = <b id="path-excess">0.0%</b></span>
+      <span>velocity = <b id="field-source">尚未平均</b></span>
+    </div>
+    <div id="status" class="status">正在建立 reflow 後的配對與 velocity…</div>
+  </div>
+
+  <p id="observe" class="observe">Reference paths 雖然都是直線，卻在中央交叉。這一層只畫出 training 時提供的 paths，還不是生成時真正跟隨的 ODE trajectories。</p>
+</div>
+
+<script src="./_demo-common.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var SIGMA = 0.28;
+  var TRAIN_PER_BRANCH = 210, DISPLAY_PER_BRANCH = 18;
+  var INTEGRATION_STEPS = 180, GRID_SPAN_X = 5.8, GRID_SPAN_Y = 4.4;
+  var KERNEL_BANDWIDTH = 0.34;
+  var cv = document.getElementById('cv'), display = NDFlow.hiDPICanvas(cv);
+  var timeEl = document.getElementById('time'), timeValueEl = document.getElementById('time-value');
+  var playEl = document.getElementById('play'), resampleEl = document.getElementById('resample');
+  var pathExcessEl = document.getElementById('path-excess'), fieldSourceEl = document.getElementById('field-source');
+  var statusEl = document.getElementById('status'), observeEl = document.getElementById('observe');
+  var stage = 'reference', seed = 1703, building = false, animationId = 0, pal = NDFlow.palette();
+  var sourceCloud = [], targetCloud = [], trainingPairs = [], reflowPairs = [], displays = [];
+  var metrics = { reference: 0, rectified: 0, reflow: 0 };
+
+  function makeRng(initialSeed) {
+    var state = initialSeed >>> 0;
+    return function () { state = (1664525 * state + 1013904223) >>> 0; return state / 4294967296; };
+  }
+
+  function randnWith(rng) {
+    var u = 0, v = 0;
+    while (u === 0) u = rng();
+    while (v === 0) v = rng();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+
+  function samplePair(rng, s) {
+    return {
+      s: s,
+      x0: [-2 + SIGMA * randnWith(rng), s + SIGMA * randnWith(rng)],
+      x1: [ 2 + SIGMA * randnWith(rng), -s + SIGMA * randnWith(rng)]
+    };
+  }
+
+  function initialField(x, y, t) {
+    var q = (1 - t) * (1 - t) + t * t;
+    var mx = -2 + 4 * t, myPlus = 1 - 2 * t, coefficient = (2 * t - 1) / q;
+    var dx = x - mx, dyPlus = y - myPlus, dyMinus = y + myPlus;
+    var logPlus = -(dx * dx + dyPlus * dyPlus) / (2 * SIGMA * SIGMA * q);
+    var logMinus = -(dx * dx + dyMinus * dyMinus) / (2 * SIGMA * SIGMA * q);
+    var shift = Math.max(logPlus, logMinus);
+    var weightPlus = 0.5 * Math.exp(logPlus - shift);
+    var weightMinus = 0.5 * Math.exp(logMinus - shift);
+    var sum = weightPlus + weightMinus;
+    var uxPlus = 4 + coefficient * dx;
+    var uxMinus = uxPlus;
+    var uyPlus = -2 + coefficient * dyPlus;
+    var uyMinus = 2 + coefficient * dyMinus;
+    return [
+      (weightPlus * uxPlus + weightMinus * uxMinus) / sum,
+      (weightPlus * uyPlus + weightMinus * uyMinus) / sum
+    ];
+  }
+
+  function initialRelativeDensity(x, y, t) {
+    var q = (1 - t) * (1 - t) + t * t;
+    var mx = -2 + 4 * t, my = 1 - 2 * t;
+    var dx = x - mx, dPlus = (dx * dx + (y - my) * (y - my)) / (2 * SIGMA * SIGMA * q);
+    var dMinus = (dx * dx + (y + my) * (y + my)) / (2 * SIGMA * SIGMA * q);
+    return Math.min(1, 0.5 * Math.exp(-dPlus) + 0.5 * Math.exp(-dMinus));
+  }
+
+  function reflowField(x, y, t) {
+    var minDistance = Infinity, i;
+    for (i = 0; i < reflowPairs.length; i++) {
+      var pair = reflowPairs[i];
+      var px = (1 - t) * pair.x0[0] + t * pair.x1[0];
+      var py = (1 - t) * pair.x0[1] + t * pair.x1[1];
+      var dx = x - px, dy = y - py, distance = dx * dx + dy * dy;
+      if (distance < minDistance) minDistance = distance;
+    }
+    var weightSum = 0, vx = 0, vy = 0;
+    var denominator = 2 * KERNEL_BANDWIDTH * KERNEL_BANDWIDTH;
+    for (i = 0; i < reflowPairs.length; i++) {
+      pair = reflowPairs[i];
+      px = (1 - t) * pair.x0[0] + t * pair.x1[0];
+      py = (1 - t) * pair.x0[1] + t * pair.x1[1];
+      dx = x - px; dy = y - py; distance = dx * dx + dy * dy;
+      var weight = Math.exp(-(distance - minDistance) / denominator);
+      weightSum += weight;
+      vx += weight * (pair.x1[0] - pair.x0[0]);
+      vy += weight * (pair.x1[1] - pair.x0[1]);
+    }
+    return weightSum > 0 ? [vx / weightSum, vy / weightSum] : [4, 0];
+  }
+
+  function rk4Step(field, point, t, dt) {
+    var k1 = field(point[0], point[1], t);
+    var k2 = field(point[0] + 0.5 * dt * k1[0], point[1] + 0.5 * dt * k1[1], t + 0.5 * dt);
+    var k3 = field(point[0] + 0.5 * dt * k2[0], point[1] + 0.5 * dt * k2[1], t + 0.5 * dt);
+    var k4 = field(point[0] + dt * k3[0], point[1] + dt * k3[1], t + dt);
+    return [
+      point[0] + dt * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]) / 6,
+      point[1] + dt * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]) / 6
+    ];
+  }
+
+  function integrate(field, start, steps) {
+    var dt = 1 / steps, point = start.slice(), path = [point.slice()];
+    for (var k = 0; k < steps; k++) {
+      point = rk4Step(field, point, k * dt, dt);
+      path.push(point.slice());
+    }
+    return path;
+  }
+
+  function pathPoint(path, t) {
+    var scaled = Math.max(0, Math.min(path.length - 1, t * (path.length - 1)));
+    var left = Math.floor(scaled), right = Math.min(path.length - 1, left + 1), alpha = scaled - left;
+    return [
+      path[left][0] * (1 - alpha) + path[right][0] * alpha,
+      path[left][1] * (1 - alpha) + path[right][1] * alpha
+    ];
+  }
+
+  function pathExcess(path) {
+    var length = 0;
+    for (var i = 1; i < path.length; i++) length += Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]);
+    var chord = Math.hypot(path[path.length - 1][0] - path[0][0], path[path.length - 1][1] - path[0][1]);
+    return chord > 1e-8 ? Math.max(0, length / chord - 1) : 0;
+  }
+
+  function averageExcess(key) {
+    var sum = 0;
+    for (var i = 0; i < displays.length; i++) sum += pathExcess(displays[i][key]);
+    return displays.length ? sum / displays.length : 0;
+  }
+
+  function straightPath(pair) {
+    return [pair.x0.slice(), pair.x1.slice()];
+  }
+
+  function nextPaint() {
+    return new Promise(function (resolve) { requestAnimationFrame(function () { requestAnimationFrame(resolve); }); });
+  }
+
+  async function rebuild() {
+    building = true;
+    Array.prototype.forEach.call(document.querySelectorAll('button,input'), function (element) { element.disabled = true; });
+    statusEl.textContent = '正在建立 reflow 後的配對與 velocity…';
+    sourceCloud = []; targetCloud = []; trainingPairs = []; reflowPairs = []; displays = [];
+    draw();
+    await nextPaint();
+
+    var rng = makeRng(seed), branch, i, pair;
+    for (branch = -1; branch <= 1; branch += 2) {
+      for (i = 0; i < TRAIN_PER_BRANCH; i++) {
+        pair = samplePair(rng, branch);
+        trainingPairs.push(pair);
+        sourceCloud.push(pair.x0.slice());
+        targetCloud.push(pair.x1.slice());
+      }
+    }
+
+    for (i = 0; i < trainingPairs.length; i++) {
+      var exactTrainingPath = integrate(initialField, trainingPairs[i].x0, INTEGRATION_STEPS);
+      reflowPairs.push({ x0: trainingPairs[i].x0.slice(), x1: exactTrainingPath[exactTrainingPath.length - 1].slice() });
+    }
+
+    for (branch = -1; branch <= 1; branch += 2) {
+      for (i = 0; i < DISPLAY_PER_BRANCH; i++) {
+        pair = samplePair(rng, branch);
+        var rectifiedPath = integrate(initialField, pair.x0, INTEGRATION_STEPS);
+        var reflowPath = integrate(reflowField, pair.x0, INTEGRATION_STEPS);
+        displays.push({
+          s: branch,
+          reference: straightPath(pair),
+          rectified: rectifiedPath,
+          reflow: reflowPath
+        });
+      }
+    }
+
+    metrics.reference = averageExcess('reference');
+    metrics.rectified = averageExcess('rectified');
+    metrics.reflow = averageExcess('reflow');
+    building = false;
+    Array.prototype.forEach.call(document.querySelectorAll('button,input'), function (element) { element.disabled = false; });
+    statusEl.textContent = '初始場使用 closed form；reflow 後只用新端點配對重新估計 velocity。';
+    updateReadout();
+    draw();
+  }
+
+  function transform(size) {
+    return {
+      x: function (v) { return size.w / 2 + v * size.w / GRID_SPAN_X; },
+      y: function (v) { return size.h / 2 - v * size.h / GRID_SPAN_Y; }
+    };
+  }
+
+  function drawPath(ctx, tr, path, color, width, alpha, dashed) {
+    if (!path || path.length < 2) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    if (dashed) ctx.setLineDash([5, 5]);
+    ctx.beginPath(); ctx.moveTo(tr.x(path[0][0]), tr.y(path[0][1]));
+    for (var i = 1; i < path.length; i++) ctx.lineTo(tr.x(path[i][0]), tr.y(path[i][1]));
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawArrow(ctx, x0, y0, x1, y1, color, alpha) {
+    var angle = Math.atan2(y1 - y0, x1 - x0), head = 3.5;
+    ctx.save(); ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - head * Math.cos(angle - Math.PI / 6), y1 - head * Math.sin(angle - Math.PI / 6));
+    ctx.lineTo(x1 - head * Math.cos(angle + Math.PI / 6), y1 - head * Math.sin(angle + Math.PI / 6));
+    ctx.closePath(); ctx.fill(); ctx.restore();
+  }
+
+  function drawField(ctx, size, tr, t) {
+    if (stage === 'reference' || building) return;
+    var field = stage === 'rectified' ? initialField : reflowField;
+    var color = stage === 'rectified' ? '#facc15' : '#a78bfa';
+    for (var gy = -1.6; gy <= 1.61; gy += 0.4) {
+      for (var gx = -2.35; gx <= 2.36; gx += 0.47) {
+        var velocity = field(gx, gy, t), norm = Math.hypot(velocity[0], velocity[1]);
+        if (norm < 1e-7) continue;
+        var alpha = stage === 'rectified' ? 0.08 + 0.32 * initialRelativeDensity(gx, gy, t) : 0.16;
+        var length = 11;
+        drawArrow(ctx, tr.x(gx), tr.y(gy), tr.x(gx) + velocity[0] / norm * length, tr.y(gy) - velocity[1] / norm * length, color, alpha);
+      }
+    }
+  }
+
+  function draw() {
+    var size = display.resize(), ctx = display.ctx, tr = transform(size), i;
+    ctx.clearRect(0, 0, size.w, size.h); ctx.fillStyle = '#111'; ctx.fillRect(0, 0, size.w, size.h);
+    ctx.strokeStyle = 'rgba(255,255,255,.055)'; ctx.lineWidth = 1;
+    for (var gx = -2; gx <= 2; gx++) { ctx.beginPath(); ctx.moveTo(tr.x(gx), 0); ctx.lineTo(tr.x(gx), size.h); ctx.stroke(); }
+    for (var gy = -2; gy <= 2; gy++) { ctx.beginPath(); ctx.moveTo(0, tr.y(gy)); ctx.lineTo(size.w, tr.y(gy)); ctx.stroke(); }
+
+    ctx.fillStyle = 'rgba(6,182,212,.34)';
+    for (i = 0; i < sourceCloud.length; i++) { ctx.beginPath(); ctx.arc(tr.x(sourceCloud[i][0]), tr.y(sourceCloud[i][1]), 2.05, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = 'rgba(234,88,12,.34)';
+    for (i = 0; i < targetCloud.length; i++) { ctx.beginPath(); ctx.arc(tr.x(targetCloud[i][0]), tr.y(targetCloud[i][1]), 2.05, 0, Math.PI * 2); ctx.fill(); }
+
+    if (!building) {
+      if (stage === 'rectified') {
+        for (i = 0; i < displays.length; i++) drawPath(ctx, tr, displays[i].reference, '#60ba82', 1, 0.16, true);
+      } else if (stage === 'reflow') {
+        for (i = 0; i < displays.length; i++) drawPath(ctx, tr, displays[i].rectified, '#facc15', 1, 0.13, true);
+      }
+      var key = stage, color = stage === 'reference' ? '#60ba82' : (stage === 'rectified' ? '#facc15' : '#a78bfa');
+      for (i = 0; i < displays.length; i++) drawPath(ctx, tr, displays[i][key], color, 1.45, 0.48, false);
+
+      var t = parseInt(timeEl.value, 10) / 100;
+      drawField(ctx, size, tr, t);
+      for (i = 0; i < displays.length; i++) {
+        var point = stage === 'reference'
+          ? [(1 - t) * displays[i].reference[0][0] + t * displays[i].reference[1][0],
+             (1 - t) * displays[i].reference[0][1] + t * displays[i].reference[1][1]]
+          : pathPoint(displays[i][stage], t);
+        ctx.beginPath(); ctx.arc(tr.x(point[0]), tr.y(point[1]), 3.0, 0, Math.PI * 2);
+        ctx.fillStyle = color; ctx.fill();
+      }
+    }
+
+    ctx.font = '700 12px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#67d4e7'; ctx.fillText('p₀', tr.x(-2), tr.y(1.72));
+    ctx.fillStyle = '#fb923c'; ctx.fillText('p₁', tr.x(2), tr.y(1.72));
+  }
+
+  function updateReadout() {
+    var t = parseInt(timeEl.value, 10) / 100;
+    timeValueEl.textContent = t.toFixed(2);
+    pathExcessEl.textContent = (100 * metrics[stage]).toFixed(1) + '%';
+    if (stage === 'reference') {
+      fieldSourceEl.textContent = '尚未平均';
+      observeEl.textContent = 'Reference paths 雖然都是直線，卻在中央交叉。這一層只畫出 training 時提供的 paths，還不是生成時真正跟隨的 ODE trajectories。';
+    } else if (stage === 'rectified') {
+      fieldSourceEl.textContent = 'closed form';
+      observeEl.textContent = '兩束的先驗比例都是 1/2，但黃色 velocity 會依當下位置的 density 重新加權。兩條 ODE trajectories 因此不會穿過彼此，而是繞開中央的交叉。';
+    } else {
+      fieldSourceEl.textContent = '新端點 regression';
+      observeEl.textContent = '這一輪不再使用初始 coupling 的 closed form。我們把 rectified ODE 產生的新端點配回原起點，再用這些新 pairs 重新估計 conditional mean；紫色 trajectories 因而更接近等速直線。';
+    }
+    window.__crossingReflowDemo = {
+      ready: !building,
+      stage: stage,
+      time: t,
+      sigma: SIGMA,
+      priorWeights: [0.5, 0.5],
+      initialVelocity: 'closed-form density-weighted mixture',
+      reflowVelocity: 'kernel conditional mean from rectified endpoint pairs',
+      pathExcess: { reference: metrics.reference, rectified: metrics.rectified, reflow: metrics.reflow },
+      trainingPairCount: reflowPairs.length
+    };
+  }
+
+  function selectStage(nextStage) {
+    stage = nextStage;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-stage]'), function (button) {
+      button.classList.toggle('on', button.dataset.stage === stage);
+    });
+    updateReadout(); draw();
+  }
+
+  function stopAnimation() {
+    if (animationId) cancelAnimationFrame(animationId);
+    animationId = 0; playEl.textContent = '▶ 播放';
+  }
+
+  function play() {
+    if (animationId) { stopAnimation(); return; }
+    if (NDFlow.prefersReducedMotion()) { timeEl.value = 100; updateReadout(); draw(); return; }
+    var started = performance.now();
+    playEl.textContent = '■ 暫停';
+    function frame(now) {
+      var progress = ((now - started) % 3200) / 3200;
+      timeEl.value = Math.round(progress * 100);
+      updateReadout(); draw();
+      animationId = requestAnimationFrame(frame);
+    }
+    animationId = requestAnimationFrame(frame);
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-stage]'), function (button) {
+    button.addEventListener('click', function () { selectStage(button.dataset.stage); });
+  });
+  timeEl.addEventListener('input', function () { updateReadout(); draw(); });
+  playEl.addEventListener('click', play);
+  resampleEl.addEventListener('click', function () { stopAnimation(); seed += 97; rebuild(); });
+  window.addEventListener('resize', draw);
+  function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
+  NDFlow.onThemeChange(applyTheme); applyTheme(); rebuild();
+})();
+</script>
+</body>
+</html>

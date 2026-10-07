@@ -8,22 +8,18 @@ prereqs:
   - math-kl
   - ml-latent-variables-elbo
 lang: "zh"
-title: "D3PM：Transition Matrix、Closed Form 與 x₀-Parametrization"
+title: "看到 MASK 之後，要學什麼才能生成？"
 category: "courses"
-group: "Unit 4 · Discrete Diffusion I"
+group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-04
-summary: "Transition matrix 讓離散 forward process 也能一步抽到任意時刻，並算出帶有 x₀ 的 posterior。離散版 denoiser 因此自然輸出乾淨 token 的類別分布。"
+updated: 2026-10-06
+summary: "從 categorical reverse posterior 推到 absorbing diffusion 的 weighted masked cross-entropy，再把 denoiser 接回逐步生成。"
 demos: []
 references:
-  - label: "Austin et al., Structured Denoising Diffusion Models in Discrete State-Spaces (NeurIPS 2021)"
+  - label: "Austin et al., Structured Denoising Diffusion Models in Discrete State-Spaces (2021)"
     href: "https://arxiv.org/abs/2107.03006"
-  - label: "Sohl-Dickstein et al., Deep Unsupervised Learning using Nonequilibrium Thermodynamics (ICML 2015)"
-    href: "https://arxiv.org/abs/1503.03585"
-  - label: "Hoogeboom et al., Argmax Flows and Multinomial Diffusion (NeurIPS 2021)"
-    href: "https://arxiv.org/abs/2102.05379"
-  - label: "Ho, Jain & Abbeel, Denoising Diffusion Probabilistic Models (NeurIPS 2020)"
-    href: "https://arxiv.org/abs/2006.11239"
+  - label: "Sahoo et al., Simple and Effective Masked Diffusion Language Models (2024)"
+    href: "https://arxiv.org/abs/2406.07524"
 ---
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
@@ -34,203 +30,165 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 
-# D3PM：Transition Matrix、Closed Form 與 x₀-Parametrization
+# 看到 MASK 之後，要學什麼才能生成？
 
 <Objectives>
-- **把 uniform 與 absorbing chain 寫成 $Q_t$。** 推出 $\bar Q_t$，讓 $q(x_t\mid x_0)$ 不必逐步模擬。
-- **推導 $q(x_{t-1}\mid x_t,x_0)$。** 認出它是 Gaussian posterior 在類別空間的版本。
-- **寫出離散 ELBO 與 $x_0$-parametrization。** 解釋網路為什麼輸出 $p_\theta(x_0\mid x_t)$ 的 logits，而不是直接猜一個 $x_{t-1}$。
+- **用 Bayes 算出離散 reverse posterior。** 分清已知 $x_0$ 的 conditional，與生成時不知道 $x_0$ 的 reverse distribution。
+- **推導 absorbing diffusion 的 weighted masked cross-entropy。** 說出未遮位置為什麼沒有 KL，被遮位置的時間權重又從哪裡來。
+- **把 denoiser 接成取樣器。** 寫出從 $t$ 到 $s$ 的翻開機率，並指出逐位置抽樣還留下哪個問題。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
+## Forward 會算了，回去呢？
+
+在 <Ref to="dma-discrete-data"/>，我們已經能把一句話逐步遮成全 MASK。生成時只要反過來：從全 MASK 出發，慢慢補出一串字。但「補出一個合理的字」還不是完整的生成規則；我們也要決定**這一步翻開哪些位置，以及其他位置要不要繼續保留 MASK。**
+
+和 <Ref to="dma-denoising-regression"/> 一樣，先考慮可以偷看原文 $x_0$ 的情況。若位置 $\ell$ 的原字是 $k$，現在看到 $j$，Bayes 給出
+
+$$
+q(x_{t-1}^\ell=i\mid x_t^\ell=j,x_0^\ell=k)
+=\frac{\bar Q_{t-1}(k,i)Q_t(i,j)}
+{\bar Q_t(k,j)}.
+$$
+
+分子是「先走到 $i$，再變成 $j$」的機率；分母把所有可能的 $i$ 加起來。這是一個可以直接算的 **categorical posterior**，對應到 DDPM 裡的 conditional Gaussian。
+
 <Ask>
-上一篇挑好了兩條鏈。<br />
-那「$q(x_t\mid x_0)$ 有 closed form」在離散世界是什麼意思？
+可是生成時沒有原文 $x_0$。<br />
+我們還能把這個好算的 posterior 用起來嗎？
 </Ask>
 
-## 先把它當成一格選字題
+## 網路先猜原字，再接回已知的規則
 
-一句話有很多 token，但 forward process 對每個位置是**獨立**地加噪聲，所以先只盯著一個位置。這個位置的狀態 $x\in\{1,\dots,K\}$，寫成 one-hot 的**列向量**（row vector）$x\in\{0,1\}^{K}$。
-
-一條 Markov chain 每一步的規則是一個 $K\times K$ 的 **transition matrix** $Q_t$：
-
+讓網路看整句 $x_t$，對每個位置輸出
 $$
-[Q_t]_{ij}=q(x_t=j\mid x_{t-1}=i),
+f_\theta^\ell(k\mid x_t,t)
+\approx p(x_0^\ell=k\mid x_t).
 $$
-
-第 $i$ 列是「從狀態 $i$ 出發，下一步落在各狀態的機率」，每列和為 1。用 one-hot 列向量寫，$q(x_t\mid x_{t-1})=\mathrm{Cat}(x_{t-1}Q_t)$——$x_{t-1}$ 挑出 $Q_t$ 的那一列，那一列就是 $x_t$ 的分佈。
-
-走 $t$ 步就是連乘：
-
+**Cross-entropy 要學的是原字的 conditional distribution，不是把幾個字的編號取平均。** 用這個預測替可能的原字加權，就能建構 reverse kernel：
 $$
-q(x_t\mid x_0)=\mathrm{Cat}\big(x_0\,\bar Q_t\big),\qquad \bar Q_t=Q_1Q_2\cdots Q_t .
+p_\theta^\ell(i\mid x_t,t)
+=\sum_k q(i\mid x_t^\ell,x_0^\ell=k)
+f_\theta^\ell(k\mid x_t,t).
 $$
+這是 $x_0$-parameterization 的想法：未知的資料關係交給 denoiser，已知的轉移由 forward chain 算。Austin 等人 [1] 在 D3PM 中採用這個策略；本篇以下使用 absorbing chain，式子會簡化很多。
 
-這一行是整個單元的地基。<Ref to="dma-forward-process"/> 說「forward 是我們自己定的，所以任何 $t$ 的 $x_t$ 可以一步抽出來」——在離散世界裡，這句話就是「$\bar Q_t$ 有 closed form」。一般的矩陣連乘沒有 closed form，但我們選的兩條鏈剛好都有。
-
-## 這兩條鏈，$\bar Q_t$ 真的算得出來
-
-**Uniform。** Austin 等人的 D3PM [1] 與 Hoogeboom 等人的 multinomial diffusion [3] 都使用過這條鏈。每步以機率 $\beta_t$ 把 token 換成均勻隨機的一個：
-
-$$
-Q_t=(1-\beta_t)\,I+\beta_t\,\tfrac1K\mathbb 1\mathbb 1^{\!\top}.
-$$
-
-令 $J=\tfrac1K\mathbb 1\mathbb 1^{\!\top}$（每個元素都是 $1/K$ 的矩陣），它滿足 $J^2=J$。形如 $aI+bJ$ 且 $a+b=1$ 的矩陣相乘還是這個形狀：$(aI+bJ)(cI+dJ)=ac\,I+(1-ac)\,J$。於是
-
-$$
-\bar Q_t=\bar\alpha_t\,I+(1-\bar\alpha_t)\,J,\qquad \bar\alpha_t=\prod_{s\le t}(1-\beta_s).
-$$
-
-讀法：到了第 $t$ 步，token 以機率 $\bar\alpha_t$ **從沒被動過**、還是原字；以機率 $1-\bar\alpha_t$ 已經被換成一個均勻隨機的字。$\bar\alpha_t\to0$ 時 $\bar Q_t\to J$，每個位置獨立均勻——這就是 uniform 鏈的終點。
-
-**Absorbing。** 字典加一個第 $K{+}1$ 個狀態 `[MASK]`，記它的 one-hot 為 $e_m$。每步以機率 $\beta_t$ 把 token 變成 `[MASK]`，`[MASK]` 自己不動：
-
-$$
-Q_t=(1-\beta_t)\,I+\beta_t\,\mathbb 1 e_m^{\!\top}.
-$$
-
-（檢查第 $m$ 列：$(1-\beta_t)e_m^{\!\top}+\beta_t e_m^{\!\top}=e_m^{\!\top}$，`[MASK]` 一定留在 `[MASK]`。）同樣的代數，因為 $e_m^{\!\top}\mathbb 1=1$：
-
-$$
-\bar Q_t=\bar\alpha_t\,I+(1-\bar\alpha_t)\,\mathbb 1 e_m^{\!\top}.
-$$
-
-讀法：到了第 $t$ 步，token 以機率 $\bar\alpha_t$ 還是原字，以機率 $1-\bar\alpha_t$ 已經是 `[MASK]`。**沒有第三種可能。** 這就是上一篇說的「沒被遮的位置一定是原字」，現在它是一個公式。
-
-兩條鏈的 $\bar\alpha_t$ 扮演的角色，和 <Ref to="dma-forward-process"/> 裡 $\sqrt{\bar\alpha_t}$ 對 $x_0$ 的係數一樣：**還剩多少原始訊號**。這是我們刻意沿用同一個符號的原因。
-
-<Remark label="符號" summary="這裡的 alpha bar 和連續世界的差一個平方根">
-連續世界寫 $x_t=\sqrt{\bar\alpha_t}\,x_0+\sigma_t\epsilon$，係數是 $\sqrt{\bar\alpha_t}$；這裡寫 $\bar Q_t=\bar\alpha_t I+(1-\bar\alpha_t)(\cdot)$，係數是 $\bar\alpha_t$ 本身。
-
-差別來自「係數」的意思不同：連續世界那個是**振幅**（能量是它的平方），這裡是**機率**（token 沒被動過的機率）。兩邊都用 $\bar\alpha_t$ 是為了讓「還剩多少原始訊號」這個直覺可以直接搬過來，但代進式子的時候不要記錯。
+<Remark label="補充" summary="哪些原字可以放進 posterior？">
+上式只對 $\bar Q_t(k,x_t^\ell)>0$ 的候選 $k$ 定義。對 absorbing chain，若看見一個非 MASK 的字，原字只能就是它；我們直接複製輸入。若看見 MASK，所有原字都可以成為候選。一般 D3PM 也可以用已知 joint weights 再正規化來參數化 reverse kernel；不同寫法不能在零機率事件上直接相除。
 </Remark>
 
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w6-1-qbar.html" class="demo-frame" title="Q̄ₜ 的熱圖隨 t 演化：互動 demo" style="height: 740px; width: 100%; border: none;"></iframe>
+## Absorbing 的 posterior 只有兩個選擇
 
-**互動 demo：$\bar Q_t$ 的熱圖隨 $t$ 演化。** 拖 $t$：uniform 的對角線一路淡下去、其他格一起亮起來，最後整張變成一片均勻；absorbing 的質量**整批流進 `[MASK]` 那一欄**，而最後一列從頭到尾都是 `[MASK]` 自己。切到「$Q_t$（只走一步）」會看到單步矩陣**幾乎就是 identity**——是連乘 $t$ 次才把質量搬走的。另外對照兩條鏈的對角線：uniform 的「還是原字」比 $\bar\alpha_t$ **多一點**（多了「被換掉但剛好換回自己」）。
-
-## Posterior：多知道 $x_0$，一切都好算
-
-<Ref to="dma-denoising-regression"/> 有一個關鍵步驟：反向那一步 $q(x_{t-1}\mid x_t)$ 不好算，但**多給 $x_0$** 之後 $q(x_{t-1}\mid x_t,x_0)$ 是一個有 closed form 的 Gaussian。同一件事在這裡更簡單，因為一切都是有限個數字。Bayes 定理：
-
+如果 $x_t^\ell\neq m$，它從來沒有被遮掉，上一格必定是同一個字。如果 $x_t^\ell=m$，上一格可能已經是 MASK，也可能這一步才被遮掉。令
 $$
-q(x_{t-1}\mid x_t,x_0)\;\propto\;q(x_t\mid x_{t-1})\;q(x_{t-1}\mid x_0)
-\;=\;\big(x_t Q_t^{\!\top}\big)\odot\big(x_0\bar Q_{t-1}\big),
+w_t=\frac{\bar\alpha_{t-1}-\bar\alpha_t}{1-\bar\alpha_t}.
 $$
-
-$\odot$ 是逐元素相乘，兩個都是長度 $K$ 的向量（分別是「哪些 $x_{t-1}$ 走一步能到 $x_t$」和「從 $x_0$ 走 $t-1$ 步會到哪些 $x_{t-1}$」），乘起來再正規化，就是 $x_{t-1}$ 的類別分佈。
-
-對 absorbing 鏈這個 posterior 特別直白：若 $x_t$ 沒被遮，那 $x_{t-1}$ 一定也是同一個原字（機率 1）；若 $x_t=$ `[MASK]`，那 $x_{t-1}$ 以某個機率是 `[MASK]`、否則就是 $x_0$。**已知 $x_0$ 之後，反向每一步都只是「要不要把這個 `[MASK]` 換回 $x_0$」的一個硬幣。**
-
-## 那 loss 長什麼樣？
-
-現在寫訓練目標。<Ref to="dma-denoising-regression"/> 為了盡快到達那五行程式碼，直接用「預測 $x_0$ 的 MSE」當 loss，把 DDPM 原本的 variational bound 放在一旁。在離散世界裡值得把這個 bound 攤開看一次，因為它的每一項都是**有限個數字之間的 KL**，沒有任何近似。
-
-Reverse model 是 $p_\theta(x_{t-1}\mid x_t)$，起點 $p(x_T)$ 是鏈的終點分佈。Ho、Jain 與 Abbeel 的 DDPM bound [4] 一字不改地成立；Austin 等人 [1] 與 Sohl-Dickstein 等人 [2] 都從這裡建立離散版本：
-
+分子是「到 $t-1$ 還保留、在 $t$ 被遮掉」的機率；分母是「在 $t$ 已被遮掉」的機率。因此
 $$
--\log p_\theta(x_0)\;\le\;
-\underbrace{\mathbb E_q\big[-\log p_\theta(x_0\mid x_1)\big]}_{L_0}
-+\sum_{t=2}^{T}\underbrace{\mathbb E_q\,\mathrm{KL}\big(q(x_{t-1}\mid x_t,x_0)\,\big\|\,p_\theta(x_{t-1}\mid x_t)\big)}_{L_{t-1}}
-+\underbrace{\mathrm{KL}\big(q(x_T\mid x_0)\,\big\|\,p(x_T)\big)}_{L_T}.
+q(x_{t-1}^\ell\mid x_t^\ell=m,x_0^\ell)
+=(1-w_t)\delta_m+w_t\delta_{x_0^\ell}.
+$$
+模型則把最後那個原字換成預測的分布：
+$$
+p_\theta^\ell(\cdot\mid x_t,t)
+=(1-w_t)\delta_m+w_t f_\theta^\ell(\cdot\mid x_t,t).
 $$
 
-$L_T$ 沒有參數，而且對我們選的兩條鏈它趨近 0（$\bar\alpha_T\approx0$ 時 $q(x_T\mid x_0)$ 就是終點分佈）。$L_0$ 是一個普通的 cross-entropy。中間每一項 $L_{t-1}$ 是兩個 $K$ 維類別分佈的 KL——左邊是那條 Bayes 算出來的 posterior $q(x_{t-1}\mid x_t,x_0)$，右邊是網路。
+## ELBO 怎麼變成 cross-entropy？
 
-<Details summary="推導的骨架：為什麼 bound 長這樣（與 DDPM 逐字相同）">
-從 $\log p_\theta(x_0)=\log\int p_\theta(x_{0:T})\,dx_{1:T}$ 出發，用 $q(x_{1:T}\mid x_0)$ 當 proposal 套 Jensen 不等式：
-
+<Ref to="dma-denoising-regression"/> 已經看過 negative ELBO 的分解。離散資料的結構相同：除了終點的 prior KL，還有每一步的 reverse KL，以及最後回到 $x_0$ 的 reconstruction loss：
 $$
--\log p_\theta(x_0)\le\mathbb E_{q(x_{1:T}\mid x_0)}\Big[\log\frac{q(x_{1:T}\mid x_0)}{p_\theta(x_{0:T})}\Big].
+\begin{aligned}
+L_{\mathrm{VLB}}={}&C_T
++\sum_{t=2}^T\mathbb E\,D_{\mathrm{KL}}
+\bigl(q(x_{t-1}\mid x_t,x_0)\,\|\,p_\theta(x_{t-1}\mid x_t)\bigr)\\
+&+\mathbb E[-\log p_\theta(x_0\mid x_1)].
+\end{aligned}
 $$
+其中 $C_T$ 不含 $\theta$。我們的 forward conditional 逐位置獨立，模型的 reverse kernel 也採用逐位置的 categorical outputs，所以這個 KL 可以拆成各位置的和。
 
-把 $q(x_{1:T}\mid x_0)=\prod_t q(x_t\mid x_{t-1})$ 用 Bayes 改寫成 $q(x_T\mid x_0)\prod_{t\ge2}q(x_{t-1}\mid x_t,x_0)$，$p_\theta(x_{0:T})=p(x_T)\prod_t p_\theta(x_{t-1}\mid x_t)$，逐項配對，就得到上面三種項。在連續世界裡積分換成離散世界的求和，其餘一步都不用改；這就是為什麼說「bound 一字不改地成立」。
-</Details>
-
-## 網路該輸出什麼
-
-還有一個設計決定：$p_\theta(x_{t-1}\mid x_t)$ 要怎麼參數化？
-
-最直接的想法是讓網路直接輸出 $x_{t-1}$ 的 $K$ 個 logits。Austin 等人的 D3PM [1] 選擇不同，而且是這一篇最值得記的一句話：**讓網路預測 $x_0$，再用已知的 posterior 把它折回 $x_{t-1}$。**
-
+現在代入 absorbing posterior。未遮的位置兩邊都複製原字，KL 是 $0$。被遮的位置，在 MASK 上的機率同為 $1-w_t$；只有原字那一項留下：
 $$
-p_\theta(x_{t-1}\mid x_t)=\sum_{\tilde x_0}q(x_{t-1}\mid x_t,\tilde x_0)\;p_\theta(\tilde x_0\mid x_t).
+\begin{aligned}
+D_{\mathrm{KL}}(q\|p_\theta)
+&=(1-w_t)\log\frac{1-w_t}{1-w_t}
++w_t\log\frac{w_t}{w_t f_\theta^\ell(x_0^\ell\mid x_t,t)}\\
+&=w_t[-\log f_\theta^\ell(x_0^\ell\mid x_t,t)].
+\end{aligned}
 $$
+令 $\bar\alpha_0=1$，則 $w_1=1$，reconstruction term 也能放進同一個和式：
+$$
+L_{\mathrm{VLB}}
+=C_T+\sum_{t=1}^T\mathbb E
+\left[w_t\sum_{\ell:x_t^\ell=m}
+-\log f_\theta^\ell(x_0^\ell\mid x_t,t)\right].
+$$
+**原本要比較兩個 reverse distributions 的 KL，在這條 chain 上變成只對被遮位置計算的 weighted cross-entropy。** Sahoo 等人的 **MDLM** [2] 使用相同的 absorbing 結構，並在連續時間下寫出這個 objective。
 
-網路輸出的是 $p_\theta(\tilde x_0\mid x_t)$ 的 logits（每個位置 $K$ 個數）；$q(x_{t-1}\mid x_t,\tilde x_0)$ 是上面那個 closed form，不用學。這叫 **$x_0$-parametrization**，它就是 <Ref to="dma-denoising-regression"/> 裡 $x_0$-prediction 的離散翻譯——在那裡網路預測 $\hat x_0$、再用 $q(x_{t-1}\mid x_t,\hat x_0)$ 的 Gaussian posterior 往回走一步；在這裡完全一樣，只是「預測 $x_0$」從輸出一個向量變成輸出一個類別分佈。
+![ELBO 化成 masked cross-entropy](./imgs/w6-2-1.png)
+
+*圖：未遮位置直接複製；被遮位置的 MASK 項相消，只留下原字的 cross-entropy 與已知時間權重。*
+
+<Remark label="補充" summary="換掉權重，最佳 denoiser 會變嗎？">
+固定 $(x_t,t)$，cross-entropy 的理想最佳解是 $f^\ell=p(x_0^\ell\mid x_t)$。正的 timestep weights 不改變這個逐輸入的最佳解；但有限容量的網路會共享參數，權重仍可能影響訓練結果。若換掉 ELBO 權重，新的 training loss 本身不再是同一個 likelihood bound；同一個 reverse model 仍可以用原本的 ELBO 評估。
+</Remark>
+
+## 從全 MASK 逐步補回來
+
+Sampling 不必沿用所有 training timesteps。對 $s<t$，同樣的 Bayes 計算給出
+$$
+w_{t,s}=\frac{\bar\alpha_s-\bar\alpha_t}{1-\bar\alpha_t}.
+$$
+已填的字不動；每個 MASK 以機率 $w_{t,s}$ 翻開，翻成哪個字則按 $f_\theta^\ell(\cdot\mid x_t,t)$ 抽樣。再讓網路看更新後的句子，繼續下一步。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w6-2-sampling.html" class="demo-frame" title="從全 MASK 逐步生成" style="height: 810px; width: 100%; border: none;"></iframe>
 
 <Question id="Q1">
-<Ref to="dma-denoising-regression"/> 說 $x_0$-、$\epsilon$-、$v$-prediction 是三個線性可互換的座標，實務上常選 $\epsilon$。離散世界裡為什麼只剩 $x_0$-parametrization 這一種選擇？
+假設 denoiser 已經精確學到每個位置的 $p(x_0^\ell\mid x_t)$。那我們能不能一次把所有 MASK 都獨立填完，保證得到正確的整句 distribution？
 
 <Answer>
-因為那三個座標可以互換，靠的是 $x_t=\sqrt{\bar\alpha_t}\,x_0+\sigma_t\epsilon$ 這條 **affine** 關係——知道 $x_t$ 與任一個，就能解出另外兩個。離散世界沒有這條關係：$x_t$ 是從 $x_0$ **抽**出來的一個類別，沒有一個叫「$\epsilon$」的連續量可以被加上去、也就沒有東西可以被解回來。
+還不能。它給的是**每個位置各自的 conditional marginal**；整句話還可能有共同的限制。譬如只有「00」和「11」兩種原文，各位置的機率都各半，但獨立抽樣還會產生「01」和「10」。
 
-「直接輸出 $x_{t-1}$」也不是好選擇，原因有二。第一，$x_0$-parametrization 把已知的結構（posterior）交給公式、只讓網路學它必須學的東西（$x_0$ 長什麼樣），在每個 $t$ 網路面對的是同一個目標。第二，取樣時可以用同一個網路**跳步**：只要把 $q(x_{t-1}\mid x_t,\tilde x_0)$ 換成 $q(x_{t-k}\mid x_t,\tilde x_0)$（同樣有 closed form），就能一次走 $k$ 步——這是下一篇 masked diffusion 幾步就取樣完的基礎。
+上面的 $w_{t,s}$ 精確決定了逐位置翻開的機率；把同時翻開的字獨立抽出來，卻是另一個假設。下一篇會把這個差別獨立拿出來看。
 </Answer>
 </Question>
 
-D3PM 實務上還在 ELBO 外面加了一項輔助的 cross-entropy $\lambda\,\mathbb E\big[-\log p_\theta(x_0\mid x_t)\big]$，讓網路直接對「預測 $x_0$」負責、訓練更穩。下一篇會看到：對 absorbing 鏈，ELBO 本身**就會塌成**這種形式的加權和，輔助項變得多餘。
-
-![x₀-parametrization：網路只負責一件事](./imgs/w6-1-1.png)
-
-*圖：x₀-parametrization 把責任分開：網路只預測乾淨的 $x_0$，已知 posterior 再把 $x_t$ 與預測合成 $x_{t-1}$。*
-
-## 先消化一下
+## 快速回顧一下
 
 <QuizBlock id="w6-1-a">
-Uniform 鏈的 $\bar Q_t=\bar\alpha_tI+(1-\bar\alpha_t)J$，其中 $J$ 每個元素都是 $1/K$。$[\bar Q_t]_{ii}$（走 $t$ 步後仍是原字的機率）等於：
-<Option>$\bar\alpha_t$。</Option>
-<Option correct>$\bar\alpha_t+(1-\bar\alpha_t)/K$。</Option>
-<Option>$1/K$。</Option>
-<Explanation>
-「仍是原字」有兩種情形：從沒被動過（機率 $\bar\alpha_t$），或被動過但隨機換回了自己（機率 $(1-\bar\alpha_t)/K$）。這也是 uniform 與 absorbing 的一個差別：absorbing 鏈裡「還是原字」就等於「從沒被動過」，$[\bar Q_t]_{ii}=\bar\alpha_t$。
-</Explanation>
+已知 $x_0$ 時，離散 reverse posterior 的來源是：
+<Option>對 token 編號微分。</Option>
+<Option correct>已知的 forward transitions，加上 Bayes。</Option>
+<Option>模型額外預測一個 Gaussian。</Option>
+<Explanation>$\bar Q_{t-1}(k,i)Q_t(i,j)$ 是 joint weight，除以 $\bar Q_t(k,j)$ 就是 posterior。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w6-1-b">
-對 absorbing 鏈，若 $x_t$ 在某個位置**不是** `[MASK]`，posterior $q(x_{t-1}\mid x_t,x_0)$ 在該位置是：
-<Option>以 $\beta_t$ 的機率是 `[MASK]`，否則是 $x_0$。</Option>
-<Option correct>機率 1 是同一個原字。</Option>
-<Option>均勻分佈。</Option>
-<Explanation>
-`[MASK]` 是吸收態，走到那裡就不會回來；反過來說，$x_t$ 沒被遮，表示 $x_{t-1}$ 也沒被遮，而沒被遮的 token 只能是原字。所有隨機性都在 `[MASK]` 位置上。
-</Explanation>
+Absorbing loss 為什麼只計算 MASK 位置？
+<Option>其他位置和整句話完全無關。</Option>
+<Option correct>未遮位置的 conditional posterior 與複製輸入的 model kernel 相同，KL 為零。</Option>
+<Option>每個字的 posterior 都均勻。</Option>
+<Explanation>未遮字仍是網路推測其他位置時的重要 context，只是那一格不需要再學怎麼恢復。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w6-1-c">
-$x_0$-parametrization 寫成 $p_\theta(x_{t-1}\mid x_t)=\sum_{\tilde x_0}q(x_{t-1}\mid x_t,\tilde x_0)\,p_\theta(\tilde x_0\mid x_t)$。這裡需要學的部分是：
-<Option>$q(x_{t-1}\mid x_t,\tilde x_0)$。</Option>
-<Option correct>$p_\theta(\tilde x_0\mid x_t)$，網路對每個位置輸出 $K$ 個 logits。</Option>
-<Option>兩者都要學。</Option>
-<Explanation>
-posterior 是 forward chain 的 closed form，完全已知。網路只負責「看到被弄髒的 $x_t$，原字是什麼」，這與 <Ref to="dma-denoising-regression"/> 的 $x_0$-prediction 是同一個分工。
-</Explanation>
+一次獨立填完所有 MASK 的問題是：
+<Option>每個位置的機率一定算錯。</Option>
+<Option correct>各位置機率都對，也可能漏掉它們之間的 joint dependence。</Option>
+<Option>一定需要改用 Gaussian noise。</Option>
+<Explanation>Conditional marginals 不等於 conditional joint；模型誤差與這個抽樣假設要分開看。</Explanation>
 </QuizBlock>
 
-<QuizBlock id="w6-1-d">
-離散版 ELBO 的中間項 $L_{t-1}$ 是兩個類別分佈的 KL。它與 DDPM 對應項的差別是：
-<Option>DDPM 的對應項是 MSE，兩者結構不同。</Option>
-<Option>離散版多了一個沒辦法算的 normalizing constant。</Option>
-<Option correct>結構完全相同（posterior 與 model 之間的 KL），只是 DDPM 裡兩個都是 Gaussian、KL 化成均值差的平方；這裡兩個都是有限類別分佈、KL 是有限和。</Option>
-<Explanation>
-DDPM 那一項的 MSE 正是兩個等變異數 Gaussian 之間的 KL 算出來的結果。離散版把積分換成求和，沒有任何近似，也沒有 normalizing constant 的問題——$K$ 個機率加起來就是 1。
-</Explanation>
-</QuizBlock>
-
-<Bridge to="dma-masked-diffusion">
-一般的 D3PM 已經能訓練，但每一步仍是一個類別分布的 KL。若 forward chain 只有一個吸收終點 `[MASK]`，這串 KL 會不會大幅簡化？下一篇把 absorbing chain 代到底，看看它為什麼最後只剩 masked cross-entropy。
+<Bridge to="dma-factorization-error">
+現在 training loss 與 sampling 都有了。但即使每個位置都預測正確，一次填很多字仍可能組成不合法的句子。下一篇用一個只有 0、1 的例子，看清楚這個誤差到底從哪一步進來。
 </Bridge>
 
 ## 參考文獻
 
-1. Austin, J., Johnson, D. D., Ho, J., Tarlow, D., van den Berg, R. [*Structured Denoising Diffusion Models in Discrete State-Spaces.*](https://arxiv.org/abs/2107.03006) NeurIPS 2021.（D3PM：transition matrix 的一般框架、uniform / absorbing 鏈、$x_0$-parametrization、輔助 loss $L_\lambda$。）
-2. Sohl-Dickstein, J., Weiss, E. A., Maheswaranathan, N., Ganguli, S. [*Deep Unsupervised Learning using Nonequilibrium Thermodynamics.*](https://arxiv.org/abs/1503.03585) ICML 2015.（最早的 diffusion 論文之一，同時處理了二元狀態的離散版本。）
-3. Hoogeboom, E., Nielsen, D., Jaini, P., Forré, P., Welling, M. [*Argmax Flows and Multinomial Diffusion: Learning Categorical Distributions.*](https://arxiv.org/abs/2102.05379) NeurIPS 2021.
-4. Ho, J., Jain, A., Abbeel, P. [*Denoising Diffusion Probabilistic Models.*](https://arxiv.org/abs/2006.11239) NeurIPS 2020.（ELBO 的三種項與 $x_0$-prediction 的連續版。）
+1. Austin, J. et al. [*Structured Denoising Diffusion Models in Discrete State-Spaces.*](https://arxiv.org/abs/2107.03006) NeurIPS 2021.
+2. Sahoo, S. S. et al. [*Simple and Effective Masked Diffusion Language Models.*](https://arxiv.org/abs/2406.07524) NeurIPS 2024.

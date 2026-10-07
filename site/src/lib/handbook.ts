@@ -322,11 +322,6 @@ export const labMembers: MemberGroup[] = [
         photoAlt: 'images/people/陳澔樂-反-card.jpg',
       },
       {
-        name: '林育正',
-        since: '2026 Fall',
-        photo: 'images/people/林育正-card.jpg',
-      },
-      {
         name: '范思緯',
         since: '2026 Fall',
         photo: 'images/people/范思緯-card.jpg',

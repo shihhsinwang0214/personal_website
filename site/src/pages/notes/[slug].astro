@@ -1,14 +1,21 @@
 ---
 import { getCollection } from 'astro:content';
 import NoteArticle from '../../components/NoteArticle.astro';
-import { isPublishedNote } from '../../lib/notes';
+import LegacyNoteRedirect from '../../components/LegacyNoteRedirect.astro';
+import { isPublishedNote, mergedNoteAliases, noteRoute } from '../../lib/notes';
 
 export async function getStaticPaths() {
   const allNotes = await getCollection('notes');
   // Missing translations are tracked in metadata but get no standalone page
   // (they were thin "coming soon" pages hurting search and SEO); listings link
   // to the available language instead.
-  return allNotes
+  const redirects = Object.entries(mergedNoteAliases).map(([slug, target]) => {
+    const canonical = allNotes.find((note) => note.data.slug === target && note.data.lang === 'en' && note.data.status !== 'missing')
+      ?? allNotes.find((note) => note.data.slug === target && note.data.status !== 'missing');
+    if (!canonical) throw new Error(`Missing merged-note target: ${target}`);
+    return { params: { slug }, props: { target: noteRoute(canonical.data.slug, canonical.data.lang) } };
+  });
+  const pages = allNotes
     .filter(
       (entry) => entry.data.lang === 'en' && entry.data.status !== 'missing' && isPublishedNote(entry),
     )
@@ -16,9 +23,10 @@ export async function getStaticPaths() {
       params: { slug: entry.data.slug },
       props: { entry, allNotes },
     }));
+  return [...pages, ...redirects];
 }
 
-const { entry, allNotes } = Astro.props;
+const { entry, allNotes, target } = Astro.props;
 ---
 
-<NoteArticle entry={entry} allNotes={allNotes} lang="en" />
+{target ? <LegacyNoteRedirect lang="en" target={target} /> : <NoteArticle entry={entry} allNotes={allNotes} lang="en" />}

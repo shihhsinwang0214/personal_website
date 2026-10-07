@@ -6,9 +6,9 @@ prereqs:
   - math-time-reversal
   - math-langevin
 lang: "en"
-title: "Remasking：取樣器多一條管子"
+title: "Can remasking preserve the same distribution?"
 category: "courses"
-group: "Unit 5 · Discrete Diffusion II"
+group: "Unit 4 · Discrete Diffusion"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

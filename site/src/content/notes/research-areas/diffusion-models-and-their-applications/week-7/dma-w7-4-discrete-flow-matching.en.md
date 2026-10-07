@@ -6,9 +6,9 @@ prereqs:
   - math-conditional-expectation
   - math-continuity-equation
 lang: "en"
-title: "Discrete Flow Matching：條件路徑、Rate 與配對"
+title: "Can tokens have Flow Matching without straight lines?"
 category: "courses"
-group: "Unit 5 · Discrete Diffusion II"
+group: "Unit 4 · Discrete Diffusion"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

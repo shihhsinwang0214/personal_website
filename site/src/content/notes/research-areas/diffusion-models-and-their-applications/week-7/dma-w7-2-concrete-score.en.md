@@ -7,9 +7,9 @@ prereqs:
   - math-bayes-posterior
   - math-conditional-expectation
 lang: "en"
-title: "反向 Rate 與 Concrete Score"
+title: "What must reverse rates learn?"
 category: "courses"
-group: "Unit 5 · Discrete Diffusion II"
+group: "Unit 4 · Discrete Diffusion"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

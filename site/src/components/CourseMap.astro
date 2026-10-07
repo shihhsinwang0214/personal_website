@@ -44,7 +44,7 @@ interface ToolChip extends ResolvedNoteRef {
 const lectures = [];
 for (const lecture of course.lectures) {
   const notes = published.filter((n) => n.data.group === lecture.group);
-  if (notes.length === 0) continue;
+  if (notes.length === 0 && !lecture.planned) continue;
   // Tools: every prereq the unit's notes declare, outside this course, deduped, in code order.
   const seen = new Set<string>();
   const tools: ToolChip[] = [];
@@ -131,7 +131,7 @@ const alternates = [
     <ol class="course-trail">
       {
         lectures.map((lecture, i) => (
-          <li class="course-week" id={lectureAnchor(lecture.group)} data-read-count data-lecture-code={lecture.code}>
+          <li class="course-week" id={lectureAnchor(lecture.group)} data-read-count={lecture.notes.length > 0 ? true : undefined} data-lecture-code={lecture.code}>
             <details class="course-week-details" open={i === 0}>
               <summary class="course-week-summary">
                 <span class="course-week-node" aria-hidden="true"></span>
@@ -139,7 +139,7 @@ const alternates = [
                   <span class="course-week-title">
                     <span class="course-week-code">{lecture.code}</span>
                     <span class="course-week-name">{lecture.name}</span>
-                    <span class="course-week-count"><span data-read-count-out>0 / {lecture.notes.length}</span></span>
+                    <span class="course-week-count">{lecture.notes.length > 0 ? <span data-read-count-out>0 / {lecture.notes.length}</span> : (zh ? '規劃中' : 'Planned')}</span>
                   </span>
                   <span class="course-week-desc">{lecture.description}</span>
                 </span>
@@ -148,6 +148,7 @@ const alternates = [
                 </svg>
               </summary>
               <div class="course-week-body">
+                {lecture.notes.length === 0 && <p>{zh ? '文章尚在規劃中。' : 'Articles are being planned.'}</p>}
                 <ol class="course-notes">
                   {lecture.notes.map((note) => (
                     <li class="course-note" data-read-slug={note.data.slug}>

@@ -5,9 +5,9 @@ prereqs:
   - math-absorbing-state
   - math-langevin
 lang: "en"
-title: "Absorbing 與 Uniform：翻錯的字能不能改？"
+title: "Can we revise a token after filling it?"
 category: "courses"
-group: "Unit 4 · Discrete Diffusion I"
+group: "Unit 4 · Discrete Diffusion"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

@@ -7,11 +7,13 @@ prereqs:
 lang: "zh"
 title: "拉直（一）：Reflow"
 category: "courses"
-group: "Unit 3 · 更直、更快的生成路徑"
+group: "Unit 3 · 減少 ODE 的離散化誤差"
 status: "available"
-updated: 2026-10-04
+updated: 2026-10-07
 summary: "先讓目前的 ODE 產生終點，再把同一起點與新終點配回去重訓。這個 reflow 迴圈在理想情況下保留邊際、降低凸運輸成本，並逐步找到更直的 flow。"
-demos: []
+demos:
+  - "notes/research_areas/diffusion-models-applications/w5-3-crossing-reflow.html"
+  - "notes/research_areas/diffusion-models-applications/w5-3-reflow.html"
 references:
   - label: "Liu, Gong & Liu, Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow (ICLR 2023)"
     href: "https://arxiv.org/abs/2209.03003"
@@ -123,9 +125,59 @@ $$
 
 *圖：Rectification 是一個迴圈。從配對學出速度場、跑 ODE 取得新終點，再用新配對重訓，交叉的軌跡便逐輪拉直。*
 
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-3-reflow.html" class="demo-frame" title="Reflow 如何影響少步 Euler：互動 demo" style="height: 920px; width: 100%; border: none;"></iframe>
+## 上下交叉後，ODE 會怎麼走？
 
-**互動 demo：同一個起點，比較 reflow 0 次與 1 次。** 拖動黃色起點，將 numerical steps 固定在 1、2 或 3，再比較原本的 velocity 與完成一次 rectification 後的結果。黃線是細切的 ODE trajectory，紫線則是少步 Euler；兩者的終點距離直接告訴我們，這一輪的 velocity 只查詢幾次是否已經足夠。
+先用一個經典的交叉 toy 看一次。起點與終點各有上下兩個 Gaussian clusters：
+
+$$
+\begin{aligned}
+p_0&=\tfrac12\mathcal N((-2,1),\sigma^2I)
++\tfrac12\mathcal N((-2,-1),\sigma^2I),\\
+p_1&=\tfrac12\mathcal N((2,1),\sigma^2I)
++\tfrac12\mathcal N((2,-1),\sigma^2I).
+\end{aligned}
+$$
+
+不過，我們故意把左上配到右下、左下配到右上。令 $S\in\{-1,+1\}$ 各以 $\tfrac12$ 機率取樣，再設定
+
+$$
+\begin{aligned}
+X_0&=(-2,S)+\sigma\varepsilon_0,\\
+X_1&=(2,-S)+\sigma\varepsilon_1,
+\qquad \varepsilon_0,\varepsilon_1\overset{\mathrm{iid}}{\sim}\mathcal N(0,I).
+\end{aligned}
+$$
+
+因此，每一條直線 reference path 都會朝另一側走，兩束 paths 在中央交叉。但 learned velocity 在同一個 $(x,t)$ 只能給一個方向；它會依這個位置比較可能屬於哪一束，對兩束的 reference velocities 做 conditional average。
+
+<Remark label="補充" summary="初始 coupling 的 velocity 為什麼可以直接算？">
+對直線插值 $X_t=(1-t)X_0+tX_1$，固定 $S=s$ 後，位置的 mean、共同 variance 與 conditional velocity 分別是
+
+$$
+\begin{aligned}
+m_{t,s}&=(-2+4t,(1-2t)s),\\
+q_t&=(1-t)^2+t^2,\\
+\rho_{t,s}(x)&=\mathcal N(x;m_{t,s},\sigma^2q_tI),\\
+u_{t,s}(x)&=(4,-2s)+\frac{2t-1}{q_t}(x-m_{t,s}).
+\end{aligned}
+$$
+
+所以 optimal velocity 是
+
+$$
+v_t(x)=
+\frac{\displaystyle\sum_{s\in\{-1,+1\}}\tfrac12\rho_{t,s}(x)u_{t,s}(x)}
+{\displaystyle\sum_{s\in\{-1,+1\}}\tfrac12\rho_{t,s}(x)}.
+$$
+
+上下兩束的 prior 都是 $\tfrac12$；但看到當下的位置 $x$ 後，兩束的權重會變成與 $\tfrac12\rho_{t,s}(x)$ 成正比。**因此不能在每個位置都直接把 $u_{t,+1}$ 與 $u_{t,-1}$ 做算術平均。**
+
+這個 closed form 只適用於原本的交叉 coupling。完成 rectification 後，端點配對已經改變；demo 會改用新端點建立的直線 paths，重新估計它們的 conditional mean velocity。
+</Remark>
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-3-crossing-reflow.html" class="demo-frame" title="交叉 Gaussian coupling 經過 rectification 與 reflow 後如何變直：互動 demo" style="height: 900px; width: 100%; border: none;"></iframe>
+
+**互動 demo：從交叉配對走到 reflow 後的 ODE。** 先看綠色 reference paths 如何交叉，再切到黃色 rectified ODE；這時 velocity 使用上面的 closed form，並按當下的 density 決定兩束各佔多少。最後切到紫色，demo 會把黃色 ODE 產生的新端點配回起點，再只用這批新配對重新估計 velocity。拖動時間，可以看到兩束 particles 在三個階段分別怎麼移動。
 
 這個程序後來也被帶到大規模影像生成：Liu 等人的 InstaFlow [2] 把 reflow 用在一步文字生圖；Esser 等人的 SD3 [3] 則採用 rectified flow 的線性路徑，但沒有反覆做 reflow。兩者都使用「rectified flow」這個名字，改動的部分並不完全一樣。
 
@@ -458,6 +510,10 @@ $$
 Rectification 做的是把原本「隨機抓的端點」換成「同一條 ODE trajectory 的兩端」。這通常已經會大幅減少交叉，卻不保證一次就把 $V(\pi^{(1)})$ 壓到零；因此才有把輸出再送回去的 reflow。
 </Answer>
 </Question>
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-3-reflow.html" class="demo-frame" title="Reflow 如何影響少步 Euler：互動 demo" style="height: 920px; width: 100%; border: none;"></iframe>
+
+**互動 demo：同一個起點，比較 reflow 0 次與 1 次。** 拖動黃色起點，將 numerical steps 固定在 1、2 或 3，再比較原本的 velocity 與完成一次 rectification 後的結果。黃線是細切的 ODE trajectory，紫線則是少步 Euler；兩者的終點距離直接告訴我們，這一輪的 velocity 只查詢幾次是否已經足夠。
 
 ## 消化一下
 

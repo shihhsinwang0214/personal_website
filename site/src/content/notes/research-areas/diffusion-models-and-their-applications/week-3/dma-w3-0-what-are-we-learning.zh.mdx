@@ -12,30 +12,16 @@ title: "生成到底在學什麼？"
 category: "courses"
 group: "Unit 1 · Diffusion Models"
 status: "available"
-updated: 2026-10-04
-summary: "把「生一張新圖」翻成可以寫下 loss 的數學問題：直接學密度會卡在 normalizing constant 的梯度；改成學一個函數 G 之後，逐樣本的 L2 會塌成一張平均圖，normalizing flow 用可逆性換到精確 likelihood——而這個代價把我們推向「自己把路徑定下來」。"
+updated: 2026-10-07
+summary: "把「生一張新圖」翻成 distribution-level 的學習問題：直接讓神經網路表示 density，會因為 normalization 而在梯度裡遇到 model sampling；改成學 transport map，隨機配對的 L2 會學成平均，而 normalizing flow 又必須用可逆性與 log-det 換取精確 likelihood。這些限制最後把我們帶向一個新想法：先用 forward process 自己造出中間狀態與 training pairs。"
 demos: []
 references:
+  - label: "LeCun et al., A Tutorial on Energy-Based Learning (2006)"
+    href: "http://yann.lecun.com/exdb/publis/pdf/lecun-06.pdf"
   - label: "Papamakarios et al., Normalizing Flows for Probabilistic Modeling and Inference (JMLR 2021)"
     href: "https://arxiv.org/abs/1912.02762"
-  - label: "Dinh, Krueger & Bengio, NICE: Non-linear Independent Components Estimation (2014)"
-    href: "https://arxiv.org/abs/1410.8516"
-  - label: "Dinh, Sohl-Dickstein & Bengio, Density Estimation using Real NVP (ICLR 2017)"
-    href: "https://arxiv.org/abs/1605.08803"
-  - label: "Papamakarios, Pavlakou & Murray, Masked Autoregressive Flow; Kingma et al., Inverse Autoregressive Flow"
-    href: "https://arxiv.org/abs/1705.07057"
-  - label: "Kingma & Dhariwal, Glow: Generative Flow with Invertible 1×1 Convolutions (NeurIPS 2018)"
-    href: "https://arxiv.org/abs/1807.03039"
-  - label: "Chen, Rubanova, Bettencourt & Duvenaud, Neural Ordinary Differential Equations (NeurIPS 2018)"
-    href: "https://arxiv.org/abs/1806.07366"
-  - label: "Grathwohl et al., FFJORD: Free-form Continuous Dynamics for Scalable Reversible Generative Models (ICLR 2019)"
-    href: "https://arxiv.org/abs/1810.01367"
   - label: "Rezende & Mohamed, Variational Inference with Normalizing Flows (ICML 2015)"
     href: "https://arxiv.org/abs/1505.05770"
-  - label: "Hyvärinen, Estimation of Non-Normalized Statistical Models by Score Matching (JMLR 2005)"
-    href: "https://jmlr.org/papers/v6/hyvarinen05a.html"
-  - label: "Welling & Teh, Bayesian Learning via Stochastic Gradient Langevin Dynamics (ICML 2011)"
-    href: "https://dl.acm.org/doi/10.5555/3104482.3104568"
 ---
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
@@ -44,18 +30,17 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
-import Details from '../../../components/Details.astro';
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
 
 # 生成到底在學什麼？
 
 <Objectives>
-- **生成模型到底在學什麼？** 「生成一張新圖」不是找回某一筆資料，也不是只覆蓋幾個 mode，而是學到一個接近 $p_{\text{data}}$ 的 distribution，讓我們可以再從中抽樣。
-- **為什麼我們最後會想自己指定一條路徑？** 直接學 density 會卡在 normalizing constant 與 sampling；直接學 transport map，沒有 pairing 的 $L_2$ 會塌成平均，normalizing flow 又必須用可逆性與 log-det 換取 likelihood。Diffusion 的選擇，是把原本不唯一的生成方式改成一條自己知道怎麼走的路。
+- **把「生成」寫成 distribution-level 的目標。** 說出生成不是找回某一筆資料，而是學到一個接近 $p_{\text{data}}$ 的 distribution，讓我們可以再從中抽樣。
+- **說出直接學 density 卡在哪裡。** 從 density 必須非負且積分為 1 出發，寫出 energy-based model，並看見 maximum likelihood 的梯度為什麼會要求我們先從 $p_\theta$ 抽樣。
+- **說出為什麼要自己造出中間狀態。** 隨機配對的 $L_2$ 會學成平均；normalizing flow 雖然能計算 likelihood，卻要付出可逆性與 log-det 的代價。Forward process 則讓我們可以自己製造 noisy states 與 training pairs。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -120,59 +105,75 @@ import Remark from '../../../components/Remark.astro';
 
 麻煩也正在這裡：**決定資料怎麼生成的是背後的 $p_{\text{data}}$，但我們看不到它**——拿得到的只有從它抽出來的有限樣本。**我們看得到的是五萬個點，真正想知道的卻是產生這些點的那片「地形」。**
 
-<Question id="Q1">
-既然「生成」就是「從 $p_{\text{data}}$ 再抽一個」，那最直覺會想到的做法可能呼之欲出：就拿一個神經網路 $p_\theta(x)$ 去逼近 $p_{\text{data}}$，訓練好後再從 $p_\theta$ 抽樣不就好了？但仔細想一下，**這條路會遇到什麼阻礙、卡在哪裡？**
+## 如果直接讓神經網路表示 density 呢？
 
-<Answer>
-**normalizing constant 帶來的麻煩。** 假設我們直接用一個 energy-based model 來表示資料分布：
+既然「生成」就是從 $p_{\text{data}}$ 再抽一個樣本，最直接的想法自然是：用一個神經網路表示 $p_\theta(x)$，讓它逼近 $p_{\text{data}}$，訓練好後再從 $p_\theta$ 抽樣。
 
-$$
-p_\theta(x)=\frac{e^{-E_\theta(x)}}{Z_\theta},\qquad
-Z_\theta=\int e^{-E_\theta(x)}\,dx .
-$$
+但在寫 loss 之前，這個網路得先輸出一個**合法的 density**。這代表它必須同時滿足兩個要求：
 
-$Z_\theta$ 的角色是 normalizing constant。一個機率密度函數必須滿足兩個條件：**處處非負**、而且**在整個空間上積分等於 1**；$e^{-E_\theta(x)}$ 自動保證了非負，$Z_\theta$ 則負責把積分壓成 1。
+- **每個位置都不能是負的：** $p_\theta(x)\geq 0$；
+- **把整個空間積分起來必須等於 1：** $\int p_\theta(x)\,dx=1$。
 
-如果我們用最直覺的 maximum likelihood 來訓練，$\log p_\theta(x)=-E_\theta(x)-\log Z_\theta$，把梯度推出來就會看到麻煩：
+一般神經網路可以輸出任意實數，所以第一個要求不會自動成立；而且就算我們已經讓每個位置的輸出都是正的，第二個要求仍然不一定成立。因此，我們要分別用數學把這兩個要求補上。
+
+先讓網路輸出一個數值 $E_\theta(x)$，再把 $-E_\theta(x)$ 放進 exponential：
 
 $$
-\nabla_\theta\log p_\theta(x)=-\nabla_\theta E_\theta(x)+\underbrace{\mathbb E_{x'\sim p_\theta}\big[\nabla_\theta E_\theta(x')\big]}_{=\ \nabla_\theta\log Z_\theta}.
+\tilde p_\theta(x)=e^{-E_\theta(x)}>0.
 $$
 
-值得注意的是，我們其實從來不需要算出 $Z_\theta$ 的**數值**（那是一個 3072 維的積分，硬算當然也不可能）；真正躲不掉的是它的**梯度**，而那一項是一個**對模型自己分布取的期望**——要估它，就得先從 $p_\theta$ 抽樣。所以問題變成：**我們本來只是想訓練一個 distribution，結果訓練過程自己先要求我們會從這個 distribution 抽樣。** 那接著就得問：從 $p_\theta$ 抽樣這件事，到底有多難？
-
-**取樣的困難。** 先假設訓練這一關過了，我們手上已經有一個相當精確的 $p_\theta$。要從它抽樣，可以使用 Welling 與 Teh [10] 採用的 Langevin dynamics：
+這一步滿足了第一個要求。$E_\theta(x)$ 越低，$x$ 附近的 $\tilde p_\theta(x)$ 就越高；但 $\tilde p_\theta$ 的總量還不一定是 1。於是我們先算出整個空間的總量 $Z_\theta$，再把每個位置都除以它：
 
 $$
-x_{k+1}=x_k+\frac{\eta}{2}\,\nabla_x\log p_\theta(x_k)+\sqrt{\eta}\,\epsilon_k,\qquad \epsilon_k\sim\mathcal N(0,I),
+Z_\theta=\int \tilde p_\theta(x)\,dx,
+\qquad
+p_\theta(x)=\frac{\tilde p_\theta(x)}{Z_\theta}.
 $$
 
-而 $\nabla_x\log p_\theta(x)=-\nabla_x E_\theta(x)$——$Z_\theta$ 對 $x$ 是常數，微分之後就直接消失了。換句話說，**真正做 sampling 的時候，我們甚至不需要知道完整的 density 長什麼樣，只需要知道它往哪個方向增加得最快。** 這個方向資訊 $\nabla_x\log p_\theta(x)$，就是後面一直會看到的 **score**。
+只要 $Z_\theta$ 有限，這一步就滿足了第二個要求，因為 $\int p_\theta(x)\,dx=1$。**這種先替每個位置指定 energy，再把 energy 轉成 distribution 的模型，叫做 energy-based model** [1]。
 
-但是**density 學得接近，不代表 score 就一定也學得接近。** 想像在一片平緩的地形上鋪一層很細很密的波紋：海拔幾乎沒有變，但每一點的坡度——往哪邊傾、有多陡——卻完全不一樣。
-
-這件事可以直接算出來。把 $\log p$ 加上一道很小的波紋，$\log\tilde p=\log p+0.01\sin(1000x)$（再重新歸一化）。密度的比值到處都在 $e^{\pm0.02}$ 之內，也就是**差不到 2%**；但 score 多出來的那一項是
+<Remark summary="為什麼叫做 energy？">
+這個名字來自統計物理。在那裡，一個狀態出現的機率常寫成
 
 $$
-\nabla_x\log\tilde p-\nabla_x\log p=0.01\times 1000\times\cos(1000x),
+p(x)\propto e^{-E(x)}.
 $$
 
-最大差到 **10**。密度幾乎一模一樣，坡度可以完全不同——而取樣用的正是坡度。
+能量 $E(x)$ 越低，$e^{-E(x)}$ 就越大，這個狀態也越容易出現。Energy-based model 沿用同一個數學形式：讓神經網路替每個 $x$ 指定一個數值 $E_\theta(x)$，低 energy 代表模型認為這個 $x$ 比較可能，高 energy 則代表比較不可能。
 
-所以，既然 sampling 真正依賴的是 score，一個更直接的問題就會冒出來：
+這裡的 energy 不一定是真實世界中的物理能量；它只是模型用來表示「這個 $x$ 和資料有多相符」的一個數值。真正的 probability density，仍要經過 exponential 與 normalization 才會得到。
+</Remark>
 
-> **我們能不能不要先學 density，直接把 score 學起來？**
+現在 density 有了，我們可以用 maximum likelihood：讓資料真正出現的位置，在 $p_\theta$ 下有較高的 density。把 negative log-likelihood 寫開，
 
-這就是 <Ref to="dma-tweedie-and-score"/> 會走到的主線：Hyvärinen [9] 提出的 score matching。但在這之前，我們先從另一個角度看同一個問題。
-</Answer>
-</Question>
+$$
+\mathcal L_{\text{density}}(\theta)
+=-\mathbb E_{x\sim p_{\text{data}}}\log p_\theta(x)
+=\mathbb E_{x\sim p_{\text{data}}}E_\theta(x)+\log Z_\theta .
+$$
+
+第一項會把訓練資料附近的 energy 往下拉。麻煩在第二項：$Z_\theta$ 是對整個 3072 維圖片空間積分，不能只靠手上的五萬張圖片算出來。
+
+不過，真正訓練時需要的不是 $Z_\theta$ 的數值，而是 loss 的 gradient。對上式微分後，
+
+$$
+\nabla_\theta\mathcal L_{\text{density}}
+=
+\mathbb E_{x\sim p_{\text{data}}}\!\left[\nabla_\theta E_\theta(x)\right]
+-
+\mathbb E_{x'\sim p_\theta}\!\left[\nabla_\theta E_\theta(x')\right].
+$$
+
+第一個期望可以用 training data 估計；第二個期望卻是對**模型自己的 distribution** 取平均。要算它，我們得先從目前的 $p_\theta$ 抽出很多 $x'$。於是出現了一個循環：**我們原本想訓練一個能抽樣的 distribution，訓練它的 gradient 卻先要求我們已經會從它抽樣。**
+
+這種「式子寫得出來，但其中的計算無法直接完成」的情況，通常稱為**難以直接計算（intractable）**。Energy-based model 並不是不能訓練；常見方法會用 approximate sampling 來估第二項。只是對我們現在的目標來說，它已經指出第一個困難：**直接學 density，normalization 與 sampling 會綁在一起。**
 
 ## 換一個角度：不學密度，直接學一個能生成樣本的函數？
 
-既然從 $p_{\text{data}}$ 抽樣可能很難，那換個角度：有沒有哪個分布是我們**本來就會抽**的？有——標準 Gaussian $\mathcal N(0,I)$。
+既然直接學一個可抽樣的 density 會遇到上面的循環，那換個角度：有沒有哪個 distribution 是我們**本來就會抽**的？有——標準 Gaussian $\mathcal N(0,I)$。
 
 <Remark label="符號" summary="為什麼 Gaussian 這麼好抽？">
-$\mathcal N(0,I)$ 是 $\mathbb R^{d}$ 上的**標準常態分布**。它之所以「很好抽」，關鍵不是 density 長得簡單，而是**我們知道怎麼直接從它產生樣本**：從電腦本來就很容易產生的 uniform random numbers 出發，經過一個已知的轉換（例如 Box–Muller），就得到一個標準常態樣本。不需要「先從某個地方出發、再一步一步跑到正確的分布」——那才是 MCMC 在做的事。
+$\mathcal N(0,I)$ 是 $\mathbb R^{d}$ 上的**標準常態分布**。它之所以「很好抽」，關鍵不是 density 長得簡單，而是電腦已經有成熟的方法，可以直接產生標準 Gaussian random numbers；不需要先訓練另一個模型，也不需要在空間裡反覆移動許多步。
 
 到了 $d$ 維就更簡單，因為每個座標彼此獨立：
 
@@ -214,7 +215,7 @@ $$
 
 那接下來的問題就很直接了：**我們要怎麼學這個 $G$？** 我們手上有 $p_{\text{data}}$ 的樣本、也有 $G(z)$ 的樣本，得從這裡寫出一個對 $\theta$ 可微的 loss。
 
-<Question id="Q2">
+<Question id="Q1">
 手上既然有真實資料 $x$，也有生成出來的 $G(z)$，那用傳統 prediction 的做法不就好了：抽一批 $z$、算出 $G(z)$，再跟資料算 $L_2$：
 
 $$
@@ -236,30 +237,32 @@ $$
 
 也就是說，**模型的最佳策略是不管拿到什麼 $z$，都輸出同一張「所有訓練圖片的平均」**——一張灰灰的、模糊的四不像。它的 $L_2$ 很低，但完全沒有多樣性，更不是從 $p_{\text{data}}$ 抽出來的樣本。這正是 regression 遇到多解問題時會出現的**回歸到平均**。
 
-再往上看一層，會發現是**目標本身錯位**了：我們真正要的是「$G(z)$ 的分布等於 $p_{\text{data}}$」——一個**分布層級的條件**；而 $L_2$ 問的是「這一個 $G(z)$ 有沒有對上這一張 $x$」——一個**逐樣本的條件**。兩堆樣本可以分布完全相同，隨機抽樣卻沒有任何一對彼此靠近。因此，設計一個逐樣本的 loss 去學一個分布層級的目標，答案自然會塌陷掉。
+再往上看一層，會發現是**目標本身錯位**了：我們真正要的是「$G(z)$ 的分布等於 $p_{\text{data}}$」——一個**分布層級的條件**；而 $L_2$ 問的是「這一個 $G(z)$ 有沒有對上這一張 $x$」——一個**逐樣本的條件**。兩堆樣本可以分布完全相同，隨機抽樣卻沒有任何一對彼此靠近。因此，設計一個逐樣本的 loss 去學一個分布層級的目標，最後自然只會學到平均。
 
-所以要讓 loss 有意義，只有兩條路：
+於是有兩個自然的方向：
 
-- 換一個**分布層級的目標**（normalizing flow 的 likelihood、GAN 的判別器、MMD…），也就是下一節要走的方向；
+- 換一個**分布層級的目標**，直接比較生成出來的整體 distribution 與 $p_{\text{data}}$；
 - 或者，**自己把配對定下來**——如果每個 $z$ 都被指定好要變成哪個 $x$（甚至指定整條中間路徑），逐樣本的回歸就重新變得合理。
 
-第二條路正是 diffusion 與 flow matching 的做法，本篇最後的 Q3 會回到這件事。
+我們先看第一個方向能走到哪裡，再回來看「自己製造配對」會帶出什麼方法。
 </Answer>
 </Question>
 
-## 第一種答案：Normalizing Flow
+## 如果 $G_\theta$ 可逆，能不能把 density 算回來？
 
-上一個問題的結論是：使用逐樣本的 $L_2$ loss 不行，我們需要一個**針對分布的目標**——去測量 $G_\theta(z)$ 產生出來的整體 distribution，和 $p_{\text{data}}$ 到底有多像。
+課堂提問的結論是：隨機配對的 $L_2$ 在比較單一樣本，但我們真正需要的是一個**分布層級的目標**。既然 $G_\theta$ 已經能產生樣本，一個自然的想法是先把它產生的 density $p_\theta(x)$ 算出來，再用 likelihood 訓練。
 
-比較直覺的想法是：利用上面 $G_\theta$ 與 $p_\theta$ 的關係，先把 $p_\theta$ 算出來，再拿它跟 $p_{\text{data}}$ 設計成一個 objective。
+麻煩是，知道怎麼算 $x=G_\theta(z)$，不代表知道某個 $x$ 的 density。要把 $p_\theta(x)$ 算回來，我們至少得知道這個 $x$ 是由哪一個 $z$ 變來的，以及 $G_\theta$ 在附近把空間拉開或壓縮了多少。
 
-而這件事真的做得到——因為 $x=G_\theta(z)$、$z\sim\mathcal N(0,I)$，$x$ 的隨機性完全來自 $z$。只要 $G_\theta$ 是**可逆的**、而且夠光滑，change of variables 就能把 $p_\theta(x)$ 寫成 base distribution $p_z$（也就是我們使用的 Gaussian 分布）的 density，再加上一個由 $G_\theta$ 的 Jacobian 決定的修正項：
+如果 $G_\theta$ **可逆而且夠光滑**，第一件事可以用 $G_\theta^{-1}(x)$ 找回 $z$；第二件事則由 Jacobian determinant 記錄。Change of variables 於是給出
 
 $$
 \log p_\theta(x)=\log p_z\!\big(G_\theta^{-1}(x)\big)+\log\Big|\det\frac{\partial G_\theta^{-1}}{\partial x}(x)\Big| .
 $$
 
-很高興的是，右邊每一項都算得出來：我們終於有了一個真的可以拿來比較的 distribution，這時候就可以用那個最自然的訓練原則 maximum likelihood [1, 8]：
+第一項問的是「倒推回去的 $z$ 在 Gaussian 裡有多常見」；第二項修正 $G_\theta$ 對局部體積造成的改變。**這類用一連串可逆 transformation，把簡單 distribution 變成複雜 distribution 的模型，叫做 normalizing flow** [2, 3]。
+
+只要 inverse 與 log-det 都算得出來，$p_\theta(x)$ 就能直接計算，我們也就能使用 maximum likelihood：
 
 $$
 \min_\theta\ \mathcal L(\theta)=-\,\mathbb E_{x\sim p_{\text{data}}}\big[\log p_\theta(x)\big].
@@ -295,109 +298,43 @@ $$
 第一項和 $\theta$ 無關，所以最大化 likelihood，就等價於最小化 $\mathrm{KL}(p_{\text{data}}\|p_\theta)$——而它等於 0 的唯一情況，就是兩個分布完全相同（<Ref to="math-kl"/>）。
 </Remark>
 
-有了一個要 minimize 的 objective，接下來就可以做 gradient descent 了。實際把它推開來看看長什麼樣——因為 $p_z$ 是 Gaussian，$\log p_z(z)=-\tfrac12\|z\|^2+\text{const}$，所以
+這個方法確實解決了「怎麼為整體 distribution 寫 loss」的問題，但條件也很明確。每看到一張 training image $x$，我們都必須算出 $G_\theta^{-1}(x)$，還要計算 Jacobian determinant。一般神經網路通常沒有便宜的 inverse；而一般 $d\times d$ Jacobian 的 determinant 需要 $O(d^3)$ 的計算，在 $d=3072$ 時也很難每一步都做。
 
-$$
-\mathcal L(\theta)=\mathbb E_{x\sim p_{\text{data}}}\Big[\tfrac12\big\|G_\theta^{-1}(x)\big\|^2-\log\Big|\det\frac{\partial G_\theta^{-1}}{\partial x}(x)\Big|\Big]+\text{const},
-$$
+因此，normalizing flow 不能直接使用任意神經網路。它必須刻意限制每一層的結構，讓 inverse 與 log-det 都算得動。這是它為精確 likelihood 做的交換：
 
-$$
-\nabla_\theta\mathcal L(\theta)=\mathbb E_{x\sim p_{\text{data}}}\Big[\underbrace{\tfrac12\nabla_\theta\big\|G_\theta^{-1}(x)\big\|^2}_{\text{倒推}}-\underbrace{\nabla_\theta\log\Big|\det\frac{\partial G_\theta^{-1}}{\partial x}(x)\Big|}_{\text{log-det}}\Big].
-$$
+> **要把 likelihood 精確寫成 loss，就得讓 $G_\theta$ 保持可逆，並讓 Jacobian determinant 容易計算。**
 
-也就是說，每看到一張訓練圖片 $x$，要算的就是這兩個 term。這裡有一件事值得注意：loss 裡完全沒有出現「生成」——訓練是把資料**倒推回 $z$**，不是從 $z$ 生成一批再去比較。
+## 同一個終點，可以有很多種搬法
 
-而問題也就出在這兩個 term 上：
-
-- 第一項要求我們**真的算得出 $G_\theta^{-1}(x)$**：$G_\theta$ 不能只是理論上可逆，inverse 還得便宜到每一步訓練都算得起。
-- 第二項更麻煩：一般 $d\times d$ 矩陣的 determinant 要 $O(d^3)$，$d=3072$ 光算這一項就算不動了，而我們還得對它做反向傳播。
-
-所以 normalizing flow 十年的發展史，反覆做的都是同一個交換：
-
-> **要拿到精確的 likelihood 來當 loss，就得為 $G$ 的每一步付出可逆性與 Jacobian 的代價。**
-
-第一代把代價付在**結構**上：用特殊設計的可逆神經網路層，換到好算的 inverse（反函數 $G_\theta^{-1}$）與 $\det$，但框架和模型能力因此被限制住。第二代把代價付在**解 ODE** 上：讓 $G$ 是任意 vector field 的 ODE 解，表達力鬆綁了，但每個訓練樣本都要來回解一次 ODE。細節放在下面兩個補充，這裡先記住有這兩個困難。
-
-<Details summary="離散時間的 flow：用網路結構換到好算的 inverse 與 log-det（NICE、Real NVP、MAF / IAF、Glow）">
-前面卡住的是兩件事：inverse 要算得出來、log-det 要算得起。第一代的做法很直接——既然一般的網路層做不到，那就只用**做得到的那種層**來堆出 $G$。
-
-Dinh、Krueger 與 Bengio 的 NICE [2]，以及 Dinh、Sohl-Dickstein 與 Bengio 的 Real NVP [3]，用的都是 coupling layer：把座標切成兩半 $x=(x_a,x_b)$，一半原封不動照抄過去，另一半做 affine transformation，而變換的係數由照抄的那半算出來：
-
-$$
-y_a=x_a,\qquad y_b=x_b\odot\exp\big(s(x_a)\big)+t(x_a).
-$$
-
-這樣設計有兩個好處。第一，反函數不用另外學：既然 $y_a$ 就是 $x_a$，我們手上永遠有算 $s,t$ 需要的東西，把同一組 $s,t$ 反著用就回去了。第二，Jacobian 是三角矩陣，determinant 只是對角線相乘，所以 $\log|\det|=\sum_i s_i(x_a)$，$O(d)$ 就算完。而 $s,t$ 自己可以是任意網路——它們不需要可逆。
-
-Papamakarios、Pavlakou 與 Murray 的 MAF，以及 Kingma 等人的 IAF [4]，改用 autoregressive 結構，拿到的也是同樣的三角 Jacobian；Kingma 與 Dhariwal 的 Glow [5] 再加上可逆的 $1\times1$ 卷積把通道打散，讓每一層動到的座標不要每次都一樣。
-
-代價是：每一層只能動一半座標、維度也不能改，單層能做的事情其實很少，要疊很多層才有辦法把一個 Gaussian 慢慢拉成自然圖片的形狀。而且實際上還會看到一個現象——likelihood 的數字很漂亮，但抽出來的樣本常常不夠銳利。
-</Details>
-
-<Details summary="連續時間的 flow：用解 ODE 換任意 vector field（Neural ODE、FFJORD）">
-上面那條路的限制，來自「每一層都要可逆」這個要求。Chen、Rubanova、Bettencourt 與 Duvenaud 的 Neural ODE [6] 換了一個想法：不要一層一層去設計，而是讓 $G$ 是一條 ODE 走出來的結果。
-
-$$
-\frac{dx}{dt}=v_\theta(x,t),\qquad x(0)=z,\quad G(z)=x(1).
-$$
-
-意思是：$z$ 是起點，$v_\theta$ 負責告訴每個位置「下一步往哪走」，讓它一路走到 $t=1$，走到的地方就是 $G(z)$。
-
-這樣一來，兩個困難都有了新的答案。反函數不用設計，因為 ODE 只要把時間倒著走就回去了。determinant 也不用算——沿著一條軌跡走的時候，log-density 的變化率其實只是 $v_\theta$ 的 divergence（這件事叫 instantaneous change of variables）：
-
-$$
-\frac{d}{dt}\log p_t\big(x(t)\big)=-\nabla\!\cdot v_\theta\big(x(t),t\big),\qquad
-\log p_\theta(x)=\log p_z(z)-\int_0^1 \nabla\!\cdot v_\theta\,dt .
-$$
-
-Grathwohl 等人的 FFJORD [7] 就順著這條路走下去：$v_\theta$ 可以是任意網路，而 divergence 也不必真的算完整，用 Hutchinson trace estimator $\nabla\!\cdot v=\mathbb E_\epsilon[\epsilon^\top J_v\epsilon]$ 估一下就好，一次 vector-Jacobian product 就夠。到這裡，表達力的限制算是解除了。
-
-但代價換到了另一個地方：每個訓練樣本都得**解一次 ODE 到 $t=1$、再解一次回來算梯度**（adjoint method），還要沿路估 trace。而且要解幾步不是我們決定的，是 adaptive solver 看情況決定，訓練越久往往還越多步。也就是說，訓練本身變成 simulation-based 的，貴到很難放大。
-</Details>
-
-## 其實有無限多個生成方式
-
-但這裡還有一個更根本的問題：**把 Gaussian 搬成 $p_{\text{data}}$ 的方法通常不只一種。** 可能有很多不同的 $G$，最後都能產生同一個 distribution：
+即使最後生成的 distribution 完全相同，把 Gaussian 搬成 $p_{\text{data}}$ 的方法也通常不只一種。很多不同的 $G$，都可能滿足
 
 $$
 G_\#p_z=p_{\text{data}} .
 $$
 
-Maximum likelihood 在意的是最後得到的 $p_\theta$ 有沒有逼近 $p_{\text{data}}$，卻不會告訴我們「中間應該怎麼搬」才是唯一正確的。所以從 transport map 的角度看，**這個問題本身是 underdetermined 的**：終點的 distribution 固定了，但從起點到終點可以有很多條不同的路。
+想像要把一倉庫的紙箱，重新排成另一個倉庫的樣子。只要最後每個位置上的紙箱數量相同，就算搬運成功；但哪一箱要搬去哪裡、中途要走哪條路，可能有很多種安排。Distribution 只規定最後整批貨物要長成什麼樣子，沒有替每一個起點指定終點。
 
-而如果我們又選擇用 normalizing flow 的 exact likelihood 來訓練，就還要額外為自己選的這條路付出計算代價——例如 inverse、Jacobian determinant，或在 continuous normalizing flow 裡反覆解 ODE。
+這就是 transport map 的 **underdetermined**：終點固定了，搬法卻沒有唯一答案。Maximum likelihood 可以判斷最後的 $p_\theta$ 是否接近 $p_{\text{data}}$，但不會替我們指定唯一的配對或路徑；normalizing flow 則為了算這個 likelihood，必須限制 $G_\theta$ 的結構。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w3-0-many-maps.html" class="demo-frame" title="太多 G，還是自己定路徑：互動 demo" style="height: 880px; width: 100%; border: none;"></iframe>
 
-**互動 demo：太多 G。** 按「換一組配對」，$t=0$ 的 Gaussian 與 $t=1$ 的目標分布都不會變，變的只有中間那團 $x_t$ 和每顆點走的路。
+**互動 demo：終點相同，搬法不只一種。** 按「換一組配對」，$t=0$ 的 Gaussian 與 $t=1$ 的目標 distribution 都不會變；改變的是哪些點被配在一起，以及它們中途怎麼走。
 
-<Question id="Q3">
-回頭想想 Q2：$L_2$ 之所以塌掉，是因為沒有人告訴我們哪個 $z$ 該對到哪張圖。那如果配對是我們自己指定的呢？
+## 如果配對不存在，我們能不能自己製造？
 
-**如果我們不讓 likelihood 挑，而是自己先決定「每個 $x$ 要沿哪條路變成噪聲」，會發生什麼事？**
+到這裡，我們遇到的困難其實都和「整體」有關：直接學 density，要處理整個空間的 normalization；直接學 $G_\theta$，隨機配對的 $L_2$ 只會學到平均；改用 exact likelihood，又要限制 $G_\theta$ 必須可逆且 log-det 好算。
 
-<Answer>
-想像要把 A 倉庫的貨搬成 B 倉庫的擺法。哪一箱該搬到哪個位置有無數種方案；沒有人指定的時候，你只能整批搬完再回頭比對像不像——這正是 Q2 卡住的地方。但一旦**先寫好每一箱的搬運路線**，每個箱子在任何時刻都知道下一步該往哪走，搬運就從一個整體評估問題，變成一堆各自獨立的小任務。
+但課堂提問也留下了一個線索：$L_2$ 本身沒有錯，錯的是我們隨便把 $z$ 和 $x$ 配在一起。**如果 training pairs 是我們自己造出來的，普通的 regression 就可能重新變得有用。**
 
-回到數學：如果路徑是我們自己定的（例如「把資料一點一點加噪聲，直到變成 $\mathcal N(0,I)$」），那麼路徑上的每個中間點 $x_t$ 都是**已知的**，「它該往哪走」也是已知的。訓練就不需要模擬 ODE、也不需要 likelihood，只要在每個 $t$ 做一個普通的回歸：看到 $x_t$，預測它該往哪走。順帶連「有無限多個 $G$」也一起解決了——路徑一定，$G$ 就定了。
+怎麼造？先不要從 Gaussian 猜它應該變成哪張圖片，而是把方向反過來。Training 時我們手上本來就有乾淨資料 $x_0$；如果我們自己訂一套規則，逐步把它加入 noise，就能親手製造出 $x_1,x_2,\ldots,x_T$。
 
-這就是 diffusion model（以及 <Ref week="dma-week-flow-matching"/> 的 flow matching）的起點，也是接下來這兩單元的核心想法：
+這很像我們先錄下一段「把紙箱逐步打散」的影片。影片中的每一格怎麼來，我們都知道；因此要學著倒放時，不必一口氣猜完整的搬運方式，而可以先練習：**看到這一格，下一步該怎麼往前一格修正？**
 
-> **不要一步到位，也不要讓 likelihood 自己挑路。**
+這套由乾淨資料逐步加入 noise 的規則，就是接下來要建立的 **forward process**。它不會讓 reverse direction 自動變簡單，但會提供我們可以直接抽樣的 noisy states，並把原本「一步生成整張圖片」的問題，拆成許多不同 noise levels 上的學習問題。
 
-我們把 $\mathcal N(0,I)\leftrightarrow p_{\text{data}}$ 之間的路徑先以某種方式定下來，讓每一步都變成一個回歸問題。
-</Answer>
-</Question>
+> **Diffusion 的第一步，不是先猜一個完整的 generator，而是先設計一個能由資料自行製造 training pairs 的 forward process。**
 
-<Remark summary="另外兩條不在這門課主線上的路：VAE 與 GAN">
-其實除了 flow 以外，還有兩條大家很熟悉的路。它們同樣是在回答「$G$ 要怎麼訓練」，只是選擇付出不一樣的代價。
-
-VAE 的想法是：既然 $p_\theta(x)$ 很難直接算，那就不要硬算——引入一個 latent 變數，改成去優化 likelihood 的一個**下界**（也就是 ELBO，見 <Ref to="ml-latent-variables-elbo" mode="title"/>）。這樣拿到的不再是精確的 likelihood，但至少是一個算得動、可以拿來做 gradient descent 的東西。
-
-GAN 則更乾脆，直接放棄 likelihood：既然我們真正在意的只是「兩堆樣本像不像」，那就再訓練一個網路來幫我們評估這件事——這其實就是 Q2 說的那種分布層級目標的另一種做法。
-
-這門課不會展開這兩條，不過 <Ref to="dma-denoising-regression"/> 在推 diffusion 的 loss 時，你會看到 ELBO 的影子。
-</Remark>
+接下來真正要決定的是：noise 該怎麼一步一步加入，才能讓任意時刻的 $x_t$ 都容易產生、最後的 $x_T$ 又變成我們熟悉且容易抽樣的 distribution？
 
 ## 消化一下
 
@@ -407,7 +344,7 @@ GAN 則更乾脆，直接放棄 likelihood：既然我們真正在意的只是�
 <Option>一個把 $\mathcal N(0,I)$ 正確搬成 $p_{\text{data}}$ 的映射。</Option>
 <Option>過度擬合到某幾張訓練圖片。</Option>
 <Explanation>
-因為 $x$ 與 $z$ 獨立，固定一個 $z$ 時最好的輸出就是 $\mathbb E[x]$，所以 $G_\theta$ 會塌成一張平均圖——$L_2$ 很低，但沒有任何多樣性。問題不在容量、也不是過擬合，而是「逐樣本的 loss ＋ 隨機配對」本身就不是一個分布層級的目標。
+因為 $x$ 與 $z$ 獨立，固定一個 $z$ 時最好的輸出就是 $\mathbb E[x]$，所以 $G_\theta$ 會變成一張平均圖——$L_2$ 很低，但沒有任何多樣性。問題不在網路容量，也不是過度擬合，而是「逐樣本的 loss＋隨機配對」本身就沒有描述我們要的 distribution-level 目標。
 </Explanation>
 </QuizBlock>
 
@@ -417,47 +354,40 @@ Normalizing flow 要求 $G$ 可逆、且 Jacobian determinant 好算。這個要
 <Option>保證把 $\mathcal N(0,I)$ 推到 $p_{\text{data}}$ 的 $G$ 是唯一的。</Option>
 <Option correct>讓 $\log p_\theta(x)$ 能用 change of variables 精確寫出，好拿 maximum likelihood 當 loss。</Option>
 <Explanation>
-取樣本來就只是「抽 $z$ 算 $G(z)$」，跟可逆無關。可逆與好算的 Jacobian 是為了把 $\log p_\theta(x)=\log p_z(G^{-1}(x))+\log|\det \partial G^{-1}/\partial x|$ 每一項都算出來。$G$ 的唯一性根本不成立——這正是 Q3 的出發點。
+取樣本來就只是「抽 $z$，再算 $G(z)$」，不需要 inverse。可逆與好算的 Jacobian，是為了把 $\log p_\theta(x)=\log p_z(G^{-1}(x))+\log|\det \partial G^{-1}/\partial x|$ 的每一項都算出來。即使最後的 distribution 相同，$G$ 仍然可能有很多種。
 </Explanation>
 </QuizBlock>
 
 <QuizBlock id="w3-0-c">
-FFJORD 允許 $v_\theta$ 是任意網路，付出的代價是：
-<Option correct>每個訓練樣本都要解一次 ODE 到終點、再解回來算梯度，並沿路估 divergence。</Option>
-<Option>Jacobian 必須是三角矩陣。</Option>
-<Option>無法計算 likelihood。</Option>
+用 energy-based model 的 maximum likelihood 訓練時，gradient 裡最麻煩的是哪一項？
+<Option>資料上的 $\mathbb E_{p_{\text{data}}}[\nabla_\theta E_\theta(x)]$，因為 training data 完全看不到。</Option>
+<Option correct>模型上的 $\mathbb E_{p_\theta}[\nabla_\theta E_\theta(x)]$，因為估計它需要先從目前的 $p_\theta$ 抽樣。</Option>
+<Option>$E_\theta(x)$ 必須永遠大於 0。</Option>
 <Explanation>
-三角 Jacobian 是 coupling / autoregressive flow 的限制，FFJORD 正是為了解除它。FFJORD 的 likelihood 是精確的（差在 trace 用 Hutchinson 估），代價是訓練變成 simulation-based：ODE 要來回解、步數由 solver 決定，很貴。
+第一項可以用手上的 training data 估計；energy 本身也不必大於 0，因為 $e^{-E_\theta(x)}$ 一定為正。真正的困難是第二項依賴模型自己的 distribution：我們想把模型訓練到會抽樣，計算 gradient 時卻已經需要從它抽樣。
 </Explanation>
 </QuizBlock>
 
 <QuizBlock id="w3-0-d">
-「先自己決定每個 $x$ 沿哪條路變成噪聲」這一步，直接消掉了下面哪個困難？
-<Option>從 $\mathcal N(0,I)$ 抽樣的成本。</Option>
-<Option>網路容量不足。</Option>
-<Option correct>「有無限多個 $G$、得靠 likelihood 挑一個」以及挑選時要模擬整條 ODE 的成本。</Option>
+為什麼 diffusion model 要先設計一條由資料逐步加入 noise 的 forward process？
+<Option>因為資料本身沒有 distribution。</Option>
+<Option correct>因為這讓我們能從 training data 自己製造不同 noise levels 的 $x_t$，再把一步生成的問題拆成較局部的學習問題。</Option>
+<Option>因為 forward process 會自動給出唯一而且精確的 reverse process。</Option>
 <Explanation>
-路徑一定，$G$ 就定了，不再需要 likelihood 來挑；而且路徑上每個中間點都是已知的，訓練只剩下逐點回歸，不必模擬。抽 $\mathcal N(0,I)$ 本來就不是困難，網路容量也不是這一步在解的問題。
+Forward process 讓 noisy states 的產生方式由我們掌握，因此能自行構造訓練輸入與對應的 regression target。不過它不會自動給出真正的 reverse conditional；reverse direction 要怎麼學，正是後面幾篇要解決的問題。
 </Explanation>
 </QuizBlock>
 
 <Bridge to="dma-forward-process">
-這一篇先把「生成新樣本」翻成「學會從 $p_{\text{data}}$ 再抽一個點」。直接學 density 會卡在 normalizing constant；直接學一個 transport map，沒有 pairing 的 $L_2$ 會塌成平均，而 normalizing flow 又必須用可逆性與 Jacobian 換取 likelihood。
+這一篇先把「生成新樣本」翻成「學會從一個接近 $p_{\text{data}}$ 的 distribution 再抽一個點」。直接學 density，normalization 會讓 training gradient 需要 model samples；直接學 transport map，沒有 pairing 的 $L_2$ 會學成平均；normalizing flow 雖然能使用 exact likelihood，卻必須讓 transformation 可逆、Jacobian determinant 也容易計算。
 
-這些困難把我們帶到另一個問題：**如果起點到資料之間的路不只一條，我們能不能自己選一條容易學的？**
+這些困難留下了一個線索：既然真實資料與 Gaussian noise 之間沒有現成的 pairing，**我們能不能從 training data 出發，自己製造中間狀態與 training pairs？**
 
-DDPM 的答案，是先把方向反過來：從資料出發，一步一步加入 Gaussian noise，親手造出一條通往簡單分布的路。下一篇會把這條 forward process 定下來，並看見為什麼它的任意時刻都可以直接抽樣。
+DDPM 的答案，是先把方向反過來：從資料出發，一步一步加入 Gaussian noise。下一篇會正式設計這條 forward process，並確認任意時刻的 $x_t$ 是否都能直接產生、最後是否真的會走向容易抽樣的 Gaussian。
 </Bridge>
 
 ## 參考文獻
 
-1. Papamakarios, G., Nalisnick, E., Rezende, D. J., Mohamed, S., Lakshminarayanan, B. [*Normalizing Flows for Probabilistic Modeling and Inference.*](https://arxiv.org/abs/1912.02762) JMLR 2021.
-2. Dinh, L., Krueger, D., Bengio, Y. [*NICE: Non-linear Independent Components Estimation.*](https://arxiv.org/abs/1410.8516) ICLR 2015 workshop.
-3. Dinh, L., Sohl-Dickstein, J., Bengio, S. [*Density Estimation using Real NVP.*](https://arxiv.org/abs/1605.08803) ICLR 2017.
-4. Papamakarios, G., Pavlakou, T., Murray, I. [*Masked Autoregressive Flow for Density Estimation.*](https://arxiv.org/abs/1705.07057) NeurIPS 2017. （IAF：Kingma, D. P. et al. [*Improved Variational Inference with Inverse Autoregressive Flow.*](https://arxiv.org/abs/1606.04934) NeurIPS 2016.）
-5. Kingma, D. P., Dhariwal, P. [*Glow: Generative Flow with Invertible 1×1 Convolutions.*](https://arxiv.org/abs/1807.03039) NeurIPS 2018.
-6. Chen, R. T. Q., Rubanova, Y., Bettencourt, J., Duvenaud, D. [*Neural Ordinary Differential Equations.*](https://arxiv.org/abs/1806.07366) NeurIPS 2018.
-7. Grathwohl, W., Chen, R. T. Q., Bettencourt, J., Sutskever, I., Duvenaud, D. [*FFJORD: Free-form Continuous Dynamics for Scalable Reversible Generative Models.*](https://arxiv.org/abs/1810.01367) ICLR 2019.
-8. Rezende, D. J., Mohamed, S. [*Variational Inference with Normalizing Flows.*](https://arxiv.org/abs/1505.05770) ICML 2015.
-9. Hyvärinen, A. [*Estimation of Non-Normalized Statistical Models by Score Matching.*](https://jmlr.org/papers/v6/hyvarinen05a.html) JMLR 2005. （Q1 提到「直接學 score」的出處；<Ref to="dma-tweedie-and-score"/> 會正式使用。）
-10. Welling, M., Teh, Y. W. [*Bayesian Learning via Stochastic Gradient Langevin Dynamics.*](https://dl.acm.org/doi/10.5555/3104482.3104568) ICML 2011. （Q1 的 Langevin 更新式。）
+1. LeCun, Y., Chopra, S., Hadsell, R., Ranzato, M., Huang, F. [*A Tutorial on Energy-Based Learning.*](http://yann.lecun.com/exdb/publis/pdf/lecun-06.pdf) 2006.
+2. Papamakarios, G., Nalisnick, E., Rezende, D. J., Mohamed, S., Lakshminarayanan, B. [*Normalizing Flows for Probabilistic Modeling and Inference.*](https://arxiv.org/abs/1912.02762) JMLR 2021.
+3. Rezende, D. J., Mohamed, S. [*Variational Inference with Normalizing Flows.*](https://arxiv.org/abs/1505.05770) ICML 2015.

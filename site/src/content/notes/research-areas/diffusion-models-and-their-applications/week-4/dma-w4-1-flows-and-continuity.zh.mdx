@@ -10,7 +10,7 @@ title: "沿著人潮學會怎麼走"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-10-04
+updated: 2026-10-05
 summary: "知道起點與終點後，我們可以先畫出參考路徑；L2 regression 會把經過同一位置的速度取平均，得到 Flow ODE 需要的 velocity field。"
 demos:
   - "notes/research_areas/diffusion-models-applications/w4-1-reference-paths.html"
@@ -122,6 +122,10 @@ $$
 $$
 
 也就是說，每次看到一條 reference path，$v_\theta$ 都會被要求：**站在 $I_t$ 這個位置時，盡量跟這個人的速度 $\dot I_t$ 一樣。**
+
+每次 training 時，我們只需要抽一組端點與時間 $t$，就能直接算出 $I_t$ 與 $\dot I_t$，不必先解 ODE、真的模擬一條 trajectory，才能製造這組 training pair。Lipman 等人的 Flow Matching 原論文 [1] 把這種訓練方式稱為 **simulation-free training**。
+
+這裡的 simulation-free 只是在說**訓練時不用解 ODE**；模型訓練完成後，要沿著 learned velocity 生成資料，仍然需要 numerical solver。這件事會在〈訓練完之後，要怎麼真的沿著這個 field 走？〉再接著討論。
 
 但還記得剛才的問題嗎？同一個時間 $t$，可能有很多條 reference paths 都經過同一個位置 $x$。有人往市政府站，有人往 101／世貿站，也有人往象山站；可是 $v_\theta(x,t)$ 只能給出**一個速度**。那它到底該聽誰的？
 

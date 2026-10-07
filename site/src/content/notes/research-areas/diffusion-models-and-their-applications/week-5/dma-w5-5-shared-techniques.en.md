@@ -7,7 +7,7 @@ prereqs:
 lang: "en"
 title: "共用技巧：Guidance、高階 Solver、時間加權"
 category: "courses"
-group: "Unit 3 · 更直、更快的生成路徑"
+group: "Unit 3 · 減少 ODE 的離散化誤差"
 status: "missing"
 updated: 2026-09-04
 summary: "English translation in progress; content-agent task."

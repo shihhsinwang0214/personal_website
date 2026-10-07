@@ -6,24 +6,22 @@ prereqs:
   - math-conditional-expectation
   - math-continuity-equation
 lang: "zh"
-title: "Discrete Flow Matching：條件路徑、Rate 與配對"
+title: "Token 之間不能走直線，還能 Flow Matching 嗎？"
 category: "courses"
-group: "Unit 5 · Discrete Diffusion II"
+group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-04
-summary: "離散 flow matching 讓每個 token 在起點與終點之間跳一次。條件 rate 可以直接監督，後驗平均後便得到生成正確邊際路徑的 rate。"
+updated: 2026-10-06
+summary: "先配對端點、再設計 token 的 conditional probability path，以 posterior average 建構 rate；接回 masked diffusion 與離散生成的應用。"
 demos: []
 references:
-  - label: "Gat et al., Discrete Flow Matching (NeurIPS 2024)"
+  - label: "Gat et al., Discrete Flow Matching (2024)"
     href: "https://arxiv.org/abs/2407.15595"
-  - label: "Campbell et al., Generative Flows on Discrete State-Spaces: Enabling Multimodal Flows and Applications to Protein Co-Design (ICML 2024)"
+  - label: "Campbell et al., Generative Flows on Discrete State-Spaces (2024)"
     href: "https://arxiv.org/abs/2402.04997"
-  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
-    href: "https://arxiv.org/abs/2210.02747"
-  - label: "Sahoo et al., Simple and Effective Masked Diffusion Language Models (NeurIPS 2024)"
+  - label: "Sahoo et al., Simple and Effective Masked Diffusion Language Models (2024)"
     href: "https://arxiv.org/abs/2406.07524"
-  - label: "Tong et al., Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport (TMLR 2024)"
-    href: "https://arxiv.org/abs/2302.00482"
+  - label: "Vignac et al., DiGress (2023)"
+    href: "https://arxiv.org/abs/2209.14734"
 ---
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
@@ -34,196 +32,174 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 
-# Discrete Flow Matching：條件路徑、Rate 與配對
+# Token 之間不能走直線，還能 Flow Matching 嗎？
 
 <Objectives>
-- **寫出逐 token 的條件路徑與條件 rate。** 認出 absorbing／uniform 是 source distribution 不同的特例。
-- **證明 conditional flow matching 的離散版。** 條件 rate 的後驗平均生成邊際路徑，只是 continuity equation 換成 forward equation。
-- **說出離散空間裡配對還控制什麼。** 沒有幾何直線可拉直，但資料與 source 的對齊方式仍會改變學習難度。
+- **為配好的離散端點建立 conditional probability path。** Token 不能做數值插值，但可以改變位於兩端的機率。
+- **從 conditional rate 得到 marginal rate。** 用 posterior average 與 cross-entropy 接回 Flow Matching 的 conditional trick。
+- **分清相同 snapshots 與相同 trajectories。** 對回 absorbing、uniform 的邊際路徑，再辨認語言、蛋白質與圖生成中的設計。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-<Ask>
-兩個字之間沒有中點。<br />
-那 flow matching 的「條件路徑」在離散空間裡是什麼？
-</Ask>
+## 先決定中途要有多少人，然後才決定怎麼搬
 
-## 換一個起點
+<Ref to="dma-remasking"/> 顯示，同一條 probability path 不只一種走法。那我們能不能像 <Ref to="dma-flows-and-continuity"/> 一樣，先給一組端點，再直接設計中間路徑？
 
-到目前為止，反向過程都是「先定 forward chain，再把它倒過來」——<Ref to="dma-d3pm"/> 倒 posterior、<Ref to="dma-concrete-score"/> 倒 rate。<Ref week="dma-week-flow-matching"/> 在連續世界做過另一件事：不從 forward SDE 出發，直接**寫下每一對端點之間的條件路徑**，微分得到條件速度，再證明邊際速度是條件速度的後驗平均。那個建構把「路徑」的設計權從 Gaussian noise 手上拿回來。
+想像把「貓」換成「狗」。我們不能走到「半隻貓、半隻狗」這個 token，但可以說：在時間 $t$，有一部分樣本仍是「貓」，其他已經換成「狗」。**離散的 interpolation，可以插在機率上，而不是插在 token 編號上。**
 
-離散世界能不能做同一件事？可以，而且做完會發現：$x_1$ 取全 `[MASK]` 就是 absorbing、取均勻隨機字就是 uniform，兩條鏈變成同一個框架的兩個特例；更重要的是，它讓 <Ref to="dma-why-not-diffusion"/> 說的「起點可以不是噪聲」在離散世界也成立。這就是 discrete flow matching（DFM），Gat 等人 [1] 與 Campbell 等人 [2] 在 2024 年各自提出。
+Gat 等人的 **Discrete Flow Matching（DFM）** [1] 系統化了這個建構；Campbell 等人的 discrete generative flows [2] 也從可設計的 probability paths 與 rates 出發。
 
-<Remark label="符號" summary="這一篇的時間方向和論文原文相反">
-本單元和上一個單元一樣：$t=0$ 是資料、$t=1$ 是噪聲，所以下面 $x_0\sim p_{\text{data}}$、$x_1\sim p_{\text{noise}}$。Gat 等人 [1] 的原文把 source 放在 $t=0$、資料放在 $t=1$——式子長得一模一樣，只是 $x_0$ 與 $x_1$ 的角色互換，讀論文時對照即可。
+## 先配端點，再選跳過去的時機
 
-另外 $\kappa_t$ 和前兩篇的 $\alpha_t$ 是互補的：$\kappa_t$ 是「已經變成 $x_1$ 的機率」、$\alpha_t$ 是「還是原字的機率」，所以 $\kappa_t=1-\alpha_t$。代進式子的時候不要記錯方向。
-</Remark>
+本篇維持這個單元的方向：$t=0$ 是 data，$t=1$ 是可抽樣的 source，生成倒著走。這與 U2 及 DFM 原論文常用的方向相反；我們要學的目標仍是資料端 $x_0$。
 
-## 一個 token 怎麼從噪聲走到資料
-
-先看一個 token。給定端點 $(x_0,x_1)$（兩個字），連續世界的直線插值 $(1-t)x_0+tx_1$ 在這裡沒有意義——兩個字之間沒有中點。但**機率**可以插值：
-
+先抽端點 $(x_0,x_1)\sim\pi$。$\pi$ 是 coupling，兩端 marginals 分別為 $p_0$ 與 $p_1$，定義可回顧 <Ref to="dma-unified-equation"/>。再選遞增的 $\kappa_t$，滿足 $\kappa_0=0,\kappa_1=1$，令每個位置的 conditional path 為
 $$
-p_t(x\mid x_0,x_1)=(1-\kappa_t)\,\delta_{x_0}(x)+\kappa_t\,\delta_{x_1}(x),\qquad \kappa_0=0,\ \kappa_1=1,\ \kappa_t\text{ 單調遞增}.
+q_t(x^\ell\mid x_0,x_1)
+=(1-\kappa_t)\delta_{x_0^\ell}(x^\ell)
++\kappa_t\delta_{x_1^\ell}(x^\ell).
 $$
-
-$\delta_{x_0}$ 是集中在 $x_0$ 的 one-hot 分佈。讀法：在時刻 $t$，這個 token 以機率 $1-\kappa_t$ 還是 $x_0$、以機率 $\kappa_t$ 已經變成 $x_1$，**沒有第三種可能**。畫面是一枚只翻一次的硬幣：token 從 $x_0$ 出發，在某個隨機時刻跳到 $x_1$，之後不再動；$\kappa_t$ 是「到 $t$ 為止已經跳了」的機率。
-
-整句 $L$ 個 token 各自獨立地做這件事，$p_t(x\mid x_0,x_1)=\prod_\ell p_t(x^\ell\mid x_0^\ell,x_1^\ell)$。
-
-**它就是上一個單元的兩條鏈。** 取 $\kappa_t=1-\alpha_t$：
-- $x_1=$ 全 `[MASK]`（一個確定的狀態）：token 以機率 $\alpha_t$ 是原字、$1-\alpha_t$ 是 `[MASK]`——absorbing 的 $\bar Q_t$。
-- $x_1\sim$ 每個位置獨立均勻：token 以機率 $\alpha_t$ 是原字、$1-\alpha_t$ 是均勻隨機字——uniform 的 $\bar Q_t$。
-
-<Ref to="dma-d3pm"/> 那句「$\bar Q_t=\bar\alpha_t I+(1-\bar\alpha_t)\times$終點」在這裡變成定義本身。而 $x_1$ 也可以是別的東西：一個混合（一部分位置 mask、一部分均勻）、或者根本不是噪聲——是另一個分佈的樣本。
-
-## 條件 rate：一行
-
-條件路徑要由一條 CTMC 生成，它的 rate 是什麼？forward 方向（$x_0\to x_1$）token 只有一種跳法：從 $x_0$ 跳到 $x_1$（若 $x_0\ne x_1$）。「還沒跳」的機率是 $1-\kappa_t$，它的衰減率就是 rate 乘上自己：$\frac{d}{dt}(1-\kappa_t)=-\text{rate}\cdot(1-\kappa_t)$，所以
-
+在固定端點下，各位置獨立抽樣；對整組端點平均後得到
 $$
-R_t(x_0\to x_1\mid x_0,x_1)=\frac{\dot\kappa_t}{1-\kappa_t}.
+p_t(x)=\sum_{x_0,x_1}\pi(x_0,x_1)
+\prod_\ell q_t(x^\ell\mid x_0,x_1).
 $$
+一種具體的 conditional process 是：每個位置抽一次跳躍時間，累積機率為 $\kappa_t$；跳之前是 $x_0^\ell$，跳之後是 $x_1^\ell$。若兩端相同，那格就不用改。
 
-代 $\kappa_t=1-\alpha_t$ 得 $-\dot\alpha_t/\alpha_t=\beta_t$，正是 <Ref to="dma-ctmc"/> 算出的 forward rate。✓
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w7-4-token-path.html" class="demo-frame" title="離散端點之間的 probability interpolation" style="height: 870px; width: 100%; border: none;"></iframe>
 
-生成方向（從 $x_1$ 回到 $x_0$，時間往回走）也只有一種跳法：從 $x_1$ 跳回 $x_0$。往回走時「還在 $x_1$」的機率是 $\kappa_t$，它隨往回走的時間衰減的速率是 $\dot\kappa_t$，所以
+## 假如知道兩端，倒著走的 rate 很容易算
 
+現在時間從 $t$ 退回 $t-h$。已跳到 source 的比例是 $\kappa_t$，這一小段要退回的比例約為 $\dot\kappa_t h$。所以每個這樣的 token，其退回 rate 是 $\dot\kappa_t/\kappa_t$。
+
+固定端點，若目前位置 $\ell$ 的字是 $x^\ell$，要跳到不同的 $v$，conditional reverse rate 可寫成
 $$
-\bar R_t(x_1\to x_0\mid x_0,x_1)=\frac{\dot\kappa_t}{\kappa_t}.
+\bar R_t^{\mathrm{cond}}
+(x,x^{(\ell\to v)}\mid x_0,x_1)
+=\frac{\dot\kappa_t}{\kappa_t}\mathbf1[x_0^\ell=v],
+\qquad v\neq x^\ell.
 $$
+只會跳回那格的 data endpoint。若已經是原字，所有不同的 $v$ 都得到 rate $0$。
 
-代 absorbing：$\frac{-\dot\alpha_t}{1-\alpha_t}$——<Ref to="dma-remasking"/> 的 $u_t$。✓ 兩個方向都不需要任何網路，是端點決定的常數（對 $t$ 的函數）。這對應 <Ref to="dma-conditional-flow-matching"/> 的「條件速度好算到不需要網路」。
-
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w7-4-token-path.html" class="demo-frame" title="DFM 的逐 token 條件路徑：互動 demo" style="height: 870px; width: 100%; border: none;"></iframe>
-
-**互動 demo：一個 token 的條件路徑。** 六根柱子是六個位置，下半是起點的字（高度 $1-\kappa_t$）、上半是終點的字（高度 $\kappa_t$）；拖 $t$，質量就從下半流到上半，而且**六根完全同步**——條件路徑是逐 token 各自獨立的。按「抽一條軌跡」，每個位置各抽一個跳躍時刻，同一個 $t$ 之下就有些跳了、有些還沒，而且**每個位置只跳一次**，這就是條件路徑的全部內容。下方兩條 rate 把兩端的發散畫出來：$\kappa_t=t$ 時，$t=0.1$ 的 forward rate 是 1.11、生成 rate 是 10.00，$t=0.9$ 剛好反過來（10.00 / 1.11）——實作上兩端都要 clamp。換成 $\kappa_t=1-\cos(\pi t/2)$，同一個 $t=0.4$ 的 $\kappa$ 從 0.400 變成 0.191、生成 rate 從 2.50 變成 4.83。把起點按鈕換到「另一句話」，這個框架就直接是**序列到序列**，一個 `[MASK]` 都不需要。
-
-## 條件目標平均起來，還是對的嗎？
-
-現在對端點取平均。$(x_0,x_1)\sim\pi$（暫時獨立：$\pi=p_{\text{data}}\otimes p_{\text{noise}}$），邊際
-
+但真正生成時，我們不知道 $x_0$。和 U2 的 reference velocity 一樣，對所有可能的端點取 posterior average：
 $$
-p_t(x)=\sum_{x_0,x_1}p_t(x\mid x_0,x_1)\,\pi(x_0,x_1),\qquad
-\bar R_t(x\to y):=\mathbb E\big[\bar R_t(x\to y\mid x_0,x_1)\ \big|\ x_t=x\big].
+\begin{aligned}
+\bar R_t(x,x^{(\ell\to v)})
+&=\mathbb E[\bar R_t^{\mathrm{cond}}\mid x_t=x]\\
+&=\frac{\dot\kappa_t}{\kappa_t}
+p(x_0^\ell=v\mid x_t=x).
+\end{aligned}
 $$
+**連續 Flow Matching 平均 reference velocities；這裡平均 conditional rates。** 在相應的 well-posed dynamics 下，這個 marginal rate 會生成同一條 $p_t$ [1]。
 
-**敘述。** 若每組 $(x_0,x_1)$ 的條件 rate $\bar R_t(\cdot\mid x_0,x_1)$ 生成條件路徑 $p_t(\cdot\mid x_0,x_1)$，則上面定義的 $\bar R_t$ 生成邊際路徑 $p_t$。
-
-**證明。** forward equation 對 $p$ 是**線性**的。對每組 $(x_0,x_1)$ 有 $\dot p_t(y\mid x_0,x_1)=\sum_x p_t(x\mid x_0,x_1)\,\bar R_t(x\to y\mid x_0,x_1)$（生成方向的時間；符號按方向調整）。兩邊乘 $\pi(x_0,x_1)$、對端點求和：
-
+<Details summary="Posterior average 為什麼保留同一條 probability path？">
+每組端點的 conditional distribution 在倒著走時，都滿足以 $\bar R_t^{\mathrm{cond}}$ 為 generator 的 forward equation。對 $\pi$ 求和後，從狀態 $x$ 到 $y$ 的 flow 為
 $$
-\dot p_t(y)=\sum_x\sum_{x_0,x_1}p_t(x\mid x_0,x_1)\,\pi(x_0,x_1)\,\bar R_t(x\to y\mid x_0,x_1)
-=\sum_x p_t(x)\underbrace{\sum_{x_0,x_1}\frac{p_t(x\mid x_0,x_1)\pi(x_0,x_1)}{p_t(x)}\bar R_t(x\to y\mid x_0,x_1)}_{=\ \bar R_t(x\to y)}.
+\begin{aligned}
+&\sum_{x_0,x_1}
+\pi(x_0,x_1)q_t(x\mid x_0,x_1)
+\bar R_t^{\mathrm{cond}}(x,y\mid x_0,x_1)\\
+&\qquad=p_t(x)\,
+\mathbb E[\bar R_t^{\mathrm{cond}}(x,y\mid x_0,x_1)\mid x_t=x].
+\end{aligned}
 $$
-
-最後一步用了 $\bar R_t$ 的定義。$\square$
-
-把它和 <Ref to="dma-conditional-flow-matching"/> 定理 1 的證明並排：那裡是「continuity equation 對 $p$ 線性 → 對 $z$ 積分 → 用 $u_t$ 的定義」；這裡是「forward equation 對 $p$ 線性 → 對 $(x_0,x_1)$ 求和 → 用 $\bar R_t$ 的定義」。**逐字相同，只換了方程式。** 還要順手檢查一件連續版不用檢查的事：後驗平均出來的 $\bar R_t$ 是不是合法的 rate matrix？是——非對角是非負數的平均，仍非負；列和是零的平均，仍為零。
-
-<Details summary="訓練目標：定理 2 的離散版，以及為什麼最後還是 cross-entropy">
-Lipman 等人的 Flow Matching [3] 定理 2 說：用條件速度當 MSE 目標，梯度與用邊際速度相同。離散版要學的是 $\bar R_t(x\to y)$，而條件 rate 的形狀很特別：對 mask source，$\bar R_t(x\to y\mid x_0,x_1)=\frac{\dot\kappa_t}{\kappa_t}\,\mathbb 1[y=x^{(\ell\to x_0^\ell)}]$——「位置 $\ell$ 被遮時，以 rate $\dot\kappa_t/\kappa_t$ 跳回 $x_0^\ell$」。對這個指示函數取後驗平均：
-
-$$
-\bar R_t\big(x\to x^{(\ell\to v)}\big)=\frac{\dot\kappa_t}{\kappa_t}\,p\big(x_0^\ell=v\ \big|\ x_t=x\big).
-$$
-
-邊際 rate 完全由 $x_0$ 的逐位置 posterior 決定，而 posterior 的自然回歸 loss 是 cross-entropy——與 <Ref to="dma-masked-diffusion"/> 相同（Gat 等人 [1] 稱之為 probability denoiser）。所以離散版「定理 2」的內容是：**用 $x_0^\ell$ 當 cross-entropy 的目標，網路收斂到 $p(x_0^\ell\mid x_t)$，代進上式就是邊際 rate。** 論證仍是 tower property：cross-entropy 的最小值是條件分佈，就像 MSE 的最小值是條件期望。
-
-對一般的 source（例如均勻），條件 rate 是 $\frac{\dot\kappa_t}{\kappa_t}\mathbb 1[x^\ell=x_1^\ell]\mathbb 1[v=x_0^\ell]$，後驗平均後是 $\frac{\dot\kappa_t}{\kappa_t}\,p(x_0^\ell=v,\ x_1^\ell=x^\ell\mid x_t=x)$——多了一個「$x_t^\ell$ 是不是還是噪聲字」的判斷，這正是 <Ref to="dma-absorbing-vs-uniform"/> 說 uniform 的 context 不乾淨的地方，現在它是式子裡的一個 joint posterior。
+Bayes 把端點的 weights 收成 posterior，於是平均後的流入減流出，正是 $p_t$ 的演化。這是 <Ref to="dma-conditional-flow-matching"/> 證明的離散求和版本；不是要求每條生成 trajectory 都沿原本配好的 conditional path。
 </Details>
 
-## 這個框架多給了什麼
+## 我們其實已經會訓練這個物件
 
-把 absorbing 與 uniform 寫成同一個式子的兩個特例，本身只是整理；mask source 下這個 DFM 目標與 Sahoo 等人的 MDLM [4] 等價。DFM 真正多出來的是三件事：
+Training 時端點都已知，可以直接抽 $x_t$，再用 data endpoint 作 label：
+$$
+L_{\mathrm{DFM}}
+=\mathbb E_{t,(x_0,x_1)\sim\pi,x_t}
+\sum_\ell-\log f_\theta^\ell(x_0^\ell\mid x_t,t).
+$$
+固定輸入後，cross-entropy 的理想最佳解就是 $p(x_0^\ell\mid x_t)$，代回上面的 rate 即可。**Training 不用先模擬完整的跳躍過程；只要抽出當下的 conditional snapshot。**
 
-1. **source 任意。** $x_1$ 不必是噪聲。<Ref to="dma-why-not-diffusion"/> 說 FM 的動機之一是「從分佈 A 生成分佈 B」；DFM 讓它在 token 上成立——source 可以是一句翻譯的原文、一段要修補的程式、一張圖的 token。
-2. **schedule 與 source 可以逐位置不同。** 每個位置有自己的 $\kappa_t^\ell$、自己的 source 分佈——例如一部分位置走 mask、一部分走 uniform 的混合路徑（Gat 等人 [1] 的實驗顯示這種混合對某些任務有幫助）。
-3. **取樣器的 stochasticity。** 上一篇說的 $\eta$（Campbell 等人 [2]）與 corrector（Gat 等人 [1]）：在生成 rate 上加一對流量相反的管子，邊際不變。
+<Remark label="補充" summary="Coupling 會影響什麼？">
+兩端各自的分布相同，配對不同，$p_t$ 與 endpoint posterior 仍可能不同，所以 coupling 可能影響 target uncertainty 與生成誤差。離散 token 沒有 U3 中的幾何直線，不能直接把 continuous reflow 的 straightness 定理照搬過來；但也不能因此說 coupling 對離散學習完全沒有影響。
+</Remark>
 
-第 1 點把我們帶到 <Ref to="dma-fm-vs-diffusion"/> 遺留的設定。
+## 回頭看，它和 masked diffusion 差在哪裡？
+
+若 source 是全 MASK，取 $\kappa_t=1-\alpha_t$，conditional path 就是
+$$
+q_t(x^\ell\mid x_0)
+=\alpha_t\delta_{x_0^\ell}
++(1-\alpha_t)\delta_m.
+$$
+Reverse rate 也回到
+$$
+\bar R_t(x,x^{(\ell\to v)})
+=\frac{-\dot\alpha_t}{1-\alpha_t}
+p(x_0^\ell=v\mid x_t=x).
+$$
+這正是 <Ref to="dma-concrete-score"/> 的 masked diffusion。若 source 改成與資料獨立的 uniform tokens，把 $x_1$ 平均掉，也會得到 uniform corruption 的 conditional snapshots。
+
+不過 uniform 的原 forward chain 可以反覆重抽；上面設計的 conditional process 只在端點間跳一次。**Snapshots 一樣，不表示 trajectory law 或 reverse generator 一樣。** 這和 DDPM、DDIM 共用 marginals、卻重新設計 coupling 的差別相同。
+
+![連續與離散 Flow Matching](./imgs/w7-4-1.png)
+
+*圖：兩者都先配端點、設計 conditional path，再取 posterior average；連續狀態平均速度，離散狀態平均跳躍 rate。*
+
+## 換成真實資料，要看哪幾個設計？
+
+不用先記每個模型名稱。先問：狀態是什麼、中間怎麼破壞或插值、模型預測什麼、最後怎麼抽樣？
+
+| 例子 | 狀態與 probability path | 學習與生成 |
+| --- | --- | --- |
+| MDLM [3] | 語言 token，absorbing masking | 預測原字，按 reveal probabilities 逐步填入 |
+| Multiflow [2] | 蛋白質的離散序列與連續結構 | 同時學離散 rates 與連續 dynamics，做 sequence–structure co-design |
+| DiGress [4] | Graph 的 node、edge 類別逐步 corruption | 預測乾淨圖的類別，再用 reverse transitions 生成 |
+
+圖上的類別合法，不代表分子化學限制必定滿足；序列與結構一起生成，也不等於所有生物性質都有保證。應用仍要選擇適合任務的模型、條件與評估。
 
 <Question id="Q1">
-<Ref to="dma-unified-equation"/> 把設計拆成路徑、配對與訓練噪聲。這裡的路徑是 $\kappa_t$，也沒有獨立的 $\gamma_t z$；還留下配對 $\pi(x_0,x_1)$。
-
-**Token 之間沒有幾何直線可拉直，那麼把獨立配對換成別的配對，還有什麼作用？**
+如果 data 與 source 的 token 不在同一個連續空間，DFM 還能定義 interpolation 嗎？
 
 <Answer>
-常見的答案分三類：「有，用 Hamming 距離做 OT 配對」、「沒有，因為離散空間沒有直線」、「要看 source 是什麼」。第三類是對的起點。
-
-**mask source：沒有東西可以配對。** $x_1$ 是全 `[MASK]`，一個確定的狀態。$\pi$ 只能是 $p_{\text{data}}\otimes\delta_{\text{all-mask}}$，配對設定根本不存在。這是 absorbing 鏈的另一個乾淨之處。
-
-**uniform source：可以配對，但拉直的意義沒了。** 連續世界裡 Tong 等人的 minibatch OT Flow Matching [5] 之所以調整配對，是 <Ref to="dma-fm-vs-diffusion"/> Q1 那條鏈：獨立配對 → 條件直線交叉 → 邊際速度是交叉處的平均 → velocity 沿 trajectory 改變 → Euler 有限步誤差大；OT 配對減少交叉，也常讓 $\int\|a_t(x_t)\|dt$ 變小。離散世界裡這條鏈的每一環都換了東西：條件路徑不是直線而是「每個 token 跳一次」；「交叉」沒有定義（沒有 ODE 軌跡，只有跳躍）；有限步誤差的來源不是 acceleration-controlled integration error，而是 <Ref to="dma-factorization-error"/> 的因子化——**一步內同時跳的多個位置被獨立抽**。而因子化誤差取決於**給定 $x_t$ 下各位置之間的條件相依**，這是資料分佈本身的性質；換配對改變的是「哪個噪聲配哪個資料」，改不了資料裡「牛肉」和「麵」的相依。所以「配對 → 拉直 → 少步」這條路在離散世界沒有對應。
-
-（有一個粗糙的類比：用 Hamming 距離把 $x_0$ 配給「和它重疊最多」的 $x_1$，需要跳的 token 變少，每步同時跳的位置也少一點。但這同時讓噪聲字帶有 $x_0$ 的資訊——「還是原字」與「噪聲剛好等於原字」不再可分——沒有像 OT 配對那樣的定理支持它是好事，而且就我所知也沒有像 minibatch OT 那樣的系統性研究。這裡只當一個提示，不當結論。）
-
-**配對真正留下的意義：對齊。** 當 source 不是噪聲而是另一個分佈時，$\pi$ 是**成對資料**——原文與譯文、草稿與修訂、一張圖的 caption 與 token。這時 $\pi$ 不是為了拉直而選的，是任務本身給的：它告訴模型「這個 $x_1$ 該變成哪個 $x_0$」。<Ref to="dma-why-not-diffusion"/> 說 FM 拿回了路徑設計權、可以做 A→B；DFM 把同一件事帶到 token 上，而配對是 A→B 裡「哪個 A 對哪個 B」的那個資訊。Campbell 等人 [2] 的 protein co-design 就是這種用法的例子：結構（連續、用 FM）與序列（離散、用 DFM）成對生成，兩條路徑共用一個網路。
-
-所以答案是：**拉直的意義消失，對齊的意義留下。** <Ref to="dma-fm-vs-diffusion"/> Q1 的「交叉」在離散世界的化身是因子化誤差，而它不歸配對管，歸「每步翻開幾個」與 <Ref to="dma-remasking"/> 的取樣器管。
+可以，只要兩端可放在同一個離散 state space。Conditional path 是兩個 point masses 的**機率混合**，不是對 token 做數值平均。若任務還要求「這一張輸入對應哪一張輸出」，例如保留指定蛋白質結構，則要把需要保留的資訊作為 condition；只保證兩端的 marginal transport 不等於保證逐筆對應符合任務。
 </Answer>
 </Question>
 
-![同一個建構，兩個世界](./imgs/w7-4-1.png)
-
-*圖：連續與離散 flow matching 都由端點配對、條件路徑與後驗平均三步構成；差別在中間用速度場還是跳躍 rate。*
-
-## 先消化一下
+## 快速回顧一下
 
 <QuizBlock id="w7-4-a">
-DFM 的條件路徑 $p_t(x\mid x_0,x_1)=(1-\kappa_t)\delta_{x_0}+\kappa_t\delta_{x_1}$，用一句話描述一個 token 的行為是：
-<Option>在 $x_0$ 與 $x_1$ 之間來回切換，切換頻率由 $\kappa_t$ 決定。</Option>
-<Option correct>從 $x_0$ 出發，在某個隨機時刻跳到 $x_1$ 之後不再動；$\kappa_t$ 是「到 $t$ 為止已經跳了」的機率。</Option>
-<Option>以 $\kappa_t$ 的比例混合成一個「介於兩者之間」的字。</Option>
-<Explanation>
-路徑只有兩個可能的值，沒有中間字；而「以機率 $1-\kappa_t$ 還是 $x_0$」隨 $t$ 單調下降，對應的是一次性的跳躍而不是來回切換（來回切換的 CTMC 會有 $x_1\to x_0$ 的 forward rate，這裡沒有）。
-</Explanation>
+離散 conditional interpolation 改變的是：
+<Option>Token 編號的中間值。</Option>
+<Option correct>樣本位於兩個端點的機率。</Option>
+<Option>字典大小一定逐步增加。</Option>
+<Explanation>任何時刻抽出的仍是合法的離散 token。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w7-4-b">
-「邊際 rate 是條件 rate 的後驗平均」的證明，與 <Ref to="dma-conditional-flow-matching"/> 定理 1 的證明相比：
-<Option>需要額外處理 rate matrix 的非線性。</Option>
-<Option>只在 absorbing 鏈上成立。</Option>
-<Option correct>逐字相同——都只用到「分佈演化方程式對 $p$ 是線性的」這一點；差別只是 continuity equation 換成 forward equation，積分換成求和。</Option>
-<Explanation>
-線性是唯一用到的性質，兩條方程式都有。對任何 source 分佈與任何 $\kappa_t$ 都成立。唯一多出來的檢查是後驗平均後的矩陣仍是合法 rate matrix，而這由「非負的平均非負、零的平均為零」直接給出。
-</Explanation>
+Conditional rate 要怎麼變成 marginal rate？
+<Option correct>對給定目前狀態後，所有可能端點的 posterior 取平均。</Option>
+<Option>只選最接近的 endpoint。</Option>
+<Option>對不同字的編號取平均。</Option>
+<Explanation>這個平均把各 conditional probability flows 組成 $p_t$ 的整體流量。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w7-4-c">
-用 mask 當 source 時，配對設定 $\pi(x_0,x_1)$：
-<Option>對應 OT 配對，可以拉直路徑。</Option>
-<Option correct>不存在——$x_1$ 是一個確定的狀態（全 `[MASK]`），$\pi$ 只能是 $p_{\text{data}}$ 與一個點的乘積。</Option>
-<Option>決定哪些位置先被遮。</Option>
-<Explanation>
-配對需要 source 有隨機性才有東西可配。哪些位置先被遮由每個位置的跳躍時刻（也就是 $\kappa_t$）決定，與 $\pi$ 無關。
-</Explanation>
+兩個 processes 的 $q_t(x_t\mid x_0)$ 相同，表示：
+<Option>所有跨時間的配對與 trajectories 都相同。</Option>
+<Option correct>每個時刻的 snapshots 相同；不同時刻如何連起來仍可能不同。</Option>
+<Option>必須用相同的 finite-step sampler。</Option>
+<Explanation>Marginals、joint process 與 numerical sampler 是不同層次。</Explanation>
 </QuizBlock>
 
-<QuizBlock id="w7-4-d">
-<Ref to="dma-fm-vs-diffusion"/> Q1 說「彎曲來自交叉，交叉來自配對」。這條因果鏈在離散世界裡：
-<Option>完全照搬：換配對可以減少因子化誤差。</Option>
-<Option>不存在任何對應。</Option>
-<Option correct>「有限步誤差」那一端的對應是因子化誤差，但它取決於資料在給定 $x_t$ 下的條件相依，不由配對控制；配對留下的意義是成對資料（A→B）的對齊。</Option>
-<Explanation>
-連續世界的有限步誤差會受到沿 trajectory 的 velocity 變化影響，而這個變化又會受配對影響；離散世界的有限步誤差則由「同時翻開的位置之間的相依」決定，那是資料分佈的性質。配對在 source 不是噪聲時（翻譯、修補、多模態）仍然重要，只是理由變成對齊而不是拉直。
-</Explanation>
-</QuizBlock>
-
-<Bridge to="dma-discrete-applications">
-離散生成現在也能拆成三個問題：中間怎麼破壞資訊、網路預測什麼、取樣器如何安排跳轉。下一篇用這三個問題讀語言、蛋白質與圖模型，看看不同應用真正改動的是哪一部分。
+<Bridge to="dma-lab-discrete-time">
+這個單元從 token 的加噪與去噪，走到可設計的 probability paths 與 rates。接下來用兩次實作檢查它們：先把網路誤差拿掉，觀察平行填字漏掉的相依；再比較 rate 的有限步取樣，以及加入修改機會後的結果。
 </Bridge>
 
 ## 參考文獻
 
-1. Gat, I., Remez, T., Shaul, N., Kreuk, F., Chen, R. T. Q., Synnaeve, G., Adi, Y., Lipman, Y. [*Discrete Flow Matching.*](https://arxiv.org/abs/2407.15595) NeurIPS 2024.（逐 token 條件路徑、probability denoiser、混合 source、corrector sampling。）
-2. Campbell, A., Yim, J., Barzilay, R., Rainforth, T., Jaakkola, T. [*Generative Flows on Discrete State-Spaces: Enabling Multimodal Flows and Applications to Protein Co-Design.*](https://arxiv.org/abs/2402.04997) ICML 2024.（CTMC 版的 flow matching、stochasticity $\eta$、連續與離散共用框架。）
-3. Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., Le, M. [*Flow Matching for Generative Modeling.*](https://arxiv.org/abs/2210.02747) ICLR 2023.（連續版定理 1、2。）
-4. Sahoo, S. S. et al. [*Simple and Effective Masked Diffusion Language Models.*](https://arxiv.org/abs/2406.07524) NeurIPS 2024.（mask source 下 DFM 與 MDLM 的等價。）
-5. Tong, A., Fatras, K., Malkin, N., Huguet, G., Zhang, Y., Rector-Brooks, J., Wolf, G., Bengio, Y. [*Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport.*](https://arxiv.org/abs/2302.00482) TMLR 2024.（連續世界的配對設定，Q1 的對照。）
+1. Gat, I. et al. [*Discrete Flow Matching.*](https://arxiv.org/abs/2407.15595) NeurIPS 2024.
+2. Campbell, A. et al. [*Generative Flows on Discrete State-Spaces: Enabling Multimodal Flows with Applications to Protein Co-Design.*](https://arxiv.org/abs/2402.04997) ICML 2024.
+3. Sahoo, S. S. et al. [*Simple and Effective Masked Diffusion Language Models.*](https://arxiv.org/abs/2406.07524) NeurIPS 2024.
+4. Vignac, C. et al. [*DiGress: Discrete Denoising Diffusion for Graph Generation.*](https://arxiv.org/abs/2209.14734) ICLR 2023.

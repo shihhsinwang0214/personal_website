@@ -70,16 +70,13 @@ export const noteSlugList = [
   'dma-w5-6-lab',
   'dma-w6-0-discrete-data',
   'dma-w6-1-d3pm',
-  'dma-w6-2-masked-diffusion',
   'dma-w6-3-factorization-error',
   'dma-w6-4-absorbing-vs-uniform',
-  'dma-w6-5-lab',
-  'dma-w7-0-why-continuous-time',
   'dma-w7-1-ctmc',
   'dma-w7-2-concrete-score',
   'dma-w7-3-remasking',
   'dma-w7-4-discrete-flow-matching',
-  'dma-w7-5-applications',
+  'dma-w6-5-lab',
   'dma-w7-6-lab',
   'dma-w8-0-learn-the-map',
   'dma-w8-1-progressive-distillation',
@@ -171,7 +168,16 @@ export const noteSlugList = [
 ] as const;
 
 const noteOrder = new Map(noteSlugList.map((slug, index) => [slug, index]));
-const archivedNoteSlugs = new Set(['flow-matching-flow-ode', 'flow-matching-training']);
+// Keep old URLs and reference labels working after articles are merged.
+export const mergedNoteAliases: Record<string, string> = {
+  'dma-w6-2-masked-diffusion': 'dma-w6-1-d3pm',
+  'dma-w7-0-why-continuous-time': 'dma-w6-4-absorbing-vs-uniform',
+  'dma-w7-5-applications': 'dma-w7-4-discrete-flow-matching',
+};
+const archivedNoteSlugs = new Set([
+  'flow-matching-flow-ode', 'flow-matching-training',
+  ...Object.keys(mergedNoteAliases),
+]);
 
 // Display order for note groups within each category/area. Listed explicitly so
 // the order is intentional (e.g. "From Noise to Data" before "Diffusion & Flow
@@ -195,11 +201,11 @@ const groupOrder = [
   // Courses — Diffusion Models and Their Applications
   'Unit 1 · Diffusion Models',
   'Unit 2 · Flow Matching',
-  'Unit 3 · 更直、更快的生成路徑',
-  'Unit 4 · Discrete Diffusion I',
-  'Unit 5 · Discrete Diffusion II',
-  'Unit 6 · Consistency Models',
-  'Unit 7 · Flow Maps 與分佈匹配',
+  'Unit 3 · 減少 ODE 的離散化誤差',
+  'Unit 4 · Discrete Diffusion',
+  'Unit 5 · Consistency Models',
+  'Unit 6 · Flow Maps 與分佈匹配',
+  'Unit 7 · Test-time Guidance',
   // Courses — Mathematical Foundations
   'M0 · Calculus 工具箱',
   'M1 · 機率與 Conditional Expectation',
@@ -377,6 +383,8 @@ export interface Constellation {
 }
 export interface CourseLectureDef {
   group: string;
+  /** Show a roadmap entry before individual articles have been written. */
+  planned?: boolean;
   description: Record<Lang, string>;
   /** Stable key so notes can point at a whole week/class with <Ref week="…"/>. */
   label?: string;
@@ -493,8 +501,8 @@ export const courses: CourseDef[] = [
       zh: 'Diffusion Models and Their Applications',
     },
     description: {
-      zh: '從 Diffusion Models 與 Flow Matching 出發，延伸至離散生成、one-step generative models，以及科學與工程上的應用場景。',
-      en: 'Starting from diffusion models and flow matching, extending to discrete generation, one-step generative models, and applications across science and engineering.',
+      zh: '從 Diffusion Models 與 Flow Matching 出發，延伸至離散生成、one-step generative models，以及生成時的引導與應用。',
+      en: 'From diffusion models and flow matching to discrete generation, one-step models, and guidance at generation time.',
     },
     category: 'courses',
     lectures: [
@@ -512,39 +520,30 @@ export const courses: CourseDef[] = [
         label: 'dma-week-flow-matching',
         constellation: { anchor: [70, 300], stars: [[0, 0, 4.6], [52, -22, 3.0], [96, -8, 3.4], [126, -56, 4.2], [178, -40, 2.8], [210, 8, 3.8], [238, -30, 2.9]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [2, 6]] },
         description: {
-          zh: '從 reference paths 與 velocity regression 出發，經 continuity equation 接上 DDIM，再推廣到 stochastic interpolants，以及共享相同 marginals 的 ODE／SDE sampler family。',
-          en: 'From reference paths and velocity regression through the continuity equation and DDIM, then on to stochastic interpolants and a family of ODE/SDE samplers with shared marginals.',
+          zh: '從 reference paths 出發，講解 velocity regression 的理論及直觀解釋，介紹 continuity equation 及其直覺含意，並以 DDIM 作為 Flow Matching 與 diffusion model 的橋樑，再推廣到 stochastic interpolants，以及共享相同 marginals 的 ODE／SDE sampler family。',
+          en: 'Start from reference paths and explain velocity regression through both theory and intuition. Introduce the continuity equation and its intuitive meaning, use DDIM to bridge Flow Matching and diffusion models, then generalize to stochastic interpolants and a family of ODE/SDE samplers that share the same marginals.',
         },
       },
       {
-        group: 'Unit 3 · 更直、更快的生成路徑',
+        group: 'Unit 3 · 減少 ODE 的離散化誤差',
         label: 'dma-week-interpolants',
         constellation: { anchor: [400, 50], stars: [[0, 40, 3.4], [44, 66, 2.9], [78, 24, 4.9], [120, 44, 3.2], [170, 4, 3.0], [214, 36, 4.0]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5]] },
         description: {
-          zh: '直線 reference paths 為什麼仍會產生彎曲的 ODE trajectories？從 velocity 變化與 finite-step error 出發，再用 reflow、minibatch OT 與 numerical solvers 讓生成更直、更快。',
-          en: 'Why can straight reference paths still produce curved ODE trajectories? Connect accumulated velocity change to finite-step error, then use reflow, minibatch OT, and shared techniques to make generation straighter and faster.',
+          zh: 'ODE 的離散化誤差從哪裡來？先把沿途的 velocity 變化連到 finite-step error，再走兩條路：用 reflow 或 minibatch OT 改變 learned trajectories，或換一個 numerical solver，讓同樣的計算預算得到更準確的近似。',
+          en: 'Where does ODE discretization error come from? Relate velocity variation to finite-step error, then follow two routes: change learned trajectories with reflow or minibatch OT, or use a better numerical solver for a more accurate approximation under the same compute budget.',
         },
       },
       {
-        group: 'Unit 4 · Discrete Diffusion I',
+        group: 'Unit 4 · Discrete Diffusion',
         label: 'dma-week-discrete-i',
-        constellation: { anchor: [340, 262], stars: [[0, 0, 3.0], [28, 46, 4.4], [74, 32, 3.2], [112, 70, 3.6], [136, 18, 2.8], [180, 50, 4.0]], edges: [[0, 1], [1, 2], [2, 3], [3, 5], [2, 4]] },
+        constellation: { anchor: [340, 252], stars: [[0, 0, 3.0], [24, 38, 4.4], [56, 18, 3.2], [80, 62, 3.6], [108, 6, 2.8], [136, 42, 4.4], [164, 16, 3.4], [188, 60, 4.0], [118, 90, 3.0], [212, 92, 3.2]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [3, 8], [7, 9]] },
         description: {
-          zh: '資料是 token 時怎麼「加噪聲」？離散是狀態不是時間；D3PM 的轉移矩陣、masked diffusion 塌成加權 cross-entropy，以及離散取樣特有的因子化誤差。',
-          en: 'How to "add noise" to tokens: discrete states, not discrete time; D3PM transition matrices, masked diffusion as weighted cross-entropy, and the factorization error specific to finite-step discrete sampling.',
+          zh: '從 token 的加噪與去噪出發，推導 masked cross-entropy，再問平行抽樣漏掉了什麼、填錯能不能重改；用 CTMC、反向 rate 與 remasking 回答，最後接到 Discrete Flow Matching。兩次課堂實作分別檢查因子化誤差與 rate 取樣。',
+          en: 'Corrupt and denoise tokens, derive masked cross-entropy, then examine parallel-sampling errors and revision. CTMCs, reverse rates, and remasking lead to Discrete Flow Matching, with two labs on factorization and rate-based sampling.',
         },
       },
       {
-        group: 'Unit 5 · Discrete Diffusion II',
-        label: 'dma-week-discrete-ii',
-        constellation: { anchor: [590, 246], stars: [[0, 30, 3.6], [38, -12, 2.8], [64, 42, 4.6], [118, 26, 3.2], [150, -30, 3.0], [186, 4, 4.2], [226, -24, 2.9]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [3, 5], [5, 6]] },
-        description: {
-          zh: '連續時間 Markov chain 的語言：rate、forward equation 與 Fokker–Planck 並排；反向 rate 需要的是比值（concrete score）；remasking 是取樣器的設計選擇；discrete flow matching 與應用。',
-          en: 'The language of continuous-time Markov chains: rates and the forward equation beside Fokker–Planck; reverse rates need ratios (concrete score); remasking as a sampler knob; discrete flow matching and applications.',
-        },
-      },
-      {
-        group: 'Unit 6 · Consistency Models',
+        group: 'Unit 5 · Consistency Models',
         label: 'dma-week-consistency',
         constellation: { anchor: [800, 82], stars: [[0, 0, 4.8], [46, 36, 3.0], [90, 22, 3.4], [124, 66, 4.4], [160, 30, 2.8], [190, 90, 3.4], [230, 58, 4.0]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [3, 5], [5, 6]] },
         description: {
@@ -553,12 +552,22 @@ export const courses: CourseDef[] = [
         },
       },
       {
-        group: 'Unit 7 · Flow Maps 與分佈匹配',
+        group: 'Unit 6 · Flow Maps 與分佈匹配',
         label: 'dma-week-flow-maps',
         constellation: { anchor: [900, 280], stars: [[0, 20, 3.2], [30, -30, 4.6], [84, -46, 3.0], [130, -20, 3.6], [150, 40, 4.4], [112, 72, 2.8], [60, 50, 3.4]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 0]] },
         description: {
           zh: '從 t 直接跳到 s：flow map 的四個條件、flow map matching 的三種損失、MeanFlow identity 與條件速度代換、Shortcut / AYF，以及回歸式與分佈匹配式（DMD）蒸餾的失敗模式。',
           en: 'Jumping from t straight to s: the four conditions of a flow map, the three flow-map-matching losses, the MeanFlow identity, Shortcut / AYF, and the failure modes of regression vs. distribution-matching (DMD) distillation.',
+        },
+      },
+      {
+        group: 'Unit 7 · Test-time Guidance',
+        planned: true,
+        label: 'dma-week-guidance',
+        constellation: { anchor: [630, 260], stars: [[0, 22, 3.1], [32, -12, 3.6], [70, 20, 3.0], [100, -26, 4.0], [132, 14, 3.3]], edges: [[0, 1], [1, 2], [2, 3], [3, 4]] },
+        description: {
+          zh: '規劃中：模型訓練好之後，如何在生成時加入條件或目標，引導取樣結果？',
+          en: 'Planned: how can conditions or objectives guide sampling after a model has been trained?',
         },
       },
     ],
@@ -731,6 +740,7 @@ export function courseByKey(key: string): CourseDef | undefined {
   return courses.find((course) => course.key === key);
 }
 export function lectureByLabel(label: string): { course: CourseDef; lecture: CourseLectureDef } | undefined {
+  if (label === 'dma-week-discrete-ii') label = 'dma-week-discrete-i';
   for (const course of courses) {
     const lecture = course.lectures.find((l) => l.label === label);
     if (lecture) return { course, lecture };

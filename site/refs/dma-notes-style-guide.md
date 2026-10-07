@@ -27,6 +27,123 @@
 
 ---
 
+## U3.1–U3.3 改寫後確立的理論講解節奏（2026-10-06）
+
+U3.1–U3.3 分別處理 error bound、reflow 與 minibatch OT。三篇改完後，新增下面這組適用於「第一次介紹新理論或演算法」的規則。
+
+1. **先讓前一篇的誤差項變成這一篇的問題。** U3.1 先得到 acceleration integral；U3.2、U3.3 才問如何讓它變小。新方法不能從方法名開始，而要先說清楚：前面哪一個量太大、哪一個步驟太貴，或哪一個保證還缺著。
+2. **生活例子放在問題已經具體、但解法還沒命名的時候。** 太早出現只是在營造氣氛；公式之後才補，則像翻譯。正確位置是：讀者已經看見困難 → 用散場、送貨或導航讓他自己想到下一個動作 → 再把這個動作寫成 coupling、objective 或 solver。
+3. **同一個例子要一路負責到公式的每個角色。** 散場裡的起點、終點、路線與同一街口的方向，必須分別對到 coupling、reference path、reference velocity 與 conditional mean；送貨例子裡的名單要真的對到 permutation。若例子不能承擔後面的定理，就不要拿它替定理下結論。
+4. **新概念按照「日常動作 → 最小數學版本 → 正式名稱」出場。** 先說把同一個人的起點與終點配回去，再寫 rectification，最後才說這叫 Reflow；先說重新排送貨名單，再定義 permutation 與 quadratic OT。名稱是前面構造的收束，不是開場。
+5. **定理之前先定義它控制的每一個物件。** Transport cost、straightness、regression target variance、acceleration integral 不能只靠英文名稱帶過。每個量都要依序交代：對哪個 path／field／trajectory 取期望、等於零表示什麼、和前面相似的量差在哪裡。
+6. **相近但不同的量，要在第二個量出現時立刻分開。** Reference path 直不等於 learned ODE trajectory 直；straightness 不等於 acceleration integral；regression target variance 不等於 neural network approximation error；batch assignment cost 不等於 learned-flow transport cost。不要等到篇尾才補免責聲明。
+7. **推導是一個機制一個等號。** 先寫要比較的兩個精確式子，再做相減、套 triangle inequality、Lipschitz condition 或 conditional expectation；每一步下方說它用了什麼。不能從直覺直接跳到 recurrence、error bound 或收斂結論。
+8. **先證明保住原本要保的東西，再談改善了什麼。** 修改 coupling 時先確認 marginals 仍是 $p_0,p_1$；談拉直時再定義 straightness；談 OT 時再問是否真的達到 population optimum。這個順序可以避免把「合法」「更直」「最省」混成同一件事。
+9. **把理想層級、有限樣本與實作誤差分開。** 「模型學到 optimal velocity、ODE 精確求解」要在定理前寫出來；$B\to\infty$ 的結果不能說成 finite $B$ 的保證；simulation-free 不等於沒有計算成本。理論結論後要明講它沒有保證什麼，但不要把整段主線變成免責聲明。
+10. **收口要回答開頭問題，並留下唯一還沒解決的限制。** U3.2 的答案是 Reflow 能改 coupling、但需要反覆訓練與解 ODE；U3.3 的答案是 minibatch OT 不必先 simulation、但 finite batch 不等於 population OT。Bridge 只把這個剩下的限制交給下一篇，不再開新的方法清單。
+
+---
+
+## U3.1–U3.5 完成後的教學寫作總則（2026-10-06）
+
+這一節把 U3 的理論篇、方法篇與實作篇放在一起看，整理作者講解一個新概念時真正採用的順序。它不是另一份平行清單，而是之後動筆時的快速入口；細節仍回到 U2 主線規則、U3 理論節奏與下面各節。
+
+### A. 預設讀者：會基本數學與程式，但第一次學這個主題
+
+- 預設讀者是一般資工系學生：看過微積分、機率、向量與 neural network，也能讀 PyTorch；但**不能假設他已經熟悉 diffusion、Flow Matching、ODE solver、OT 或論文慣用的縮寫**。
+- 基礎數學可以使用，但每個新物件仍要回答三個問題：它描述什麼？為什麼現在需要它？式子裡每一項在做什麼？
+- 不要因為一條式子對數學背景好的讀者很直觀，就省掉中間的動作。Permutation、Lipschitz、flux、NFE 這些詞，第一次出現都要用一句一般資工系學生能跟上的話立起來。
+- 目標不是把所有先備數學重新教一遍，而是補到讀者能繼續推理的程度。較完整的定義或證明收進 `<Remark>`／`<Details>`，並連回 Mathematical Foundations。
+
+### B. 一篇內容的推進順序
+
+理論篇預設使用下面這條問題鏈：
+
+```
+回指已經得到的結論
+→ 讓新的限制、誤差或成本具體出現
+→ 問讀者最自然會想到的下一步
+→ 用一個短生活情境讓那個動作看得見
+→ 寫出最小的數學版本
+→ 這時才給正式名稱
+→ 推導它保留了什麼、改善了什麼
+→ 分清理想結論、有限樣本與實作誤差
+→ 回答開頭問題，只留下下一篇真的要接的限制
+```
+
+- **方法名不當開場。** Reflow、minibatch OT、Heun 都要等到讀者已經看見「為什麼需要這個動作」後才命名。
+- **一節只往前推一個問題。** 如果一節同時在定義、比較、證明、談限制與預告下一篇，就應該重新拆分或把旁支收起來。
+- **先講好消息，再讓新的麻煩出現。** 先確認方法確實保住 marginals、降低某個量或提高近似階數，再說它需要重訓、有限 batch 不等於 population OT，或每步會增加 NFE。
+- **Bridge 不再教新東西。** 它只收住這篇得到的答案，再指出還剩下哪一個具體問題。
+
+### C. 語氣、節奏與用詞
+
+- 語氣是「我們一起從問題往下走」，不是課本宣告，也不是工程文件。常見的節奏是：「我們已經知道⋯」「但問題來了⋯」「想像⋯」「把這個想法寫成數學⋯」「那接著就得問⋯」。
+- 中文句子的骨架要完整，論文裡常用的名詞保留英文。可以寫 model、coupling、reference path、solver；不要把英文動詞片語硬塞進中文語序。
+- 段落要 compact：同一個推進拍點的兩到四句放在一起。不要一句一段，也不要靠大量空行製造戲劇感。
+- 標題寫讀者此刻在追的問題或動作，不寫檔案裡放了什麼。好例子是「Reflow 的配對要從哪裡來？」；避免「Class 不負責決定 model 長什麼樣子」「先直接跑起來」「完整程式只有一個檔案」這類 API 文件或產品說明口吻。
+- 避免沒有提供資訊的包裝詞：旋鈕、套餐、漂亮地、一次搞定、先說清楚、值得停一下。也不要用「負責／不負責」替代真正的因果關係；直接說某個物件決定什麼、改變什麼。
+- 粗體放在**結論、限制或問題真正轉折的地方**，不要把每個名詞與介面名稱都加粗。
+
+### D. 生活化直覺出現的時機
+
+- 生活例子放在**問題已經具體、公式還沒出現**的地方。太早會只剩氣氛，太晚則像替公式補翻譯。
+- 例子必須讓讀者想到下一個動作。散場例子要讓人想到參考附近人潮、重新配對或查導航；送貨例子要讓人想到重新排列目的地，而不是只說「這很像送貨」。
+- 同一個例子要一路對到數學：誰是 $X_0$、誰是 $X_1$、哪一條是 reference path、哪一支是 reference velocity、哪個動作改了 coupling，都要能指出來。
+- 生活例子只負責它真的能支持的結論。人潮在交叉點取平均，只能先說明 reference velocities 會衝突；若要宣稱 ODE trajectory 會彎，還要沿 trajectory 說明 velocity 如何改變。
+- 一個例子夠用就不要換。U2–U3 已經用散場／迷路者講 path、velocity 與 conditional mean，用送貨講 coupling 與 OT，用導航講 numerical solver；後文優先沿用這些角色。
+
+### E. 數學與理論要展開到什麼程度
+
+- 數學的詳細程度以「**一般資工系學生能自己重建下一步**」為準，不以篇幅最短為準。
+- 每段推導遵守：想算什麼 → 精確式 → 目前算不動的地方 → 做哪一個近似或代換 → 得到什麼。每一個等號只做一個主要動作，下面立刻說用了 chain rule、triangle inequality、conditional expectation、Lipschitz condition 或哪一個性質。
+- 定理之前先定義它控制的量，而且說出等於零或變大代表什麼。Straightness、acceleration integral、regression target variance 與 transport cost 不能只靠名稱讓讀者猜。
+- 相似但不同的物件要在第二個出現時立刻分開：reference path／learned ODE trajectory、acceleration／curvature、batch OT／population OT、training coupling／sampling solver。
+- 直覺與理論要成對。先用生活情境說為什麼可能成立，再用最小的式子檢查；不能停在「聽起來有道理」，也不能只丟定理名稱。
+- 「可以證明」「整理後得到」是警訊。若這個結論是正文主線，至少要寫出證明的機制與關鍵中間式；若展開會打斷主線，就放進 `<Details>`，但正文仍要留下精確結論與適用條件。
+- 理論保證要說清楚層級：理想 velocity 與精確 ODE、finite batch、learned network、numerical solver 分開討論。不要把極限結果寫成有限設定的保證，也不要把 empirical observation 寫成定理。
+
+### F. 實作篇不是 API 說明書
+
+實作篇也要從問題出發，預設使用下面的順序：
+
+```
+回指前面幾篇各自改了什麼
+→ 讓重複實作或公平比較的問題出現
+→ 問哪些部分應該沿用、哪些真的會改
+→ 先說完整範例會做什麼，再給執行方式
+→ 從最小 baseline 出發
+→ 每次只替換一個設計：model／資料／path／coupling／solver
+→ 把程式差異重新扣回理論物件
+→ 用公平的計算預算比較
+→ 說明如何換成自己的 dataset 與 model
+```
+
+- **先讓 class 的邊界有理由，再介紹 class。** 不要一開頭列 constructor arguments；先說如果每個方法都重寫 training loop，就看不出方法真正改在哪裡。
+- Model 在 class 外定義，再傳入 class。Class 只約定最小介面，例如 `model(x,t).shape == x.shape`；這樣學生才能換成 MLP、U-Net 或自己的 architecture。
+- 把 toy-specific 與 reusable core 分開。Two moons、Gaussian sampler、畫圖屬於 toy；training objective、path interface、coupling interface 與 ODE integration 才是可沿用的部分。
+- 程式片段的順序要跟理論一致：先抽 $(x_0,x_1)$，再算 $(I_t,\dot I_t)$，接著做 velocity regression；Reflow 與 minibatch OT 應該只改配對來源，Euler 與 Heun 只改 sampling 的積分近似。
+- 不要逐行翻譯 code。只解釋會影響數學意義、shape generality 或計算成本的行，例如 time broadcasting、$B\times B$ cost matrix、fixed-pair dataset 與 NFE。
+- 短 code 放正文，完整可執行版本提供下載。正文中的每段 code 都要能在完整版本裡找到，避免教一套、下載後又是另一套。
+- 「可以跑」必須真的驗證：至少跑一次短版 end-to-end，經過 baseline training、Reflow pair generation、minibatch OT、Euler／Heun sampling 與輸出結果。
+- 比較 solvers 時固定 NFE，而不是只固定步數；比較 coupling 時則固定 model、training budget 與 solver。**一次只改一個東西，圖才有辦法回答問題。**
+- 篇尾的延伸練習要直接帶學生換資料、換 model、改 batch size 或增加 Reflow 輪數；不要列和本篇主線無關的功能清單。
+
+### G. 動筆後的快速檢查
+
+1. 開頭是否先說清楚「前面已經會什麼，現在卡在哪裡」？
+2. 方法名是否在需求與最小構造之後才出現？
+3. 生活例子裡的角色能不能逐一對回數學符號？
+4. 每一條主線結論是否有直覺與對應的式子，而不是只引用論文？
+5. 一般資工系學生第一次看到術語時，是否知道它在算什麼、為什麼需要？
+6. 是否分清 reference path、learned field、ODE trajectory、marginal distribution 與 discretized samples？
+7. 實作中每一個 interface 是否對應一個已經教過的設計，而不是為了軟體架構憑空出現？
+8. 標題與轉場讀起來像是在解問題，還是像 README／API documentation？
+9. 完整程式是否真的跑過，而且比較方法時使用公平的計算預算？
+10. 結尾是否回答開頭問題，只把一個還沒解決的限制交給下一篇？
+
+---
+
 ## 0. 三條底線
 
 這一節是 2026-09-16 重寫的。前面兩週的規則是一條一條累積上去的，而 2026-09-15 那次作者的原話是「**我覺得你的 workflow 跟對我們 notes 的標準出現了很嚴重需要檢討的問題**」。回頭看，那一輪出錯的三件事都不是筆誤，是**預設動作**錯了。所以先把三條底線放在最前面，後面的細則都是它們的展開。

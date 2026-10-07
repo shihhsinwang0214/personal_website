@@ -3,32 +3,26 @@ slug: "dma-w5-5-shared-techniques"
 label: "dma-shared-techniques"
 prereqs:
   - math-higher-order
-  - math-kl
-  - ml-conditioning
 lang: "zh"
 title: "少看幾次方向，還能走得準嗎？"
 category: "courses"
-group: "Unit 3 · 更直、更快的生成路徑"
+group: "Unit 3 · 減少 ODE 的離散化誤差"
 status: "available"
-updated: 2026-10-04
-summary: "當 trajectory 已經固定，我們還能重新安排有限次 neural velocity evaluations：高階 solver 用更多資訊走一步，adaptive solver 則在 velocity 變化大的地方自動縮小步長。"
-demos: []
+updated: 2026-10-06
+summary: "當 learned velocity 已經固定，還可以改變 numerical solver：Heun 用起點與預測終點的 velocity 修正一步，adaptive solver 則用兩種近似的差決定哪裡該縮小步長。"
+demos:
+  - "notes/research_areas/diffusion-models-applications/w5-5-solvers.html"
 references:
-  - label: "Ho & Salimans, Classifier-Free Diffusion Guidance (NeurIPS 2021 Workshop)"
-    href: "https://arxiv.org/abs/2207.12598"
   - label: "Karras, Aittala, Aila & Laine, Elucidating the Design Space of Diffusion-Based Generative Models (NeurIPS 2022)"
     href: "https://arxiv.org/abs/2206.00364"
+  - label: "Dormand & Prince, A Family of Embedded Runge–Kutta Formulae (JCAM 1980)"
+    href: "https://doi.org/10.1016/0771-050X(80)90013-3"
   - label: "Lu et al., DPM-Solver: A Fast ODE Solver for Diffusion Probabilistic Model Sampling in Around 10 Steps (NeurIPS 2022)"
     href: "https://arxiv.org/abs/2206.00927"
-  - label: "Kingma & Gao, Understanding Diffusion Objectives as the ELBO with Simple Data Augmentation (NeurIPS 2023)"
-    href: "https://arxiv.org/abs/2303.00848"
-  - label: "Esser et al., Scaling Rectified Flow Transformers for High-Resolution Image Synthesis (ICML 2024)"
-    href: "https://arxiv.org/abs/2403.03206"
 ---
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
-import Remark from '../../../components/Remark.astro';
 import Details from '../../../components/Details.astro';
 import Question from '../../../components/Question.astro';
 import Answer from '../../../components/Answer.astro';
@@ -41,14 +35,18 @@ import Ref from '../../../components/Ref.astro';
 # 少看幾次方向，還能走得準嗎？
 
 <Objectives>
-- **用 NFE 比較 Euler 與 Heun。** 分清 solver 的階數、每一步需要的 neural velocity evaluations，以及固定計算預算下真正能走幾步。
-- **說出 adaptive solver 如何調整步長。** 用「一大步」與「兩個半步」的差估計 local error，在方向快速變化時縮小步長。
-- **分清 solver error 與 velocity error。** Solver 只能更準地積分目前的 field；guidance 會改變 field，training weighting 則會改變它如何被學出來。
+- **從 Euler 漏掉的 acceleration 推出 Heun。** 寫出 predictor–corrector update，並說明它為什麼把 global error 從 $O(h)$ 改成 $O(h^2)$。
+- **用 NFE 比較不同 solvers 的成本。** 每次呼叫 neural velocity 都算 1 NFE；固定計算預算時，方法的階數與每一步的 NFE 必須一起比較。
+- **說出 adaptive solver 如何決定步長。** 用同一段路的兩種近似估計 local error，在 velocity 變化大的地方縮小步長，穩定時再放大。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-<Ref to="dma-rectified-flow"/> 與 <Ref to="dma-minibatch-ot"/> 都選擇回頭修改 coupling，希望讓 learned ODE trajectory 更接近等速直線。但如果模型已經訓好了，或是 velocity 沿 trajectory 仍會改變，我們就只能處理另一件事：**在有限次詢問 velocity 的預算裡，怎麼把 ODE 解得更準？**
+在 <Ref to="dma-error-theory">U3.1</Ref> 中，我們看到 Euler 的 finite-step error 來自一步之內被忽略的 velocity 變化。<Ref to="dma-rectified-flow">U3.2</Ref> 與 <Ref to="dma-minibatch-ot">U3.3</Ref> 選擇修改 coupling，希望讓 learned ODE trajectory 更接近等速直線。
+
+但如果模型已經訓好了，velocity field 也就固定了。這時候我們不能再重新安排 reference paths，能改的是**怎麼近似這條 ODE**。
+
+沿用前面的導航例子：假設路線已經固定，但手機只剩下一點電，我們只能打開地圖看幾次方向。每次看完都可以往前走一段；問題是，這幾次查詢應該怎麼用，才不會在轉彎處走過頭？
 
 回到精確更新：
 
@@ -56,14 +54,14 @@ $$
 x_{t+h}=x_t+\int_t^{t+h}v_\tau(x_\tau)\,\mathrm d\tau.
 $$
 
-Numerical solver 的工作，就是用有限次 $v_\theta(x,t)$ 的計算來近似這個積分。每呼叫一次 neural network 取得 velocity，算一次 **network function evaluation（NFE）**；所以比較取樣速度時，不能只數步數，也要數每一步呼叫了幾次網路。
+右邊的積分需要知道整段路上的 velocity，但我們手上只有 neural network $v_\theta(x,t)$，只能在選定的位置與時間逐次詢問。每呼叫一次網路取得 velocity，算一次 **network function evaluation（NFE）**。Numerical solver 在做的事情，就是好好安排這些 queries，用有限的資訊去近似我們想要算的積分。那麼：
 
 <Ask>
-如果只能詢問有限次 velocity，<br />
-這些詢問應該放在哪裡，才能走得更準？
+如果只能查詢固定次數的 neural velocity，<br />
+要怎麼使用這些 queries，才能比 Euler 走得更準？
 </Ask>
 
-## Euler：問一次，就沿同一個方向走到底
+## Review：Euler 一步只看一個方向
 
 Euler 在一步的起點詢問一次：
 
@@ -71,7 +69,7 @@ $$
 x_{t+h}^{\mathrm E}=x_t+h\,v_t(x_t).
 $$
 
-它把整段積分近似成一個長方形：寬是 $h$，高是起點 velocity。每一步只花 **1 NFE**，但也等於假設接下來這一小段的方向與速度大小都不變。
+它把整段積分近似成一個長方形：寬是 $h$，高是起點 velocity。每一步只花 **1 NFE**，但也等於假設接下來這一小段的方向與速度大小都不變。若把 $[0,1]$ 平均切成 $M$ 步，便需要 $M$ NFE，步長是 $h=1/M$。
 
 <Ref to="dma-error-theory"/> 已經得到，在 regularity 條件下，它的全域誤差會受到
 
@@ -79,24 +77,69 @@ $$
 h\int_0^1\|a_t(x_t)\|\,\mathrm dt
 $$
 
-控制。Velocity 沿 trajectory 越穩定，這個近似越省；方向或速度大小改得越快，就必須把 $h$ 縮小。
+控制。Velocity 沿 trajectory 越穩定，這個近似越準；方向或速度大小改得越快，就必須把 $h$ 縮小。但縮小 $h$ 代表多走幾步，也就要花更多 NFE。
 
-## Heun：先試走，再把兩次方向平均
+## 只看起點不夠，能不能也看一下終點？
 
-如果不想整步都相信起點方向，一個自然的做法是：先用 Euler 預測會走到哪裡，再到預測終點詢問一次 velocity。
+<Ref to="dma-error-theory">U3.1</Ref> 已經把沿 trajectory 感受到的 acceleration 記成 $a_t(x_t)=\frac{\mathrm d}{\mathrm dt}v_t(x_t)$。將精確解在 $t$ 附近做 Taylor expansion：
 
 $$
-\widetilde x_{t+h}=x_t+h\,v_t(x_t),
+x_{t+h}
+=x_t+h\,v_t(x_t)
++\frac{h^2}{2}a_t(x_t)
++O(h^3).
 $$
+
+Euler 只留下前兩項，漏掉的正是 $\frac{h^2}{2}a_t(x_t)$。但真的要使用這一項，就得知道 acceleration。**有沒有辦法不直接計算 acceleration，卻稍微捕捉到 velocity 在這一步裡改變了多少？**
+
+Acceleration 描述的就是 velocity 如何改變。因此，除了起點的方向，我們可以在這一步的終點再問一次：如果前後兩支箭頭差很多，代表這一段的 velocity 確實改變得很快。
+
+從積分的角度也可以看到同一件事。Euler 用起點的 velocity 畫一個長方形來近似積分；如果 velocity 在這一小段裡逐漸改變，用起點與終點兩個高度畫出的**梯形**，通常會更接近曲線下面的面積。也就是使用兩者的平均 velocity：
+
+$$
+x_{t+h}
+\approx x_t+\frac h2\left(v_t(x_t)+v_{t+h}(x_{t+h})\right).
+$$
+
+![Euler 用起點高度畫長方形，梯形近似則平均兩端高度；灰色斜線標出近似面積與真正 velocity 積分的差。](./imgs/w5-5-rectangle-trapezoid.png)
+
+**圖：從長方形改成梯形。** 藍線是沿 ODE trajectory 感受到的 velocity，紅色區域是位移的近似，灰色斜線是兩者的面積差。這裡先假設兩端高度已知。
+
+不過，真正的 $x_{t+h}$ 正是我們還在計算的答案，現在還不能拿它來問 velocity。最直接的處理方式，是先用 Euler 試走一次，得到一個預測終點：
+
+$$
+\widetilde x_{t+h}=x_t+h\,v_t(x_t).
+$$
+
+接著在 $\widetilde x_{t+h}$ 再問一次方向，最後用起點與預測終點的平均 velocity 修正這一步：
 
 $$
 x_{t+h}^{\mathrm H}
 =x_t+\frac h2\left(v_t(x_t)+v_{t+h}(\widetilde x_{t+h})\right).
 $$
 
-這就是 **Heun method**。Karras 等人 [2] 在 diffusion sampling 中採用了這個二階做法：它不再把整段當成同一個方向，而是用起點與預測終點的平均 velocity 近似積分。直覺上就像走到下一個街口前，先看一次導航；預測抵達後再看一次，最後用兩次資訊修正這一步。
+前一個式子只是 predictor，後一個式子才是 corrector；這個做法稱為 **Heun method**。沿用導航的例子，就是先照目前方向試走到下一個位置，在那裡再看一次導航；如果前後方向不同，便不讓整步都跟著第一支箭頭走。
 
-在 trajectory 夠平滑時，Euler 是一階方法，Heun 是二階方法：
+### 為什麼兩個 velocity 的平均能補到 acceleration？
+
+在 trajectory 夠平滑時，預測終點的 velocity 可以展開成
+
+$$
+v_{t+h}(\widetilde x_{t+h})
+=v_t(x_t)+h\,a_t(x_t)+O(h^2).
+$$
+
+也就是說，起點與預測終點的 velocity 相差大約 $h\,a_t(x_t)$。把它放回剛才的梯形更新：
+
+$$
+\begin{aligned}
+x_{t+h}^{\mathrm H}
+&=x_t+\frac h2\left(v_t(x_t)+v_{t+h}(\widetilde x_{t+h})\right)\\
+&=x_t+h\,v_t(x_t)+\frac{h^2}{2}a_t(x_t)+O(h^3).
+\end{aligned}
+$$
+
+Heun 因此補回了 Euler 漏掉的二次項。在 trajectory 夠平滑時，Euler 每一步的 local error 是 $O(h^2)$，累積約 $1/h$ 步後得到 $O(h)$ 的 global error；Heun 的 local error 是 $O(h^3)$，所以 global error 變成 $O(h^2)$：
 
 $$
 \text{Euler global error}=O(h),
@@ -104,13 +147,13 @@ $$
 \text{Heun global error}=O(h^2).
 $$
 
-但 Heun 每一步要 **2 NFE**。如果總預算只有 $M$ 次網路呼叫，Euler 可以走 $M$ 步，Heun 通常只能走 $M/2$ 步。因此實務比較應該固定 NFE，而不是讓兩者走一樣多步。
+Karras 等人 [1] 在 diffusion sampling 中採用了這類二階修正。不過，Heun 每一步要 **2 NFE**。如果總預算只有 $M$ 次網路呼叫，Euler 可以走 $M$ 步，Heun 通常只能走 $M/2$ 步。因此實務比較應該固定 NFE，而不是讓兩者走一樣多步。
 
-## 不要每一段都切成一樣長
+## 每一段都走一樣大步，可能把 queries 用錯地方
 
-固定步長還有一個浪費：velocity 幾乎不變與快速改變的區段，都被切成同樣大小。更自然的做法是，在方向與速度大小都穩定時走大步；發現這一段變化太大時，再退回來改走小步。
+Euler 與剛才的 Heun 都把時間切成等長的小段。但導航次數有限時，直路每隔幾公尺就重新確認方向很浪費；接近轉彎處，隔太久才看一次又容易走過頭。更自然的做法是：velocity 穩定時走大步，變化明顯時再縮小步長。
 
-最簡單的誤差訊號，可以用 Euler 的 **step doubling** 看見。從同一個 $x_t$ 出發，分別算一個大步與兩個半步：
+麻煩是，我們事先不知道哪一段變化比較大。最簡單的判斷方法，是從同一個 $x_t$ 出發，分別算「一個大步」與「兩個半步」：
 
 $$
 \begin{aligned}
@@ -120,9 +163,26 @@ x_{\mathrm{two}}&=x_{\mathrm{half}}+\frac h2v_{t+h/2}(x_{\mathrm{half}}).
 \end{aligned}
 $$
 
-如果 $\|x_{\mathrm{two}}-x_{\mathrm{full}}\|$ 很小，表示這一段的 velocity 沒有改太多，可以接受這一步，下一步甚至走大一點；如果兩者差很多，就拒絕大步、縮小 $h$ 再算一次。這就是 **adaptive step size** 的基本想法。
+為什麼兩個結果的差可以拿來判斷？沿用剛才的 Taylor expansion，可以算出
 
-Adaptive solver 不需要先知道哪裡會轉彎、加速或減速。它只是每走一段就比較兩種近似，讓 local error 留在設定的 tolerance 內。代價是估計誤差本身也要花 NFE，而且不同樣本可能需要不同步數。
+$$
+x_{\mathrm{two}}-x_{\mathrm{full}}
+=\frac{h^2}{4}a_t(x_t)+O(h^3).
+$$
+
+所以兩者的差雖然不是真實誤差本身，卻會隨這一段的 velocity 變化一起增大。若 $\|x_{\mathrm{two}}-x_{\mathrm{full}}\|$ 小於事先設定的 **tolerance**——也就是我們願意接受的 local discrepancy——就接受這一步，下一步還可以放大 $h$；若差距太大，就拒絕這次更新、縮小 $h$ 再算。
+
+這就是 **adaptive step size** 的基本想法。注意，前面介紹的 Heun 本身仍是固定步長；「用 Heun」與「步長會不會自動調整」是兩個不同的選擇。不過，Heun 的 Euler predictor $\widetilde x_{t+h}$ 與 corrector $x_{t+h}^{\mathrm H}$ 已經給了同一步的兩種近似，因此也可以用
+
+$$
+\left\|x_{t+h}^{\mathrm H}-\widetilde x_{t+h}\right\|
+$$
+
+當成 local error signal，再依照差距放大或縮小下一步。更一般的 embedded Runge–Kutta methods 也會共用一組 velocity evaluations，同時計算兩個不同階數的近似；Dormand–Prince method [2] 就是常見的例子。Adaptive solver 不需要預先知道哪裡會轉彎、加速或減速，但估計誤差本身也會花 NFE，而且不同樣本可能需要不同步數。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-5-solvers.html" class="demo-frame" title="Euler、Heun 與 adaptive solver 如何分配 velocity queries：互動 demo" style="height: 820px; width: 100%; border: none;"></iframe>
+
+**互動 demo：先固定 NFE，再比較 Euler 與 Heun。** 兩者在同一個平滑的二維旋轉 field 上使用完全相同的 NFE 預算；Heun 每一步需要兩次查詢，所以只能走一半的步數。切到 Adaptive 後，demo 改用 Euler predictor 與 Heun corrector 的差調整步長，在 velocity 變化明顯的區段留下較密的節點。
 
 <Question id="Q1">
 Heun 是二階方法，Euler 只有一階。**如果兩者都只能使用 20 NFE，Heun 是否一定比較準？**
@@ -132,73 +192,60 @@ Heun 是二階方法，Euler 只有一階。**如果兩者都只能使用 20 NFE
 
 固定 20 NFE 時，Euler 可以走 20 步，Heun 通常只能走 10 步。Heun 雖然用兩次 velocity 估出較好的平均方向，但它每一步跨得也更大。當 trajectory 夠平滑、二階誤差常數不大時，Heun 通常會佔優；如果 velocity 在一步內變化得很不規則，高階導數很大，這個優勢可能縮小。
 
-所以比較 solver 要同時寫清楚三件事：**總 NFE、誤差階數，以及控制誤差常數的 trajectory regularity。** 只說「二階比一階好」，少算了每一步的成本。
+所以比較 solver 要同時寫清楚：**總 NFE、誤差階數，以及 velocity 沿 trajectory 是否足夠平滑。** 只說「二階比一階好」，少算了每一步的成本與不同問題的誤差常數。
 </Answer>
 </Question>
 
-## Diffusion ODE 還有一個可以利用的結構
+## 如果 ODE 有一部分可以精確算，就不必全部一起近似
 
-Euler、Heun 與 adaptive Runge–Kutta 都可以拿來解一般 ODE。不過 <Ref to="dma-linear-path"/> 的 Gaussian path 會產生一種特別的半線性結構：
+Euler、Heun 與 adaptive Runge–Kutta 都把右邊的 velocity field 當成一個 black-box function。不過 <Ref to="dma-linear-path">U2.3</Ref> 的 Gaussian path 會產生一種特別的 semilinear structure：
 
 $$
 \frac{\mathrm dx_t}{\mathrm dt}
-=a(t)x_t+b(t)\,\epsilon_\theta(x_t,t).
+=A(t)x_t+B(t)\,\epsilon_\theta(x_t,t),
 $$
 
-第一項對 $x_t$ 是線性的，第二項才包含複雜的 neural network。Lu 等人提出的 DPM-Solver [3] 主張：**線性部分可以解析積分，就不要連它一起近似；只把 NFE 花在剩下的 nonlinear term。** 再換到 log-SNR 當時間變數後，就能對 neural term 建立高階近似。
-
-<Details summary="DPM-Solver 和一般 Heun 的差別">
-一般 solver 只把右邊當成一個 black-box function，因此線性項 $a(t)x_t$ 也會產生 discretization error。DPM-Solver 先使用 variation-of-constants formula，把線性部分精確算掉：
+其中 $A(t),B(t)$ 是 noise schedule 決定的已知係數；第一項對 $x_t$ 是線性的，第二項才包含需要 NFE 的 neural network。對任意 $s<t$，這條 ODE 可以精確改寫成
 
 $$
-x_t=\text{精確的線性演化}+\int \text{已知係數}\times\epsilon_\theta(x_\tau,\tau)\,\mathrm d\tau.
+\begin{aligned}
+x_t
+&=e^{\int_s^t A(r)\,\mathrm dr}x_s\\
+&\quad+\int_s^t
+e^{\int_\tau^t A(r)\,\mathrm dr}
+B(\tau)\,\epsilon_\theta(x_\tau,\tau)
+\,\mathrm d\tau.
+\end{aligned}
 $$
 
-真正需要數值近似的只剩後面的積分。這也是它和 reflow 的差別：reflow 改 training coupling，讓 trajectory 本身更直；DPM-Solver 不改模型，而是利用 diffusion ODE 已知的 algebraic structure 減少 solver error。
+第一行是可以直接算出的 linear evolution；numerical solver 真正需要近似的，只剩第二行包含 $\epsilon_\theta$ 的積分。Lu 等人提出的 **DPM-Solver** [3] 就沿著這個想法，再把時間換成 log-SNR，對 neural term 建立高階近似。**能精確處理的部分先算完，有限的 NFE 才不會花在重複近似已知結構上。**
+
+<Details summary="上面的 exact update 怎麼得到？">
+令
+
+$$
+m(t)=\exp\!\left(-\int_s^t A(r)\,\mathrm dr\right).
+$$
+
+把 ODE 兩邊乘上 $m(t)$。因為 $m'(t)=-A(t)m(t)$，product rule 會讓 linear term 抵消：
+
+$$
+\frac{\mathrm d}{\mathrm dt}\bigl(m(t)x_t\bigr)
+=m(t)B(t)\epsilon_\theta(x_t,t).
+$$
+
+從 $s$ 積分到 $t$，再除回 $m(t)$，就是正文的 exact update。這個動作通常叫做 integrating factor，或 variation-of-constants formula。
 </Details>
 
-這個優勢並不會自動延伸到任意 Flow Matching path。只有當 ODE 真的具有可以解析處理的結構時，專用 solver 才能把它拿來省誤差。
+這個優勢不會自動延伸到任意 Flow Matching path。只有當 ODE 真的具有可以解析處理的結構時，專用 solver 才能利用它；否則仍要回到 Heun 或 adaptive Runge–Kutta 這類 general-purpose methods。
 
-## Solver 解得更準，不代表生成目標一定更對
+## Solver 走得再準，也只是在解目前這個 field
 
-Solver 只負責更準確地解目前這條 ODE。如果 neural velocity 本身估錯了，或是我們刻意換了一個 field，再高階的 solver 也只會更準確地走那條被改過的路。
+Solver 只負責更準確地積分目前這條 learned ODE。若 $v_\theta$ 和理想的 $v_t$ 不同，即使把 numerical step size 縮到幾乎為零，我們得到的也只是 **$v_\theta$ 所定義之 ODE 的精確 trajectory**，不會自動回到 $v_t$ 原本應該產生的 probability path。
 
-Ho 與 Salimans 的 classifier-free guidance（CFG）[1] 就是後者。條件模型與無條件模型分別給出 $v_t(x\mid c)$ 與 $v_t(x\mid\varnothing)$；sampling 時使用
+所以生成誤差至少要分成兩層：一層是模型學到的 field 不準，另一層才是用有限 NFE 解這個 field 所產生的 solver error。<Ref to="dma-error-theory">U3.1</Ref> 的 $W_2$ 補充已經把這兩項分開；Heun、adaptive solver 與 DPM-Solver 改善的是後者，不能替前者補回正確方向。
 
-$$
-\widetilde v_t(x\mid c)
-=v_t(x\mid\varnothing)
-+w\big(v_t(x\mid c)-v_t(x\mid\varnothing)\big).
-$$
-
-$w=1$ 是原本的 conditional velocity；$w>1$ 則把兩者的差向量繼續往外延伸，**刻意改變了 velocity field**。它可能讓條件特徵更明顯，也可能讓 field 沿時間與空間變化得更快，因此同樣 NFE 下更難積分。
-
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w5-5-guidance.html" class="demo-frame" title="Guidance 如何同時改變生成分布與 ODE geometry" style="height: 940px; width: 100%; border: none;"></iframe>
-
-**互動 demo：guidance 改的不只是條件強度。** 增加 $w$ 時，這組 toy 的終點分布變窄，trajectory 的加速度積分也上升。這不是一條對所有模型都成立的單調定律；它要顯示的是：guidance 先改了 field，solver 才負責近似這個新 field。
-
-<Remark label="補充" summary="時間取樣與 loss weighting 改的是 training objective，還是 estimator？">
-訓練時的 $t$ 分布也不屬於 solver。令每個時刻的 loss 為 $\ell(t)$，原本想最佳化
-
-$$
-\int_0^1 w(t)\,\ell(t)\,\mathrm dt.
-$$
-
-如果改從 $t\sim q(t)$ 抽樣，而且直接平均 $\ell(t)$，那麼 $q(t)$ 會變成新的有效 weighting，objective 也跟著改變。若乘回 importance correction，
-
-$$
-\int_0^1 w(t)\ell(t)\,\mathrm dt
-=\mathbb E_{t\sim q}\!\left[\frac{w(t)}{q(t)}\ell(t)\right],
-$$
-
-objective 才保持不變，改的只是 Monte Carlo estimator 的變異數。Kingma 與 Gao [4] 把這些 weight 改寫成 log-SNR 上的函數；Esser 等人的 SD3 [5] 則使用 logit-normal sampling，把更多 training samples 放在中間時刻。
-
-所以要分清楚：**solver 安排 sampling 時的 NFE；時間抽樣安排 training 時不同 $t$ 得到多少權重。**
-</Remark>
-
-![同一個有限預算，三種不同問題](./imgs/w5-5-1.png)
-
-*圖：修改 coupling 會改 trajectory，修改 solver 會改積分誤差，guidance 與時間 weighting 則會改 velocity field 或 training objective。它們最後都會影響有限 NFE 下的結果，但動的不是同一個位置。*
+> **固定 learned field 之後，solver 決定的是我們能多準地走完它，不是這個 field 本身對不對。**
 
 ## 快速回顧一下
 
@@ -215,10 +262,10 @@ objective 才保持不變，改的只是 Monte Carlo estimator 的變異數。Ki
 <QuizBlock id="w5-5-b">
 Adaptive solver 如何知道某一段應該縮小步長？
 <Option>先知道真正的 ODE solution。</Option>
-<Option correct>比較同一段的一大步與兩個小步；差距大時，表示 local error 可能太大。</Option>
+<Option correct>比較同一段的兩種近似；差距大時，表示 local error 可能太大。</Option>
 <Option>只看當下 velocity 的長度。</Option>
 <Explanation>
-Velocity 很大不代表變化快。Adaptive method 需要比較兩個不同精度的近似，才能估計這一步漏掉了多少變化。
+Velocity 很大不代表變化快。Adaptive method 會使用 step doubling 或 embedded Runge–Kutta pair，比較同一段的兩種近似，再決定接受、放大或拒絕這一步。
 </Explanation>
 </QuizBlock>
 
@@ -236,22 +283,20 @@ DPM-Solver 為什麼能比一般 black-box solver 多利用一層資訊？
 下列哪一項是 solver 無法自行修正的？
 <Option>積分步長太大造成的 finite-step error。</Option>
 <Option>固定步長在直路上浪費太多 evaluations。</Option>
-<Option correct>Neural velocity 本身學錯，或 guidance 已經刻意把 field 改掉。</Option>
+<Option correct>Neural velocity 本身和理想的 velocity field 不同。</Option>
 <Explanation>
-Solver 只能更準地積分給定的 field。Field 本身錯了或被換掉時，高精度 solver 不會自動把它變回正確的 probability path。
+Solver 只能更準地積分給定的 field。Field 本身學錯時，高精度 solver 不會自動把它變回正確的 probability path。
 </Explanation>
 </QuizBlock>
 
 <Bridge to="dma-lab-interpolants">
-現在有兩條減少 finite-step error 的路：修改 coupling，讓 velocity 沿 trajectory 少一點變化；或保留現有 field，改用更高階、會調整步長的 solver，把有限 NFE 放在真正需要的地方。
+現在我們有兩條減少 discretization error 的路：修改 coupling，讓 velocity 沿 trajectory 少一點變化；或保留現有 field，改用更高階、會調整步長的 solver，把有限 NFE 放在真正需要的地方。
 
-最後一篇會把 coupling、加速度積分、Euler／Heun 與 sampling error 放回同一個 toy。先判斷誤差來自 field 還是 solver，再決定該拉直、換 solver，還是回頭改善模型。
+<Ref to="dma-lab-interpolants">U3.5</Ref> 會把 coupling、acceleration integral、Euler／Heun 與 sampling error 放回同一個 toy。先判斷誤差來自 field 還是 solver，再決定要拉直 trajectory、換 solver，還是回頭改善模型。
 </Bridge>
 
 ## 參考文獻
 
-1. Ho, J., Salimans, T. [*Classifier-Free Diffusion Guidance.*](https://arxiv.org/abs/2207.12598) 2022. （CFG 的原始形式。）
-2. Karras, T., Aittala, M., Aila, T., Laine, S. [*Elucidating the Design Space of Diffusion-Based Generative Models.*](https://arxiv.org/abs/2206.00364) NeurIPS 2022. （二階取樣器、$\log\sigma$ 上的時間分布、stochasticity schedule。）
-3. Lu, C., Zhou, Y., Bao, F., Chen, J., Li, C., Zhu, J. [*DPM-Solver: A Fast ODE Solver for Diffusion Probabilistic Model Sampling in Around 10 Steps.*](https://arxiv.org/abs/2206.00927) NeurIPS 2022. （把線性部分解析積分，只對 neural term 做高階近似。）
-4. Kingma, D. P., Gao, R. [*Understanding Diffusion Objectives as the ELBO with Simple Data Augmentation.*](https://arxiv.org/abs/2303.00848) NeurIPS 2023. （各種 weighting 與 $\log\mathrm{SNR}$ 權重函數的關係。）
-5. Esser, P., et al. [*Scaling Rectified Flow Transformers for High-Resolution Image Synthesis.*](https://arxiv.org/abs/2403.03206) ICML 2024. （logit-normal 的時間取樣。）
+1. Karras, T., Aittala, M., Aila, T., Laine, S. [*Elucidating the Design Space of Diffusion-Based Generative Models.*](https://arxiv.org/abs/2206.00364) NeurIPS 2022. （Diffusion sampling 中使用二階修正，並以 NFE 比較計算成本。）
+2. Dormand, J. R., Prince, P. J. [*A Family of Embedded Runge–Kutta Formulae.*](https://doi.org/10.1016/0771-050X(80)90013-3) Journal of Computational and Applied Mathematics, 1980. （用共享 evaluations 的不同階數近似估計 local error。）
+3. Lu, C., Zhou, Y., Bao, F., Chen, J., Li, C., Zhu, J. [*DPM-Solver: A Fast ODE Solver for Diffusion Probabilistic Model Sampling in Around 10 Steps.*](https://arxiv.org/abs/2206.00927) NeurIPS 2022. （把 linear part 解析積分，只對 neural term 做高階近似。）

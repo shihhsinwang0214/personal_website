@@ -106,6 +106,18 @@ const fallbackConstellation = (i: number, n: number): Constellation => {
 };
 
 const skyLectures: Lecture[] = [];
+const plannedSkyLectures = byRealm('sky').flatMap((course) => course.lectures
+  .filter((lecture) => lecture.planned && lecture.constellation && !published.some((n) => n.data.group === lecture.group))
+  .map((lecture) => {
+    const def = lecture.constellation!;
+    const stars = def.stars.map(([dx, dy, r]) => ({ x: def.anchor[0] + dx, y: def.anchor[1] + dy, r }));
+    return {
+      course, group: lecture.group, code: groupCode(lecture.group), name: lectureName(lecture.group),
+      stars, edges: def.edges,
+      labelX: stars.reduce((sum, star) => sum + star.x, 0) / stars.length,
+      labelY: Math.max(...stars.map((star) => star.y)) + 24,
+    };
+  }));
 let fallbackIndex = 0;
 for (const course of byRealm('sky')) {
   for (const lecture of course.lectures) {
@@ -393,6 +405,19 @@ const LX = 1040;
     </g>
 
     <!-- constellations -->
+    {plannedSkyLectures.map((lecture) => (
+      <a class="sky-planned-lecture" data-tone={lecture.course.tone} href={withBase(`${courseRoute(lecture.course.key, lang)}#${lectureAnchor(lecture.group)}`)}>
+        <title>{lecture.group} — {zh ? '規劃中' : 'planned'}</title>
+        <g class="sky-edges">
+          {lecture.edges.map(([a, b]) => (
+            <line x1={lecture.stars[a].x} y1={lecture.stars[a].y} x2={lecture.stars[b].x} y2={lecture.stars[b].y} />
+          ))}
+        </g>
+        {lecture.stars.map((star) => <circle class="sky-planned-star" cx={star.x} cy={star.y} r={star.r} />)}
+        <text class="sky-label-code" x={lecture.labelX} y={lecture.labelY} text-anchor="middle">{lecture.code}</text>
+        <text class="sky-label-name" x={lecture.labelX} y={lecture.labelY + 15} text-anchor="middle">{lecture.name} · {zh ? '規劃中' : 'planned'}</text>
+      </a>
+    ))}
     {
       skyLectures.map((lecture) => (
         <g class="sky-lecture" data-lecture={lecture.code} data-tone={lecture.course.tone} data-read-count>
@@ -479,6 +504,7 @@ const LX = 1040;
   <div class="sky-legend">
     <span><span class="sky-legend-dot is-on"></span>{zh ? '已讀' : 'read'}</span>
     <span><span class="sky-legend-dot"></span>{zh ? '未讀' : 'unread'}</span>
+    <span><span class="sky-planned-key">○</span>{zh ? '規劃中的單元' : 'planned unit'}</span>
     <span><span class="sky-legend-thread"></span>{zh ? '先備知識（將游標移到星星上查看）' : 'prerequisites (hover a star to see them)'}</span>
     <span class="sky-legend-note">{zh ? '紀錄只留在這台裝置' : 'kept on this device only'}</span>
   </div>
