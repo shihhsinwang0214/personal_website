@@ -1,0 +1,134 @@
+---
+slug: "gdl-g4-3-aggregation-and-gin"
+label: "gdl-aggregation-gin"
+lang: "zh"
+title: "取平均之後，還看得出鄰居有幾個嗎？"
+category: "courses"
+group: "G5 · Graphs and Message Passing"
+status: "available"
+updated: "2026-10-09"
+summary: "用鄰居 multiset 的碰撞比較 sum、mean 與 max，再推導 GIN 的 self-plus-neighbor 更新與表示條件。"
+prereqs: ["gdl-gcn"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Xu、Hu、Leskovec 與 Jegelka（2019），How Powerful are Graph Neural Networks?"
+    href: "https://arxiv.org/abs/1810.00826"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 取平均之後，還看得出鄰居有幾個嗎？
+
+<Objectives>
+
+- **用反例指出 aggregation 碰撞。** 比較不同鄰居 multiset 的 mean、max 與 raw sum。
+- **寫出 GIN 的更新。** 分清自己的 feature 與鄰居加總。
+- **限定 injective aggregation 的主張。** 說明可數 feature domain 與理想函數的條件，不把有限 MLP 當成自動保證。
+
+</Objectives>
+
+<Prereq items={["gdl-gcn"]} />
+
+## 平均車流一樣，路口就一樣嗎？
+
+兩個路口的鄰居車流分別是 $\{1,3\}$ 與 $\{2,2\}$。它們的平均都是 $2$，但一個很不均勻，另一個很平均。
+
+又如 $\{1,3\}$ 與 $\{1,1,3,3\}$，mean 和 max 都相同，鄰居數卻不同。**如果 aggregation 已經把它們混在一起，後面的模型還能恢復差別嗎？**
+
+不能。相同的 aggregated input 送進同一個 update 函數，必然得到同一個輸出。這個瓶頸發生在學習前的表示，不是隻要多訓練幾次就能補回。
+
+## Sum 是否就永遠不會碰撞？
+
+直接加原始數值也會碰撞：$\{1,3\}$ 與 $\{2,2\}$ 的 sum 都是 $4$。因此我們需要的不是「任何 sum 都好」，而是先把鄰居編碼成適合的 features，再加總。
+
+若 feature 只有有限個類別，可以用 one-hot 向量表示每種顏色。加總後的每個分量就等於那種顏色出現的次數。例如紅、藍鄰居會得到
+
+$$
+\{\text{紅},\text{藍},\text{藍}\}\longmapsto(1,2),\qquad
+\{\text{紅},\text{紅},\text{藍}\}\longmapsto(2,1).
+$$
+
+這個 sum 能完整保留該有限類別 multiset 的 multiplicity。連續 feature 的情況則更細緻，不能由 one-hot 例子直接推到固定小維度必然無碰撞。
+
+## 自己與鄰居，要能分開
+
+光有鄰居摘要，也要保留目前 node 的角色。Xu、Hu、Leskovec 與 Jegelka [1] 的 **Graph Isomorphism Network（GIN）** 使用
+
+$$
+h_i^{\ell+1}
+=\operatorname{MLP}_{\ell}\left(
+(1+\varepsilon_{\ell})h_i^\ell+
+\sum_{j\in\mathcal N(i)}h_j^\ell
+\right).
+$$
+
+$\ell$ 是 layer index，$\varepsilon_\ell$ 是固定或可訓練 scalar；它讓自己的項與一般鄰居項有不同係數。不要把它和 Gaussian noise 或本課 G1 的 defect 混淆。
+
+如果 $\varepsilon_\ell=0$，自己與所有鄰居在 sum 裡待遇一樣，某些不同的「自己加鄰居」組合可能碰在一起。選擇合適係數與特徵函數，有助於保留自己是誰與鄰居 multiset 的差別。
+
+MLP 再把這個摘要轉成新的 feature。Sum 與共享 MLP 仍符合 <Ref to="gdl-message-passing" /> 的重編號 proof，所以加入辨識能力並沒有犧牲 permutation equivariance。
+
+## Injective 的保證在說什麼？
+
+**Injective（單射）** 表示不同 input 不會得到相同 output。在這裡，如果不同鄰居 multiset 都能得到不同摘要，下一輪就有機會繼續區分它們。
+
+GIN 的理論在指定的 feature domain、multiset 大小條件，以及足以實現所需 injective 函數的理想設定下，能匹配標準一階 Weisfeiler–Lehman test 的辨識能力。這不是說任意初始化、任意寬度的 MLP 都自動 injective，也不是說它能判斷所有 graph 是否相同。
+
+<Remark summary="有限類別的計數例子與連續特徵的理論，不要混用">
+
+One-hot sum 在有限 alphabet 上直接保留計數。真實模型的 hidden features 是連續向量，有限 embedding、activation 與訓練品質都影響碰撞。正文中的反例用來檢查機制；若聲稱具體網路有完整 injectivity，還要驗證其 domain 與函數條件。
+
+</Remark>
+
+## 如果每個鄰居從一開始就完全相同呢？
+
+更好的 aggregation 可以減少資訊損失，但如果兩張 graph 每一輪提供給各 node 的 input 都相同，仍沒有內容讓更新分開它們。
+
+下一篇會用一個六邊形與兩個三角形逐輪算。這能把「模型架構的上限」與「這一次沒有訓練好」分得更清楚。
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g4-3.svg" alt="Mean 丟失 multiplicity；sum 搭配適合的 feature 能保留鄰居計數，GIN 再把自己與鄰居摘要區分。" loading="lazy" />
+<figcaption>Mean 丟失 multiplicity；sum 搭配適合的 feature 能保留鄰居計數，GIN 再把自己與鄰居摘要區分。</figcaption>
+</figure>
+
+<Question>
+
+只把 mean 改成 raw sum，是否就保證所有不同的連續鄰居 features 都能分開？
+
+<Answer>
+
+不保證。{1,3} 與 {2,2} 的 sum 仍相同。要談 injective aggregation，還要指定 feature encoding、domain 與 multiset 大小條件。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+比較 sum 與 mean，再切換六邊形與兩個三角形。Sum 可以保留鄰居數量，但這兩張圖的 degree 相同，仍需要下一篇的表達能力分析。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=4&chapter=3" class="demo-frame" title="取平均之後，還看得出鄰居有幾個嗎？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="相同摘要之後還能靠 MLP 補回差別嗎？" options={[{"text":"不能，同一 input 送進同一函數仍相同。","correct":true,"explain":"資訊已經被 aggregation 消除。"},{"text":"能，MLP 足夠深就會知道原本集合。","explain":"資訊已經被 aggregation 消除。"}]} />
+
+<Quiz q="One-hot sum 留下什麼？" options={[{"text":"只有最常出現的類別。","explain":"每個分量對應一類的 count。"},{"text":"每種有限類別的出現次數。","correct":true,"explain":"每個分量對應一類的 count。"}]} />
+
+<Quiz q="GIN 的理論表示什麼？" options={[{"text":"在相應理想條件下可達標準 1-WL 的辨識能力。","correct":true,"explain":"條件與 1-WL 自己的限制都不能省略。"},{"text":"任何有限模型都能分辨所有 graphs。","explain":"條件與 1-WL 自己的限制都不能省略。"}]} />
+
+<Bridge to="gdl-graph-expressivity">
+
+我們知道更適合的摘要能減少碰撞，但還沒有問 message passing 的根本限制。下一篇在兩張小 graph 上逐層更新，看看它們為什麼一直得到相同答案。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Xu、Hu、Leskovec 與 Jegelka（2019），How Powerful are Graph Neural Networks?](https://arxiv.org/abs/1810.00826)

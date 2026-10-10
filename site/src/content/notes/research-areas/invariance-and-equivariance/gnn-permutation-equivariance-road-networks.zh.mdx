@@ -1,178 +1,233 @@
 ---
 slug: "gnn-permutation-equivariance-road-networks"
+label: "gdl-graph-relabeling"
 lang: "zh"
-title: "地圖其實也是一張 graph"
-category: "research-areas"
-group: "Invariance and Equivariance"
+title: "沿道路傳訊息，換路口編號後還是同一條規則嗎？"
+category: "courses"
+group: "G5 · Graphs and Message Passing"
 status: "available"
-updated: 2026-06-23
-summary: "把路口重新編號，看看 node prediction 如何跟著節點搬家，而整張道路網路的 readout 保持不變。"
-demos:
-  - "notes/research_areas/invariance-and-equivariance/gnn-relabeling.html"
+updated: "2026-10-10"
+summary: "從共同重編要求出發，在局部逐邊處理的假設下推導共享 message／update 與順序無關的 aggregation，再構造並檢查 message passing。"
+prereqs: ["gdl-set-lab"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
 references:
-  - label: "Bronstein et al., Geometric Deep Learning: Grids, Groups, Graphs, Geodesics, and Gauges (2021)"
+  - label: "Gilmer 等人（2017），Neural Message Passing for Quantum Chemistry"
+    href: "https://proceedings.mlr.press/v70/gilmer17a.html"
+  - label: "Bronstein、Bruna、Cohen 與 Veličković（2021），Geometric Deep Learning"
     href: "https://arxiv.org/abs/2104.13478"
-  - label: "Gilmer et al., Neural Message Passing for Quantum Chemistry (2017)"
-    href: "https://arxiv.org/abs/1704.01212"
-  - label: "Xu et al., How Powerful are Graph Neural Networks? (2018)"
-    href: "https://arxiv.org/abs/1810.00826"
-  - label: "Maron et al., Invariant and Equivariant Graph Networks (2018)"
-    href: "https://arxiv.org/abs/1812.09902"
-  - label: "Keriven & Peyré, Universal Invariant and Equivariant Graph Neural Networks (2019)"
-    href: "https://arxiv.org/abs/1905.04943"
 ---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
 import Quiz from '../../components/Quiz.astro';
-import SeriesNote from '../../components/SeriesNote.astro';
 
-# 地圖其實也是一張 graph
+# 沿道路傳訊息，換路口編號後還是同一條規則嗎？
 
-<SeriesNote>
-「Invariance and Equivariance」系列第 4 篇。地圖可以是影像，也可以是點集合；如果點之間有道路連線，它就變成 graph。
-</SeriesNote>
+<Objectives>
 
-把台北市地圖簡化成道路網路。路口是 nodes，道路是 edges。台大正門口附近的路口可以在資料檔裡叫 node 1，也可以叫 node 57；捷運公館站旁的路口可以叫 node 2，也可以叫 node 104。
+- **寫出 graph 重編號的要求。** Features 與 adjacency 共同變成 $PH$、$PAP^\top$，逐點答案跟著重排，全局答案不變。
+- **從要求構造 message passing。** 在局部逐邊處理的設定下，說明為何 message／update 共用規則、aggregation 不依鄰居排列。
+- **分清限制與選擇，並完成檢查。** Locality 與 sum 是選擇；重新索引證明整層 equivariant，也限定每輪能看到多遠。
 
-這些編號不是城市的一部分。它們只是檔案格式。
+</Objectives>
 
-這篇只處理一個 consistency requirement：
+<Prereq items={["gdl-set-lab"]} />
 
-> **Node 名字可以換，但 graph 的關係不能亂。**
+## 同樣幾個路口，路接法不同，交通也不同
 
-模型要對重新命名 nodes 保持一致，否則它學到的是資料表順序，不是道路網路。這裡的 consistency 有兩種版本：graph-level answer 要 invariant；node-level answer 要 equivariant。
+G3 讓集合模型忽略沒有意義的名單順序；G4 又讓每個點依內容與附帶關係選擇參考對象。現在若參考關係來自真實道路，我們就要先把它明確記下來：只有一群地標，還不知道道路連到誰。公館站和台大正門距離很近，不代表每個方向都能直接透過；單行道與道路連線會改變交通。
 
-## 先把三個路口換一套編號
+因此這次要多提供一份資訊：**哪些點之間有關係？** 把路口當成 nodes，道路當成 edges，就得到 **graph（圖）**。點的屬性與連線都會影響答案，但「這個路口存成 node 3 還是 node 8」仍不應有影響。
 
-假設我們有三個路口：
+## Adjacency 表記錄的不是座標
 
-- node 1：台大正門口；
-- node 2：公館站出口；
-- node 3：羅斯福路和新生南路附近的某個路口。
-
-道路連接可以寫成 adjacency matrix $A$，node features 可以寫成 $H$。例如 $H$ 裡可能有每個路口的經緯度、道路類型、歷史車流量。
-
-現在我們只是改檔案編號：把 node 1 和 node 3 對調。城市沒有變，但矩陣的 row 和 column 會變。若用 permutation matrix $P$ 表示這個重排，新的 graph representation 是
+設有 $n$ 個路口，$H\in\mathbb R^{n\times d}$ 記錄各路口的 features。用 $A\in\mathbb R^{n\times n}$ 記錄連線：
 
 $$
-A' = P A P^\top,\qquad H'=P H.
+A_{ij}=
+\begin{cases}
+1,&j\text{ 的訊息可以送到 }i,\\
+0,&\text{否則}.
+\end{cases}
 $$
 
-這不是新的道路網路，只是同一張道路網路的另一種命名方式。
+這叫 **adjacency matrix（鄰接矩陣）**。本單元大部分例子先用 undirected graph，此時 $A=A^\top$；有向圖則要固定 row 與 column 各代表哪個方向。
 
-如果模型因為這個重命名而改變 graph-level 判斷，它就在偷看 node ID。如果 node-level output 沒有跟著同樣重排，它就把預測配錯路口。
+如果只把 features 換順序，卻沒把 $A$ 一起換，公館站的資訊就可能接到原本屬於另一個路口的道路。重編號必須作用在全部關係上。
 
-下面的 demo 只做一件事：按下「重新編號」，讓同一張 graph 換一個 row order。觀察彩色 node prediction 仍黏在同一個真實路口上，只是表格位置改了；graph-level readout 則完全不動。
+## 為什麼 adjacency 兩邊都要乘 permutation？
 
-<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/gnn-relabeling.html" class="demo-frame" title="GNN 節點重新編號互動 demo" style="height: 700px; width: 100%; border: none;"></iframe>
+設新第 $i$ 個 node 是原第 $\pi(i)$ 個 node。新表的 $A'_{ij}$ 要記錄原來的 $\pi(j)$ 與 $\pi(i)$ 是否相連：
 
-## Graph-level answer：invariance
+$$
+A'_{ij}=A_{\pi(i),\pi(j)}.
+$$
 
-如果任務是判斷一張道路網路是否包含某種校園區域結構，輸出是一個 graph-level label。這時 node relabeling 不應改變答案：
+Row 換一次，column 也換一次，所以
+
+$$
+A'=PAP^\top,\qquad H'=PH.
+$$
+
+這是 graph input 的 permutation action。$P^\top$ 不是另一個獨立重排，它是同一個 $P$ 的 inverse，讓兩個索引對應同一批重新命名。
+
+例如三個路口原本是 $1-2-3$。把名字交換後，圖還是同一條三點道路；把 edge $1-2$ 刪掉，則是真的改變 graph。**重新表示與重新連線，不能混在一起。**
+
+## 模型應怎麼回應？
+
+若輸出每個路口的壅塞程度 $Y=F(A,H)$，要求
+
+$$
+F(PAP^\top,PH)=PF(A,H).
+$$
+
+這是 node-level equivariance。若輸出整個路網是否壅塞，$f(A,H)$ 則要求
 
 $$
 f(PAP^\top,PH)=f(A,H).
 $$
 
-這和 set classification 很像：輸出是整體摘要，所以應該 invariant。
+這是 graph-level invariance，通常可以在 equivariant node features 後接對稱 readout。
 
-例如「這張 road graph 是否包含一個校園周邊常見的高密度路口區？」不應該因為你把台大正門叫 node 1 還是 node 57 而改變。
+這些式子沒有要求模型忽略連線。相反地，**連線是真正的資料內容，編號才是可以忽略的表示差異**。如果兩張圖的連線不等價，模型可以給不同答案；只是後面會看到，某些架構未必看得出所有差異。
 
-## Node-level answer：equivariance
+## 想知道這裡塞不塞，先問接過來的路口
 
-但很多 GNN 任務不是 graph classification，而是 node prediction。例如：
+附近道路的車流可能馬上送到這裡。我們先選一個局部做法：**一輪只讀自己與相鄰路口，逐條道路處理送來的資訊，再更新這個路口。** 這是 locality 的設計假設；重編號的 symmetry 沒有禁止我們讀取更遠或全局的資訊。
 
-- 預測每個路口的車流量；
-- 標出每個路口是否可能壅塞；
-- 預測每個建築或站點在網路中的重要性；
-- 給每個分子原子預測局部性質。
+但逐條道路要怎麼處理？假設同一條道路從「node 1 送到 node 2」改存成「node 3 送到 node 2」，車量與道路寬度都沒變，算出的訊息也不該變。這讓我們先對中間的訊息提出要求，而不只要求最後答案碰巧相同。
 
-這時輸出是一組和 node 對齊的 predictions。若重新排列 node 的順序，輸出也應該用同樣方式重新排列：
+## 換了編號，不能換處理同一道路的規則
 
-$$
-F(PAP^\top,PH)=P F(A,H).
-$$
+用 $h_i$ 表示接收者狀態、$h_j$ 表示送出者狀態，$e_{ij}$ 是道路寬度等屬性。若讓每個存檔編號使用自己的 $\phi_{ij}$，同一份資料重編後就可能改用不同函數。
 
-這是 **permutation equivariance**。
-
-請注意，它不表示每個數值永遠留在原本 row。相反地，它表示「台大正門口那個路口」的預測要跟著它的新 row 移動。模型的答案應該綁在地理節點上，而不是綁在資料表第幾列上。
-
-## 鄰居沒有第一個，所以訊息也不能偷看順序
-
-Message passing 的直覺是：每個 node 從鄰居收集訊息，更新自己的 feature。
-
-依照 [Gilmer et al. (2017)](https://arxiv.org/abs/1704.01212) 統整的 message-passing 語言，一層可以寫成
+我們要求每份訊息跟 edge 一起重編。代入同一份內容時，就要有
 
 $$
-h_i'
-=\gamma\left(
-h_i,\;
-\bigoplus_{j\in\mathcal{N}(i)}
-\psi(h_i,h_j,e_{ij})
-\right).
+\phi_{ij}(h_{\pi(i)},h_{\pi(j)},e_{\pi(i),\pi(j)})
+=
+\phi_{\pi(i),\pi(j)}(h_{\pi(i)},h_{\pi(j)},e_{\pi(i),\pi(j)}).
 $$
 
-這裡 $\mathcal{N}(i)$ 是 node $i$ 的鄰居集合，$e_{ij}$ 是 edge feature，$\psi$ 產生一則 message，$\bigoplus$ 是 sum、mean、max 等不依賴鄰居順序的 aggregation，$\gamma$ 再把聚合結果與原 feature 合併。
+對所有合法內容與重編都成立時，同一種 edge 角色就不能因列號換掉函數。因此用一個共享的 $\phi$，
 
-關鍵在 aggregate。鄰居沒有天然順序，所以 aggregation 必須不依賴排列。只要每個 node 用同一套更新規則，且鄰居 aggregation 是 permutation-invariant，整層 node update 就會對 node relabeling 保持 permutation equivariant。
+$$
+m_{ij}=\phi(h_i,h_j,e_{ij}).
+$$
 
-換句話說，GNN 不是只是「在 graph 上跑神經網路」。它的 layer 設計本身就在尊重 graph 的資料格式：node 名字可以換，但 adjacency relationship 不能亂。
+共享的是處理方法，不是訊息的數值。不同車量或道路寬度，仍可以算出不同訊息；如果 edge 有真實型別，也能把型別放進 $e_{ij}$，依內容區分，而不是依編號區分。
 
-## 名字換得一致，不代表什麼 graph 都看得懂
+## 鄰居表換順序，摘要也不能改變
 
-這裡很容易出現一個錯誤結論：既然 GNN 對 node relabeling equivariant，那它是不是就理解 graph 了？
+收到多條道路的訊息後，我們需要一份摘要。假設兩個鄰居的訊息是 $1,3$，卻規定「表裡第一個加一次，第二個加兩次」，就得到 $7$；換個存放順序，$3+2(1)$ 卻變成 $5$。
 
-不是。
+道路沒有改，摘要卻改了。因此，要讓摘要本身也跟著同一個 node 重編，**aggregation 必須對鄰居排列 invariant**。寫成
 
-Permutation equivariance 是 consistency requirement。它保證同一張 graph 換個 node 命名時，模型輸出同步換名。它沒有保證模型能分辨所有不同 graph，也沒有保證它能捕捉任意高階結構。
+$$
+m_i=\operatorname{Agg}\!\left(\{m_{ij}:j\in\mathcal N(i)\}\right),
+\qquad h_i^+=\eta(h_i,m_i).
+$$
 
-給一個直覺例子：假設所有 nodes 的初始 feature 都一樣，且每個 node 的 degree 都一樣。Message passing 每一輪看到的都是「我的鄰居們也長得一樣」。像 6-cycle 和兩個 disjoint triangles 這類例子，在某些 message passing / 1-WL 觀點下會非常難分辨，因為每個 node 的局部顏色更新歷史都一樣。這不是因為模型不 equivariant，而是因為它的 aggregation 與局部更新方式表達力有限。
+$\mathcal N(i)$ 是能送到 $i$ 的鄰居；大括號表示不依排列，但同樣訊息來了兩份，仍保留兩份。更新函數 $\eta$ 也在各 nodes 共享，理由相同：路口換編號，不能改用另一套更新。
 
-[Xu et al. (2019)](https://arxiv.org/abs/1810.00826) 用 Weisfeiler-Lehman graph isomorphism test 的語言分析一大類 neighborhood-aggregation GNN 的 expressive power。保守地說，這類 message-passing 架構的辨識能力可由 1-WL 的觀點理解；特定模型可能更弱，而要超過這個局部聚合框架通常需要改變表示或互動階數。這條線的重點是：**尊重 symmetry 是必要條件，但不是萬能條件。**
+我們先選最容易計算與檢查的 sum：
 
-## 幾個容易想歪的地方
+$$
+m_i=\sum_{j\in\mathcal N(i)}m_{ij}.
+$$
 
-<Quiz
-  q="GNN 對 node relabeling equivariant，是否代表它能分辨所有不同 graph？"
-  options={[
-    { text: "是。只要 equivariant，就有完整 graph 理解能力。", explain: "不對。Equivariance 是一致性要求，不等於表達力保證。" },
-    { text: "不是。它只保證重新命名 nodes 時輸出同步改變；能分辨多少 graph 還取決於架構表達力。", correct: true, explain: "對。這正是 GNN expressivity 研究要處理的問題。" },
-    { text: "不是，因為 GNN 完全不使用 graph 結構。", explain: "一般 message passing GNN 當然使用 graph 結構；問題在於使用方式的表達力有限。" },
-  ]}
-/>
+Mean、max 或符合重編規則的 attention 也能用，並不是 symmetry 只允許 sum。它們保留的資訊不同：兩條路與十條路若傳相同訊息，mean 可能一樣，sum 卻不同，這件事後面會仔細檢查。
 
-<Quiz
-  q="如果把台大正門口那個 node 從 row 1 改成 row 57，而任務是預測每個路口的車流量，輸出應該如何變？"
-  options={[
-    { text: "row 1 的預測永遠留在 row 1。", explain: "不對。預測應該跟著真實路口移動，而不是跟著舊 row index。" },
-    { text: "所有 node 預測都應該被平均成一個 graph-level label。", explain: "那會把 node prediction 變成 graph classification，任務不同。" },
-    { text: "台大正門口那個預測應該跟著它的新 row 一起移到 row 57。", correct: true, explain: "對。這就是 node-level permutation equivariance。" },
-  ]}
-/>
+**局部逐邊處理、共享 message 與 update、順序無關的 aggregation**，到這裡才接成 message passing。Gilmer 等人 [1] 將這些角色統整成 **Message Passing Neural Networks（MPNNs）**。我們構造的是一種符合要求的 GNN，不是說所有 equivariant graph models 都只能採用它。
 
-<Quiz
-  q="Message passing 裡的鄰居 aggregation 為什麼通常要用 sum、mean、max 這類不看順序的操作？"
-  options={[
-    { text: "因為鄰居集合沒有天然順序，aggregation 不應依賴資料表排列。", correct: true, explain: "對。這是維持 node relabeling equivariance 的關鍵之一。" },
-    { text: "因為 graph 沒有任何結構。", explain: "不對。Graph 有 adjacency 結構；沒有的是鄰居的任意排序語意。" },
-    { text: "因為這樣就能保證分辨所有 non-isomorphic graphs。", explain: "不對。這是 consistency requirement，不是完整 expressivity guarantee。" },
-  ]}
-/>
+## 換了名字，訊息還會送到同一個人嗎？
 
-## 這怎麼接到研究？
+令新 node $i$ 對應原 node $\pi(i)$。Features 是 $h_i'=h_{\pi(i)}$，道路屬性是 $e_{ij}'=e_{\pi(i),\pi(j)}$，鄰居則滿足
 
-Message passing neural networks 提供了理解許多 GNN 的共同語言。它把 graph learning 寫成 node 之間反覆傳遞與聚合訊息的過程，並自然尊重 node relabeling。
+$$
+j\in\mathcal N'(i)
+\quad\Longleftrightarrow\quad
+\pi(j)\in\mathcal N(\pi(i)).
+$$
 
-但 GNN 研究很快就超過「是否 equivariant」這個基本門檻，進入 expressivity 問題：這類架構能表示哪些 invariant/equivariant functions？它和 Weisfeiler-Lehman test 的關係是什麼？Higher-order GNNs 為什麼可能更強，但也更貴？
+因為所有 edges 使用同一個 $\phi$，
 
-Maron et al. 與 Keriven & Peyré 等工作把 invariant/equivariant graph networks 和 universality 放在一起討論。這些結果比本篇需要的數學更深，但它們提醒我們：symmetry constraint 和 function approximation ability 是兩件要同時看的事。
+$$
+m_{ij}'=\phi(h_{\pi(i)},h_{\pi(j)},e_{\pi(i),\pi(j)})
+=m_{\pi(i),\pi(j)}.
+$$
 
-## 下一步：回到旋轉的手機畫面
+把鄰居加起來，再令 $\ell=\pi(j)$：
 
-我們已經看過 pixel grid、unordered set 與 road graph。下一篇先回到影像分支，補上 CNN 尚未處理的旋轉：當道路從水平轉成垂直，feature 不只移位置，還可能在 orientation channels 間搬動。接著讀 [手機轉了，模型該不該跟著轉？](/personal_website/zh/notes/rotation-and-group-equivariant-cnns)。
+$$
+\begin{aligned}
+m_i'
+&=\sum_{j\in\mathcal N'(i)}m_{\pi(i),\pi(j)}\\
+&=\sum_{\ell\in\mathcal N(\pi(i))}m_{\pi(i),\ell}\\
+&=m_{\pi(i)}.
+\end{aligned}
+$$
+
+最後更新 $h_i^{\prime+}=\eta(h_{\pi(i)},m_{\pi(i)})=h_{\pi(i)}^+$。所以整層 equivariant。
+
+這個證明與 $\phi,\eta$ 是否線性無關。關鍵是**共享運算、正確搬動 edges、以及不依順序的 aggregation**，不是「用了 graph 套件」就自然成立。
+
+## 一輪只能聽到誰？
+
+假設初始 feature 只描述 node 自己。一輪更新後，$h_i$ 包含自己與一條 edge 內的鄰居；第二輪讀取鄰居的第一輪狀態，就間接收到兩條 edges 以內的訊息。
+
+用 induction 看，第 $\ell$ 輪至多看到 graph distance 不超過 $\ell$ 的部分。這叫 **receptive field（可觀察範圍）**。它是道路連線的距離，不一定是地圖上的 Euclidean distance。
+
+多層擴大範圍，但也可能把訊息平均得太像，或把大量遠方資訊壓進固定維度。這些限制會在第二階段深入；目前先注意，多層不代表所有 graph 都能分開。
+
+<Remark summary="共享是對角色共享，不是把所有 edge features 設成一樣">
+
+每條道路可以有自己的 $e_{ij}$，共同的 $\phi$ 讀取不同資料。若直接使用 edge 的存檔序號當特徵，序號也必須有合理 action；否則共享函數仍可能讀到不該影響答案的表示資訊。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g4-1.svg" alt="每個 node 用共同規則產生 edge messages，對鄰居加總，再用共同 update 更新自己的狀態。" loading="lazy" />
+<figcaption>每個 node 用共同規則產生 edge messages，對鄰居加總，再用共同 update 更新自己的狀態。</figcaption>
+</figure>
+
+<Question>
+
+不同道路有不同寬度，會不會破壞 message passing 的 permutation equivariance？
+
+<Answer>
+
+不會，只要寬度屬性隨 edge 一起重編。共享的是處理寬度的方法，不是要求所有道路寬度相同。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+拖動訊息輪數，觀察每個路口的值如何依 adjacency 更新，再重編 nodes。每一輪都使用相同的 message 與 update 規則。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=4&chapter=1" class="demo-frame" title="沿道路傳訊息，換路口編號後還是同一條規則嗎？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="兩層 message passing 能看到多遠？" options={[{"text":"最多兩條 edges 以內的初始訊息。","correct":true,"explain":"每層只沿一輪鄰居傳遞。"},{"text":"自動讀到整張任意大小 graph。","explain":"每層只沿一輪鄰居傳遞。"}]} />
+
+<Quiz q="為什麼各條同角色的 edges 使用共享 message 函數？" options={[{"text":"因為所有道路的車量與寬度都相同。","explain":"資料可以不同；共享的是處理資料的規則。"},{"text":"同一道路換編號後，不能改用另一套處理規則。","correct":true,"explain":"我們要求訊息本身也跟 edge 一起重編。"}]} />
+
+<Quiz q="Mean 與 sum 都 equivariant，表示效果相同嗎？" options={[{"text":"不表示，它們丟失的資訊不同。","correct":true,"explain":"等變性只檢查編號一致性。"},{"text":"表示，所有對稱 aggregation 都完全等價。","explain":"等變性只檢查編號一致性。"}]} />
+
+<Bridge to="gdl-gcn">
+
+我們已從重編要求構造共享的局部更新，但 symmetry 沒有替我們選好 aggregation。若鄰居很多，直接相加可能先被數量主導。**要怎麼調整各條道路的權重，又不破壞重編的一致性？** 下一篇從這個問題建立 GCN。
+
+</Bridge>
 
 ## 參考文獻
 
-1. [Bronstein, M. M., Bruna, J., Cohen, T., & Veličković, P. *Geometric Deep Learning: Grids, Groups, Graphs, Geodesics, and Gauges.* 2021.](https://arxiv.org/abs/2104.13478)
-2. [Gilmer, J., et al. *Neural Message Passing for Quantum Chemistry.* ICML, 2017.](https://arxiv.org/abs/1704.01212)
-3. [Xu, K., Hu, W., Leskovec, J., & Jegelka, S. *How Powerful are Graph Neural Networks?* ICLR, 2019.](https://arxiv.org/abs/1810.00826)
-4. [Maron, H., Ben-Hamu, H., Shamir, N., & Lipman, Y. *Invariant and Equivariant Graph Networks.* ICLR, 2019.](https://arxiv.org/abs/1812.09902)
-5. [Keriven, N., & Peyré, G. *Universal Invariant and Equivariant Graph Neural Networks.* NeurIPS, 2019.](https://arxiv.org/abs/1905.04943)
+1. [Gilmer 等人（2017），Neural Message Passing for Quantum Chemistry](https://proceedings.mlr.press/v70/gilmer17a.html)
+2. [Bronstein、Bruna、Cohen 與 Veličković（2021），Geometric Deep Learning](https://arxiv.org/abs/2104.13478)

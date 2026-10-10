@@ -1,0 +1,153 @@
+---
+slug: "gdl-g2-3-feature-types"
+label: "gdl-feature-types"
+lang: "zh"
+title: "一個數字、一支箭頭，能用同一種 activation 嗎？"
+category: "courses"
+group: "G2 · Rotations and Feature Types"
+status: "available"
+updated: "2026-10-09"
+summary: "從 scalar、vector 與方向 channel 的不同 action，推導線性 layer、kernel 與 activation 的合法條件。"
+prereqs: ["gdl-group-convolution"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Cohen 與 Welling（2017），Steerable CNNs"
+    href: "https://arxiv.org/abs/1612.08498"
+  - label: "Cohen 與 Welling（2016），Group Equivariant Convolutional Networks"
+    href: "https://arxiv.org/abs/1602.07576"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 一個數字、一支箭頭，能用同一種 activation 嗎？
+
+<Objectives>
+
+- **指定 feature 的 representation。** 區分 scalar、vector 與方向 channel 的變換。
+- **檢查線性運算的交換條件。** 寫出 Wρin=ρoutW，並推導空間 kernel 的條件。
+- **用反例選 activation。** 算出逐分量 ReLU 的問題，並證明 norm gating 可以保留旋轉。
+
+</Objectives>
+
+<Prereq items={["gdl-group-convolution"]} />
+
+## 箭頭的兩個數字，不是兩個無關的 channel
+
+前面用四個方向 channel 表示朝向，旋轉只重排它們。現在想直接預測導航箭頭 $v=(v_1,v_2)$。轉九十度後，它會變成 $(-v_2,v_1)$；兩個分量會交換，而且出現負號。
+
+如果每個分量都先做 ReLU，負號就可能被抹掉。**我們能不能仍把所有 feature 都當成普通 scalar channels？**
+
+先問每種 feature 在旋轉後代表什麼。全局溫度 scalar $s$ 不變，$\rho_s(R)=1$；方向向量 $v$ 變成 $Rv$，$\rho_v(R)=R$；四個方向的響應則由四維 permutation matrix 重排。這些矩陣都保留旋轉組合，所以是 linear representations。
+
+Representation 的目的，是讓我們知道「這幾個數字一起描述哪一種幾何物件」，不是給每個 channel 多貼一個名稱。
+
+## 線性 layer 的兩條路要相同
+
+若 input feature 的 representation 是 $\rho_{\mathrm{in}}$，output 的是 $\rho_{\mathrm{out}}$，線性 layer $W$ 要滿足
+
+$$
+W\rho_{\mathrm{in}}(R)h
+=\rho_{\mathrm{out}}(R)Wh.
+$$
+
+對所有 $h$ 成立，因此要求
+
+$$
+W\rho_{\mathrm{in}}(R)=\rho_{\mathrm{out}}(R)W.
+$$
+
+左邊先轉 input，右邊先運算再轉 output。這叫 **intertwining condition**；它實際就是 G1 的一致性要求套到矩陣上。
+
+若輸入是單一 scalar、輸出是單一向量，沒有位置或其他方向資訊，$W$ 是一支固定向量。要求 $W=RW$ 對所有平面旋轉成立，唯一解是 $W=0$。**只憑一個沒有方向的數字，不能用線性運算製造一個有偏好的方向。**
+
+## 有位置的 kernel，條件會怎麼變？
+
+對 feature field $h(u)$，旋轉會同時搬位置與轉分量：
+
+$$
+[T(R)h](u)=\rho_{\mathrm{in}}(R)h(R^{-1}u).
+$$
+
+考慮 $F(h)(u)=\sum_v K(v)h(u+v)$。代入旋轉後的輸入，再令 $v=Rw$，左邊的係數是 $K(Rw)\rho_{\mathrm{in}}(R)$；先算再旋轉的係數是 $\rho_{\mathrm{out}}(R)K(w)$。
+
+兩條路逐項相同，需要
+
+$$
+K(Rw)=\rho_{\mathrm{out}}(R)K(w)\rho_{\mathrm{in}}(R)^{-1}.
+$$
+
+位置 $w$ 可以提供方向，所以 scalar field 到 vector field 並非只能輸出零。條件要求的是 kernel 的位置與分量互相配合。Cohen 與 Welling [1] 的 Steerable CNNs 系統化利用 feature representation 來設計這類 layers；這裡先把它所遵守的限制推出來。
+
+## ReLU 的反例，真的算一次
+
+令 $v=(1,-1)$，九十度旋轉後 $Rv=(1,1)$。逐分量 ReLU 得到
+
+$$
+\operatorname{ReLU}(Rv)=(1,1),
+\qquad
+R\operatorname{ReLU}(v)=R(1,0)=(0,1).
+$$
+
+兩條路不同，所以它不 rotation-equivariant。
+
+一個替代方法是隻用向量長度決定縮放比例，保留方向：
+
+$$
+\phi(v)=a(\|v\|)v.
+$$
+
+這叫 **norm gating**。因為旋轉不改 norm，
+
+$$
+\phi(Rv)=a(\|Rv\|)Rv=R\bigl(a(\|v\|)v\bigr)=R\phi(v).
+$$
+
+$a$ 可以是可學的 scalar 函數。這個例子不是說所有向量 activation 都只能這樣做，而是展示一個符合 action、可以直接驗證的選擇。
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g2-3.svg" alt="Feature 型態決定運算限制：scalar 不變、vector 旋轉、方向 channel 重排；activation 要與各自 action 交換。" loading="lazy" />
+<figcaption>Feature 型態決定運算限制：scalar 不變、vector 旋轉、方向 channel 重排；activation 要與各自 action 交換。</figcaption>
+</figure>
+
+<Question>
+
+如果用 ReLU 處理四個方向的 scalar 響應是合法的，為什麼不代表也能逐分量處理二維向量？
+
+<Answer>
+
+四個方向的 action 只重排數值，相同 scalar 函數與重排可交換；二維向量的旋轉會混合分量與符號，ReLU 不與這種矩陣作用交換。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+選擇 Vector activation，切換旋轉，對照逐分量 ReLU 與 norm gating 的 defect。圖中的兩支箭頭來自先旋轉或先 activation 的兩條路。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=2&chapter=3" class="demo-frame" title="一個數字、一支箭頭，能用同一種 activation 嗎？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="Representation 在這裡記錄什麼？" options={[{"text":"Feature 在變換下應如何一起變。","correct":true,"explain":"它指定型態與 action，不指定數值是否準確。"},{"text":"Feature 的訓練正確率。","explain":"它指定型態與 action，不指定數值是否準確。"}]} />
+
+<Quiz q="Norm gating 為什麼成立？" options={[{"text":"旋轉後向量分量都不變。","explain":"等式使用的是 norm invariant 與向量 equivariant。"},{"text":"旋轉保留 norm，縮放係數不變，方向跟著轉。","correct":true,"explain":"等式使用的是 norm invariant 與向量 equivariant。"}]} />
+
+<Quiz q="Kernel 條件需要哪些部分？" options={[{"text":"空間位置、input representation 與 output representation。","correct":true,"explain":"幾何位置本身也會提供方向。"},{"text":"只要求每個 kernel 元素相同。","explain":"幾何位置本身也會提供方向。"}]} />
+
+<Bridge to="gdl-rotation-readout">
+
+現在每種 feature 都有清楚的變換規則。最後要回答分類或方向時，哪些資訊應該保留，又有哪些可以平均掉？
+
+</Bridge>
+
+## 參考文獻
+
+1. [Cohen 與 Welling（2017），Steerable CNNs](https://arxiv.org/abs/1612.08498)
+2. [Cohen 與 Welling（2016），Group Equivariant Convolutional Networks](https://arxiv.org/abs/1602.07576)

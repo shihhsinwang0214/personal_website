@@ -16,11 +16,19 @@ import {
   noteRoute,
   researchAreaLabels,
   statusLabels,
+  courseByKey,
+  foundationReuse,
+  notesForListingLang,
+  tierLabels,
+  courses,
+  hiddenCourseKeys,
 } from '../lib/notes';
 import { groupCode, noteTitles } from '../lib/noteRefs';
 import { withBase } from '../lib/url';
 import SearchPanel from './SearchPanel.astro';
 import SkyMap from './SkyMap.astro';
+import MoleculeMap from './MoleculeMap.astro';
+import MapHead from './MapHead.astro';
 
 interface Props {
   lang: Lang;
@@ -34,6 +42,28 @@ const courseBlocks = courseSections(notes, lang).filter((course) => course.noteC
 const titles = await noteTitles();
 const lectureName = (group: string) => group.replace(/^[^·]*·\s*/, '');
 const nonCourse = grouped.filter((g) => g.category !== 'courses');
+// Courses and foundations are both CourseDefs; `kind` decides which heading they sit under.
+// This is listing only — the sky map still draws the foundations exactly as before, so a
+// foundation unit DMA depends on keeps its buoy / lantern and its prerequisite threads.
+const listedOnce = notesForListingLang(notes, lang);
+const courseTiers = ([
+  { tier: 'courses' as const, rows: courseBlocks.filter((c) => courseByKey(c.key)?.kind !== 'foundation') },
+  { tier: 'foundations' as const, rows: courseBlocks.filter((c) => courseByKey(c.key)?.kind === 'foundation') },
+]).filter((t) => t.rows.length > 0);
+const reuseOf = (key: string) => foundationReuse(listedOnce, key);
+
+// The sky is one course's map (DMA), not "the notes": it gets a heading that names it, and a
+// line saying the sea and the shore are the foundations that course draws on.
+const hasNotes = (key: string) => courseBlocks.some((c) => c.key === key);
+const skyCourses = courses.filter((c) => c.realm === 'sky' && !hiddenCourseKeys.has(c.key) && hasNotes(c.key));
+const shoreTitles = courses
+  .filter((c) => (c.realm === 'sea' || c.realm === 'land') && !hiddenCourseKeys.has(c.key) && hasNotes(c.key))
+  .map((c) => c.title[lang]);
+const skyNote = shoreTitles.length
+  ? lang === 'zh'
+    ? `星座是這門課的單元；海上的浮標與岸上的營火，是它用到的 ${shoreTitles.join(' 與 ')}。`
+    : `The constellations are this course’s units; the buoys at sea and the fires on the shore are the ${shoreTitles.join(' and ')} it draws on.`
+  : undefined;
 ---
 
 <section class="notes-index" id="notes-index" data-view="sky">
@@ -43,22 +73,22 @@ const nonCourse = grouped.filter((g) => g.category !== 'courses');
       <p class="notes-intro">
         {
           lang === 'zh'
-            ? '這是一片可以探索的知識世界：腳下是數學構築的陸地，眼前是機器學習的海洋；再抬頭望去，則是一門門課程組成的星空。'
-            : 'A world of knowledge to explore: mathematics is the land underfoot, machine learning the sea ahead, and overhead the courses form a sky of constellations.'
+            ? '這裡收錄我的課程與筆記。每一門課都是一個可以探索的世界，也各有一張自己的地圖：有的是一片星空，有的是一組分子。'
+            : 'My courses and notes. Each course is a world to explore, with a map of its own: one is a sky of stars, another a set of molecules.'
         }
       </p>
       <p class="notes-intro">
         {
           lang === 'zh'
-            ? '每一顆星，都是一篇筆記；每讀完一篇，就點亮一顆星。從一顆星開始，慢慢點亮屬於你的星空吧！'
-            : 'Every star is a note; finish one and it lights up. Start with a single star and light up a sky of your own.'
+            ? '地圖上的每一個點都是一篇筆記，讀過就會亮起來。你可以從任何一門課、任何一個點開始，也可以切換到列表，依單元瀏覽或搜尋全部筆記。'
+            : 'Every point on a map is a note, and it lights up once you have read it. Start from any course and any point — or switch to the list to browse by unit and search everything.'
         }
       </p>
     </div>
     <div class="view-toggle" role="group" aria-label={lang === 'zh' ? '顯示方式' : 'View'}>
       <button type="button" class="view-toggle-btn" data-view-btn="sky" aria-pressed="true">
         <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14l4-6 3 4 3-7 4 9" /><circle cx="3" cy="14" r="1.2" fill="currentColor" stroke="none" /><circle cx="7" cy="8" r="1.2" fill="currentColor" stroke="none" /><circle cx="10" cy="12" r="1.2" fill="currentColor" stroke="none" /><circle cx="13" cy="5" r="1.2" fill="currentColor" stroke="none" /><circle cx="17" cy="14" r="1.2" fill="currentColor" stroke="none" /></svg>
-        {lang === 'zh' ? '星圖' : 'Sky'}
+        {lang === 'zh' ? '地圖' : 'Maps'}
       </button>
       <button type="button" class="view-toggle-btn" data-view-btn="list" aria-pressed="false">
         <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 5h12M4 10h12M4 15h12" /></svg>
@@ -68,13 +98,25 @@ const nonCourse = grouped.filter((g) => g.category !== 'courses');
   </div>
 
   <div class="notes-pane notes-pane--sky" data-view-pane="sky">
+    <h2 class="notes-tier">{tierLabels.courses[lang]}</h2>
+    {skyCourses.map((c) => (
+      <MapHead
+        title={c.title[lang]}
+        lead={c.mapIntro?.[lang] ?? c.description[lang]}
+        note={c.mapIntro ? undefined : skyNote}
+        href={withBase(courseRoute(c.key, lang))}
+        linkLabel={lang === 'zh' ? '課程地圖 →' : 'Course map →'}
+        tone={c.tone}
+      />
+    ))}
     <SkyMap notes={notes} lang={lang} />
+    <MoleculeMap notes={notes} lang={lang} />
     {
       nonCourse.length > 0 && (
         <div class="sky-others">
           {nonCourse.map((categoryGroup) => (
             <div class="sky-others-block">
-              <span class="sky-others-kicker">{categoryLabels[categoryGroup.category][lang]}</span>
+              <h2 class="notes-tier">{tierLabels[categoryGroup.category][lang]}</h2>
               <div class="sky-others-rows">
                 {categoryGroup.areas.flatMap((areaGroup) =>
                   areaGroup.groups.map(({ group, notes: groupEntries }) => (
@@ -99,15 +141,16 @@ const nonCourse = grouped.filter((g) => g.category !== 'courses');
   <SearchPanel />
 
   {
-    grouped.map((categoryGroup) => (
+    courseTiers.map((tierBlock) => (
       <section class="note-category">
-        <h3>{categoryLabels[categoryGroup.category][lang]}</h3>
-        {categoryGroup.category === 'courses'
-          ? courseBlocks.map((course) => {
+        <h3>{tierLabels[tierBlock.tier][lang]}</h3>
+        {tierBlock.rows.map((course) => {
               const def = courseByKey(course.key);
               const ready = course.lectures.filter((l) => !l.comingSoon);
               const allNotes = ready.flatMap((l) => l.notes);
               const courseLatest = latestNoteDate(allNotes);
+              const isFoundation = def?.kind === 'foundation';
+              const reuse = isFoundation ? reuseOf(course.key) : 0;
               return (
                 <div class="course-row" id={courseAnchor(course.key)} data-tone={def?.tone ?? 'neutral'} data-read-count>
                   <a class="course-row-main" href={withBase(courseRoute(course.key, lang))}>
@@ -119,10 +162,16 @@ const nonCourse = grouped.filter((g) => g.category !== 'courses');
                         {courseLatest ? ` · ${formatNoteDate(courseLatest, lang)}` : ''}
                       </span>
                     </span>
-                    <span class="course-row-progress" aria-hidden="true">
-                      <span class="course-progress"><span data-read-bar></span></span>
-                      <span class="course-row-count" data-read-count-out>0 / {course.noteCount}</span>
-                    </span>
+                    {isFoundation ? (
+                      <span class="course-row-reuse">
+                        {lang === 'zh' ? `被 ${reuse} 篇引用` : `reused by ${reuse} notes`}
+                      </span>
+                    ) : (
+                      <span class="course-row-progress" aria-hidden="true">
+                        <span class="course-progress"><span data-read-bar></span></span>
+                        <span class="course-row-count" data-read-count-out>0 / {course.noteCount}</span>
+                      </span>
+                    )}
                     <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
                       <path d="M7 4.5 12.5 10 7 15.5" />
                     </svg>
@@ -147,8 +196,16 @@ const nonCourse = grouped.filter((g) => g.category !== 'courses');
                   </div>
                 </div>
               );
-            })
-          : categoryGroup.areas.map((areaGroup) => (
+            })}
+      </section>
+    ))
+  }
+
+  {
+    nonCourse.map((categoryGroup) => (
+      <section class="note-category">
+        <h3>{categoryLabels[categoryGroup.category][lang]}</h3>
+        {categoryGroup.areas.map((areaGroup) => (
               <section class="note-area" id={areaGroup.area ? areaAnchor(areaGroup.area) : undefined}>
                 {areaGroup.area && (
                   <div class="note-area-heading">

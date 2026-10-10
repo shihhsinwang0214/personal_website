@@ -1,55 +1,80 @@
 ---
 /**
- * Prereq.astro — "本篇重用：…" line under <Objectives>, listing the foundation notes this
+ * Prereq.astro — "本篇重用" block under <Objectives>, listing the foundation notes this
  * note reuses. Items come from the note's frontmatter `prereqs` (labels or slugs):
  *
  *   <Prereq items={frontmatter.prereqs} />
+ *   <Prereq items={frontmatter.prereqs} open />   // start expanded
  *
- * Titles and codes are read from the target notes at build time — renaming a math note
- * needs no edit here. The target notes render the reverse index with <UsedBy/>.
+ * Rendered as a collapsible <details>: the summary line stays compact (heading + count),
+ * the body is a bullet list, one foundation note per line. Titles and codes are read from
+ * the target notes at build time — renaming a math note needs no edit here. The target
+ * notes render the reverse index with <UsedBy/>.
  */
 import { resolveNoteRef, langFromUrl } from '../../lib/noteRefs';
 import type { Lang } from '../../lib/notes';
 
-interface Props { items?: string[]; lang?: Lang; title?: string }
-const { items = [] } = Astro.props;
+interface Props { items?: string[]; lang?: Lang; title?: string; open?: boolean }
+const { items = [], open = false } = Astro.props;
 const lang: Lang = Astro.props.lang ?? langFromUrl(Astro.url);
 const heading = Astro.props.title ?? (lang === 'zh' ? '本篇重用' : 'Builds on');
 const refs = await Promise.all(items.map(async (key) => ({ key, ref: await resolveNoteRef(key, lang) })));
+const count = lang === 'zh' ? `${items.length} 篇` : `${items.length} ${items.length === 1 ? 'note' : 'notes'}`;
 ---
 {items.length > 0 && (
-  <p class="prereq">
-    <span class="prereq-title">{heading}</span>
-    {refs.map(({ key, ref }, i) => (
-      <>
-        {i > 0 && <span class="prereq-sep">·</span>}
-        {ref?.planned ? (
-          <span class="prereq-item prereq-planned" title={lang === 'zh' ? '這一篇還沒寫' : 'Not written yet'}>
-            {ref.code && <span class="prereq-code">{ref.code}</span>}
-            {ref.shortTitle}
-            <span class="prereq-flag">{lang === 'zh' ? '規劃中' : 'planned'}</span>
-          </span>
-        ) : ref ? (
-          <a class="prereq-item" href={ref.href} title={ref.summary}>
-            {ref.code && <span class="prereq-code">{ref.code}</span>}
-            {ref.shortTitle}
-          </a>
-        ) : (
-          <span class="prereq-item prereq-missing">⟦?{key}⟧</span>
-        )}
-      </>
-    ))}
-  </p>
+  <details class="prereq" open={open}>
+    <summary>
+      <span class="prereq-title">{heading}</span>
+      <span class="prereq-count">{count}</span>
+    </summary>
+    <ul class="prereq-list">
+      {refs.map(({ key, ref }) => (
+        <li>
+          {ref?.planned ? (
+            <span class="prereq-item prereq-planned" title={lang === 'zh' ? '這一篇還沒寫' : 'Not written yet'}>
+              {ref.code && <span class="prereq-code">{ref.code}</span>}
+              {ref.shortTitle}
+              <span class="prereq-flag">{lang === 'zh' ? '規劃中' : 'planned'}</span>
+            </span>
+          ) : ref ? (
+            <a class="prereq-item" href={ref.href} title={ref.summary}>
+              {ref.code && <span class="prereq-code">{ref.code}</span>}
+              {ref.shortTitle}
+            </a>
+          ) : (
+            <span class="prereq-item prereq-missing">⟦?{key}⟧</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  </details>
 )}
 
 <style>
   .prereq {
-    margin: -16px 0 28px; padding: 10px 14px; font-size: 0.92rem; line-height: 1.7;
+    margin: -16px 0 28px; font-size: 0.92rem; line-height: 1.7;
     border-left: 3px solid var(--accent); background: var(--surface-2, transparent); color: var(--text-muted);
     border-radius: 0 var(--radius, 12px) var(--radius, 12px) 0;
   }
-  .prereq-title { font-weight: 700; margin-right: 10px; color: var(--text); }
-  .prereq-sep { margin: 0 8px; opacity: 0.6; }
+  .prereq summary {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 14px; cursor: pointer; list-style: none;
+  }
+  .prereq summary::-webkit-details-marker { display: none; }
+  .prereq summary::before {
+    content: ''; flex: 0 0 auto; width: 7px; height: 7px;
+    border-right: 2px solid var(--text-muted); border-bottom: 2px solid var(--text-muted);
+    transform: rotate(-45deg); transition: transform .15s ease;
+  }
+  .prereq[open] summary::before { transform: rotate(45deg); }
+  .prereq-title { font-weight: 700; color: var(--text); }
+  .prereq-count {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+    color: var(--accent); padding: 1px 8px; border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .prereq-list { margin: 0; padding: 0 14px 12px 32px; }
+  .prereq-list li { margin: 4px 0; }
   .prereq-item { text-decoration: none; color: var(--accent); border-bottom: 1px dotted currentColor; }
   .prereq-item:hover { border-bottom-style: solid; }
   .prereq-code { font-size: 0.75em; font-weight: 700; margin-right: 4px; opacity: 0.8; }

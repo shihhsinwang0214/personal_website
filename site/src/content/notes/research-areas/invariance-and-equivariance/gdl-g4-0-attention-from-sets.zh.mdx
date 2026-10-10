@@ -1,0 +1,177 @@
+---
+slug: "gdl-g4-0-attention-from-sets"
+label: "gdl-attention-problem"
+lang: "zh"
+title: "每個點都要讀同一份摘要嗎？"
+category: "courses"
+group: "G4 · Attention and Transformers"
+status: "available"
+updated: "2026-10-10"
+summary: "從排列要求限制內容權重的 action，構造共享 pairwise score 與正規化，再選 Q／K／V 實現 attention；分清數學限制與設計選擇。"
+prereqs: ["gdl-pointnet"]
+demos: ["notes/research_areas/invariance-and-equivariance/attention-workbench.html"]
+references:
+  - label: "Vaswani 等人（2017），Attention Is All You Need"
+    href: "https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf"
+  - label: "Lee 等人（2019），Set Transformer"
+    href: "https://proceedings.mlr.press/v97/lee19d.html"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 每個點都要讀同一份摘要嗎？
+
+<Objectives>
+
+- **從排列要求寫出權重的 action。** 詢問者與被參考者一起重編，權重表應變成 $PA(H)P^\top$。
+- **構造依內容決定的加權摘要。** 從 shared pairwise score 與正規化，走到 query、key、value 和 scaled dot-product attention。
+- **分清限制與設計選擇。** 共享規則不等於相同權重；非負比例、dot product 與 softmax 都是明確選擇。
+
+</Objectives>
+
+<Prereq items={["gdl-pointnet"]} />
+
+## 同一套規則，一定要給出同一份摘要嗎？
+
+在 <Ref to="gdl-pointnet" />，PointNet 把同一份 global feature $z$ 送回每個點，讓它結合自己的資訊與整體形狀。現在我們想換一種讀取方式：判斷椅腳時，多參考其他支撐點；判斷椅背時，多參考上方那一片。
+
+**能不能直接讓每個點依自己的內容，決定要多參考誰，同時仍不依賴名單排列？**
+
+想像在旅行群組裡問「附近有什麼晚餐？」與「明天怎麼去機場？」。同一群人，餐廳與交通的資訊卻有不同參考價值。把名單換個順序，不應讓同一個人的建議突然變得不重要。
+
+在 <Ref to="gdl-set-equivariant-layers" />，線性層對不同點的影響共用同一組權重。這裡我們不再把權重固定成常數，而是讓它從內容算出來。**共享的是計算權重的規則，不是每次算出的權重都相同。**
+
+## 權重可以改變，但要跟著同一對點搬動
+
+用 $H$ 記整份 feature 表，$v_j=\nu(h_j)$ 是點 $j$ 提供的內容；所有點先用同一個 $\nu$ 處理。想做的更新是
+
+$$
+y_i=\sum_j A_{ij}(H)v_j.
+$$
+
+$A_{ij}$ 表示點 $i$ 這次多參考點 $j$。名單重排成 $H'=PH$ 後，新第 $i$ 個詢問者是原本的 $\pi(i)$，被參考者也換了編號。因此我們要求權重本身滿足
+
+$$
+A(PH)_{ij}=A(H)_{\pi(i),\pi(j)},
+\qquad A(PH)=PA(H)P^\top.
+$$
+
+不是權重表原封不動，而是同一對人的參考關係搬到新格子。Values 也跟著變成 $PV$，兩者對齊後，輸出才會跟同一個詢問者搬動。
+
+為了把權重讀成「參考比例」，我們另外選擇 $A_{ij}\geq0$、$\sum_jA_{ij}=1$。這是加權摘要的設計，不是 permutation equivariance 自己要求權重一定非負。
+
+## 先用同一套比較規則，再分配比例
+
+同樣兩份內容，不能只因它們從第 $2,5$ 列搬到第 $4,1$ 列，就換一種比較方式。我們先選 **pairwise score**：每對點都用同一個函數 $s$，
+
+$$
+S_{ij}=s(h_i,h_j).
+$$
+
+重新排列後，$S'_{ij}=s(h_{\pi(i)},h_{\pi(j)})=S_{\pi(i),\pi(j)}$，所以分數表已經照同一對點搬動。但分數可能為負，也不一定加總為一，還不能直接當比例。
+
+可以先用同一個正值函數 $\omega$ 把分數轉成正數，再對固定詢問者的整列正規化：
+
+$$
+A_{ij}=\frac{\omega(S_{ij})}{\sum_{\ell=1}^n\omega(S_{i\ell})},
+\qquad \omega(r)>0.
+$$
+
+換排列只會換掉分母的加總順序，參考比例仍屬於同一對人。若選 $\omega(r)=e^r$，這個操作就是 **row-wise softmax**。Shared pairwise score 與這種正規化，給出一種符合前面要求的內容加權方式；它們不是所有 equivariant layers 的唯一形式。
+
+## 要怎麼比較內容？先分清三種角色
+
+回到旅行群組，我們需要三份資訊：我現在想問什麼、對方有什麼可供比對的資訊、真正要讀取的內容。模型可以把它們分別編成 **query、key、value**。
+
+一個簡單的實現，是讓各點都用相同的三組 linear maps：
+
+$$
+Q=HW_Q,\qquad K=HW_K,\qquad V=HW_V.
+$$
+
+$H\in\mathbb R^{n\times d}$；$Q,K\in\mathbb R^{n\times d_k}$，$V\in\mathbb R^{n\times d_v}$。第 $i$ 列 $q_i$ 是 query，第 $j$ 列 $k_j$ 是供比較的 key，$v_j$ 是被加權讀取的 value。前面的 $\nu$，在這裡選成共享的 linear map $W_V$。
+
+現在還差一個比較函數。Vaswani 等人 [1] 選擇 scaled dot product：
+
+$$
+S_{ij}=\frac{q_i^\top k_j}{\sqrt{d_k}},
+\qquad S=\frac{QK^\top}{\sqrt{d_k}}.
+$$
+
+它比較的是內容，不是列號；dot product 也方便把全部配對寫成一次矩陣乘法。再選剛才的 softmax，得到
+
+$$
+Y=AV=\operatorname{softmax}_{\mathrm{row}}
+\left(\frac{QK^\top}{\sqrt{d_k}}\right)V.
+$$
+
+這就是 **scaled dot-product attention**。三份資訊都來自 $H$，所以稱為 **self-attention**；queries 若來自另一份資料，則是 cross-attention。這裡先處理同一批點。
+
+## 三個對象，真的算一次
+
+考慮 $d_k=1$。某個 query 與三個 keys 比較後，分數是 $(0,\log2,0)$，三個 values 是 $(10,20,40)$。Exponentials 是 $(1,2,1)$，所以
+
+$$
+(A_{i1},A_{i2},A_{i3})=\left(\frac14,\frac12,\frac14\right),
+\qquad y_i=\frac14(10)+\frac12(20)+\frac14(40)=22.5.
+$$
+
+第二個對象被參考得最多，但輸出仍混合了三份內容。換一個 query，分數會改，它收到的摘要也會改。
+
+<Remark summary="為什麼除以 √dₖ？">
+
+作為尺度的說明，若 $q$、$k$ 各分量彼此獨立、平均為零、variance 為一，$q^\top k=\sum_r q_rk_r$ 的 variance 是 $d_k$。除以 $\sqrt{d_k}$ 後才是同一個量級，避免維度變大時分數容易把 softmax 推得過度尖銳。這是原論文的尺度理由，不是說訓練後 features 必然符合這些獨立假設。
+
+</Remark>
+
+<Remark summary="Symmetry 並不唯一決定 Transformer">
+
+排列要求限制的是運算如何隨重排改變。許多 pairwise scoring functions 都可能符合；dot product、softmax 與 head 數量仍是設計選擇。Vaswani 等人 [1] 使用這個運算建立 Transformer，Lee 等人 [2] 則將 attention 用於 Set Transformer；我們是在構造一種可行方法，不是說 symmetry 只容許它。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/attention-1.svg" alt="Query 比較 keys 產生分數，row-wise softmax 產生權重，再讀取 values。" loading="lazy" />
+<figcaption>Query 比較 keys 產生分數，row-wise softmax 產生權重，再讀取 values。</figcaption>
+</figure>
+
+<Question>
+
+點 $i$ 很參考點 $j$，是否表示點 $j$ 也同樣參考點 $i$？
+
+<Answer>
+
+不一定。$q_i^\top k_j$ 與 $q_j^\top k_i$ 一般不同；即使分數碰巧對稱，每列的 softmax 分母也可能不同。詢問需求與提供的資訊不是同一種角色。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+切換詢問者與溫度，對照 heatmap 的一列與加權輸出。Demo 使用固定的 projection，展示這條式子如何計算；它不是訓練好的語言模型。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/attention-workbench.html?chapter=1" class="demo-frame" title="每個點都要讀同一份摘要嗎？：attention 計算與重排" style="height: 840px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="哪個量最後被加權相加？" options={[{"text":"Value。","correct":true,"explain":"Query 與 key 產生比較分數，value 提供輸出內容。"},{"text":"一定是 key。","explain":"比較用的索引與實際讀取的內容分開。"}]} />
+<Quiz q="Softmax 在這裡沿哪個方向算？" options={[{"text":"每個 query 的所有 keys。","correct":true,"explain":"固定詢問者，再分配它的參考權重。"},{"text":"所有 queries 與 keys 合成一個分母。","explain":"那就不是每個詢問者各自的加權摘要。"}]} />
+<Quiz q="排列等變要求是否唯一決定 dot product 與 softmax？" options={[{"text":"是，換成其他比較函數一定失去 symmetry。","explain":"要求限制重排規則，不指定唯一的比較與正規化。"},{"text":"不是，它們是一組符合要求的設計。","correct":true,"explain":"其他共享的 pairwise score 與相容的正規化也可能符合要求。"}]} />
+
+<Bridge to="gdl-set-attention">
+
+我們從排列要求構造了內容加權，再選 Q／K／V 實現它。下一篇把這個具體公式逐項代入，檢查 **queries、keys、softmax 分母與 values 是否真的按同一套規則重排**，以及全局答案還需要什麼 readout。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Vaswani 等人（2017），Attention Is All You Need](https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf)
+2. [Lee 等人（2019），Set Transformer](https://proceedings.mlr.press/v97/lee19d.html)

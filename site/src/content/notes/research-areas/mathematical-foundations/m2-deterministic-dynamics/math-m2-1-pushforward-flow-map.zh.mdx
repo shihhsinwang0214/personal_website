@@ -9,7 +9,7 @@ title: "從一片葉子到一群葉子：Flow Map 與 Pushforward"
 category: "courses"
 group: "M2 · Deterministic Dynamics"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-09
 summary: "一群葉子同時放進河裡，一分鐘後它們的分佈長什麼樣？把「每個起點送到終點」打包成 flow map，把「分佈被映射搬走」寫成 pushforward；由 ODE 的唯一性得到 flow map 可逆，於是密度可以用 change of variables 精確算出——而不是靠數很多片葉子。"
 demos: []
 references:
@@ -41,11 +41,11 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 ## 一千片葉子
 
-上一篇（<Ref to="math-vector-field-ode"/>）解決了一片葉子的問題：水流地圖 $u$ 已知，葉子從 $x_0$ 出發，一分鐘後在一個確定的位置。
+上一篇（<Ref to="math-vector-field-ode"/>）解決了一片葉子的問題：水流地圖 $v$ 已知，葉子從 $x_0$ 出發，一分鐘後在一個確定的位置。
 
 現在換個玩法。你抓起一把葉子——一千片——從橋上撒下去。它們不會落在同一點，而是散在橋下一小塊水面上：靠中間多、靠邊少。一分鐘後，這一千片葉子會散成什麼樣子？哪裡密、哪裡稀？
 
-先用直覺回答，並寫下你有多確定。常見的答案是：「每片葉子各自順著箭頭走，所以整群葉子就是原本那團的形狀被水流『搬』到下游」。這個答案抓到了一件對的事——每片葉子的命運彼此無關；但它漏了一件事：水流有地方快、有地方慢，有地方匯合、有地方分開，搬過去的那團**形狀會變**。快的地方葉子被拉開、變稀；匯合的地方葉子被擠在一起、變密。那麼密到多密、稀到多稀？能不能不靠撒一千片葉子去數，直接算出來？
+每片葉子都順著同一張地圖走，但整團葉子不一定只平移到下游：前面的水流較快，葉子會被拉開；往中央匯合時，葉子又會變擠。**已知每個起點會被送到哪，能不能算出搬運後的 density？** 這次要追的不是一片葉子，而是整個 distribution。
 
 <Question id="Q1">
 翻成數學。「一千片葉子的散佈」是什麼物件？「一分鐘後的散佈」又是什麼？我們想求的量，跟上一篇的 $x(60)$ 有什麼關係？
@@ -58,7 +58,7 @@ import UsedBy from '../../../components/UsedBy.astro';
 **每片葉子接下來的路是確定的。** 上一篇說，從 $x_0$ 出發的葉子在時刻 $t$ 的位置是 ODE 的唯一解。把這個對應寫成一個函數：
 
 $$
-\Phi_t(x_0)\;=\;\text{從 }x_0\text{ 出發、順著 }u\text{ 走到時刻 }t\text{ 的位置}.
+\Phi_t(x_0)\;=\;\text{從 }x_0\text{ 出發、順著 }v\text{ 走到時刻 }t\text{ 的位置}.
 $$
 
 $\Phi_t:\mathbb R^d\to\mathbb R^d$ 叫 **flow map**：它不是一片葉子的路，而是「**所有**起點同時被送到哪」的一張總表。
@@ -79,11 +79,11 @@ $\Phi_t:\mathbb R^d\to\mathbb R^d$ 叫 **flow map**：它不是一片葉子的�
 
 ## flow map、pushforward、change of variables
 
-**Flow map 的性質。** 由 <Ref to="math-vector-field-ode"/> 的存在唯一（Lipschitz 條件下）：
+**Flow map 的性質。** 假設速度場滿足存在唯一的條件，而且解在需要的正向、反向時間區間都存在。由 <Ref to="math-vector-field-ode"/> 可得：
 
 1. $\Phi_0=\mathrm{id}$；且 $\Phi_t$ 對 $x_0$ 是 continuous 的（起點差一點、終點差一點，差距至多放大 $e^{Lt}$ 倍——這是 <Ref to="math-euler-error"/> 裡 Grönwall 不等式的內容，先當結論）。
-2. **可逆。** $\Phi_t$ 是一對一的：若 $\Phi_t(a)=\Phi_t(b)$，兩條軌跡在時刻 $t$ 相交，唯一性說它們整條相同，故 $a=b$。反函數就是「把時間倒著走」：$\Phi_t^{-1}$ 是 vector field $-u(x,t-s)$ 走 $t$ 秒的 flow map。所以 $\Phi_t$ 是一個 **diffeomorphism**（可微、可逆、反函數也可微的映射），只要 $u$ 夠 smooth。
-3. 若 $u$ 不隨時間變，還有 $\Phi_{s+t}=\Phi_s\circ\Phi_t$：先走 $t$ 秒再走 $s$ 秒，等於一次走 $s+t$ 秒。
+2. **可逆。** $\Phi_t$ 是一對一的：若 $\Phi_t(a)=\Phi_t(b)$，兩條軌跡在時刻 $t$ 相交，唯一性說它們整條相同，故 $a=b$。反函數就是「把時間倒著走」：$\Phi_t^{-1}$ 是 vector field $-v(x,t-s)$ 走 $t$ 秒的 flow map。所以 $\Phi_t$ 是一個 **diffeomorphism**（可微、可逆、反函數也可微的映射），只要 $v$ 夠 smooth。
+3. 若 $v$ 不隨時間變，還有 $\Phi_{s+t}=\Phi_s\circ\Phi_t$：先走 $t$ 秒再走 $s$ 秒，等於一次走 $s+t$ 秒。
 
 **Pushforward 的定義。** 給一個可測映射 $\Phi$ 與一個分佈 $p_0$，$\Phi_\#p_0$ 是「先從 $p_0$ 抽 $X_0$、再算 $\Phi(X_0)$」得到的分佈。用集合寫：對任何區域 $A$，
 
@@ -93,7 +93,7 @@ $$
 
 ——落在 $A$ 的機率，等於「會被送進 $A$ 的那些起點」在 $p_0$ 下的機率。這個定義對任何映射都成立，不需要可逆。
 
-**密度公式（change of variables）。** 若 $\Phi$ 可逆且可微，pushforward 有密度：
+**密度公式（change of variables）。** 假設起點有 density $p_0$，且 $\Phi_t$ 是 diffeomorphism，Jacobian 的行列式不為零。此時：
 
 $$
 p_t(y)\;=\;p_0\big(\Phi_t^{-1}(y)\big)\;\Big|\det\nabla\Phi_t^{-1}(y)\Big|
@@ -112,13 +112,13 @@ p_t(y) = p₀(e^t y)·e^t = (2π)^(−1/2) e^t exp(−e^(2t) y²/2)，
 
 ## 直覺的一半對、一半漏
 
-起點問題的直覺答案是「那團葉子的形狀被搬到下游」。對的部分：每片葉子確實各走各的，所以整群的分佈就是 $p_0$ 經 $\Phi_t$ 的 pushforward——不多不少，沒有葉子憑空出現或消失。漏掉的部分：「形狀不變」隱含假設了 $|\det\nabla\Phi_t|\equiv1$，也就是水流處處**保體積**。一般的水流不是這樣；只有 $\nabla\cdot u=0$ 的場（<Ref to="math-divergence"/>）才會保體積。所以正確的說法是：**葉子的數目守恆，密度按 Jacobian 反比縮放。**
+公式描述的是局部體積，不是整個形狀。即使 $|\det\nabla\Phi_t|=1$，一塊正方形仍可以被剪切成平行四邊形；面積沒變，形狀卻變了。對 smooth 的 flow，$\nabla\cdot v=0$ 會保體積；一般情況則是**小塊中的葉子數不變，density 按局部體積伸縮的反比改變。**
 
-這個判斷依賴什麼？依賴 $\Phi_t$ 可逆——也就是上一篇的 Lipschitz 條件。若河面某處水流不是 Lipschitz 的，兩片葉子可能在同一點分道揚鑣，或者反過來說「哪些起點會被送到這裡」不再唯一，pushforward 的集合定義仍然成立（它不需要可逆），但密度公式失效：可能在一個點堆出無限大的密度。
+Pushforward 的集合定義只需要一個已選定的可測映射，不要求可逆。上面的單一反函數公式則需要更強的條件：若多個起點被送到同一點，就不能直接套用它；若一整塊質量被壓成一點，結果甚至不再有普通的 density。ODE 解不唯一時，也必須先說明選擇哪條解，才有一個確定的 $\Phi_t$。
 
 ## 數葉子，還是算公式
 
-兩種方法都能得到 $p_t$：**數葉子**是抽 $N$ 個 $X_0$、各自解 ODE、畫直方圖，誤差來自有限樣本，大約隨 $1/\sqrt N$ 縮小（<Ref to="math-gaussian"/> 那類 variance 相加的算法）；**算公式**是對每個 $y$ 反解 $\Phi_t^{-1}(y)$ 並算 Jacobian，沒有取樣誤差，但每個 $y$ 都要解一次反向 ODE。
+兩種方法各有成本。抽 $N$ 個起點、解 ODE 後數落進某個固定區域的比例，sampling error 通常是 $O(N^{-1/2})$；若要估計 density，還有直方圖格子大小帶來的誤差。Change of variables 沒有這種 sampling error，但一般要數值計算反向 flow 與 Jacobian，也不表示完全沒有誤差。
 
 ```python
 import numpy as np
@@ -146,7 +146,7 @@ hist, edges = np.histogram(xt, bins=40, range=(-2, 2), density=True)
 </QuizBlock>
 
 <QuizBlock id="m2-1-b">
-若水流地圖不是 Lipschitz 的，導致兩片從不同起點出發的葉子在時刻 $t$ 到達同一點。這時：
+假設已經選定一個可測映射 $\Phi_t$，但它把不同起點送到同一點。這時：
 <Option>pushforward $p_t=(\Phi_t)_\#p_0$ 沒有定義。</Option>
 <Option correct>pushforward 仍有定義（集合版的定義不需要可逆），但 $\Phi_t$ 不再一對一，change of variables 的密度公式失效，$p_t$ 可能在該點沒有密度（質量堆成一點）。</Option>
 <Option>什麼都不受影響，只是 Jacobian 變大。</Option>
@@ -156,12 +156,12 @@ pushforward 的定義是「落在 $A$ 的機率 = 會被送進 $A$ 的起點的�
 </QuizBlock>
 
 <QuizBlock id="m2-1-c">
-場 $u(x,y)=(-y,\,x)$（整條河在原地打轉）把 $p_0=\mathcal N(0,I)$ 推到時刻 $t$ 的 $p_t$ 是：
+場 $v(x,y)=(-y,\,x)$（整條河在原地打轉）把 $p_0=\mathcal N(0,I)$ 推到時刻 $t$ 的 $p_t$ 是：
 <Option>一個越來越窄的 Gaussian。</Option>
 <Option>一個越來越寬的 Gaussian。</Option>
 <Option correct>還是 $\mathcal N(0,I)$：旋轉保體積（Jacobian 行列式為 1），而標準 Gaussian 又是旋轉對稱的，所以每片葉子都在動，分佈卻一動也不動。</Option>
 <Explanation>
-旋轉的 $\nabla\cdot u=0$，$|\det\nabla\Phi_t|=1$，密度只是被旋轉搬位置；標準 Gaussian 旋轉後與自己重合。這是下一篇「同一條分佈路徑可以有無限多速度場」的第一個例子——葉子的運動與分佈的運動是兩件不同的事。
+旋轉的 $\nabla\cdot v=0$，$|\det\nabla\Phi_t|=1$，密度只是被旋轉搬位置；標準 Gaussian 旋轉後與自己重合。這是下一篇「同一條分佈路徑可以有無限多速度場」的第一個例子——葉子的運動與分佈的運動是兩件不同的事。
 </Explanation>
 </QuizBlock>
 

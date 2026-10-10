@@ -7,7 +7,7 @@ title: "明天的天氣只看今天：Markov Chain 與 Transition Matrix"
 category: "courses"
 group: "M4 · Markov Chains"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-09
 summary: "把「明天天氣只跟今天有關」寫成一個 transition matrix，用矩陣乘法算連續三天晴的機率與一百天後晴的比例；stationary distribution 是矩陣的一個 fixed point，而「忘掉初始條件」的速度由第二個 eigenvalue 決定。"
 demos: []
 references:
@@ -44,12 +44,12 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 你手上有一個城市過去幾年的天氣紀錄，每天只記「晴」或「雨」。翻過幾頁之後你發現一個規律：**晴天的隔天有八成還是晴天；雨天的隔天有四成會放晴。** 沒有別的訊息——前天、上週、季節都先不看。
 
-今天是晴天。請先用直覺回答兩個問題，並且寫下你有多確定、依據是什麼：
+先把這當成一個模型：明天只依賴今天，而且規則每天相同。今天是晴天，想知道：
 
 1. 接下來三天**都是**晴天的機率大概多少？
 2. 一百天之後那一天是晴天的機率大概多少？——它還跟「今天是晴天」有關嗎？
 
-第一題多數人會算 $0.8\times0.8\times0.8\approx0.51$，而且很有信心。第二題的答案就分歧了：有人說「一百天太遠了，跟今天無關，晴雨各半」；有人說「晴天比較黏，應該晴天多一點，大概六成？」；也有人說「八成」，因為「天氣傾向不變」。這三個答案裡只有一個對，而且對的那個人通常也說不出**為什麼是那個數字**、以及**什麼時候這個數字會失效**。這一篇就是要把這件事說清楚。
+第一題可以沿著「晴、晴、晴」這條路相乘。第二題卻不能只乘 $0.8$：中間可能下雨、再放晴，有很多條路會抵達第 100 天的晴天。**要怎麼把所有可能的中間狀態一起算進來？** 一張轉移表加上 distribution，就能把這些路逐步加總。
 
 <Question id="Q1">
 先不急著算。把「晴天的隔天八成晴、雨天的隔天四成晴」翻成數學：這裡的隨機變數是什麼？我們要算的量又是什麼？「只看今天」這個假設在數學上要怎麼寫？
@@ -126,7 +126,7 @@ $$
 \pi=\Big(\tfrac23,\tfrac13\Big).
 $$
 
-一般地，$\pi$ 是 $P$ 對應 eigenvalue $1$ 的左 eigenvector。任何 stochastic matrix 都有 eigenvalue $1$（因為 $P\mathbb 1=\mathbb 1$，右 eigenvector 是全 1 向量），所以 $\pi$ 一定存在；有限狀態、且任兩格互相到得了（irreducible）時它唯一。
+一般地，$\pi$ 是 eigenvalue $1$ 對應的**非負、總和為 1** 的左 eigenvector。有限 stochastic matrix 至少有一個這樣的 distribution；不只是找到任意 eigenvector 就可以當機率。若任兩狀態互相到得了（irreducible），它才唯一。
 
 ### 多快忘掉今天
 
@@ -141,16 +141,16 @@ $$
 所以第二題的答案是 $\tfrac23\approx0.667$，**跟今天是晴是雨無關**。「各半」錯在忽略了規則不對稱（晴天比雨天黏）；「八成」錯在把「一天的規則」當成「長期的比例」——晴天雖然八成留下，但一旦掉進雨天要花幾天才回來，長期比例是兩種黏性**相對強弱**的結果，$\pi_\text{S}/\pi_\text{R}=P(\text{R},\text{S})/P(\text{S},\text{R})=0.4/0.2=2$。
 
 <Details summary="一般的收斂敘述：Perron–Frobenius 給的三件事">
-有限狀態、irreducible（任兩格互相到得了）且 aperiodic（不會被鎖在固定的節拍裡，例如「每天一定換格」那種）的 chain，滿足：(i) stationary distribution $\pi$ 唯一；(ii) 對任何 $p_0$，$p_0P^n\to\pi$；(iii) 收斂速度是幾何的，$\|p_0P^n-\pi\|\le C\,|\lambda_2|^n$，其中 $\lambda_2$ 是 $P$ 絕對值第二大的 eigenvalue。上面 2 狀態的計算就是這個定理的手算版本：$\lambda_2=0.4$，$C=|p_0(\text{S})-\tfrac23|$。標準證明見 Norris [1] 第 1 章或 Levin–Peres [3] 第 4 章。
+有限狀態、irreducible 且 aperiodic 的 chain 有唯一的 $\pi$，而且任意 $p_0P^n$ 都收斂到它 [1, 3]。本篇兩狀態例子的差距精確乘上 $0.4^n$；一般矩陣若有非平凡 Jordan block，還可能多出 polynomial factor，不能一律寫成 $C|\lambda_2|^n$。若其他 eigenvalues 的最大 modulus 是 $r<1$，對任意 $r<\rho<1$，可用 $C_\rho\rho^n$ 作幾何上界。可對角化、特別是 reversible 的情況，才有更直接的 spectral bound。
 
 另外，$\pi$ 還有一個「時間平均」的意義：一條**單一**軌跡裡，晴天所佔的天數比例以機率 1 收斂到 $\pi_\text{S}$（ergodic theorem）。這是為什麼「一千顆棋子的分配」與「看一條紀錄很多年」會給同一個 $\tfrac23$。
 </Details>
 
 ## 回頭看那兩個直覺
 
-**理論的判斷。** 在「只看今天、規則不隨時間變」這兩個假設下：連續三天晴的機率是 $0.512$；一百天後晴的機率是 $\tfrac23$，與今天無關，而且大約五到十天後就已經看不出差別。這兩個結論的**全部依據**就是 $P$ 的四個數字。直覺答對第一題，是因為「相乘」剛好就是 Markov property；直覺在第二題分歧，是因為「長期比例」不是任何單一數字能讀出來的——它是流量平衡 $\pi_\text{S}P(\text{S},\text{R})=\pi_\text{R}P(\text{R},\text{S})$ 的解。
+在這個固定轉移表下，連續三天晴的機率是 $0.512$；從晴天出發，第 100 天晴的機率則是 $2/3+(1/3)0.4^{100}$。它極接近 $2/3$，但有限時間不是真的完全與初始狀態無關。長期比例由流量平衡決定，接近它的速度才由剩下的 eigenvalue 控制。
 
-**哪裡可能失準。** 兩個假設都可能不成立。真實天氣有季節（$P$ 隨 $n$ 變，就沒有單一的 $\pi$），也可能有超過一天的記憶（連晴幾天後轉雨的機率變高，Markov property 失效——但注意，把「昨天＋今天」合起來當一個狀態，它又變回 Markov chain，只是狀態變成四個）。另外 aperiodic 也是必要的：如果 $P=\begin{pmatrix}0&1\\1&0\end{pmatrix}$（每天一定變天），$\pi=(\tfrac12,\tfrac12)$ 仍然存在，但 $p_n$ 永遠在 $(1,0)$ 與 $(0,1)$ 之間跳，永遠不會「忘掉今天」。
+若轉移表隨季節改變，就要用各時刻的 $P_n$，不能直接用固定 P 的結論；它們仍可能剛好共享同一個 stationary distribution。若規則依賴更長的歷史，也要把足夠的歷史納入狀態。最後，irreducible chain 若有週期，從一般初始分布出發未必收斂：例如每天晴雨互換，從全晴開始就永遠交替；從 $\pi=(1/2,1/2)$ 開始卻仍保持 $\pi$。
 
 ## 動手跑一次
 
@@ -176,17 +176,17 @@ for n in range(1, 6):
 ## 檢查理解
 
 <QuizBlock id="m4-0-a">
-一個網站有三個頁面，紀錄顯示使用者「下一個點哪一頁」只跟「現在在哪一頁」有關。你想知道使用者長期停留在各頁的時間比例。該用什麼工具？
+假設頁面點擊是一條有限、irreducible 的 homogeneous Markov chain。想知道長期的**點擊次數比例**，該用什麼工具？
 <Option>算 $P^3$ 的對角線。</Option>
 <Option>對每一頁算「留在本頁的機率」，比例就照這些機率分配。</Option>
-<Option correct>解 $\pi P=\pi$，$\pi$ 就是長期比例。</Option>
+<Option correct>解 $\pi P=\pi$；這給的是每一步訪問的比例，不自動等於停留時間比例。</Option>
 <Explanation>
-「只跟現在在哪一頁有關」就是 Markov property，長期比例是 stationary distribution，也就是 $\pi P=\pi$ 的解。$P^3$ 的對角線是「三步後回到原頁」的機率，不是長期比例。只看「留在本頁的機率」是這一篇裡「八成」那個直覺的翻版：長期比例由所有進出流量的平衡決定，不是單一數字讀得出來的。
+在題目的條件下，單條 chain 的長期訪問比例是 $\pi$。若各頁停留時間不同，時間比例還要乘上相應的平均停留時間再正規化；不能把「每次點到哪」與「花多少時間」混在一起。
 </Explanation>
 </QuizBlock>
 
 <QuizBlock id="m4-0-b">
-把天氣的 transition matrix 換成 $P=\begin{pmatrix}0&1\\1&0\end{pmatrix}$（晴雨每天必換）。下列哪個敘述正確？
+把天氣的 transition matrix 換成 $P=\begin{pmatrix}0&1\\1&0\end{pmatrix}$，並從 $p_0=(1,0)$ 開始。下列哪個敘述正確？
 <Option correct>$\pi=(\tfrac12,\tfrac12)$ 仍是 stationary distribution，但 $p_n$ 不收斂到它。</Option>
 <Option>沒有 stationary distribution。</Option>
 <Option>$p_n$ 收斂到 $(\tfrac12,\tfrac12)$，只是比較慢。</Option>
@@ -196,19 +196,19 @@ for n in range(1, 6):
 </QuizBlock>
 
 <QuizBlock id="m4-0-c">
-紀錄顯示這個城市「連晴三天後，第四天下雨的機率會從 0.2 升到 0.5」。對「連續三天晴的機率」與「長期晴天比例」兩個結論，各有什麼影響？
+紀錄顯示「連晴三天後，下一天下雨的機率會從 0.2 升到 0.5」。只知道今天晴，不知道已經連晴幾天，還能直接使用原來的兩狀態模型嗎？
 <Option>兩者都不受影響，因為長期來看記憶會被平均掉。</Option>
-<Option correct>$0.8^3$ 這個算法本身沒有錯（它只用到前三步），但長期比例會改變，且 2 狀態的 $\pi$ 不再是正確答案；要把「連晴幾天」納入狀態才能重算。</Option>
+<Option correct>不能；短期與長期預測都可能改變，需要把連晴天數納入狀態，或指定它的 conditional distribution。</Option>
 <Option>$0.8^3$ 變錯，但長期比例不變。</Option>
 <Explanation>
-前三步的規則沒被改動，所以 $\Pr(X_1=X_2=X_3=\text{S}\mid X_0=\text{S})=0.8^3$ 仍然成立；被改動的是第四步以後。長期比例卻會變：連晴串更容易被打斷，$\pi_\text{S}$ 會低於 $\tfrac23$。「記憶會被平均掉」是錯的——記憶改變的是每一步的流量，流量平衡的解就跟著變。正確做法是把狀態擴成「今天天氣＋已連晴幾天」，它又是一條 Markov chain。
+如果今天已經是第三個晴天，明天放晴的機率就不是 $0.8$。所以「只用前三步」不能排除過去已累積的記憶；這正是狀態沒有包含足夠資訊的問題。
 </Explanation>
 </QuizBlock>
 
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-absorbing-state">
-這一篇把「只看今天」寫成 transition matrix $P$，用 $p_n=p_0P^n$ 算任何時刻的分佈，並找出不再變動的 $\pi$ 與忘掉出發點的速度 $|\lambda_2|$。接著看一種特別的格子：跳進去就出不來。那時「長期比例」變得無趣（全部被吸進去），有趣的問題換成「平均多久被吸進去」。
+Transition matrix 讓我們算出 distribution 怎麼一步步改變。若有一格進去就再也離不開，只問很久後在哪裡，可能還不夠；遊戲什麼時候結束、平均還能玩多久，才是我們想知道的。下一篇改追這個首次到達的時間。
 </Bridge>
 
 ## 參考文獻

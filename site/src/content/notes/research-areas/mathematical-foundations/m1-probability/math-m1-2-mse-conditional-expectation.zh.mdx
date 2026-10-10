@@ -8,7 +8,7 @@ title: "天氣預報該報幾度：MSE 的最小值是 Conditional Expectation"
 category: "courses"
 group: "M1 · 機率與 Conditional Expectation"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-09
 summary: "每天只能報一個溫度，什麼策略讓長期平方誤差最小？三行證明說答案是 E[Y|X]——即使那個數字幾乎不會真的發生。換成絕對誤差，答案變成中位數；換成不對稱的懲罰，答案變成某個 quantile。「最佳猜測」取決於你怎麼被扣分。"
 demos: []
 references:
@@ -48,9 +48,9 @@ import Ref from '../../../components/Ref.astro';
 
 **你報幾度？**
 
-多數人的第一反應是報 30——「最可能發生的情況」。也有人說報 26 或 27，「折衷一下」，但馬上會被質疑：那是一個幾乎不會發生的溫度，報它不是很怪嗎？請寫下你的選擇與確定程度。
+報 30 是選最可能發生的情況；報中間則是在兩種可能之間折衷。但電視台扣分看的是距離平方，不只是有沒有猜中。**要怎麼從這個扣分方式，決定最佳預報？**
 
-這一篇會算出：**在平方誤差的計分下，報 26.8 是最佳的，而且比報 30 好很多；但如果電視台改用絕對誤差計分，報 30 才是對的。** 直覺「報最可能的」不是無腦的錯，它只是在回答另一種計分方式的問題。要看清這件事，需要把「最佳策略」變成一個可以求極值的式子。
+上一篇給了條件平均這個物件。現在我們檢查它是否真的讓平方誤差最小，而不是只因為「取平均很自然」就選它。
 
 <Question id="Q1">
 把情境翻成數學：隨機變數是什麼？「策略」是什麼樣的數學物件？「長期平均的平方誤差」怎麼寫？我們在對什麼東西求最小？
@@ -86,7 +86,7 @@ $$
 
 ## 為什麼最小值一定落在條件期望
 
-記 $m(X)=\mathbb E[Y\mid X]$（每種資料狀況下 $Y$ 的桶內平均）。對任何策略 $g$，把 $Y-g(X)$ 拆成 $(Y-m(X))+(m(X)-g(X))$ 再平方：
+假設 $\mathbb E[Y^2]<\infty$，比較平方誤差有限的策略。記 $m(X)=\mathbb E[Y\mid X]$。先加上再減掉 $m(X)$：$Y-g(X)=(Y-m(X))+(m(X)-g(X))$。前者是桶內不可預測的偏差，後者是策略離桶內平均有多遠。展開平方再取期望：
 
 $$
 \mathbb E\big[(Y-g(X))^2\big]
@@ -99,12 +99,12 @@ $$
 \mathrm{MSE}(g)=\underbrace{\mathbb E\big[(Y-m(X))^2\big]}_{\text{與 }g\text{ 無關}}+\underbrace{\mathbb E\big[(m(X)-g(X))^2\big]}_{\ge0,\ g=m\text{ 時為 }0}.
 $$
 
-**結論：$g^*=\mathbb E[Y\mid X]$ 讓 MSE 最小，而且是唯一的最小點**（第二項為零迫使 $g=m$）。剩下的第一項是 $\mathbb E[\mathrm{Var}(Y\mid X)]$——**桶內的散佈**，任何策略都消不掉；上一篇說「多一個條件讓桶內散佈變小」，此刻它有了精確的意義：條件越好，MSE 的下限越低。
+第二項非負，因此 **$g^*(X)=\mathbb E[Y\mid X]$ 讓 MSE 最小**；達到相同最小值的策略，必須幾乎處處等於它。資料根本不會出現的位置上，$g$ 如何取值不影響這個期望。第一項是 $\mathbb E[\mathrm{Var}(Y\mid X)]$，而額外資訊不會增加這個平均的理想誤差。
 
 <Details summary="換成絕對誤差為什麼是中位數；不對稱懲罰為什麼是 quantile">
-固定資料狀況（也就是在一個桶內），把 $\mathbb E|Y-a|$ 對 $a$ 微分：$a$ 往右移一點，所有在 $a$ 左邊的 $Y$ 距離增加、右邊的減少，所以導數是 $P(Y<a)-P(Y>a)$。令它為零得 $P(Y<a)=P(Y>a)$——$a$ 是中位數。例子裡 $a$ 在 22 與 30 之間時導數是 $0.4-0.6<0$，一路遞減到 30 才停，所以最佳是 30。
+固定一個桶，考慮 $\mathbb E|Y-a|$。a 向右移時，左邊的距離增加、右邊的減少；若 a 沒有機率質量，導數是 $P(Y<a)-P(Y>a)$。若 a 有 atom，loss 可能不可微，最佳條件改為 $P(Y<a)\le1/2\le P(Y\le a)$，也就是 median。例子中，22 與 30 之間的斜率為 $0.4-0.6<0$，跨過 30 後則為正，所以最佳為 30。
 
-若低估一度罰 $c_u$、高估一度罰 $c_o$（例如低估讓民眾沒帶外套，罰得重），同樣的微分給 $c_o\,P(Y<a)=c_u\,P(Y>a)$，最佳 $a$ 是 $Y$ 的 $\frac{c_u}{c_u+c_o}$ quantile——懲罰越不對稱，最佳預報越往被罰重的那一側偏。平方誤差是 $c_u=c_o$ 且懲罰隨距離加速的特例，所以它選的是 mean 而不是任何 quantile。
+若低估一單位罰 $c_u$、高估一單位罰 $c_o$，loss 是 $c_u(Y-a)_++c_o(a-Y)_+$。沒有 atom 且可以微分時，最佳點滿足 $c_oP(Y<a)=c_uP(Y>a)$，也就是 $\frac{c_u}{c_u+c_o}$ quantile。若在 $a$ 有機率質量，改用 $P(Y<a)\le\tau\le P(Y\le a)$ 判斷，$\tau=c_u/(c_u+c_o)$。對稱的**絕對誤差**選 median；平方誤差是另一種 loss，不是這個分段線性 loss 的特例。
 </Details>
 
 ## 報 26.8，還是報 30？
@@ -139,7 +139,7 @@ for k in (100, 1000, 3000):
     print(f"前 {k} 天：mean {Z[:k].mean():8.2f}   median {np.median(Z[:k]):6.2f}")
 ```
 
-前兩行印出 MSE 最佳在 26.8、MAE 最佳在 30，兩個數字與表格一致。最後三行是刻意違反「variance 有限」：厚尾之下，累積的 mean 隨著天數**不收斂**（一個離譜值就把它拉走幾度），median 卻穩穩停在 26 附近——這時「MSE 最佳＝mean」在數學上仍成立，但那個 mean 已經不是一個能從資料穩定估出來的量。
+前兩行可和表格比較；有限次模擬的最佳值可能略有偏移。最後使用 Cauchy 分布，刻意違反前提：它的 mean 與 variance 都不存在，所以不能再套用上述有限 MSE 的分解。Sample median 仍可估計分布中心，但不能把這個現象說成「MSE 最佳仍是 mean，只是不好估」。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m1-probability/m1-2-2.html" class="demo-frame" title="拖動預報值：MSE、MAE 與 quantile loss 的最低點" style="height: 800px; width: 100%; border: none;"></iframe>
 
@@ -156,12 +156,12 @@ for k in (100, 1000, 3000):
 </QuizBlock>
 
 <QuizBlock id="m1-2-b">
-承上例，若不滿意程度改成與「實際減預計」的**絕對值**成正比，且送達時間的分佈右偏（偶爾嚴重延誤），最佳報法會怎麼變？
+承上例，若改用絕對誤差，且這個條件分布的 median 比 mean 早，最佳報法會怎麼變？
 <Option>不變，仍是條件平均。</Option>
 <Option>變成報最可能的時間。</Option>
 <Option correct>變成條件中位數，它會比條件平均**早**，因為右偏的長尾把平均往後拉、但對中位數影響小。</Option>
 <Explanation>
-絕對誤差的最小點是中位數。右偏分佈的 mean 大於 median（尾巴把重心拉向右邊），所以換計分後最佳報法往前移。「最可能」是 mode，對右偏分佈通常比 median 更早，但它不是絕對誤差的最佳。這題的重點是：換了計分，答案的位置會實際移動，不只是換個名字。
+絕對誤差選 conditional median；依照題目給定的 mean、median 關係，最佳預報往前移。常見的右尾延誤模型有這個現象，但「右偏」一個描述本身不足以推出所有分布的 mean、median、mode 排序。
 </Explanation>
 </QuizBlock>
 
@@ -178,7 +178,7 @@ for k in (100, 1000, 3000):
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-bayes-posterior">
-本篇用三行證明把「平方誤差最小的策略」釘在 $\mathbb E[Y\mid X]$ 上，並看到換計分就換答案：絕對誤差選中位數、不對稱懲罰選 quantile。「最可能的」是另一種計分的答案，不是平方誤差的。到這裡，「猜」的目標已經清楚——桶內平均。接著處理「桶」本身怎麼算：看到一個觀測結果之後，各種可能的真相各佔多少比例？快篩陽性是最好的例子。
+現在我們知道平方誤差為什麼選 conditional mean，也知道最佳預測要跟著 loss 改變。接下來還缺的是平均的權重：看到一個觀測結果後，每種可能的真相該占多少比例？下一篇用 Bayes 把這些 posterior weights 算出來。
 </Bridge>
 
 ## 參考文獻

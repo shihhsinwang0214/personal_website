@@ -30,7 +30,7 @@ def ispunct(ch):
     return unicodedata.category(ch).startswith('P') or ch in '，。：；、（）？！＋－＝'
 BAN=["先說清楚","課堂上收到的答案","課堂上收到的候選","課堂答案","少數人會說","幾乎沒有人主動說",
      "課堂上大多數人會說","from-noise-to-data","n2d-","dfc-","localhost"]
-KNOWNTAG = re.compile(r'^</?(?:[A-Z][A-Za-z0-9]*|br|iframe|sub|sup|b|i|em|strong|code|span|div|p|a|img|details|summary|table|thead|tbody|tr|td|th|ul|ol|li|hr)\b')
+KNOWNTAG = re.compile(r'^</?(?:[A-Z][A-Za-z0-9]*|br|iframe|sub|sup|b|i|em|strong|code|span|div|p|a|img|figure|figcaption|details|summary|table|thead|tbody|tr|td|th|ul|ol|li|hr)\b')
 bad=0
 for f in sys.argv[1:]:
     s=io.open(f,encoding='utf-8').read(); name=os.path.basename(f)

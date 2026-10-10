@@ -9,8 +9,8 @@ title: "拉直（一）：Reflow"
 category: "courses"
 group: "Unit 3 · 減少 ODE 的離散化誤差"
 status: "available"
-updated: 2026-10-07
-summary: "先讓目前的 ODE 產生終點，再把同一起點與新終點配回去重訓。這個 reflow 迴圈在理想情況下保留邊際、降低凸運輸成本，並逐步找到更直的 flow。"
+updated: 2026-10-09
+summary: "用上一輪 ODE 的端點重新畫直線，再平均出下一輪的 velocity。理想情況下，平方運輸成本的下降量正好是 reference velocity variance 與新 trajectory 的 straightness 相加；成本逐輪不增加，但這兩個量不保證逐輪變小。"
 demos:
   - "notes/research_areas/diffusion-models-applications/w5-3-crossing-reflow.html"
   - "notes/research_areas/diffusion-models-applications/w5-3-reflow.html"
@@ -41,7 +41,7 @@ import Ref from '../../../components/Ref.astro';
 <Objectives>
 - **寫出一輪 rectification。** 從舊配對學速度、跑 ODE，再把同一起點與新終點當成下一輪配對。
 - **說出 rectification 保證什麼。** 在理想 velocity 與精確 ODE 下，新配對保留兩端 marginals，而且不增加任何凸 transport cost。
-- **分清「變直」的保證與限制。** 前 $K$ 輪中至少有一輪的 $S+V$ 降到 $O(1/K)$；這不代表每輪單調改善，也不代表最後的配對已經讓某個指定的運輸成本最小。
+- **分清成本與「變直」的保證。** 成本逐輪不增加，下降量正好是 $V+S$；兩個 variance 都會在理想條件下趨近零，但不保證逐輪變小，也不代表最後的配對是 OT。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -97,8 +97,8 @@ $$
 
 把這個想法寫成數學時，我們先考慮模型學到理想 velocity $v_t$ 的情況。令第一輪使用的 coupling 為 $(X_0,X_1)\sim\pi^{(0)}$；通常會從獨立配對開始。接著做三件事：
 
-1. 照 <Ref to="dma-fm-vs-diffusion"/> 的直線插值 $X_t=(1-t)X_0+tX_1$，得到邊際速度 $v_t(x)=\mathbb E[X_1-X_0\mid X_t=x]$。
-2. 解 ODE $\dot Z_t^{(1)}=v_t(Z_t^{(1)})$、$Z_0^{(1)}=X_0$，走到 $t=1$ 得到 $Z_1^{(1)}$。
+1. 照 <Ref to="dma-fm-vs-diffusion"/> 的直線插值 $I_t=(1-t)X_0+tX_1$，得到邊際速度 $v_t(x)=\mathbb E[X_1-X_0\mid I_t=x]$。
+2. 解 ODE $\frac{\mathrm dZ_t^{(1)}}{\mathrm dt}=v_t(Z_t^{(1)})$、$Z_0^{(1)}=X_0$，走到 $t=1$ 得到 $Z_1^{(1)}$。
 3. 把 $(Z_0^{(1)},Z_1^{(1)})$ 的 joint distribution 當成**新的** coupling：
 
 $$
@@ -123,7 +123,7 @@ $$
 
 ![Rectification 是一個迴圈](./imgs/w5-3-1.png)
 
-*圖：Rectification 是一個迴圈。從配對學出速度場、跑 ODE 取得新終點，再用新配對重訓，交叉的軌跡便逐輪拉直。*
+*圖：Rectification 是一個迴圈。從配對學出速度場、跑 ODE 取得新終點，再用新配對重訓；理想情況下，straightness 最終會趨近零，但不保證每一輪都比上一輪小。*
 
 ## 上下交叉後，ODE 會怎麼走？
 
@@ -190,13 +190,31 @@ $$
 - Reflow 是否仍然建立一條從 $p_0$ 到 $p_1$ 的路徑，不會改掉最後生成的 distribution？
 - Reflow 是否真的會讓 ODE trajectories 越來越直？
 
-為了寫出一般的第 $k$ 輪，令 $(Z_0^{(k)},Z_1^{(k)})\sim\pi^{(k)}$ 表示舊配對；用它完成一次 rectification 後，得到新的 ODE process $Z_t^{(k+1)}$ 與 coupling $\pi^{(k+1)}$。
+為了看清楚 $Z^{(k)}$ 怎麼產生 $Z^{(k+1)}$，下面先考慮理想 velocity 與精確、解唯一的 ODE，並假設端點具有有限二階矩。令 $(Z_0^{(k)},Z_1^{(k)})\sim\pi^{(k)}$ 表示舊配對。
 
 第 $k$ 輪仍然用直線連接這組端點，它的 reference process 是
 
 $$
 I_t^{(k)}=(1-t)Z_0^{(k)}+tZ_1^{(k)}.
 $$
+
+這條直線的 reference velocity 是 $Z_1^{(k)}-Z_0^{(k)}$。依照 U2.1 的 L2 regression，將這一輪由舊配對決定的 optimal velocity 記成
+
+$$
+v_t(x)=\mathbb E\!\left[
+Z_1^{(k)}-Z_0^{(k)}\mid I_t^{(k)}=x
+\right].
+$$
+
+下一輪不是沿用舊 trajectory 的 velocity，而是沿著這個重新平均出來的 field 前進：
+
+$$
+\frac{\mathrm dZ_t^{(k+1)}}{\mathrm dt}
+=v_t(Z_t^{(k+1)}),
+\qquad Z_0^{(k+1)}=Z_0^{(k)}.
+$$
+
+**舊 ODE 的端點決定新的 reference paths；它們平均出的 velocity，再決定新的 ODE trajectory。** 每一輪的 $v_t$ 都由當輪的 $\pi^{(k)}$ 重新決定，不是把同一個 field 反覆積分。
 
 **（一）保留 marginals。** Rectification 重新安排的是「每個起點要配到哪個終點」，不是兩端各自的 distribution。新的 ODE 仍從原本的起點出發，因此
 
@@ -214,67 +232,39 @@ $$
 
 想像原本每個人都配好一個目的地。Rectification 可以重新安排「誰去哪裡」，但出發地與目的地的整體人數分布不變。也就是說，**端點的配對改了，但兩端的 distributions 沒有變。**
 
-**（二）不增加運輸成本。** 我們還可以證明：對任何凸函數（convex function）$c$，
+## 成本下降，和兩種 velocity variance 有什麼關係？
+
+**（二）成本不會增加。** 我們先看最具體的平方運輸成本，也就是每組端點的位移平方，再對 coupling 取平均：
 
 $$
-\mathbb E\!\left[c\!\left(Z_1^{(k+1)}-Z_0^{(k+1)}\right)\right]
-\le
-\mathbb E\!\left[c\!\left(Z_1^{(k)}-Z_0^{(k)}\right)\right].
+C^{(k)}:=\mathbb E_{\pi^{(k)}}\!\left[
+\left\|Z_1^{(k)}-Z_0^{(k)}\right\|^2
+\right].
 $$
 
-$c$ 決定「搬一段距離有多貴」；這條式子說，換成新配對後，平均運輸成本不會比舊配對更高。
+回到散場的例子，這個量比較的是每個人被分配到的目的地有多遠，不是他沿 ODE 實際走過的路有多長。那從舊配對產生下一輪後，$C^{(k)}-C^{(k+1)}$ 究竟會是多少？
 
-<Details summary="為什麼 convex transport cost 不會增加？">
-固定第 $k$ 輪，它的 optimal velocity 是
-
-$$
-v_t(x)=\mathbb E\!\left[Z_1^{(k)}-Z_0^{(k)}\mid I_t^{(k)}=x\right].
-$$
-
-新 ODE 的端點位移等於沿途 velocity 的積分。接著先對時間平均使用 Jensen，再利用 $Z_t^{(k+1)}$ 與 $I_t^{(k)}$ 的 marginals 相同，最後對 conditional expectation 再使用一次 Jensen：
+先看舊 reference paths。站在同一個時間、位置，不同的人可能要求不同的 velocity，而 $v_t$ 只能給它們的平均。原論文 [1] 用 $V$ 量出這些 reference velocities 離平均有多遠：
 
 $$
-\begin{aligned}
-&\mathbb E\!\left[c\!\left(Z_1^{(k+1)}-Z_0^{(k+1)}\right)\right] \\
-&=\mathbb E\!\left[c\!\left(\int_0^1v_t(Z_t^{(k+1)})\,\mathrm dt\right)\right] \\
-&\le \int_0^1\mathbb E\!\left[c\!\left(v_t(Z_t^{(k+1)})\right)\right]\mathrm dt \\
-&=\int_0^1\mathbb E\!\left[c\!\left(v_t(I_t^{(k)})\right)\right]\mathrm dt \\
-&\le \mathbb E\!\left[c\!\left(Z_1^{(k)}-Z_0^{(k)}\right)\right].
-\end{aligned}
+V(\pi^{(k)})
+=\int_0^1\mathbb E\!\left[
+\left\|
+\left(Z_1^{(k)}-Z_0^{(k)}\right)-v_t(I_t^{(k)})
+\right\|^2
+\right]\mathrm dt.
 $$
 
-兩次 Jensen 各處理一個平均：第一次是沿時間取平均，第二次是把同一個 $I_t^{(k)}$ 上可能出現的 reference velocities 取平均。
-</Details>
+這就是 **conditional variance**：先固定 $(x,t)$，看相容的 reference velocities 有多不一致，再對位置與時間平均。向量的平方 norm 會把各分量的 variance 加總成一個數。$V=0$ 時，幾乎所有 $(x,t)$ 上的 reference velocities 都已經一致；它不是神經網路沒學好的誤差。
 
-其中，取 $c(a)=\|a\|^2$ 時，我們得到更具體的式子：
-
-$$
-\mathbb E\!\left[\left\|Z_1^{(k+1)}-Z_0^{(k+1)}\right\|^2\right]
-\le
-\mathbb E\!\left[\left\|Z_1^{(k)}-Z_0^{(k)}\right\|^2\right].
-$$
-
-> **新配對兩端的平均位移平方，不會比舊配對更大。**
-
-這裡會自然出現一個更強的問題：**在所有連接 $p_0$ 與 $p_1$ 的 couplings 裡，哪一個配對的平均搬運成本最低？** 這就是 optimal transport（OT）要解的問題。給定成本函數 $c$，OT coupling 定義為
+再看新的 ODE trajectory。即使每個位置只給出一個 velocity，同一個人沿途看到的 velocity 還是可能改變。因為時間區間是 $[0,1]$，這條 trajectory 的平均 velocity 就是總位移：
 
 $$
-\pi_{\mathrm{OT}}
-\in
-\underset{\pi\in\Pi(p_0,p_1)}{\arg\min}
-\;\mathbb E_{(X_0,X_1)\sim\pi}
-\big[c(X_1-X_0)\big],
+\int_0^1 v_t(Z_t^{(k+1)})\,\mathrm dt
+=Z_1^{(k+1)}-Z_0^{(k+1)}.
 $$
 
-其中 $\Pi(p_0,p_1)$ 是所有兩端 marginals 分別為 $p_0,p_1$ 的 couplings。想像每個人的出發地和各捷運站最後要接收的人數都固定；coupling 決定「誰去哪一站」，OT coupling 則是在所有合法分派中，找出總搬運成本最低的那一個。當 $c(a)=\|a\|^2$ 時，就是二次成本的 OT coupling；更完整的定義可以看 <Ref to="math-warehouse-ot">搬倉庫問題：Monge、Kantorovich 與 Coupling</Ref>。
-
-上面的不等式目前只告訴我們：rectification 之後的成本**不會增加**。它還沒有說新配對已經是所有 couplings 中最省的那一個。
-
-不過，端點變近不等於中間一定走直線；一條路的起點與終點很近，中間仍然可能繞一大圈。那運輸成本下降，究竟為什麼會和「變直」有關？
-
-## 運輸成本下降，為什麼會和「變直」有關？
-
-我們需要分別量出兩種不一致。第一個量 $S$ 看新的 ODE trajectory：當下 velocity 和「從起點等速直達終點」所需的固定 velocity，相差多少。Liu、Gong 與 Liu 的 Rectified Flow 原始論文《Flow Straight and Fast》[1] 把這個量稱為 **straightness**：
+因此，我們可以看**同一條 trajectory 沿時間的 velocity variance**，再對隨機起點取平均。Liu、Gong 與 Liu 的原論文 [1] 把這個量稱為 **straightness**：
 
 $$
 S(Z^{(k+1)})
@@ -286,7 +276,7 @@ S(Z^{(k+1)})
 \right]\mathrm dt.
 $$
 
-$S(Z^{(k+1)})=0$ 時，每一條 ODE trajectory 都以固定速度走直線，因此一步 Euler 就能精確走到終點。
+$S(Z^{(k+1)})=0$ 時，幾乎每一條 ODE trajectory 都以固定速度走直線，因此一步 Euler 就能精確走到終點。不同人可以有不同速度；$S$ 比較的是**同一個人的速度沿途有沒有變**，不是把所有人的速度混在一起算 variance。
 
 <Details summary="straightness 和 U3.1 的加速度積分有什麼關係？">
 這裡的 straightness 和 <Ref to="dma-error-theory">U3.1</Ref> 使用的加速度積分
@@ -309,76 +299,67 @@ $$
 所以 straightness 等於零時，U3.1 控制 Euler error 的加速度積分也等於零；但在一般情況下，兩個數值不必一起變大或變小。Reflow 的定理直接控制的是下面的 $S+V$，要把它連到 finite-step error，仍然要使用 U3.1 的分析。
 </Details>
 
-第二個量 $V$ 看舊 coupling 製造出的 reference paths：同一個 $I_t^{(k)}$ 附近，reference velocities 有多不一致：
+接著把兩個 variance 接進成本計算。舊 reference velocity 可以拆成「conditional mean $v_t(I_t^{(k)})$」與「離平均的偏差」。後者在給定 $I_t^{(k)}$ 時平均為零，因此展開平方後，交叉項會消失：
 
 $$
-V(\pi^{(k)})
-=\int_0^1\mathbb E\!\left[
-\left\|
-\left(Z_1^{(k)}-Z_0^{(k)}\right)
--\mathbb E\!\left[
-Z_1^{(k)}-Z_0^{(k)}
-\mid I_t^{(k)}
-\right]
-\right\|^2
-\right]\mathrm dt.
-$$
-
-$V(\pi^{(k)})=0$ 時，同一個位置不再同時出現彼此衝突的方向，L2 regression 也不必把它們平均起來。
-
-這兩個量和剛才的平均位移平方之間，有一條精確的關係：
-
-$$
-\begin{aligned}
-&\mathbb E\!\left[\left\|Z_1^{(k)}-Z_0^{(k)}\right\|^2\right]
--\mathbb E\!\left[\left\|Z_1^{(k+1)}-Z_0^{(k+1)}\right\|^2\right] \\
-&\qquad=V(\pi^{(k)})+S(Z^{(k+1)}).
-\end{aligned}
-$$
-
-左邊是這一次 rectification 讓運輸成本下降了多少；右邊正好是**舊 reference directions 的不一致**，加上**新 ODE trajectory 距離等速直線還有多遠**。所以並不是「端點距離變小，就自動代表路徑變直」；真正的原因是，成本下降量剛好可以分解成這兩種非負的誤差。
-
-<Details summary="成本差為什麼正好等於 $V+S$？">
-Law of total variance 給出
-
-$$
-\begin{aligned}
-\mathbb E\!\left[\left\|Z_1^{(k)}-Z_0^{(k)}\right\|^2\right]
+C^{(k)}
 =V(\pi^{(k)})
 +\int_0^1\mathbb E\!\left[\left\|v_t(I_t^{(k)})\right\|^2\right]\mathrm dt.
+$$
+
+這就是平方誤差的 variance 分解。接著，$I_t^{(k)}$ 與 $Z_t^{(k+1)}$ 在每個時刻的 marginal 相同，所以同一個函數 $\|v_t(\cdot)\|^2$ 對它們取平均，結果也相同：
+
+$$
+\begin{aligned}
+&\int_0^1\mathbb E\|v_t(I_t^{(k)})\|^2\,\mathrm dt\\
+&\qquad=\int_0^1\mathbb E\|v_t(Z_t^{(k+1)})\|^2\,\mathrm dt.
 \end{aligned}
 $$
 
-又因為 $I_t^{(k)}$ 與 $Z_t^{(k+1)}$ 在每個時刻的 marginal 相同，中間那一項可以換成
-
-$$
-\int_0^1\mathbb E\!\left[
-\left\|\frac{\mathrm d Z_t^{(k+1)}}{\mathrm dt}\right\|^2
-\right]\mathrm dt.
-$$
-
-另一方面，把 $S(Z^{(k+1)})$ 的平方展開，再用
-
-$$
-\int_0^1\frac{\mathrm d Z_t^{(k+1)}}{\mathrm dt}\,\mathrm dt
-=Z_1^{(k+1)}-Z_0^{(k+1)},
-$$
-
-就得到
+最後看右邊。將 $S$ 的平方展開，交叉項用剛才的 $\int_0^1v_t(Z_t^{(k+1)})\,\mathrm dt=Z_1^{(k+1)}-Z_0^{(k+1)}$ 計算：
 
 $$
 \begin{aligned}
 S(Z^{(k+1)})
-&=\int_0^1\mathbb E\!\left[
-\left\|\frac{\mathrm d Z_t^{(k+1)}}{\mathrm dt}\right\|^2
-\right]\mathrm dt \\
-&\quad-\mathbb E\!\left[
-\left\|Z_1^{(k+1)}-Z_0^{(k+1)}\right\|^2
-\right].
+&=\int_0^1\mathbb E\|v_t(Z_t^{(k+1)})\|^2\,\mathrm dt\\
+&\quad-2C^{(k+1)}+C^{(k+1)}.
 \end{aligned}
 $$
 
-把這兩條式子相減，就得到正文中的成本差分解。
+也就是「速度平方的時間平均，減去平均速度的平方」。移項後得到
+
+$$
+\int_0^1\mathbb E\|v_t(Z_t^{(k+1)})\|^2\,\mathrm dt
+=S(Z^{(k+1)})+C^{(k+1)}.
+$$
+
+把這條式子代回舊成本的分解，就得到原論文 Theorem 3.7 [1] 使用的等式：
+
+$$
+\boxed{
+C^{(k)}-C^{(k+1)}
+=V(\pi^{(k)})+S(Z^{(k+1)}).
+}
+$$
+
+左邊是這一輪**平方運輸成本下降了多少**；右邊是舊 paths 在同一位置的 velocity variance，加上新 ODE 在同一條 trajectory 沿時間的 velocity variance。兩者都非負，因此 $C^{(k+1)}\le C^{(k)}$；只要 $V+S>0$，這一輪成本就會嚴格下降。
+
+> **運輸成本逐輪不增加，但成本下降量 $V+S$，以及個別的 $V$、$S$，不保證逐輪變小。**
+
+<Details summary="換成一般 convex transport cost，仍然不會增加嗎？">
+會。令 convex function $c$ 描述搬運一段位移的成本，並假設相關 expectations 有限。新 ODE 的位移是 velocity 的時間積分；先對時間平均使用 Jensen，再利用兩個 process 的 marginals 相同，最後對 conditional mean 再使用一次 Jensen：
+
+$$
+\begin{aligned}
+&\mathbb E\!\left[c\!\left(Z_1^{(k+1)}-Z_0^{(k+1)}\right)\right] \\
+&=\mathbb E\!\left[c\!\left(\int_0^1v_t(Z_t^{(k+1)})\,\mathrm dt\right)\right] \\
+&\le\int_0^1\mathbb E\!\left[c\!\left(v_t(Z_t^{(k+1)})\right)\right]\mathrm dt \\
+&=\int_0^1\mathbb E\!\left[c\!\left(v_t(I_t^{(k)})\right)\right]\mathrm dt \\
+&\le\mathbb E\!\left[c\!\left(Z_1^{(k)}-Z_0^{(k)}\right)\right].
+\end{aligned}
+$$
+
+兩次 Jensen 分別處理沿時間的平均，以及同一個 $(x,t)$ 上 reference velocities 的 conditional average。一般 convex cost 仍逐輪不增加；但精確的 $V+S$ 等式，是平方成本才有的分解。
 </Details>
 
 把每一輪的等式從 $k=0$ 加到 $K$，中間的運輸成本會前後抵消：
@@ -388,28 +369,18 @@ $$
 \sum_{k=0}^{K}\Big(
 S(Z^{(k+1)})+V(\pi^{(k)})
 \Big)
-&=
-\mathbb E\!\left[\left\|Z_1^{(0)}-Z_0^{(0)}\right\|^2\right] \\
-&\quad-
-\mathbb E\!\left[\left\|Z_1^{(K+1)}-Z_0^{(K+1)}\right\|^2\right] \\
-&\le
-\mathbb E\!\left[\left\|Z_1^{(0)}-Z_0^{(0)}\right\|^2\right].
+&=C^{(0)}-C^{(K+1)}\\
+&\le C^{(0)}.
 \end{aligned}
 $$
 
-右邊只由最初的 coupling 決定。把這個固定的初始運輸成本記成
-
-$$
-C_0:=\mathbb E\!\left[\left\|Z_1^{(0)}-Z_0^{(0)}\right\|^2\right].
-$$
-
-左邊則是前 $K+1$ 輪留下的 $S+V$ 全部加起來，而且每一項都不小於零。將上面的不等式除以 $K+1$，就得到這些數的平均：
+右邊的 $C^{(0)}$ 只由最初的 coupling 決定。左邊則是前 $K+1$ 輪留下的 $S+V$ 全部加起來，而且每一項都不小於零。將上面的不等式除以 $K+1$，就得到這些數的平均：
 
 $$
 \frac{1}{K+1}
 \sum_{k=0}^{K}
 \Big(S(Z^{(k+1)})+V(\pi^{(k)})\Big)
-\le \frac{C_0}{K+1}.
+\le \frac{C^{(0)}}{K+1}.
 $$
 
 一組數裡的最小值一定不會大於平均值，因此
@@ -417,7 +388,7 @@ $$
 $$
 \min_{0\le k\le K}
 \Big(S(Z^{(k+1)})+V(\pi^{(k)})\Big)
-\le \frac{C_0}{K+1}
+\le \frac{C^{(0)}}{K+1}
 =O(1/K).
 $$
 
@@ -429,10 +400,10 @@ $$
 A_k:=S(Z^{(k+1)})+V(\pi^{(k)})\ge 0.
 $$
 
-如果每一輪都能繼續做 rectification，而且 $C_0<\infty$，那麼
+如果每一輪都能繼續做 rectification，而且 $C^{(0)}<\infty$，那麼
 
 $$
-\sum_{k=0}^{\infty}A_k\le C_0<\infty.
+\sum_{k=0}^{\infty}A_k\le C^{(0)}<\infty.
 $$
 
 一串非負數的總和有限，每一項就必須趨近零；否則只要有某個正數反覆出現，總和便會一直增加。因此
@@ -443,13 +414,27 @@ $$
 
 而非負的 $S(Z^{(k+1)})$ 與 $V(\pi^{(k)})$ 也都會趨近零。也就是說，在理想條件下，reflow 的確會漸近得到更直、方向更一致的 flow。
 
-但要注意這兩個結論的差別：$O(1/K)$ 是針對**前 $K+1$ 輪中最好的 $S+V$**，告訴我們其中最好的一輪可以有多好；$A_k\to0$ 則告訴我們，後面的 couplings 所給出的 reference paths 與 ODE trajectories 最終會越來越直。不過，這裡並沒有推出
+但要注意這兩個結論的差別：$O(1/K)$ 是針對**前 $K+1$ 輪中最好的 $S+V$**，告訴我們其中最好的一輪可以有多好；$A_k\to0$ 則告訴我們，後面的 reference velocities 會漸近一致，ODE trajectories 也會在 $S$ 的意義下漸近成為等速直線。不過，這裡並沒有推出
 
 $$
 S(Z^{(k+2)})\le S(Z^{(k+1)}).
 $$
 
-也就是說，straightness 中途仍然可能上下波動。我們可以說它最後會趨近零，卻不能說它會每一輪都比上一輪小、不停地單調下降到零。
+所以，**成本 $C^{(k)}$ 確實逐輪不增加；不保證單調下降的，是每一輪的下降量 $A_k$，以及其中的 $S$、$V$。** 我們可以說後三者會趨近零，卻不能只靠上面的等式，就說它們每一輪都比上一輪小。
+
+成本下降也不等於已經找到最省的配對。後者需要在所有連接 $p_0$、$p_1$ 的 couplings 中，比較哪一個成本最小，這才是 **optimal transport（OT，最優傳輸）**。
+
+<Remark label="補充" summary="這裡的 OT coupling 是什麼？">
+令 $\Pi(p_0,p_1)$ 表示兩端 marginals 分別為 $p_0$、$p_1$ 的所有 joint distributions。**Quadratic optimal transport** 找的是
+
+$$
+\pi_{\mathrm{OT}}\in
+\underset{\pi\in\Pi(p_0,p_1)}{\operatorname{argmin}}
+\mathbb E_{(X_0,X_1)\sim\pi}\|X_1-X_0\|^2.
+$$
+
+也就是兩端的 distributions 不變，但在所有合法配對中，找出平均位移平方最小的那一種。Reflow 證明成本不比上一輪大；OT 還要求它不比任何其他合法配對大，兩個要求並不相同。
+</Remark>
 
 此外，$S+V\to0$ 只代表 coupling 給出的路徑會越來越直；但這個結果不能推出普通 reflow 一定收斂到 OT coupling。
 
@@ -492,7 +477,7 @@ $$
 - Hertrich、Chambolle 與 Delon [5] 則給出 non-optimal fixed points 與 vanishing-loss counterexamples：即使 flow 已經直，甚至額外限制 velocity 是 gradient field，在缺少 support 與 regularity 條件時仍不代表 OT。
 - Wang 等人 [6] 進一步證明，在 centered Gaussian 的例子裡，普通 rectified flow 只有在兩端 covariance matrices commute 時才得到 OT；不 commute 時，第一輪就可能停在一個 non-optimal fixed point。他們提出的 **$c$-rectified flow** 會針對指定成本限制 velocity 的形式，才在額外的 compactness 與 uniform-integrability 條件下得到收斂至 OT 的保證。
 
-因此，後續結果補上的是「在什麼額外條件或修改下，可以得到更強保證」，並沒有把普通 reflow 在一般情況下直接升級成逐輪單調或必然收斂至 OT。
+因此，後續結果補上的是「在什麼額外條件或修改下，可以得到更強保證」，並沒有把普通 reflow 在一般情況下直接升級成 straightness 逐輪單調下降，或必然收斂至 OT。
 </Details>
 
 <Question id="Q1">
@@ -548,12 +533,12 @@ Reflow 保留的是端點 coupling，不是整條舊 trajectory。重新畫出�
 </QuizBlock>
 
 <QuizBlock id="w5-3-d">
-關於 demo 顯示的數字，下列哪一句**不對**？
-<Option>第一輪的改善遠大於後面幾輪。</Option>
-<Option>終點分布與資料的距離幾乎沒有變大。</Option>
-<Option correct>因為 demo 用的是精確算出來的場，所以實際訓練也會得到同樣的改善幅度。</Option>
+在理想 velocity 與精確 ODE 下，下列哪一句正確？
+<Option correct>平方運輸成本逐輪不增加，但 $S$、$V$ 不保證逐輪變小。</Option>
+<Option>因為成本逐輪不增加，straightness 也一定逐輪嚴格下降。</Option>
+<Option>只要 $S+V\to0$，最後的 coupling 就一定是 OT。</Option>
 <Explanation>
-精確場等於「網路完美、取樣無誤差」，所以 demo 顯示的是**上限**。實際上每一輪的配對都帶著上一輪的模型誤差與數值誤差，這正是實務上只做一到兩輪的原因。
+$C^{(k)}-C^{(k+1)}=V(\pi^{(k)})+S(Z^{(k+1)})\ge0$，因此成本逐輪不增加。這不保證右邊每一項也逐輪下降，更不代表已經在所有合法 couplings 中找到成本最小的配對。
 </Explanation>
 </QuizBlock>
 

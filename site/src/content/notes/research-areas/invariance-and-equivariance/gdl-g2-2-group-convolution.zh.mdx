@@ -1,0 +1,154 @@
+---
+slug: "gdl-g2-2-group-convolution"
+label: "gdl-group-convolution"
+lang: "zh"
+title: "有了方向之後，下一層要怎麼共享規則？"
+category: "courses"
+group: "G2 · Rotations and Feature Types"
+status: "available"
+updated: "2026-10-09"
+summary: "從 C4 的 cyclic convolution 推廣到 group-indexed features，用換變數證明 G-correlation 的 equivariance。"
+prereqs: ["gdl-orientation-channels"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Cohen 與 Welling（2016），Group Equivariant Convolutional Networks"
+    href: "https://arxiv.org/abs/1602.07576"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 有了方向之後，下一層要怎麼共享規則？
+
+<Objectives>
+
+- **從相對方向建立 cyclic convolution。** 說明權重依賴方向差，而不是絕對方向。
+- **寫出 group correlation。** 指出 g、h 與 g⁻¹h 分別代表什麼。
+- **完成換索引的證明。** 檢查 left action 與 correlation 的作用順序。
+
+</Objectives>
+
+<Prereq items={["gdl-orientation-channels"]} />
+
+## 下一層該看哪個方向的鄰居？
+
+在一個路口看見向東的道路時，我們可能想同時看「左轉九十度的道路」是不是也存在。把整張地圖轉過去，向東變向北，但「左轉九十度」這個相對關係沒有改變。
+
+因此下一層應該共享的，不是「方向零永遠用某組權重」，而是：**相對於目前方向，偏轉多少，使用哪個權重。**
+
+先暫時忽略位置，只看四個方向的數值 $h(r)$。讓輸出方向 $r$ 參考所有方向 $s$，並讓權重只依賴 $s-r$：
+
+$$
+F(h)(r)=\sum_{s=0}^3 \psi(s-r)h(s).
+$$
+
+索引都 modulo $4$。輸入 cyclic-shift $q$ 後，$h'(s)=h(s-q)$；令 $w=s-q$，
+
+$$
+F(h')(r)=\sum_w\psi(w+q-r)h(w)=F(h)(r-q).
+$$
+
+所以這層的輸出仍按同一個方式 shift。這是最小的 group convolution 例子。
+
+## 位置與方向，可以一起寫嗎？
+
+把「移到哪裡、轉到哪裡」合成一個 group element $g$。在正方格點上的整數平移加九十度旋轉，形成常用的 $p4$ group；它的組合規則就是 <Ref to="gdl-group-actions" /> 算過的旋轉與平移組合。
+
+Feature $h(g)$ 現在附在每個 pose 上。$g$ 是想產生輸出的位置與方向，$a$ 是我們參考的輸入 pose。兩者的相對關係是 $g^{-1}a$。
+
+用這個相對關係決定權重：
+
+$$
+F(h)(g)=\sum_{a\in G}\psi(g^{-1}a)h(a).
+$$
+
+這裡採 correlation 的慣例，與 CNN 一樣常被合稱 group convolution。有限 $C_4$ 可以直接對全部四個元素求和；無限格點的 $p4$ 實作則通常只使用有限支撐的局部 kernel。
+
+Cohen 與 Welling [1] 用這種 G-correlation 建立 G-CNN。它不是把普通 channel 任意混合，而是依據 feature 所在的 group 座標共享。
+
+## 為什麼同時平移、旋轉仍成立？
+
+令整體變換為 $q$，group feature 的 left action 是
+
+$$
+[T(q)h](a)=h(q^{-1}a).
+$$
+
+這是在新 pose $a$ 讀取搬動前的 pose $q^{-1}a$。將它代入，
+
+$$
+F(T(q)h)(g)=\sum_a\psi(g^{-1}a)h(q^{-1}a).
+$$
+
+令 $b=q^{-1}a$，得到 $a=qb$。Group 的乘法讓
+
+$$
+g^{-1}qb=(q^{-1}g)^{-1}b.
+$$
+
+因此
+
+$$
+\begin{aligned}
+F(T(q)h)(g)
+&=\sum_b\psi((q^{-1}g)^{-1}b)h(b)\\
+&=F(h)(q^{-1}g)\\
+&=[T(q)F(h)](g).
+\end{aligned}
+$$
+
+我們用到的是操作可組合、可取 inverse，以及 action 讓索引一一對應。這也解釋為什麼前面要先建立 group，而不是隻列一串 augmentation。
+
+## 通道、bias 與 activation 怎麼接？
+
+如果每個 group element 上有多個 scalar channels，可以對 input channels 加總、產生多個 output channels；同一套 kernel 仍在所有 $g$ 重用。Bias 也要在 $g$ 上共享。
+
+Group action 只重排這些 $g$ 的索引，所以同樣的 pointwise ReLU 仍可交換。用 <Ref to="gdl-composition-pooling" /> 的組合證明，整個網路就能保留這個 action。
+
+但四個方向 channel 和二維向量的兩個分量不同。前者的旋轉是重排，後者是矩陣混合。接下來我們要把 feature 的型態講清楚，才能知道哪些操作真的可以沿用。
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g2-2.svg" alt="Group correlation 在每個輸出 pose g，按照相對 pose g⁻¹a 讀取鄰居；整體變換不改變相對關係。" loading="lazy" />
+<figcaption>Group correlation 在每個輸出 pose g，按照相對 pose g⁻¹a 讀取鄰居；整體變換不改變相對關係。</figcaption>
+</figure>
+
+<Question>
+
+只要把四個方向當成四個一般 channels，任意使用 dense channel mixing，還會保證 cyclic-shift equivariance 嗎？
+
+<Answer>
+
+不一定。方向 mixing 的權重也必須只依賴相對方向，或滿足同一個交換條件。任意矩陣可能讓特定絕對方向有不同待遇。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+選擇方向 group correlation，再切換旋轉。下一層使用相對方向共享權重，因此仍能按相同規則搬動四個 channels。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=2&chapter=2" class="demo-frame" title="有了方向之後，下一層要怎麼共享規則？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="g⁻¹a 代表什麼？" options={[{"text":"輸入的分類答案。","explain":"相對關係是共享 kernel 的索引。"},{"text":"從目前輸出 pose 看輸入 pose 的相對關係。","correct":true,"explain":"相對關係是共享 kernel 的索引。"}]} />
+
+<Quiz q="證明中為什麼可以令 a=qb？" options={[{"text":"Group action 是一一對應，可以重新索引求和。","correct":true,"explain":"可逆性確保沒有漏算或重複算。"},{"text":"因為 group elements 都是相同的數字。","explain":"可逆性確保沒有漏算或重複算。"}]} />
+
+<Quiz q="G-correlation 需要 group 可交換嗎？" options={[{"text":"需要，所有旋轉和平移都可交換。","explain":"使用 inverse 的恆等式，不是交換 g 和 q。"},{"text":"不需要，證明保持乘法的原順序。","correct":true,"explain":"使用 inverse 的恆等式，不是交換 g 和 q。"}]} />
+
+<Bridge to="gdl-feature-types">
+
+方向 channel 的 action 是 permutation，所以 scalar activation 沒有問題。但如果模型直接預測一支箭頭，旋轉會混合分量；同一個 ReLU 還能用嗎？
+
+</Bridge>
+
+## 參考文獻
+
+1. [Cohen 與 Welling（2016），Group Equivariant Convolutional Networks](https://arxiv.org/abs/1602.07576)

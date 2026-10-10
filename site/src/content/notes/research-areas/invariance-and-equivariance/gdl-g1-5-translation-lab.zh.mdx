@@ -1,0 +1,142 @@
+---
+slug: "gdl-g1-5-translation-lab"
+label: "gdl-translation-lab"
+lang: "zh"
+title: "實作：平移後，CNN 的答案真的一起移了嗎？"
+category: "courses"
+group: "G1 · Symmetry and Translation"
+status: "available"
+updated: "2026-10-09"
+summary: "用可重用的 TranslationCNN 與 Trainer，訓練週期訊號，再測共享、padding 與 stride 的影響。"
+prereqs: ["gdl-boundaries-augmentation"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Cohen 與 Welling（2016），Group Equivariant Convolutional Networks"
+    href: "https://arxiv.org/abs/1602.07576"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 實作：平移後，CNN 的答案真的一起移了嗎？
+
+<Objectives>
+
+- **執行週期訊號訓練。** 分辨模型、target 與對稱測試各自的角色。
+- **同時量 task loss 與 defect。** 用同一批 input 比較共享 CNN 與一般 dense layer。
+- **修改假設並解釋結果。** 將 circular padding 改成 zero padding，或加入 stride，再對照 G1 的條件。
+
+</Objectives>
+
+<Prereq items={["gdl-boundaries-augmentation"]} />
+
+## 從公式回到張量
+
+G1 已經推導 convolution 的平移共享。現在要檢查程式中的每一個操作是否仍符合假設，而不是只看到模型名稱就接受結果。
+
+先使用長度 $32$ 的週期訊號。訓練 input $x$ 是隨機訊號，target 是自己與左鄰居的平均：
+
+$$
+y(u)=\frac{x(u)+x(u-1)}2.
+$$
+
+這個 target 本身 translation-equivariant，而且可以用局部 kernel 計算。我們用它測試架構與學習，不把隨機訊號的 loss 當成真實影像效能。
+
+## 準備與執行
+
+本課的實作使用 Python 3.10 以上與 PyTorch 2.x，CPU 就可以計算。請在自己的 Python 環境安裝 PyTorch，再下載 [gdl_labs.py](/personal_website/notes/research_areas/invariance-and-equivariance/gdl_labs.py)。環境目錄與下載的第三方套件不要加入網站的 Git repository。
+
+```powershell
+python -m pip install torch
+python gdl_labs.py --unit 1 --steps 40
+```
+
+檔案包含可重用的模型與 `Trainer`。模型、loss 與資料來源由外部指定；換資料時保留對稱一致的 tensor interface，不需要修改 training loop。
+
+```python
+from gdl_labs import Trainer
+
+trainer = Trainer(model, loss, lr=0.003)
+history = trainer.fit(batch_fn, steps=40)
+# batch_fn() returns ((model_input_1, model_input_2, ...), target)
+```
+
+## CNN 的介面與測試
+
+```python
+from gdl_labs import TranslationCNN, defect
+import torch
+
+model = TranslationCNN(in_channels=1, out_channels=1, padding='circular')
+x = torch.randn(8, 1, 32)  # batch, channel, position
+model.eval()
+actual = model(torch.roll(x, 5, dims=-1))
+expected = torch.roll(model(x), 5, dims=-1)
+print(defect(actual, expected))
+```
+
+這裡使用完整週期格點，`torch.roll` 是可逆的位置重排。Defect 用 absolute max norm：$\max_u|f(Tx)(u)-Tf(x)(u)|$，不是正文對資料平均的 $D$；兩者比較同樣兩條路，但 aggregation 不同。
+
+在 float32 下，誤差通常接近零或浮點精度。這在隨機初始化也應成立；訓練降低的是 task loss，不是先破壞再修復共享規則。
+
+程式也測試同樣長度的一般 dense layer。它沒有共享約束，通常有非零 defect；這只是一個未訓練 baseline 的一致性比較，不能由此宣稱 CNN 一定有更好的所有 task accuracy。
+
+## 哪些修改應該讓結果改變？
+
+把 padding 改成 zero padding，再用 `torch.roll` 測試。這時 image action 仍是週期重排，但模型的 boundary 不是週期，兩者的假設不一致，差異常出現在邊緣。
+
+加入 stride $2$ 後，請分開測輸入平移 $1$ 格與 $2$ 格。前者不能一般性地對應粗格點整數平移；後者應對應 output 平移 $1$ 格，並且仍要採相容 boundary。
+
+若想比較 augmentation，請固定 train/test split、參數或計算預算，另列 task loss。不能用一個 dense random initialization 的 defect，代替 augmentation 的泛化實驗。
+
+## 作業
+
+保留同一份訊號，完成三組測試：circular padding、zero padding、stride $2$。每組列出 input action、output action、task loss 與 absolute max defect；再用 G1 的哪一個等號不再適用，解釋結果。
+
+加分部分：在測試中只保留離邊界足夠遠的位置，觀察 zero-padding 差異與網路 receptive field 的關係。先算 receptive field，再選 interior，不要看完結果才挑區域。
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g1-5.svg" alt="實作分別記錄 task loss 與兩條平移計算路的 defect；改 padding 或 stride，就是改 proof 的條件。" loading="lazy" />
+<figcaption>實作分別記錄 task loss 與兩條平移計算路的 defect；改 padding 或 stride，就是改 proof 的條件。</figcaption>
+</figure>
+
+<Question>
+
+為什麼 CNN 的 defect 可以在訓練前就很小，但 task loss 卻很大？
+
+<Answer>
+
+Defect 由共享與相容 action 保證，任意合法參數都可以成立。Task loss 則要求 kernel 學會指定的平均 target；兩者不是同一個目標。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+改變平移與 stride，對照下方的兩條計算路。實作中的 symmetry test 做的也是這個比較，不只是檢查 loss。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=1&chapter=5" class="demo-frame" title="實作：平移後，CNN 的答案真的一起移了嗎？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="這裡的 defect 用哪個 aggregation？" options={[{"text":"每個模型的分類正確率。","explain":"量的是兩條計算路的最大差。"},{"text":"測試 tensor 的 absolute max norm。","correct":true,"explain":"量的是兩條計算路的最大差。"}]} />
+
+<Quiz q="修改 zero padding 後要怎麼讀結果？" options={[{"text":"先檢查 boundary 與 input action 是否相容。","correct":true,"explain":"理想 proof 的取樣與邊界條件可能不同。"},{"text":"非零 defect 一定表示 autograd 壞掉。","explain":"理想 proof 的取樣與邊界條件可能不同。"}]} />
+
+<Quiz q="比較 augmentation 要另外報告什麼？" options={[{"text":"只報參數量就能保證公平。","explain":"不同模型的對稱與任務表現應分開。"},{"text":"同一 test split 下的 task error 與計算預算。","correct":true,"explain":"不同模型的對稱與任務表現應分開。"}]} />
+
+<Bridge to="gdl-rotation-problem">
+
+G1 把平移從生活直覺、權重約束一路做到測試。但手機還會轉動；下一個單元從普通 CNN 的方向反例開始。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Cohen 與 Welling（2016），Group Equivariant Convolutional Networks](https://arxiv.org/abs/1602.07576)

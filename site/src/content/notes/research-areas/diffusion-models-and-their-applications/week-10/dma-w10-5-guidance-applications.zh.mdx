@@ -1,0 +1,224 @@
+---
+slug: "dma-w10-5-guidance-applications"
+label: "dma-guidance-applications"
+prereqs:
+  - dma-reward-tilting
+  - dma-gradient-free-steering
+  - math-bayes-posterior
+lang: "zh"
+title: "當 reward 變成觀測、目標與限制，我們到底在抽什麼？"
+category: "courses"
+group: "Unit 7 · Test-time Guidance"
+status: "available"
+updated: 2026-10-09
+summary: "同一個 test-time steering 公式，在 inverse problems 裡是 posterior sampling，在 data assimilation 裡要追蹤隨物理時間演化的 state，在 planning 裡要兼顧 return 與 dynamics feasibility，在 scientific design 與 rare events 裡則常遇到昂貴、black-box 或 hard constraints。"
+demos: []
+references:
+  - label: "Chung et al., Diffusion Posterior Sampling for General Noisy Inverse Problems (2022)"
+    href: "https://arxiv.org/abs/2209.14687"
+  - label: "Huang et al., DiffDA: a Diffusion Model for Weather-scale Data Assimilation (ICML 2024)"
+    href: "https://proceedings.mlr.press/v235/huang24h.html"
+  - label: "Janner et al., Planning with Diffusion for Flexible Behavior Synthesis (ICML 2022)"
+    href: "https://proceedings.mlr.press/v162/janner22a.html"
+  - label: "Uehara et al., Reward-Guided Iterative Refinement in Diffusion Models at Test-Time (ICML 2025)"
+    href: "https://proceedings.mlr.press/v267/uehara25a.html"
+  - label: "Guo, Tang & Xu, Conditional Diffusion Guidance under Hard Constraint (2026)"
+    href: "https://arxiv.org/abs/2602.05533"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 當 reward 變成觀測、目標與限制，我們到底在抽什麼？
+
+<Objectives>
+- **把 inverse problem 寫成 reward tilting。** 由 observation model 推出 posterior $p(x_0\mid y)\propto p_{\mathrm{data}}(x_0)p(y\mid x_0)$，並辨認 data fidelity term。
+- **分清 diffusion time 與系統的 physical time。** 說出 data assimilation 為什麼要處理一串會隨 $k$ 演化的 states，而不只是一張固定的未知圖片。
+- **比較 planning、scientific design 與 hard constraints 的 reward 結構。** 判斷 reward 是否可微、是否昂貴、是否只在終點可得，以及 soft tilting 能不能保證 constraint 一定成立。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 同一條公式，換一個場景就換一種名字
+
+<Ref to="dma-reward-tilting"/> 把 test-time steering 寫成
+
+$$
+p_R(x_0)\propto p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}.
+$$
+
+這條式子不只描述人類偏好。在 inverse problem 裡，$R$ 來自 observation likelihood；在 planning 裡，它是一整段 trajectory 的 return；在 scientific design 裡，它可能是一個昂貴 simulator 的輸出。若要求「一定不能撞到障礙物」，它甚至不是平滑分數，而是一個 hard constraint。
+
+所以真正的差別不只是 application name，而是：**我們觀測到什麼、reward 在哪個時刻才能算、能不能微分，以及最後要一個最佳解還是整個 posterior。**
+
+<Ask>
+把真實問題寫成 steering 時，<br />
+哪些結構可以直接放進 reward，哪些不能省略？
+</Ask>
+
+## Inverse problem：觀測是 condition，data distribution 是 prior
+
+想像一張清楚影像 $x_0$ 經過相機模糊、降解析度或遮掉 pixels，只留下 observation $y$。把量測過程寫成
+
+$$
+y=A(x_0)+\eta,
+\qquad
+\eta\sim\mathcal N(0,\sigma_y^2I).
+$$
+
+$A$ 是已知的 measurement operator；不同的 $A$ 對應 deblurring、super-resolution、inpainting、MRI 或其他量測。Gaussian measurement noise 給出的 likelihood 是
+
+$$
+\log p(y\mid x_0)
+=-\frac{\|y-A(x_0)\|^2}{2\sigma_y^2}+C.
+$$
+
+平方誤差衡量重建結果經過 $A$ 後，能不能回到真的 observation；這一項通常叫 **data fidelity**。Bayes rule 給出
+
+$$
+\boxed{
+p(x_0\mid y)
+\propto
+p_{\mathrm{data}}(x_0)
+\exp\!\left(-\frac{\|y-A(x_0)\|^2}{2\sigma_y^2}\right)
+}.
+$$
+
+這正是 $\lambda=1$、$R(x_0)=\log p(y\mid x_0)$ 的 reward tilt。Diffusion model 提供 prior，likelihood gradient 或 particle weighting 則把樣本拉向與 observation 相容的區域。Chung 等人的 Diffusion Posterior Sampling [1] 就沿著這條思路近似 noisy posterior score，處理一般 noisy inverse problems。
+
+<Question id="Q1">
+既然 observation 已經固定，**找出 data fidelity 最小、又最像資料的那一張重建結果，不就完成了嗎？為什麼還要 sample posterior？**
+
+<Answer>
+如果量測丟掉了資訊，同一個 $y$ 可能對應很多合理的 $x_0$。一張低解析度人臉無法決定每一根頭髮；一塊被遮住的影像可能有多種補法。找一個最佳點得到的是 MAP-like solution，卻看不到其他同樣合理的 modes。
+
+posterior sampling 回答的是另一個問題：**哪些答案和 observation 相容，而且各有多可能？** 多抽幾次後，穩定不變的部分表示 observation 與 prior 都很確定；每次都不同的部分則顯示 uncertainty。
+
+在 data assimilation 與 scientific inference 裡，這種 uncertainty 不是視覺上的多樣性，而會直接影響後續預測與決策。只有任務明確只要一個 point estimate 時，才可以把 sampling 問題改成 optimization；兩者不能用同一個指標互相代替。
+</Answer>
+</Question>
+
+## Data assimilation：觀測與 hidden state 都隨 physical time 前進
+
+天氣預報不是只修復一張圖。大氣 state 會按照 dynamics 演化，衛星與測站又在不同時刻提供新的 observations。為了不和 diffusion time $t$ 混在一起，這裡用 $k$ 表示系統的 **physical time**：
+
+$$
+z_{k+1}=F(z_k)+\xi_k,
+\qquad
+y_k=H(z_k)+\eta_k.
+$$
+
+$F$ 是 state dynamics，$H$ 是 observation operator；$\xi_k$ 與 $\eta_k$ 分別表示 process uncertainty 與 measurement noise。Data assimilation 要結合 forecast 與 observations，推回 hidden states 的 posterior。
+
+只使用目前以前的 observations $y_{0:k}$ 推估 $z_k$，叫 **filtering**；等後面的 observations 也到齊，再回頭修正一整段 $z_{0:K}$，叫 **smoothing**。Diffusion model 可以替 plausible states 或 trajectories 提供 prior，但每一個 diffusion sampling step 裡的 $t$ 只是數值生成進度，**不是天氣真的往前走的 physical time $k$**。
+
+Huang 等人的 DiffDA [2] 把 diffusion model 用在 weather-scale data assimilation。這類問題的重點不只是 observation guidance，還要讓 samples 與 system dynamics 相容；若每個 $k$ 各自重建，可能得到一串每張都合理、接起來卻不符合物理的 states。
+
+## Planning：生成的不是圖片，而是一整段決策
+
+在 planning 裡，樣本本身是一條 trajectory，例如
+
+$$
+\tau=(z_0,a_0,z_1,a_1,\ldots,z_K).
+$$
+
+從 demonstration data 學到的 $p_{\mathrm{data}}(\tau)$ 表示哪些行為與 dynamics 常見；reward $R(\tau)$ 則表示這一段行為完成任務的程度。Tilted target 仍是
+
+$$
+p_R(\tau)\propto p_{\mathrm{data}}(\tau)e^{\lambda R(\tau)}.
+$$
+
+Janner 等人的 Diffuser [3] 將 trajectory optimization 寫成 diffusion sampling，並用 reward guidance 與 inpainting 表示 goals 或固定的 states。這裡的 data fidelity 有一個很實際的意思：**高 reward trajectory 還必須像資料裡可執行的行為，不能穿牆或違反 dynamics。**
+
+Reward 通常會把多個 physical times 的回報加起來，也可能只有成功／失敗的 terminal signal。前者比較容易提供沿途訊號；後者則更接近 <Ref to="dma-gradient-free-steering"/> 的 rare target，需要 lookahead、particles 或 search 才不會只在最後才知道走錯。
+
+## Scientific design：評分一次可能就很貴
+
+分子、蛋白質、DNA 與材料設計的候選 $x_0$ 往往是高維、結構化而且離散／連續混合的物件。$p_{\mathrm{data}}$ 學的是「哪些結構看起來像可行設計」，reward 則來自 binding affinity、stability、manufacturability 或其他 scientific oracle。
+
+這裡常同時出現三個困難：reward 可能不可微；一次 simulation 或實驗很昂貴；而且目標通常不只一個。Uehara 等人 [4] 以 test-time reward-guided iterative refinement 處理 protein 與 DNA design，反覆進行 noising 與 guided denoising，讓前一輪 reward optimization 造成的偏差有機會被修正。
+
+因此 scientific design 不能只問「哪個方法 reward 最高」。還要記錄用了幾次 oracle evaluations、候選是否滿足基本結構 constraints，以及不同 high-reward modes 有沒有被保留下來。
+
+## Hard constraint 與 rare event：高分還不等於一定成立
+
+若要求樣本一定落在事件 $E$，真正的 target 是
+
+$$
+p(x_0\mid E)
+=\frac{p_{\mathrm{data}}(x_0)\mathbf 1_E(x_0)}{\mathbb P_{p_{\mathrm{data}}}(E)}.
+$$
+
+$\mathbf 1_E$ 只有 0 或 1，沒有一般可用的 gradient。把它換成有限強度的 soft reward，可以增加滿足 constraint 的機率，卻不能保證每個 sample 都合法。Guo、Tang 與 Xu [5] 因此直接研究 hard-constraint conditional diffusion，利用 conditioning function 的 log-gradient 建構 drift correction，並分析 guidance estimation error。
+
+Rare-event simulation 也有相同結構：事件越少見，Best-of-$N$ 越浪費；particles 與 tempering 能把計算逐步集中到事件附近，但要避免早期把尚未顯露的成功 trajectories 淘汰掉。
+
+<Remark label="檢查" summary="把應用翻成 steering 時，先回答四個問題">
+1. Base distribution 是單一 state、整段 trajectory，還是 source variables？
+2. Condition／reward 在 clean sample 才能算，還是在 noisy state 也有可靠訊號？
+3. 它能不能微分？一次 evaluation 的成本是多少？
+4. 目標是提高平均 reward、sample posterior，還是讓 hard constraint 以機率一成立？
+
+前兩問決定 target distribution，後兩問決定 gradient guidance、particles、search 或專門的 constrained sampler 哪一個比較合適。
+</Remark>
+
+<VizPlan id="u7-5-applications" title="同一個 tilted target，在五個場景裡的角色對照" type="static">
+- 檔名：`w10-5-guidance-applications.png`；放在 hard constraint 段落之後。
+- 五欄：模糊影像／天氣 states／機器人 trajectory／蛋白質結構／安全 rare event；每欄只畫 base prior、額外訊號與要抽的 target。
+- 中文標註：`likelihood`、`隨 physical time 更新的 observations`、`return + dynamics`、`昂貴 black-box oracle`、`indicator constraint`。
+- 觀察句：它們共享 $p_R\propto p_{\mathrm{data}}e^{\lambda R}$ 的骨架，但 reward 的資訊結構與成功標準並不相同。
+- 風格：像課程比較表的視覺版；每欄使用同一組三層配色，不放應用照片拼貼。
+</VizPlan>
+
+## 消化一下
+
+<QuizBlock id="w10-5-a">
+Gaussian-noise inverse problem 中，$-\|y-A(x_0)\|^2/(2\sigma_y^2)$ 扮演什麼角色？
+<Option>Diffusion noise schedule。</Option>
+<Option correct>Observation log-likelihood，也就是 data fidelity reward。</Option>
+<Option>Posterior entropy。</Option>
+<Explanation>
+它衡量候選 $x_0$ 經過 measurement operator 後和 observation 的差距。與 data prior 相乘後才得到 posterior。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w10-5-b">
+Data assimilation 裡的 physical time $k$ 和 diffusion time $t$ 有什麼差別？
+<Option>沒有差別，兩者都是天氣往前演化的時間。</Option>
+<Option correct>$k$ 描述系統真的如何演化與接收 observations；$t$ 描述生成器從 noise 到 sample 的 sampling 進度。</Option>
+<Option>$t$ 只能是離散的，$k$ 只能是連續的。</Option>
+<Explanation>
+一個 physical state trajectory 的每個 $k$，都可能各自需要一段 diffusion／flow sampling。把兩個時間混用會把 model dynamics 與 sampler dynamics 混在一起。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w10-5-c">
+若 reward 是 $R(x_0)=\mathbf 1_E(x_0)$，有限的 $\lambda$ 做 exponential tilting 可以保證每個樣本都在 $E$ 嗎？
+<Option>可以，因為 $e^{\lambda}>1$。</Option>
+<Option correct>不可以；它只會提高 $E$ 的相對權重，$E^c$ 仍有非零 density。Hard constraint 需要真正 condition on $E$ 或專門的 constrained sampler。</Option>
+<Option>可以，但只限 deterministic sampler。</Option>
+<Explanation>
+Soft reward 與 probability-one constraint 是不同的目標。有限權重不會把違規區域的 mass 自動消成零。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-lab-guidance">
+這個單元現在有一條完整主線：先用 Bayes 得到 classifier guidance，再以 conditional／unconditional difference 拿掉 classifier，接著用 reward tilting 定義任意目標，最後讓 particles 處理沒有 gradient 的情況。<Ref to="dma-lab-guidance"/> 會把這些方法放到同一個 2D distribution 上，固定 base score 與計算預算，比較 $w$、$N$、particle count 各自改變了 reward、data fidelity 與 diversity 的哪一部分。
+</Bridge>
+
+## 參考文獻
+
+1. Chung, H., Kim, J., McCann, M. T., Klasky, M. L., Ye, J. C. [*Diffusion Posterior Sampling for General Noisy Inverse Problems.*](https://arxiv.org/abs/2209.14687) 2022.
+2. Huang, L., Gianinazzi, L., Yu, Y., Dueben, P. D., Hoefler, T. [*DiffDA: a Diffusion Model for Weather-scale Data Assimilation.*](https://proceedings.mlr.press/v235/huang24h.html) ICML 2024.
+3. Janner, M., Du, Y., Tenenbaum, J., Levine, S. [*Planning with Diffusion for Flexible Behavior Synthesis.*](https://proceedings.mlr.press/v162/janner22a.html) ICML 2022.
+4. Uehara, M. et al. [*Reward-Guided Iterative Refinement in Diffusion Models at Test-Time with Applications to Protein and DNA Design.*](https://proceedings.mlr.press/v267/uehara25a.html) ICML 2025.
+5. Guo, Z., Tang, W., Xu, R. [*Conditional Diffusion Guidance under Hard Constraint: A Stochastic Analysis Approach.*](https://arxiv.org/abs/2602.05533) 2026.

@@ -2,8 +2,8 @@
 slug: "gnn-permutation-equivariance-road-networks"
 lang: "en"
 title: "A Map Is Also a Graph"
-category: "research-areas"
-group: "Invariance and Equivariance"
+category: "courses"
+group: "G5 · Graphs and Message Passing"
 status: "missing"
 updated: 2026-06-23
 summary: "English translation in progress; content-agent task."

@@ -1,0 +1,198 @@
+---
+slug: "dma-w10-2-classifier-free-guidance"
+label: "dma-classifier-free-guidance"
+prereqs:
+  - dma-classifier-guidance
+  - dma-tweedie-and-score
+lang: "zh"
+title: "不另外訓練 classifier，也能得到同一支 guidance 嗎？"
+category: "courses"
+group: "Unit 7 · Test-time Guidance"
+status: "available"
+updated: 2026-10-09
+summary: "Conditional 與 unconditional score 的差，正好等於 classifier guidance 需要的方向。Classifier-free guidance 讓同一個 diffusion model 同時學會兩種 prediction，再在 sampling 時放大它們的差；w=1 是 conditional prediction，w>1 則是刻意銳化。"
+demos: []
+references:
+  - label: "Ho & Salimans, Classifier-Free Diffusion Guidance (2022)"
+    href: "https://arxiv.org/abs/2207.12598"
+  - label: "Dhariwal & Nichol, Diffusion Models Beat GANs on Image Synthesis (NeurIPS 2021)"
+    href: "https://arxiv.org/abs/2105.05233"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 不另外訓練 classifier，也能得到同一支 guidance 嗎？
+
+<Objectives>
+- **推出 conditional 與 unconditional score 的差。** 由 Bayes rule 得到 $s_t(x_t\mid y)-s_t(x_t)=\nabla_{x_t}\log p_t(y\mid x_t)$。
+- **寫出 classifier-free guidance 的 sampling 公式。** 說明 conditioning dropout 如何讓同一個網路提供兩個 prediction，並在 score 與 noise 空間完成換算。
+- **正確解讀 guidance strength。** 說出 $w=0$、$w=1$ 與 $w>1$ 分別對應的 sampling 行為，以及放大 condition 的代價。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 外部 classifier 給的方向，模型自己有沒有？
+
+<Ref to="dma-classifier-guidance"/> 得到的 conditional score 是
+
+$$
+\nabla_{x_t}\log p_t(x_t\mid y)
+=s_t(x_t)+\nabla_{x_t}\log p_t(y\mid x_t).
+$$
+
+這個方法的數學很直接，代價也很直接：我們得另外訓練一個能看所有 noise levels 的 classifier，sampling 時每一步還要對它求 gradient。
+
+可是如果 diffusion model 本來就是 conditional model，它其實已經會回答兩個問題：「看到 condition $y$ 時，這裡該往哪裡走？」以及「不給 condition 時，這裡該往哪裡走？」想像請同一位設計師各畫一次：一次看著 prompt，一次不看。**兩張草圖的差，正好隔離出 prompt 改變了什麼。**
+
+<Ask>
+conditional 與 unconditional prediction 的差，<br />
+會不會就是 classifier 原本要提供的方向？
+</Ask>
+
+## 把 Bayes identity 反過來讀
+
+把 conditional score 記成 $s_t(x_t\mid y)=\nabla_{x_t}\log p_t(x_t\mid y)$，unconditional score 仍是 $s_t(x_t)=\nabla_{x_t}\log p_t(x_t)$。上一個 identity 移項後得到
+
+$$
+\boxed{
+\nabla_{x_t}\log p_t(y\mid x_t)
+=s_t(x_t\mid y)-s_t(x_t)
+}.
+$$
+
+也就是說，classifier gradient 不必真的由 classifier 算。**只要模型能同時估計 conditional 與 unconditional score，它們的差就是同一支 guidance direction。**
+
+Ho 與 Salimans [1] 的做法是在 training 時偶爾把 condition $y$ 換成空 condition $\varnothing$。這個動作叫 **conditioning dropout**：
+
+- 保留 $y$ 的 training pairs，教模型 $s_\theta(x_t,t,y)$；
+- 拿掉 $y$ 的 training pairs，教同一個模型 $s_\theta(x_t,t,\varnothing)$。
+
+它不是訓練兩套互不相干的網路。網路參數共享，只是 condition input 有時存在、有時被拿掉；因此 sampling 時同一個 $x_t$ 做兩次 forward pass，就能得到兩個 prediction。
+
+## 把 condition 的影響放大
+
+把上面的差代回 classifier guidance，得到 **classifier-free guidance**（CFG）：
+
+$$
+\boxed{
+\widetilde s_\theta(x_t,t,y)
+=s_\theta(x_t,t,\varnothing)
++w\Big[s_\theta(x_t,t,y)-s_\theta(x_t,t,\varnothing)\Big]
+}.
+$$
+
+這條式子可以讀成兩個動作：先站在 unconditional prediction 上，再沿著「看見 $y$ 後改變的方向」走 $w$ 倍。
+
+在 DDPM 常用的 noise-prediction 空間，因為 score 與 $\epsilon_\theta$ 只差同一個 $-1/\sigma_t$，公式的線性組合不變：
+
+$$
+\boxed{
+\widetilde\epsilon_\theta(x_t,t,y)
+=\epsilon_\theta(x_t,t,\varnothing)
++w\Big[\epsilon_\theta(x_t,t,y)-\epsilon_\theta(x_t,t,\varnothing)\Big]
+}.
+$$
+
+$w=0$ 完全忽略 condition；$w=1$ 剛好回到 conditional prediction；$w>1$ 則越過 conditional prediction，繼續沿同一個方向外推。這就是為什麼 CFG 可以讓 prompt 更明顯，也解釋了它為什麼需要兩次 network evaluations。
+
+<Remark label="補充" summary="CFG 在 density 上做了什麼？">
+若兩個 score 都精確，
+
+$$
+\begin{aligned}
+\widetilde s_t
+&=(1-w)\nabla\log p_t(x_t)
++w\nabla\log p_t(x_t\mid y)\\
+&=\nabla\log\Big[p_t(x_t)^{1-w}p_t(x_t\mid y)^w\Big].
+\end{aligned}
+$$
+
+所以 $w=1$ 是原本的 conditional density；$w>1$ 不是「更正確的 conditional model」，而是把 conditional 與 unconditional density 的差異刻意放大。實際模型與有限步 sampler 都有誤差，因此這個式子比較適合用來理解方向，不應把它當成任何設定下都精確的終點 density。
+</Remark>
+
+<VizPlan id="u7-2-cfg" title="同一個網路的兩次回答，差值隔離出 condition" type="static">
+- 檔名：`w10-2-classifier-free-guidance.png`；放在 CFG 中心公式之後。
+- 左格：同一個 noisy image 分別送入 `condition = y` 與 `condition = ∅`；中格畫兩支 prediction；右格從 unconditional 起點沿差值方向走 $w$ 倍。
+- 中文標註：`不看 prompt`、`看 prompt`、`prompt 帶來的改變`、`w=1：conditional`、`w>1：繼續外推`。
+- 觀察句：CFG 沒有消滅第二次計算；它拿掉的是外部 noisy classifier。
+- 風格：保持課程投影片的暗底、青綠與橘色雙向量，公式置中且不加裝飾框。
+</VizPlan>
+
+<Question id="Q1">
+如果 $s_\theta(x_t,t,y)$ 已經是 conditional model 的答案，**為什麼不永遠取 $w=1$？把 $w$ 調大，是不是代表 condition 估得更準？**
+
+<Answer>
+$w=1$ 的確是理論上對應 conditional score 的位置。$w>1$ 做的是另一件事：刻意讓 condition 對 sampling 的影響比 training distribution 裡更強。
+
+這種外推在實務上常有幫助。conditional model 可能同時要兼顧很多合理樣本，平均看起來不夠「像 prompt」；把差值放大，會讓指定屬性更明顯。但它的代價也來自同一個動作：
+
+- conditional modes 之間的比例會被重新加權，diversity 通常下降；
+- $w$ 太大時，樣本可能過度飽和、出現重複紋理或離開模型熟悉的區域；
+- 每個 noise level 的 approximation error 也一起被放大。
+
+所以 guidance strength 是 **fidelity 與 diversity 的 trade-off**，不是 accuracy 的刻度。比較模型時若沒有同時報告 $w$，就可能只是比較了不同的 sampling distributions。
+</Answer>
+</Question>
+
+## Negative prompt 也沿用同一個差值
+
+空 condition $\varnothing$ 不是非得當起點。若想遠離另一個 condition $y^-$，可以把它放在原本 unconditional 的位置：
+
+$$
+\widetilde\epsilon_\theta
+=\epsilon_\theta(x_t,t,y^-)
++w\Big[\epsilon_\theta(x_t,t,y)-\epsilon_\theta(x_t,t,y^-)\Big].
+$$
+
+這條式子做的是「從 $y^-$ 的 prediction 出發，往 $y$ 的 prediction 移動」。它讓 negative prompt 的角色很具體：不是替模型列一張禁止清單，而是提供一個要遠離的基準方向。
+
+## 消化一下
+
+<QuizBlock id="w10-2-a">
+conditioning dropout 在 training 時做了什麼？
+<Option>隨機刪掉 $x_t$ 的 pixels。</Option>
+<Option correct>把一部分 training examples 的 condition 換成 $\varnothing$，讓同一個網路同時學 conditional 與 unconditional prediction。</Option>
+<Option>隨機把 guidance strength 設成零。</Option>
+<Explanation>
+CFG 需要同一個 $x_t$ 下的兩種 prediction。conditioning dropout 在 training 時建立這兩種輸入情況；$w$ 則是在 sampling 時才使用。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w10-2-b">
+在本篇的 convention 下，$w=1$ 時 CFG 的 noise prediction 等於什麼？
+<Option>unconditional prediction。</Option>
+<Option correct>conditional prediction $\epsilon_\theta(x_t,t,y)$。</Option>
+<Option>兩個 prediction 的平均。</Option>
+<Explanation>
+代入公式：$\epsilon_{\varnothing}+[\epsilon_y-\epsilon_{\varnothing}]=\epsilon_y$。有些論文使用平移過的 scale convention；閱讀公式時要先確認 $w=0$ 與 $w=1$ 各自落在哪裡。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w10-2-c">
+CFG 拿掉了 classifier guidance 的哪個成本？
+<Option correct>不必另訓一個 time-dependent noisy classifier，也不必對它做 backpropagation。</Option>
+<Option>只需一次 diffusion-model forward pass。</Option>
+<Option>不再改變 sampling distribution。</Option>
+<Explanation>
+標準 CFG 每一步通常仍要算 conditional 與 unconditional 兩次 prediction。它拿掉的是外部 classifier，不是第二次 model evaluation，也不是 guidance 帶來的 reweighting。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-reward-tilting">
+CFG 很適合 training 時就存在的 condition，例如 class label 或 text prompt。但有些需求不是一個模型看過的 condition，而是一個臨時給定的 reward：影像美感、物理模擬結果、安全限制，或任何只會輸出分數的程式。要引導這些目標，我們得先回答一個更基本的問題：**既要像原本的資料，又要 reward 高，我們真正想抽的是哪一個 distribution？**
+</Bridge>
+
+## 參考文獻
+
+1. Ho, J., Salimans, T. [*Classifier-Free Diffusion Guidance.*](https://arxiv.org/abs/2207.12598) 2022.（CFG、conditioning dropout 與 quality／diversity trade-off。）
+2. Dhariwal, P., Nichol, A. [*Diffusion Models Beat GANs on Image Synthesis.*](https://arxiv.org/abs/2105.05233) NeurIPS 2021.（CFG 所取代的 classifier guidance。）

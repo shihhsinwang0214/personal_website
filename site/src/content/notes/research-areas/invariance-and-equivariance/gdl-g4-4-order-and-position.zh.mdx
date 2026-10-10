@@ -1,0 +1,145 @@
+---
+slug: "gdl-g4-4-order-and-position"
+label: "gdl-order-and-position"
+lang: "zh"
+title: "句子的順序有意義，還要忽略排列嗎？"
+category: "courses"
+group: "G4 · Attention and Transformers"
+status: "available"
+updated: "2026-10-10"
+summary: "用「我喜歡你」與「你喜歡我」分清儲存重排和語意換序，說明 positional encoding 與 causal mask 各加入哪種順序資訊。"
+prereqs: ["gdl-transformer-block"]
+demos: ["notes/research_areas/invariance-and-equivariance/attention-workbench.html"]
+references:
+  - label: "Vaswani 等人（2017），Attention Is All You Need"
+    href: "https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 句子的順序有意義，還要忽略排列嗎？
+
+<Objectives>
+
+- **分清兩種換序。** 搬動帶有身分與位置的資料，不等於讓詞出現在新的語意位置。
+- **指出 positional encoding 加入的資訊。** 比較 $PH+E$ 與 $P(H+E)$，說明為何不能直接沿用無位置資訊的證明。
+- **寫出 causal mask。** 解釋只讀已知前文的限制，並分清位置與可見範圍。
+
+</Objectives>
+
+<Prereq items={["gdl-transformer-block"]} />
+
+## 換了先後，意思也換了
+
+「我喜歡你」與「你喜歡我」使用同樣的詞，但說的是不同的事。如果把詞只當成沒有順序的集合，再用 invariant pooling 讀出一個答案，這兩句就無法區分。
+
+這不是 G3 的排列要求出錯，而是任務不同了。地標表的第幾列沒有意義；句子裡誰先出現，卻是內容的一部分。
+
+**所以問題不是要不要保留 symmetry，而是這次的變換究竟有沒有改變資料本身的意思。**
+
+## 把先後寫進輸入
+
+前面的 $H$ 只有各 token 的 content features。要讓模型知道語意位置 $i$，可以另外加入同維度的向量 $e_i$：
+
+$$
+\widetilde h_i=h_i+e_i,\qquad \widetilde H=H+E.
+$$
+
+這就是 **positional encoding**。它可以是可學的 embedding，也可以是固定函數；Vaswani 等人 [1] 使用的其中一種寫法是
+
+$$
+e_{i,2r}=\sin\!\left(\frac{i}{10000^{2r/d}}\right),
+\qquad
+e_{i,2r+1}=\cos\!\left(\frac{i}{10000^{2r/d}}\right).
+$$
+
+不同 channels 使用不同頻率，讓同一個 token 在不同位置收到不同訊號。我們不必先認為 sinusoidal 是唯一選擇；這裡需要的是把位置提供給模型。
+
+## 兩種 permutation，不是同一個問題
+
+若真的把詞換到新的語意位置，content rows 變成 $PH$，位置表卻仍表示第一個、第二個、第三個位置。因此新輸入是
+
+$$
+PH+E,
+$$
+
+而不是原輸入的共同重排
+
+$$
+P(H+E)=PH+PE.
+$$
+
+兩者通常不同，所以完整的 $F(H+E)$ 不再對「只搬 content、位置固定」保證 permutation equivariance。這讓模型有機會區分換序後的句子，不保證訓練後一定理解它們。
+
+另一種情況只是把資料存放的 rows 換順序：每個 token **連同自己的語意位置**一起搬動。這時輸入是 $P(H+E)$，block 的排列證明仍成立。像把有頁碼的書頁換個存放順序，頁碼沒有改；與重新替每頁編一個頁碼不同。
+
+## 知道位置，還不等於限制它看哪裡
+
+若任務是預測下一個 token，訓練時不能偷看未來答案。單靠 $e_i$ 不會禁止讀取後面的 keys，所以還要限制參考範圍。
+
+令 $M$ 是加在 logits 上的 **causal mask**：
+
+$$
+M_{ij}=
+\begin{cases}
+0,&j\leq i,\\
+-\infty,&j>i.
+\end{cases}
+\qquad
+A=\operatorname{softmax}_{\mathrm{row}}(S+M).
+$$
+
+$e^{-\infty}=0$，所以未來位置的權重為零。把輸入與預測 labels 錯開一個位置後，第 $i$ 列便可用已知前文預測下一個 token [1]。
+
+**Positional encoding 提供位置；causal mask 決定哪些資訊可見。** 它們不是同一個功能，也不是所有 Transformer 任務都必須使用 causal mask。
+
+<Remark summary="固定 causal mask 不保留任意 content shuffle 的保證">
+
+三角形 mask 依真實的先後建立。若只把詞換序，卻仍沿用同一個三角形表，「誰能看誰」也改了。若只是更換儲存編號，則應把 mask 一起搬成 $PMP^\top$；新的矩陣未必在儲存 index 上看起來仍是三角形，但表示的是同一份先後關係。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/attention-4.svg" alt="只搬 content 得到 PH+E；內容與位置一起搬才是 P(H+E)。" loading="lazy" />
+<figcaption>只搬 content 得到 PH+E；內容與位置一起搬才是 P(H+E)。</figcaption>
+</figure>
+
+<Question>
+
+沒有 positional encoding，就能說所有 Transformer 都完全不知道順序嗎？
+
+<Answer>
+
+不能。前面證明的是沒有固定順序附加資訊的 self-attention block。Causal mask、其他關係資訊或依序號取值的 readout 也可能帶入順序。若要說整個模型忽略順序，必須把這些部分一起檢查。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+切到「固定位置」後只重排 content，defect 通常不再是零。再選「資訊一起搬」，位置與 token 共同重排，檢查對齊後的輸出。Causal 模式則另外檢查可見關係。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/attention-workbench.html?chapter=4" class="demo-frame" title="句子的順序有意義，還要忽略排列嗎？：attention 計算與重排" style="height: 840px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="語意換序且 E 固定，輸入是什麼？" options={[{"text":"PH+E。","correct":true,"explain":"內容被送到新的語意位置。"},{"text":"一定是 P(H+E)。","explain":"後者還搬動了原來的語意位置資訊。"}]} />
+<Quiz q="Causal mask 的作用是什麼？" options={[{"text":"必然提供所有絕對位置資訊。","explain":"它首先限制可見 keys，與位置向量不同。"},{"text":"讓未來位置不能參與這次加權。","correct":true,"explain":"禁止位置的 logits 設為負無限。"}]} />
+<Quiz q="位置與資料一起搬動代表什麼？" options={[{"text":"只換儲存方式，保留原來的語意位置。","correct":true,"explain":"這仍可檢查 joint relabeling 的一致性。"},{"text":"一定改變了句子意思。","explain":"語意位置沒有改。"}]} />
+
+<Bridge to="gdl-attention-relations">
+
+有時我們知道的不是「第幾個」，而是「誰在誰附近、誰可以參考誰」。**能不能把這些關係也寫進 attention，同時保留換編號後的一致性？**
+
+</Bridge>
+
+## 參考文獻
+
+1. [Vaswani 等人（2017），Attention Is All You Need](https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf)

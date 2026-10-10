@@ -1,0 +1,148 @@
+---
+slug: "gdl-g1-3-equivariant-networks"
+label: "gdl-composition-pooling"
+lang: "zh"
+title: "一層會跟著動，整個網路也會嗎？"
+category: "courses"
+group: "G1 · Symmetry and Translation"
+status: "available"
+updated: "2026-10-09"
+summary: "檢查 layer 組合、pointwise activation 與 global pooling 如何保留或消除位置資訊。"
+prereqs: ["gdl-translation-convolution"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Cohen 與 Welling（2016），Group Equivariant Convolutional Networks"
+    href: "https://arxiv.org/abs/1602.07576"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 一層會跟著動，整個網路也會嗎？
+
+<Objectives>
+
+- **證明 equivariant layers 可以組合。** 指出相鄰兩層的中間 action 必須一致。
+- **檢查 pointwise activation。** 說明它為什麼和位置 permutation 可以交換。
+- **由 equivariant feature 得到 invariant 答案。** 推導全位置 sum pooling，並指出它不適合定位輸出。
+
+</Objectives>
+
+<Prereq items={["gdl-translation-convolution"]} />
+
+## 同一條規則接很多次，還會一致嗎？
+
+上一篇讓道路偵測結果隨輸入一起平移。但分類模型不只做一次偵測，它還會把邊界組成路口、把路口組成街區，最後回答是哪個地方。
+
+我們先不必猜整個網路，而是問：**如果每一步都用正確規則回應變換，接起來是不是仍然正確？** 就像轉寄一份重新編號的名單，只要每一位處理者都用同一套編號規則，最後不該突然把資料對錯人。
+
+## 組合時，夾在中間的 action 要對得上
+
+設第一層 $f_1$ 的輸入與輸出 action 分別是 $T_0,T_1$，第二層 $f_2$ 的輸入與輸出 action 是 $T_1,T_2$。我們知道
+
+$$
+f_1(T_0(g)x)=T_1(g)f_1(x),\qquad
+f_2(T_1(g)h)=T_2(g)f_2(h).
+$$
+
+令 $h=f_1(x)$，逐步代入：
+
+$$
+\begin{aligned}
+(f_2\circ f_1)(T_0(g)x)
+&=f_2\bigl(T_1(g)f_1(x)\bigr)\\
+&=T_2(g)(f_2\circ f_1)(x).
+\end{aligned}
+$$
+
+第一步使用第一層的性質，第二步使用第二層的性質。這說明組合仍 equivariant。重要條件不是兩層都貼著同一個架構名稱，而是**第一層輸出的變換，確實是第二層懂得處理的變換**。
+
+## Activation 會不會破壞它？
+
+對普通 CNN feature map，平移只是在搬動位置，不會混合每個位置裡的 scalar channel。若 $\sigma$ 在每個位置都用同一個函數，例如 ReLU，
+
+$$
+\begin{aligned}
+[\sigma(T(a)h)](u)
+&=\sigma(h(u-a))\\
+&=[T(a)\sigma(h)](u).
+\end{aligned}
+$$
+
+所以同一個 pointwise activation 可以放在中間。相同道理也適用於重排位置的 permutation action。
+
+但這不是「任何 activation 都和任何 action 可交換」。如果 feature 是旋轉向量，旋轉會混合分量，逐分量 ReLU 就不一定成立；<Ref to="gdl-feature-types" /> 會算一個反例。
+
+Residual connection 也要對型態：如果兩個分支都以同一個線性 action 變換，則 $T(g)(h_1+h_2)=T(g)h_1+T(g)h_2$。若一邊是 scalar、另一邊是 vector，沒有先定義怎麼對齊，就不能直接相加。
+
+## 最後要分類，為什麼可以把位置加掉？
+
+現在 $h(u)$ 已經跟著輸入移動。但我們只想回答「是不是台大」，不想讓全局 label 隨位置變動。一個自然做法是把每個位置找到的資訊加總：
+
+$$
+s(h)=\sum_u h(u).
+$$
+
+若位置集合在變換下只是重排，例如 circular grid 上的平移，令 $w=u-a$，便得到
+
+$$
+s(T(a)h)=\sum_u h(u-a)=\sum_w h(w)=s(h).
+$$
+
+這個操作叫 **global pooling**。它把 equivariant feature 轉成 invariant summary，再交給一個分類函數 $\psi$，$f(x)=\psi(s(h(x)))$ 就得到 invariant 分類輸出。
+
+固定位置數量下，mean pooling 只是 sum 除以數量，也具有同樣性質。Max pooling 則利用「重排不改變最大值」，也可得到 invariant summary；這些操作保留的資訊卻不相同。
+
+## 位置真的可以丟掉嗎？
+
+想像偵測到一棟建築，把它向右移三格。全局加總不變，分類很方便，但從這個數字無法知道它現在在左邊還是右邊。
+
+如果任務是 segmentation 或定位，就不能在最後把所有位置都加掉。這時應保留 equivariant feature map，讓每個位置都有一個對應答案。
+
+**我們不是越 invariant 越好，而是在任務需要的地方才消除變換資訊。** 中間的 feature 保留位置，分類 head 才消除位置；定位 head 則把位置留下來。
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g1-3.svg" alt="逐層保留 action，最後才依任務選擇：保留位置做定位，或全局 pooling 做分類。" loading="lazy" />
+<figcaption>逐層保留 action，最後才依任務選擇：保留位置做定位，或全局 pooling 做分類。</figcaption>
+</figure>
+
+<Question>
+
+如果把 segmentation 網路的最後一張 feature map 做 global average pooling，能靠這一步保留每個建築的位置嗎？
+
+<Answer>
+
+不能。相同內容出現在不同位置時，全局平均可能完全相同。Pooling 保證的是全局摘要的 invariance，不是可以恢復原來的位置。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+在 circular boundary 與 stride=1 下，觀察局部輸出如何移動，再比較全局 ReLU mean。前者跟著平移，後者則把位置資訊加總成不變的答案。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=1&chapter=3" class="demo-frame" title="一層會跟著動，整個網路也會嗎？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="兩個 equivariant layers 組合需要什麼？" options={[{"text":"只要兩層都是線性，不需要管 action。","explain":"第二層必須處理第一層輸出的同一種變換。"},{"text":"中間 feature 的 action 一致。","correct":true,"explain":"第二層必須處理第一層輸出的同一種變換。"}]} />
+
+<Quiz q="Pointwise ReLU 為什麼與平移可交換？" options={[{"text":"平移重排位置，各位置使用同一個 scalar 函數。","correct":true,"explain":"向量旋轉不是純粹重排位置。"},{"text":"ReLU 與所有旋轉矩陣都可交換。","explain":"向量旋轉不是純粹重排位置。"}]} />
+
+<Quiz q="全局 sum 的作用是什麼？" options={[{"text":"保留每個位置的完整對應。","explain":"重新索引不改變總和，但會失去定位資訊。"},{"text":"消除位置排列，得到 invariant 摘要。","correct":true,"explain":"重新索引不改變總和，但會失去定位資訊。"}]} />
+
+<Bridge to="gdl-boundaries-augmentation">
+
+我們已經知道理想 CNN 如何逐層保持平移一致性。接下來回到真正的影像：邊界、stride 與資料增強，究竟會改變哪一個保證？
+
+</Bridge>
+
+## 參考文獻
+
+1. [Cohen 與 Welling（2016），Group Equivariant Convolutional Networks](https://arxiv.org/abs/1602.07576)

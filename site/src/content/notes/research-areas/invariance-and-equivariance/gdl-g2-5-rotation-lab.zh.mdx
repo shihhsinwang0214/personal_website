@@ -1,0 +1,142 @@
+---
+slug: "gdl-g2-5-rotation-lab"
+label: "gdl-rotation-lab"
+lang: "zh"
+title: "實作：四個旋轉，逐一檢查同一個模型"
+category: "courses"
+group: "G2 · Rotations and Feature Types"
+status: "available"
+updated: "2026-10-09"
+summary: "執行 C4 lifting 與 relative-orientation mixing，分別測方向 feature 和 invariant readout。"
+prereqs: ["gdl-rotation-readout"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Cohen 與 Welling（2016），Group Equivariant Convolutional Networks"
+    href: "https://arxiv.org/abs/1602.07576"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 實作：四個旋轉，逐一檢查同一個模型
+
+<Objectives>
+
+- **執行四方向模型。** 分清 B、方向、channel、空間兩軸。
+- **逐一檢查四個 group elements。** 同時旋轉位置與 cyclic-shift 方向 channel。
+- **比較中間與最終輸出。** Feature equivariance 與 readout invariance 用不同 expected tensor。
+
+</Objectives>
+
+<Prereq items={["gdl-rotation-readout"]} />
+
+## 四個方向，要逐一檢查，不只看分類分數
+
+G2 的 proof 同時改位置與方向 channel。若實作只把圖片轉了，再比較 pooled scalar，有可能把中間 action 的錯誤藏起來。
+
+因此這次分成兩個測試：先測 $h(u,r)$，再測 global readout。模型使用 lifting、有限 $C_4$ 的方向 correlation，以及同樣的 scalar activation；這是用來檢查 action 的小型 G-CNN，不是完整影像 benchmark。
+
+## 準備與執行
+
+本課的實作使用 Python 3.10 以上與 PyTorch 2.x，CPU 就可以計算。請在自己的 Python 環境安裝 PyTorch，再下載 [gdl_labs.py](/personal_website/notes/research_areas/invariance-and-equivariance/gdl_labs.py)。環境目錄與下載的第三方套件不要加入網站的 Git repository。
+
+```powershell
+python -m pip install torch
+python gdl_labs.py --unit 2 --steps 40
+```
+
+檔案包含可重用的模型與 `Trainer`。模型、loss 與資料來源由外部指定；換資料時保留對稱一致的 tensor interface，不需要修改 training loop。
+
+```python
+from gdl_labs import Trainer
+
+trainer = Trainer(model, loss, lr=0.003)
+history = trainer.fit(batch_fn, steps=40)
+# batch_fn() returns ((model_input_1, model_input_2, ...), target)
+```
+
+## 方向 axis 的意義
+
+```python
+from gdl_labs import C4CNN, defect
+import torch
+
+model = C4CNN(in_channels=1, channels=8)
+x = torch.randn(4, 1, 9, 9)
+model.eval()
+h = model.features(x)  # B,4,C,H,W
+q = 1
+actual = model.features(torch.rot90(x, q, dims=(-2, -1)))
+expected = torch.rot90(torch.roll(h, q, dims=1), q, dims=(-2, -1))
+print(defect(actual, expected))
+```
+
+方向 shift 用 $q$，因為原方向 $r$ 搬到 $r+q$；讀新 channel 時則來自原 $r-q$，與 <Ref to="gdl-rotation-problem" /> 的推導相同。不要把 forward movement 與 inverse indexing 的正負號混在一起。
+
+程式的 lifting 先把 input 逆旋轉到每個 detector 的視角，套用共同 spatial convolution，再把 feature 轉回原空間。後面沿方向使用相對 offset 的 $1\times1$ mixing，讓下一層也保持 action。
+
+## 為什麼最後 scalar 要用另一種比較？
+
+```python
+for q in range(4):
+    rotated = torch.rot90(x, q, dims=(-2, -1))
+    print(defect(model(rotated), model(x)))
+```
+
+`model(x)` 對位置與方向做 global mean，再接 scalar head。因此它應 invariant，expected 不再 rotate 或 shift。訓練 target 使用 input 的平均平方值，本身也對四個旋轉不變。
+
+這個模型為了簡化，用 square input 與不含 stride 的 convolution。$C_4$ 在完整 square 邊界上可以精確重排；一般 rectangular crop 或 arbitrary-angle interpolation 不是同一個測試。
+
+## 作業
+
+先測 $q=0,1,2,3$ 的 feature 與 readout defect。接著故意刪掉 expected 裡的方向 shift，觀察只有位置旋轉為什麼不夠。
+
+第二個修改是讓方向 mixing 使用任意不共享的 $4\times4$ 權重，再測 defect。請指出它違反的是相對方向共享，還是 pooling。
+
+加分部分：改成方向輸出，保留 orientation feature，不要做方向平均。說明 target 應如何隨輸入轉動，以及為什麼 invariant scalar head 不能完成這個任務。
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g2-5.svg" alt="Feature 測試同時移動位置與方向；分類 readout 測試則只比較同一個 scalar。" loading="lazy" />
+<figcaption>Feature 測試同時移動位置與方向；分類 readout 測試則只比較同一個 scalar。</figcaption>
+</figure>
+
+<Question>
+
+四個旋轉後的分類答案相同，就足以證明每個中間 layer 都用正確方向 action 嗎？
+
+<Answer>
+
+不夠。Pooling 可以隱藏部分差異，constant head 也可以讓 scalar 相同。應先直接測中間 feature 的位置旋轉加方向 shift。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+逐一選擇四種旋轉，先測 lifting，再測 group correlation。Feature 的 symmetry test 要把位置與方向 index 一起搬動。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=2&chapter=5" class="demo-frame" title="實作：四個旋轉，逐一檢查同一個模型：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="Expected feature 要做哪兩件事？" options={[{"text":"旋轉空間 axes，並 shift 方向 axis。","correct":true,"explain":"兩個索引都具有幾何意義。"},{"text":"只改 batch 順序。","explain":"兩個索引都具有幾何意義。"}]} />
+
+<Quiz q="Global readout 的 expected 是什麼？" options={[{"text":"原 feature map 的任意 channel。","explain":"最終 output action 是 identity。"},{"text":"原來的 scalar prediction。","correct":true,"explain":"最終 output action 是 identity。"}]} />
+
+<Quiz q="測 30° 可以用 rot90 的保證嗎？" options={[{"text":"不能，這是另一個取樣與 action。","correct":true,"explain":"四方向的 group elements 必須明確列出。"},{"text":"可以，任何角度都在 C4。","explain":"四方向的 group elements 必須明確列出。"}]} />
+
+<Bridge to="gdl-unordered-sets">
+
+我們已經能逐一檢查方向與位置的 action。接下來不再把資料放在規則像素格點上，而是一群沒有排列意義的地標點。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Cohen 與 Welling（2016），Group Equivariant Convolutional Networks](https://arxiv.org/abs/1602.07576)

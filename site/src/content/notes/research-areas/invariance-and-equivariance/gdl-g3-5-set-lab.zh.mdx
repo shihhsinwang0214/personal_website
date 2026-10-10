@@ -1,0 +1,150 @@
+---
+slug: "gdl-g3-5-set-lab"
+label: "gdl-set-lab"
+lang: "zh"
+title: "實作：Transformer 的排列、位置與 mask"
+category: "courses"
+group: "G4 · Attention and Transformers"
+status: "available"
+updated: "2026-10-10"
+summary: "使用可替換維度的 TokenTransformer 與外部 Trainer，實測排列、固定位置、共同重排、causal mask 與 padding。"
+prereqs: ["gdl-attention-relations"]
+demos: ["notes/research_areas/invariance-and-equivariance/attention-workbench.html"]
+references:
+  - label: "Vaswani 等人（2017），Attention Is All You Need"
+    href: "https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 實作：Transformer 的排列、位置與 mask
+
+<Objectives>
+
+- **使用可重用的 Transformer class。** 指定 input／hidden／output 維度，訓練迴圈與模型分開。
+- **檢查不同輸入 action。** 對照無位置的排列、固定位置的換序、位置與 mask 的共同重排。
+- **排除 padding 的影響。** 假點不能成為 keys，無效 query output 也要排除。
+
+</Objectives>
+
+<Prereq items={["gdl-attention-relations"]} />
+
+## 把剛剛的幾種「換序」分開測
+
+前面推導了每個操作，但程式只看到 tensor。若把 token 換序、位置不動，和整份帶位置的資料重排寫成同一個測試，就會得到看起來矛盾的結果。
+
+這次先使用逐點輸出。資料形狀是 $B\times N\times D$，模型輸出是 $B\times N\times C$；重排後 expected output 是原答案的共同重排，不是原封不動的 tensor。
+
+## 準備與執行
+
+使用 Python 3.10 以上與 PyTorch 2.x，下載 [gdl_labs.py](/personal_website/notes/research_areas/invariance-and-equivariance/gdl_labs.py) 後執行：
+
+```powershell
+python -m pip install torch
+python gdl_labs.py --unit 4 --steps 40
+```
+
+程式的 TokenTransformer 包含共享 input projection、multi-head attention、post-norm residual block、shared FFN 與 output head，對應 Vaswani 等人 [1] 的核心運算；這份練習不包含完整的文字 tokenizer、decoder 與生成迴圈。
+
+Trainer 接受外部模型、loss 與 batch_fn。Toy target 是每個點與全局平均的差；它會隨資料列重排，因此適合先檢查逐點任務。替換 dataset 時，另外確認新 labels 的 action。
+
+## 先測沒有位置資訊的 block
+
+```python
+import torch
+from gdl_labs import TokenTransformer, defect
+
+model = TokenTransformer(in_dim=2, hidden=24, out_dim=2, heads=4)
+model.eval()
+x = torch.randn(4, 8, 2)
+p = torch.randperm(x.shape[1])
+print(defect(model(x[:, p]), model(x)[:, p]))
+```
+
+參數尚未訓練也應有小 defect。這測的是架構 identity，不是 task accuracy。若要全局集合答案，可以對有效逐點 outputs 做對稱 pooling；SetModel 的 sum／mean／max 練習也仍保留在下載檔的 --unit 3。
+
+## 固定位置，與連同位置一起搬
+
+positions 的形狀是 $B\times N\times d_{\mathrm{model}}$，它在 input projection 之後加上。先讓 $E$ 固定，對照 content shuffle；再讓 $E$ 也一起搬：
+
+```python
+E = torch.randn(4, 8, 24)
+y = model(x, positions=E)
+print(defect(model(x[:, p], positions=E), y[:, p]))
+print(defect(model(x[:, p], positions=E[:, p]), y[:, p]))
+```
+
+第一個通常不小，因為比較的是 $PH+E$ 與 $P(H+E)$；第二個應接近浮點誤差。不能用第一個測試的失敗，宣稱 attention 的 joint relabeling 證明錯了。
+
+## 關係的兩個軸，也一起搬
+
+這份程式的 relation_mask 使用 PyTorch 的 boolean convention：True 表示禁止參考。它與 valid mask 的 True 表示真實點不同，請不要混用。
+
+```python
+blocked = torch.ones(8, 8, dtype=torch.bool).triu(1)
+y = model(x, relation_mask=blocked)
+moved = blocked[p][:, p]
+print(defect(model(x[:, p], relation_mask=moved), y[:, p]))
+```
+
+原來的三角形表表示 causal 關係；重排後的表仍表示同一份關係，但在新的儲存順序裡不一定是三角形。每個有效 query 都要有至少一個有效、未被禁止的 key，程式會檢查這件事。
+
+## 補空位，不應多出資訊
+
+Batch 的點數不同時，用形狀 $B\times N$ 的 valid mask 表示真實點。Attention 必須在 softmax 前排除無效 keys；只把 padding input 填零不夠，因為 projection 的 bias 可能讓零變成非零 feature。
+
+無效 query outputs 則在 block 後清零，並在 task loss 與 readout 排除。程式也拒絕全空的例子，避免所有 logits 都是負無限。
+
+```python
+mask = torch.ones(4, 8, dtype=torch.bool)
+padded = torch.cat((x, torch.randn(4, 3, 2) * 100), dim=1)
+padded_mask = torch.cat((mask, torch.zeros(4, 3, dtype=torch.bool)), dim=1)
+print(defect(model(padded, padded_mask)[:, :8], model(x, mask)))
+```
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g3-5.svg" alt="真實點與 mask 一起重排；padding keys 必須排除，無效 query outputs 不參與答案。" loading="lazy" />
+<figcaption>真實點與 mask 一起重排；padding keys 必須排除，無效 query outputs 不參與答案。</figcaption>
+</figure>
+
+<Question>
+
+Defect 很小，是否表示模型已經學會 toy target？
+
+<Answer>
+
+不是。Defect 比較兩種變換後的輸出是否一致；task loss 比較輸出與正確 labels 是否接近。任意參數就可能保有 symmetry，但仍不知道要預測什麼。
+
+</Answer>
+</Question>
+
+## 作業與觀察
+
+先執行完整測試，再故意只搬 relation mask 的一個軸、或不搬 valid mask，找出是哪個輸入對應被破壞。接著更換點數與 input 維度，保留相同測試。
+
+加分部分：在不改 training loop 的情況下，使用多個 Transformer blocks，或替換成自己的逐點 dataset。若加入 dropout，用 eval mode 做 identity test；若加入序列位置，先寫清楚測的是語意換序還是儲存重排。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/attention-workbench.html?chapter=6" class="demo-frame" title="實作：Transformer 的排列、位置與 mask：attention 計算與重排" style="height: 840px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="逐點測試的 expected 是什麼？" options={[{"text":"原 outputs 按相同 p 重排。","correct":true,"explain":"輸出跟各自的點一起搬。"},{"text":"所有 rows 完全不動。","explain":"那是另一種 output action。"}]} />
+<Quiz q="Valid mask 的 True 與 relation_mask 的 True 相同嗎？" options={[{"text":"相同，都表示可參考。","explain":"這份介面分別是有效點與禁止關係。"},{"text":"不同，前者是真實點，後者是禁止參考。","correct":true,"explain":"要對照程式的 convention，而不是靠變數名字猜。"}]} />
+<Quiz q="Padding input 設零就夠了嗎？" options={[{"text":"不夠，還要排除 keys、query outputs 與 loss。","correct":true,"explain":"Bias 與 softmax 都可能讓假點進入計算。"},{"text":"夠了，任何線性層都把零變成零。","explain":"有 bias 時就不成立。"}]} />
+
+<Bridge to="gdl-graph-relabeling">
+
+從共同摘要到內容加權，我們已能決定每個點要參考誰。但如果參考範圍由真實道路決定，就不能只保留點的 features。**道路關係要怎麼跟路口編號一起改？** G5 從這份附帶結構出發，建立 graph 的訊息傳遞。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Vaswani 等人（2017），Attention Is All You Need](https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf)

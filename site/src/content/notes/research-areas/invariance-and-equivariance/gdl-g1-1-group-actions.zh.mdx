@@ -1,0 +1,153 @@
+---
+slug: "gdl-g1-1-group-actions"
+label: "gdl-group-actions"
+lang: "zh"
+title: "先轉再移，和先移再轉一樣嗎？"
+category: "courses"
+group: "G1 · Symmetry and Translation"
+status: "available"
+updated: "2026-10-09"
+summary: "從連續移動地圖，建立 group、action 與線性 representation 的角色。"
+prereqs: ["gdl-output-types"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Bronstein、Bruna、Cohen 與 Veličković（2021），Geometric Deep Learning"
+    href: "https://arxiv.org/abs/2104.13478"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 先轉再移，和先移再轉一樣嗎？
+
+<Objectives>
+
+- **把變換當成可以組合的操作。** 用兩次平移與旋轉說明 identity、inverse 與 closure。
+- **檢查 action 的一致性。** 寫出先做 h 再做 g，與一次做 gh 的關係。
+- **區分 action 與 representation。** 說明座標的 affine action 為什麼不直接是線性矩陣作用。
+
+</Objectives>
+
+<Prereq items={["gdl-output-types"]} />
+
+## 我們能不能把兩次操作當成一次？
+
+上一篇要求模型跟著地圖的變換。現在想像你先向右拖地圖，再把它轉九十度；朋友卻先轉，再往螢幕右邊拖。最後總圖的位置通常不一樣。
+
+這件事提醒我們：**變換不只是一張新圖片，它還有操作順序。** 如果想把模型的要求寫進每一層，就要先建立一套能記錄順序的語言。
+
+先用座標 $p$ 看。旋轉是 $R$，平移是 $b$，一個完整動作可以記成 $g=(R,b)$，作用結果是 $Rp+b$。若先做 $h=(S,c)$，再做 $g$，
+
+$$
+R(Sp+c)+b=(RS)p+(Rc+b).
+$$
+
+因此兩次操作合成
+
+$$
+gh=(RS,Rc+b).
+$$
+
+平移 $c$ 也會被後面的旋轉轉過去。這就是先移再轉不等於先轉再移的原因，而不是符號故意變複雜。
+
+## 什麼樣的一群操作可以一起討論？
+
+我們希望這組操作能包含「什麼都不做」，能撤銷每一次操作，也能把連續操作合成仍在同一組裡的操作。
+
+對旋轉和平移，什麼都不做是 $e=(I,0)$；把 $g$ 撤銷的方法是
+
+$$
+g^{-1}=(R^{-1},-R^{-1}b).
+$$
+
+把它代入就會回到 $p$。而三次操作不論先合併前兩次還是後兩次，都得到相同結果，因為實際作用的函數組合具有 associativity（結合律）。
+
+具有 closure、identity、inverse 與 associativity 的操作集合，叫 **group（群）**。這裡的乘法 $gh$ 是「先 $h$ 再 $g$」，不一定是普通數字相乘，也**不要求 $gh=hg$**。
+
+<Remark summary="Group 是可以組合、撤銷，且組合規則一致的一組變換">
+
+旋轉九十度的整數次操作形成 $C_4=\{e,r,r^2,r^3\}$，其中 $r^4=e$。但只收集「轉九十度」和「不轉」不會形成 group：連續轉兩次需要的一百八十度不在集合裡。
+
+裁切一般沒有 inverse：被裁掉的像素不能由剩下的像素唯一恢復，所以不能直接當成這種 group action。
+
+</Remark>
+
+## 同一個操作，怎麼作用在不同資料上？
+
+在座標上，$g$ 作用為 $Rp+b$；在影像上，它要把每個像素的內容搬到新位置；在 label 上，可能根本不做事。
+
+我們把某個資料空間上的作用寫成 $T(g)$。它應滿足
+
+$$
+T(e)x=x,\qquad T(gh)x=T(g)\bigl(T(h)x\bigr).
+$$
+
+這叫 **group action**。第二條要求操作表與實際資料的變化一致：不能把合成動作 $gh$ 指定成第三種不相干的效果。
+
+對影像函數 $x(u)$，$u$ 是像素位置。平移 $a$ 後，新位置 $u$ 的內容來自舊位置 $u-a$，因此
+
+$$
+[T(a)x](u)=x(u-a).
+$$
+
+為什麼是減號？想像原本在 $u=0$ 的標記往右移到 $a$，那麼新影像在 $a$ 讀到的，正是舊影像在 $a-a=0$ 的值。
+
+## 什麼時候可以用矩陣表示？
+
+如果 feature 本身是一個向量，且變換對它是線性的，我們可以用矩陣 $\rho(g)$ 記錄作用：
+
+$$
+\rho(gh)=\rho(g)\rho(h),\qquad \rho(e)=I.
+$$
+
+這叫 **linear representation（線性表示）**。旋轉方向向量的 $\rho(g)=R$、重排四個方向 channel 的 permutation matrix，都是例子。
+
+但座標 $p\mapsto Rp+b$ 有額外的 $b$，一般不是對 $p$ 的線性作用，不能不加說明就叫它 $\rho(g)p$。我們因此沿用 $T_{\mathrm{in}}$、$T_{\mathrm{out}}$ 表示一般 action，只有真的談線性 feature 變換時才用 $\rho$。
+
+到這裡，我們還沒有設計神經網路。只是把上一篇的要求補完整：**先選一組變換，再指定它在輸入與輸出上的一致作用。** 下一步才有辦法問，哪些參數配置可以保證模型遵守它。
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g1-1.svg" alt="兩次操作必須照同一個順序組合：T(gh) 與 T(g)T(h) 是同一個 action。" loading="lazy" />
+<figcaption>兩次操作必須照同一個順序組合：T(gh) 與 T(g)T(h) 是同一個 action。</figcaption>
+</figure>
+
+<Question>
+
+只把 0° 與 90° 兩種旋轉收在一起，為什麼不能直接稱為一個旋轉 group？
+
+<Answer>
+
+它對組合不封閉。90° 接著 90° 是 180°，卻不在這個集合中；補進 180°、270° 後，才得到四個元素的 C4。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+保持 circular boundary 與 stride=1，拖動整數格的平移。這裡的每次移動都是可撤銷、可組合的 action；下方兩條線檢查同一個共享運算是否與它交換。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=1&chapter=1" class="demo-frame" title="先轉再移，和先移再轉一樣嗎？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="gh 的作用順序是什麼？" options={[{"text":"先做 h，再做 g。","correct":true,"explain":"我們固定函數組合由右到左讀。"},{"text":"不論先做誰都相同。","explain":"我們固定函數組合由右到左讀。"}]} />
+
+<Quiz q="平移後的影像在 u 讀到什麼？" options={[{"text":"原影像 u+a 的內容。","explain":"搬到 u 的像素原本位在 u−a。"},{"text":"原影像 u−a 的內容。","correct":true,"explain":"搬到 u 的像素原本位在 u−a。"}]} />
+
+<Quiz q="一般座標平移是線性 representation 嗎？" options={[{"text":"不是；對原座標來說包含額外常數。","correct":true,"explain":"可以改用齊次座標線性化，但必須先改變表示空間。"},{"text":"是；任何幾何操作都是線性矩陣。","explain":"可以改用齊次座標線性化，但必須先改變表示空間。"}]} />
+
+<Bridge to="gdl-translation-convolution">
+
+我們現在能寫清楚平移如何作用。那一層線性模型要怎麼安排權重，才能讓「在哪裡看到同一條道路」不影響偵測規則？
+
+</Bridge>
+
+## 參考文獻
+
+1. [Bronstein、Bruna、Cohen 與 Veličković（2021），Geometric Deep Learning](https://arxiv.org/abs/2104.13478)

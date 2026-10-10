@@ -1,0 +1,166 @@
+---
+slug: "gdl-g4-2-gcn"
+label: "gdl-gcn"
+lang: "zh"
+title: "鄰居很多的路口，訊息要怎麼算？"
+category: "courses"
+group: "G5 · Graphs and Message Passing"
+status: "available"
+updated: "2026-10-10"
+summary: "從相鄰路口的平均建立 degree normalization，推導 GCN 與其 node relabeling 的一致性。"
+prereqs: ["gdl-graph-relabeling"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Kipf 與 Welling（2017），Semi-Supervised Classification with Graph Convolutional Networks"
+    href: "https://arxiv.org/abs/1609.02907"
+  - label: "Gilmer 等人（2017），Neural Message Passing for Quantum Chemistry"
+    href: "https://proceedings.mlr.press/v70/gilmer17a.html"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 鄰居很多的路口，訊息要怎麼算？
+
+<Objectives>
+
+- **讀懂 normalized adjacency。** 交代 self-loop、degree 與每條 edge 的權重。
+- **推導 GCN layer 的 equivariance。** 追蹤 A、D、H 在共同重編下的變換。
+- **分辨 normalization 的目的與限制。** 說明它不是純 row mean，也不保證能辨別所有 graph。
+
+</Objectives>
+
+<Prereq items={["gdl-graph-relabeling"]} />
+
+## 十個鄰居和兩個鄰居，可以直接比總和嗎？
+
+上一篇用重編號的要求限制 message passing，但仍留下 aggregation 的選擇。若每個鄰居傳相同數值，鄰居多的路口會得到更大的總和；有時我們想先比較「附近通常是什麼狀態」，不希望一開始只被數量主導。
+
+最直接的操作是除以鄰居數。這裡先建立 degree 的角色，再看 GCN 常用的對稱 normalization，而不只背一條矩陣公式。
+
+令 $A$ 是 undirected adjacency。先補上每個 node 到自己的 edge：
+
+$$
+\widetilde A=A+I.
+$$
+
+Self-loop 讓自己的 feature 也進入這一輪 aggregation。定義
+
+$$
+\widetilde d_i=\sum_j\widetilde A_{ij},\qquad
+\widetilde D=\operatorname{diag}(\widetilde d_1,\ldots,\widetilde d_n).
+$$
+
+$\widetilde d_i$ 就是包含自己的鄰居數；有 self-loop，所以至少是 $1$，不必對零開 inverse。
+
+## 同時考慮接收者與送出者的 degree
+
+單純 row mean 會使用 $\widetilde D^{-1}\widetilde A$。GCN 常用的是
+
+$$
+S=\widetilde D^{-1/2}\widetilde A\widetilde D^{-1/2},
+\qquad
+S_{ij}=\frac{\widetilde A_{ij}}{\sqrt{\widetilde d_i\widetilde d_j}}.
+$$
+
+它用兩個端點的 degree 調整 edge 權重。高 degree 的 node 不只作為接收者時被縮放，送出訊息時也被縮放；undirected graph 下，$S$ 保持對稱。
+
+Row mean 與這種對稱 normalization 都是可選的設計，不是重編號要求唯一指定的公式。選完後，還要確認 degree 與 edge 權重能跟同一個 node 一起重編。
+
+因此一般 $\sum_jS_{ij}$ 不必等於 $1$，不能把它完全當成普通 arithmetic mean。它是 degree-normalized 的加權 aggregation。
+
+用共享 feature 矩陣 $W$ 與逐點 scalar activation $\sigma$，一層寫成
+
+$$
+H^+=\sigma(SHW).
+$$
+
+第 $i$ 列讀作 $\sigma(\sum_j S_{ij}h_jW)$。Kipf 與 Welling [1] 的 **Graph Convolutional Network（GCN）** 使用這個常見形式；原論文從 graph filtering 匯出它，我們這裡先從鄰居運算看懂每一項。
+
+## Degree 表也要一起換位置
+
+重編 input，$\widetilde A'=P\widetilde A P^\top$。每個 node 的 degree 沒有改變，只是換 row，所以
+
+$$
+\widetilde D'=P\widetilde D P^\top.
+$$
+
+對角矩陣的平方根 inverse 也只是相同數字重排。因此
+
+$$
+S'=PSP^\top.
+$$
+
+再用 $H'=PH$：
+
+$$
+\begin{aligned}
+H^{\prime+}
+&=\sigma((PSP^\top)(PH)W)\\
+&=\sigma(PSHW)\\
+&=P\sigma(SHW)=PH^+.
+\end{aligned}
+$$
+
+第一步跟著 graph 重編，第二步用 $P^\top P=I$，第三步因 $\sigma$ 在每個 row 使用同樣運算。到這裡才完成 equivariance 的檢查。
+
+## Normalization 解決的是量級，不是所有辨識問題
+
+若每個 node 有相同 feature，且 graph 中每個 node 的 degree 相同，$S$ 的各 row 加權和為 $1$。一輪後各 node 仍相同；多輪也可能仍無法看出某些拓樸差別。
+
+所以 normalization 幫助控制不同 degree 的訊息量級，不等於更大的表達能力。若 target 需要直接辨認鄰居數量，mean-like aggregation 可能先把線索洗掉。
+
+我們現在能運算、能證明編號一致，接下來要更直接地問：**哪些不同鄰居集合會在 aggregation 後變成相同答案？**
+
+<Remark summary="圖上的 convolution 不等於規則格點上的滑動 kernel">
+
+GCN 在不規則鄰居上共享 feature transform，沒有每個 node 都一致的左、右、上、下位置。若要理解它與 Laplacian、spectral filtering 的關係，需要另外建立 graph frequency；這留在擴充單元，不把兩種 convolution 直接當成同一個公式。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g4-2.svg" alt="GCN 先加 self-loop，再用兩端 degree 正規化 edge，最後共同變換 features；重編時 S 和 H 一起換。" loading="lazy" />
+<figcaption>GCN 先加 self-loop，再用兩端 degree 正規化 edge，最後共同變換 features；重編時 S 和 H 一起換。</figcaption>
+</figure>
+
+<Question>
+
+S= D⁻¹ᐟ² A D⁻¹ᐟ² 的每列都一定加總為一嗎？
+
+<Answer>
+
+不一定。只有 row normalization D⁻¹A 才直接有這個性質。對稱 normalization 同時使用兩端 degree；regular graph 是一個 row sum 恰好為一的特殊情況。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+選擇 GCN-style normalization，拖動訊息輪數並重編 nodes。這裡直接計算 degree-normalized aggregation，讓我們檢查重編一致性。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=4&chapter=2" class="demo-frame" title="鄰居很多的路口，訊息要怎麼算？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="Self-loop 讓哪個資訊留下來？" options={[{"text":"讓所有 nodes 直接相連。","explain":"A+I 只增加對角線。"},{"text":"Node 自己的 feature 也參與 aggregation。","correct":true,"explain":"A+I 只增加對角線。"}]} />
+
+<Quiz q="D 在重編下如何變？" options={[{"text":"Degree 值隨同一個 node 換 row。","correct":true,"explain":"D'=PDPᵀ 才能保持權重對應。"},{"text":"Degree 不動，只有 adjacency 換。","explain":"D'=PDPᵀ 才能保持權重對應。"}]} />
+
+<Quiz q="GCN 的共享 W 作用在哪裡？" options={[{"text":"Node 的絕對編號。","explain":"共享 transform 不依 row index。"},{"text":"每個 node 的 feature 維度。","correct":true,"explain":"共享 transform 不依 row index。"}]} />
+
+<Bridge to="gdl-aggregation-gin">
+
+GCN 的運算與對稱保證都清楚了。但平均可能把不同鄰居混成相同訊息。下一篇用幾個數字先看這個資訊損失，再引入 GIN 的做法。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Kipf 與 Welling（2017），Semi-Supervised Classification with Graph Convolutional Networks](https://arxiv.org/abs/1609.02907)
+2. [Gilmer 等人（2017），Neural Message Passing for Quantum Chemistry](https://proceedings.mlr.press/v70/gilmer17a.html)

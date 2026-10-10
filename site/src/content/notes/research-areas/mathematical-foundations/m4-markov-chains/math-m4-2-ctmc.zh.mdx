@@ -9,7 +9,7 @@ title: "電話隨時會響：Continuous-Time Markov Chain 與 Rate Matrix"
 category: "courses"
 group: "M4 · Markov Chains"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-09
 summary: "客服專線電話隨時進來、隨時結束，「隨時」沒有回合可數，只能說「每小時平均幾次」——這就是 rate。把每個小時段的 transition matrix 寫成 I+RΔt，讓 Δt→0 得到 P(t)=e^{tR} 與 forward equation ṗ=pR；它是 Fokker–Planck 的離散狀態版本，而「話務員忙碌時間比例是 50%」這個直覺為什麼錯了三分之一。"
 demos: []
 references:
@@ -45,9 +45,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 一家小公司的客服專線只有一位話務員、一條線。電話平均**每小時進來 3 通**，每通平均講 **10 分鐘**。線路忙碌時打進來的電話會聽到忙線音、直接掛掉，不排隊。
 
-請先用直覺回答，並寫下你有多確定：這位話務員**長期來看有多少比例的時間在講電話**？
+這位話務員長期有多少比例的時間在講電話？
 
-課堂上最常見的答案是「3 通 × 10 分鐘 = 30 分鐘，所以一半」，而且很篤定。第二常見的是「比一半少一點，因為有些電話會撞在一起」，但說不出少多少。這一篇的目標不只是算出正確數字，而是先解決一個更基本的問題：**「隨時可能發生」要怎麼寫成數學？** 前兩篇的 chain 都是一回合一回合走的，電話沒有回合。
+直接算 $3\times10=30$ 分鐘，會把忙線時沒接到的電話也算進去。我們得先追蹤「閒、忙」兩種狀態如何切換。但電話沒有回合，**「隨時可能發生」要怎麼寫成一步的規則？** 先選一個理想模型：來電是 rate $\lambda=3$ 的 Poisson process，通話長度獨立且是平均 $1/\mu=1/6$ 小時的 exponential。這些是另外的假設，不是由兩個平均值直接推出的。
 
 <Question id="Q1">
 這裡的狀態是什麼？「每小時 3 通」不是機率（它可以大於 1），那它是什麼？如果硬要用前兩篇「每一步一個 transition matrix」的語言，這一步該多長？
@@ -55,7 +55,7 @@ import UsedBy from '../../../components/UsedBy.astro';
 <Answer>
 狀態很清楚：線路「閒」（記 0）或「忙」（記 1），$X_t\in\{0,1\}$，但現在 $t$ 是**連續的實數**（單位：小時），不是回合數。
 
-「每小時 3 通」是一個 **rate**（速率）：單位時間內事件發生的平均次數。它跟機率的關係是：在一段**很短**的時間 $\Delta t$ 裡，恰好來一通電話的機率約是 $3\Delta t$（$\Delta t=1$ 分鐘 $=\tfrac1{60}$ 小時時約 5%），來兩通以上的機率是 $\Delta t^2$ 量級、可以忽略。rate 不是機率，「rate × 短時間」才是機率。
+在 Poisson 假設下，**rate** 是單位時間的平均次數，也是短時間事件機率的斜率。長度 $\Delta t$ 內恰好一次的機率為 $\lambda\Delta t+O(\Delta t^2)$，兩次以上是 $O(\Delta t^2)$。Rate 可以大於 1；它乘上短時間，才近似機率。$\mu=6$ 則是**已在忙碌狀態下**的結束 rate，不表示整條專線每小時實際完成六通。
 
 所以「硬要用 transition matrix」的答案是：**任何一個很短的 $\Delta t$ 都可以**，得到的矩陣是 $P(\Delta t)\approx\begin{pmatrix}1-\lambda\Delta t&\lambda\Delta t\\ \mu\Delta t&1-\mu\Delta t\end{pmatrix}$，$\lambda=3$ 是來電 rate、$\mu$ 是結束 rate（一通平均 10 分鐘，每小時「結束」6 次，$\mu=6$）。但 $\Delta t$ 選多短是任意的，而且 $\Delta t$ 太大這個式子就錯了（$\lambda\Delta t$ 會超過 1）。真正不依賴 $\Delta t$ 的物件，是把 $\Delta t$ 除掉之後剩下的東西——這是下一節要引入的 rate matrix。
 </Answer>
@@ -65,7 +65,7 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 想像一顆棋子在「閒」「忙」兩格之間，但這次沒有人喊「下一回合」。棋子站在「閒」格時，頭上有一個以每小時 3 次的頻率隨機響的鬧鐘；響了就跳到「忙」格。站在「忙」格時換另一個鬧鐘，每小時 6 次；響了就跳回「閒」。兩個鬧鐘都**沒有記憶**：不管已經等了多久，接下來一分鐘響的機率都一樣。
 
-「隨時」的意思就是：時間不再是一格一格的，但在每個瞬間，「跳走」這件事有一個固定的**傾向**。把這個傾向叫做 rate，整個描述就完整了。
+所以我們不先固定一分鐘或一小時為一步，而是記錄短時間機率增加的斜率。這個斜率會決定停留多久，以及離開時去哪一個狀態。
 
 ![兩個沒有記憶的鬧鐘](./imgs/m4-2-1.svg)
 
@@ -141,7 +141,7 @@ $$
 
 **理論的判斷。** 在「來電是 rate $\lambda$ 的無記憶鬧鐘、通話長度是 rate $\mu$ 的無記憶鬧鐘、忙線時的來電被丟掉」這三個假設下，長期忙碌比例是 $\lambda/(\lambda+\mu)=\tfrac13$，不是 $\tfrac12$。「3 通 × 10 分鐘」的直覺錯在一個隱含假設：**它把每小時進來的 3 通都算成有講到**。但其中一部分打進來時線路是忙的、直接被掛掉；真正接到的電話每小時只有 $\lambda\,\pi(0)=3\times\tfrac23=2$ 通，$2\times10$ 分鐘 $=20$ 分鐘，正好是 $\tfrac13$。流量平衡 $\pi(0)\lambda=\pi(1)\mu$ 自動把這件事算進去了。（若電話可以排隊而不是掛掉，$\tfrac12$ 才是負載——但那是另一條 chain，狀態要包含隊伍長度。）
 
-**哪裡可能失準。** 三個假設裡最脆弱的是「通話長度無記憶」：真實通話不太可能「已經講了 20 分鐘，剩餘時間的分佈跟剛接起來時一樣」。有趣的是，長期忙碌比例**不受這條影響**：把一次「閒→忙→閒」看成一個循環，閒置段平均 $1/\lambda$、忙碌段平均 $\mathbb E[S]$，忙碌比例是 $\mathbb E[S]/(1/\lambda+\mathbb E[S])=\lambda\mathbb E[S]/(1+\lambda\mathbb E[S])$，只用到平均通話長度。會失準的是**中途的預測**：例如 $p_t(1)$ 的曲線形狀、以及「現在在忙，還要等多久」——那些依賴 exponential 的無記憶性。「來電無記憶」則在真實世界常被違反（廣告後湧入、午休空檔），這時 $\lambda$ 隨時間變，$\pi$ 也就不存在。
+**哪裡可能失準？** 若來電仍是固定 rate 的 Poisson process、通話長度獨立且平均有限，把「閒→忙→閒」當成循環，忙碌比例仍是 $\mathbb E[S]/(1/\lambda+\mathbb E[S])$，不必要求通話長度 exponential。但忙碌狀態本身一般不再是上述二狀態 CTMC，中途的 $p_t$ 與剩餘等待時間也可能不同。若 $\lambda$ 隨時間變，則不能直接套固定 generator 的 stationary calculation；是否存在共同 stationary distribution，需另外檢查，不能一概說不存在。
 
 ## 動手跑一次
 
@@ -163,12 +163,12 @@ print("忙碌比例", busy / T)                       # ≈ 1/3
 ## 檢查理解
 
 <QuizBlock id="m4-2-a">
-一台機器在正常運轉時平均每 10 小時故障一次，每次維修平均 2 小時，維修期間不會再故障。工廠問「長期可用率」。該用什麼工具？
+假設機器的正常運轉與維修時間都是獨立 exponential，平均分別為 10 與 2 小時。要算長期可用率與剛修好三小時後的狀態，該用什麼工具？
 <Option>離散時間 chain，一小時一步，$P(\text{好}\to\text{壞})=0.1$、$P(\text{壞}\to\text{好})=0.5$，解 $\pi P=\pi$，並用它預測「現在剛修好，3 小時後還正常的機率」。</Option>
 <Option correct>2 狀態 CTMC，$\lambda=1/10$、$\mu=1/2$，可用率 $\pi(\text{好})=\mu/(\lambda+\mu)=5/6\approx0.83$。</Option>
 <Option>可用率就是 $1-2/10=0.8$，不需要任何 chain。</Option>
 <Explanation>
-故障與修好都是「隨時可能發生」，是 rate 而不是每步的機率，rate matrix 是自然的語言；流量平衡 $\pi(\text{好})\lambda=\pi(\text{壞})\mu$ 給 $5/6$。一小時一步的離散 chain 是 $I+R\Delta t$ 的近似，$\Delta t=1$ 小時對 $\mu=1/2$ 來說並不小（$\mu\Delta t=0.5$）；它的 $\pi$ 恰好也是 $5/6$（2 狀態的巧合：流量平衡式兩邊同乘 $\Delta t$），但用它預測「3 小時後還正常」會與 $e^{tR}$ 的答案有明顯偏差。$1-2/10$ 算的是「每 10 小時裡壞 2 小時」，忽略了 10 小時是**好的時候**的平均間隔，正確的循環是「好 10 小時、壞 2 小時」，可用率 $10/12$。
+Exponential 假設讓「好、壞」兩個狀態足以構成 CTMC，stationary 可用率是 $10/(10+2)=5/6$。若 $I+hR$ 是合法矩陣，它與 $R$ 的 stationary distributions 本來就相同，因為 $\pi(I+hR)=\pi$ 等价於 $\pi R=0$；這不是兩狀態的巧合。但有限時間轉移 $(I+hR)^n$ 只是 $e^{nhR}$ 的近似，不能混為一談。
 </Explanation>
 </QuizBlock>
 
@@ -195,7 +195,7 @@ $\frac{d}{dt}\sum_yp_t(y)=p_tR\mathbb 1$，而 $R\mathbb 1=0$ 就是「每列和
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-time-reversal">
-這一篇把「隨時」寫成 rate matrix $R$，得到 $P(t)=e^{tR}$ 與 forward equation $\dot p_t=p_tR$，並看到它是 Fokker–Planck 的離散狀態版本。接著把影片倒著播：一條 chain 反過來走，rate 會變成什麼？為什麼會冒出一個比值 $p_t(y)/p_t(x)$？
+現在可以由 rate 算出各時刻的 distribution。但若已知此刻在哪裡，想反推上一刻從哪裡來，不能直接沿用正向 rate。下一篇把影片倒著播，用 Bayes 算出這個反向規則。
 </Bridge>
 
 ## 參考文獻

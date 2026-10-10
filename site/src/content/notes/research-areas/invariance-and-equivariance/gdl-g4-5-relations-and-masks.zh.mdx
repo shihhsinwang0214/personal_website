@@ -1,0 +1,132 @@
+---
+slug: "gdl-g4-5-relations-and-masks"
+label: "gdl-attention-relations"
+lang: "zh"
+title: "誰能參考誰，也可以是輸入的一部分嗎？"
+category: "courses"
+group: "G4 · Attention and Transformers"
+status: "available"
+updated: "2026-10-10"
+summary: "從附帶關係的資料出發，寫出 bias 與 mask 的 joint relabeling，將序列、集合與 graph attention 放在相同的 action 檢查下。"
+prereqs: ["gdl-order-and-position"]
+demos: ["notes/research_areas/invariance-and-equivariance/attention-workbench.html"]
+references:
+  - label: "Vaswani 等人（2017），Attention Is All You Need"
+    href: "https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf"
+  - label: "Shaw、Uszkoreit 與 Vaswani（2018），Self-Attention with Relative Position Representations"
+    href: "https://aclanthology.org/N18-2074/"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 誰能參考誰，也可以是輸入的一部分嗎？
+
+<Objectives>
+
+- **分開 bias 與 mask。** 前者改參考傾向，後者排除不能讀取的對象。
+- **推導帶關係的 attention。** 說明 $H$、$B$、$M$ 為何必須分別搬成 $PH$、$PBP^\top$、$PMP^\top$。
+- **指出幾何與計算的界線。** Permutation equivariance 不自動包含 rotation equivariance，dense attention 也有 pairwise cost。
+
+</Objectives>
+
+<Prereq items={["gdl-order-and-position"]} />
+
+## 有些參考關係不是從 features 猜出來的
+
+上一篇用 causal mask 表示「不能看未來」。但在其他資料裡，已知關係可能是道路是否相連、兩個地標有多遠，或兩個 token 相差幾個位置。
+
+想像重新編號一張座位表。人名搬到新的 rows，誰坐在誰旁邊的表也要一起搬。若只改人名，卻保留舊座位關係，就不是原來那群人的資料。
+
+我們可以把這份附帶關係交給 attention，而不是要求它全部從 $H$ 猜出來。
+
+## 比較傾向與可見限制，分開寫
+
+在原本的分數上加兩份表：
+
+$$
+S=\frac{QK^\top}{\sqrt{d_k}}+B+M,\qquad
+Y=\operatorname{softmax}_{\mathrm{row}}(S)V.
+$$
+
+$B_{ij}$ 是 finite **bias**，例如讓某些距離的對象比較容易被參考；$M_{ij}$ 則取 $0$ 或 $-\infty$，表示可讀或禁止。很負的 finite bias 仍可能給非零權重，mask 才是真正排除。
+
+Shaw、Uszkoreit 與 Vaswani [2] 將 relative position 加入 attention；原論文使用相對位置的 learned vectors，我們這裡用 scalar bias 表達較簡單的關係版本，兩者不混成同一條公式。
+
+例如有語意位置 $r_i$ 時，可以令 $B_{ij}=b(r_j-r_i)$；若是座標 $x_i$，也可以試 $B_{ij}=b(\|x_i-x_j\|^2)$。這些關係依附於點，不應依附於儲存列號。
+
+## 連同關係一起重排
+
+令 $H'=PH$、$B'=PBP^\top$、$M'=PMP^\top$。使用前面已證的 $Q'=PQ$、$K'=PK$，
+
+$$
+S'=
+P\frac{QK^\top}{\sqrt{d_k}}P^\top+PBP^\top+PMP^\top
+=PSP^\top.
+$$
+
+每列至少保留一個可見 key，softmax 才有定義。現在仍可重排同一批分數，得到 $A'=PAP^\top$，所以
+
+$$
+\operatorname{Attn}(PH;PBP^\top,PMP^\top)
+=P\operatorname{Attn}(H;B,M).
+$$
+
+**不是「附帶資訊會破壞 symmetry」，而是我們必須指定它該跟資料怎麼一起變。** 忘記搬 mask 或只搬 bias 的一個軸，便不是這個等式比較的輸入。
+
+## 從所有人，縮到有關係的人
+
+若 $M_{ij}=-\infty$ 表示點 $i$ 不能讀點 $j$，我們就能把 attention 限制在指定鄰居上。這提供了接到 graph 的方式：不用所有點都互相參考，而是把已知連線一起放進規則。
+
+但還有兩個限制。首先，一般 dense 計算會製造 $n\times n$ 分數表；設定 mask 並不自動讓 dense 程式省去所有被禁止的乘法。其次，座標的 distance bias 對旋轉不變，**不代表任意 $Q,K,V$ 或輸出向量都已具有 rotation equivariance**。資料列重排與座標轉動是不同的 action，後者要到 G6 另外設計。
+
+<Remark summary="Cross-attention 的兩份名單可以各自重排">
+
+若 queries 是 $n$ 個物件、keys／values 是另外 $m$ 個物件，兩份名單可分別用 $P_q,P_k$ 重排。分數與關係表變成 $P_qSP_k^\top$，values 變成 $P_kV$，輸出因此變成 $P_qY$。輸出跟詢問者一起搬，不必和提供資訊的名單有相同數量。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/attention-5.svg" alt="Features 搬動一個軸，pairwise bias 與 mask 搬動兩個軸，才能表示原來的關係。" loading="lazy" />
+<figcaption>Features 搬動一個軸，pairwise bias 與 mask 搬動兩個軸，才能表示原來的關係。</figcaption>
+</figure>
+
+<Question>
+
+加入鄰居 mask 後，輸出不再符合 shuffle test。是不是表示只能用沒有 mask 的 attention？
+
+<Answer>
+
+不是。先檢查 mask 是否也依同一份關係重排。若只搬 features，點可能突然參考到不同鄰居；這是輸入沒對齊，不是帶 mask 的運算必然違反 permutation equivariance。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+選「相對位置」或「causal」，比較「只搬內容」與「資訊一起搬」。畫面顯示的零權重應符合當下 mask，defect 則對照同一份資料與關係。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/attention-workbench.html?chapter=5" class="demo-frame" title="誰能參考誰，也可以是輸入的一部分嗎？：attention 計算與重排" style="height: 840px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="Bias 與禁止參考的 mask 相同嗎？" options={[{"text":"不同，finite bias 改傾向，負無限 mask 排除。","correct":true,"explain":"兩者都加在 logits 上，但限制不同。"},{"text":"相同，任何負 bias 都完全排除。","explain":"有限分數的 exponential 不等於零。"}]} />
+<Quiz q="Pairwise relation 怎麼重排？" options={[{"text":"只搬 rows。","explain":"兩個 index 都指向已重編的點。"},{"text":"兩個軸一起搬。","correct":true,"explain":"B'=PBPᵀ 才描述原來那一對點。"}]} />
+<Quiz q="Distance bias 能保證任意 vector output 隨旋轉轉動嗎？" options={[{"text":"能，只要其中一項用了距離。","explain":"其他 feature action 與運算還需另外檢查。"},{"text":"不能，排列與旋轉的要求不同。","correct":true,"explain":"幾何 equivariance 必須檢查整個模型。"}]} />
+
+<Bridge to="gdl-set-lab">
+
+內容、位置與關係的 action 現在都寫清楚了。下一篇把 block 放進程式，**分別測只搬內容與連同附帶資訊一起搬，確認實作比較的是同一件事。**
+
+</Bridge>
+
+## 參考文獻
+
+1. [Vaswani 等人（2017），Attention Is All You Need](https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf)
+2. [Shaw、Uszkoreit 與 Vaswani（2018），Self-Attention with Relative Position Representations](https://aclanthology.org/N18-2074/)

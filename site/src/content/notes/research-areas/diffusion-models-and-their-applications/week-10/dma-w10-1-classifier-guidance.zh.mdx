@@ -1,0 +1,201 @@
+---
+slug: "dma-w10-1-classifier-guidance"
+label: "dma-classifier-guidance"
+prereqs:
+  - dma-test-time-steering
+  - dma-tweedie-and-score
+  - math-bayes-posterior
+lang: "zh"
+title: "只有一個 classifier，怎麼改變 diffusion 的生成方向？"
+category: "courses"
+group: "Unit 7 · Test-time Guidance"
+status: "available"
+updated: 2026-10-09
+summary: "若 classifier 能在每個 noise level 評估 p_t(y|x_t)，Bayes rule 會把 conditional score 拆成原本的 score 加上 classifier gradient。這篇把 classifier guidance 從需求推到公式，也說清楚為什麼 classifier 必須看過 noisy states。"
+demos: []
+references:
+  - label: "Dhariwal & Nichol, Diffusion Models Beat GANs on Image Synthesis (NeurIPS 2021)"
+    href: "https://arxiv.org/abs/2105.05233"
+  - label: "Kawar, Ganz & Elad, Enhancing Diffusion-Based Image Synthesis with Robust Classifier Guidance (2022)"
+    href: "https://arxiv.org/abs/2208.08664"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 只有一個 classifier，怎麼改變 diffusion 的生成方向？
+
+<Objectives>
+- **從 Bayes rule 推出 conditional score。** 寫出 $\nabla_{x_t}\log p_t(x_t\mid y)=s_t(x_t)+\nabla_{x_t}\log p_t(y\mid x_t)$，並逐項說明兩支方向的角色。
+- **把 classifier gradient 換成 DDPM 的 noise prediction。** 由 $s_\theta=-\epsilon_\theta/\sigma_t$ 推出 guided noise predictor 的符號與縮放。
+- **說出 classifier guidance 的適用條件與限制。** 解釋 classifier 為什麼必須接收 $(x_t,t)$，以及 $w=1$ 與 $w>1$ 各自在做什麼。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 我們已經有「像資料的方向」，還缺「像指定類別的方向」
+
+<Ref to="dma-tweedie-and-score"/> 告訴我們，$s_t(x_t)=\nabla_{x_t}\log p_t(x_t)$ 指向 density 增加最快的方向。沿著 reverse dynamics 使用它，樣本會從 noise 逐步走回 data distribution。
+
+現在假設我們不是想生成任意圖片，而是只想要類別 $y$，例如「狗」。原本的 score 只會回答「往哪裡更像一張自然圖片」，不會回答「往哪裡更像狗」。如果手上還有一個 classifier $p_\phi(y\mid x_t,t)$，它能看著當下的 noisy state 說出類別 $y$ 有多可能，那我們要怎麼把這兩種資訊放在一起？
+
+想像你在一座山上走路。地形的上坡方向讓你走向資料比較密的地方；classifier 又提供另一張等高線，告訴你哪邊的「狗」機率上升得最快。**我們需要的是同時提高資料 density 與指定類別機率的方向。**
+
+<Ask>
+原本的 score 與 classifier 的 gradient，<br />
+為什麼可以直接加在一起？
+</Ask>
+
+## 把真正想抽的 distribution 寫出來
+
+目標不是任意資料的 noisy marginal $p_t(x_t)$，而是給定類別 $y$ 後的 conditional distribution $p_t(x_t\mid y)$。Bayes rule 給出
+
+$$
+p_t(x_t\mid y)
+=\frac{p_t(x_t)\,p_t(y\mid x_t)}{p(y)}.
+$$
+
+左邊是我們真正想走向的 distribution；右邊把它拆成「這個位置本來多像資料」與「在這個位置看到類別 $y$ 的可能性」。分母 $p(y)$ 只負責 normalization，與 $x_t$ 無關。
+
+先取 log，把乘法拆成加法：
+
+$$
+\log p_t(x_t\mid y)
+=\log p_t(x_t)+\log p_t(y\mid x_t)-\log p(y).
+$$
+
+接著對 $x_t$ 微分。最後一項是常數，因此 gradient 為零：
+
+$$
+\boxed{
+\nabla_{x_t}\log p_t(x_t\mid y)
+=s_t(x_t)+\nabla_{x_t}\log p_t(y\mid x_t)
+}.
+$$
+
+這就是 classifier guidance 的來源。第一項 $s_t$ 保留「像資料」的方向；第二項把樣本往 classifier 更相信 $y$ 的方向推。兩項都在同一個 noisy state $x_t$ 上計算，所以可以成為同一支 conditional score。
+
+Dhariwal 與 Nichol [1] 把這個 identity 用進 diffusion sampling：以 learned score 與 classifier 近似兩項，並加入 guidance strength $w$：
+
+$$
+\widetilde s_\theta(x_t,t,y)
+=s_\theta(x_t,t)
++w\,\nabla_{x_t}\log p_\phi(y\mid x_t,t).
+$$
+
+當兩個模型都精確、而且 $w=1$ 時，這就是 conditional score。$w>1$ 則把 classifier 的影響刻意放大；它通常會讓類別更明顯，但也可能犧牲 diversity，或把樣本推到 classifier 很有信心、data distribution 卻不熟悉的地方。
+
+## DDPM 手上是 $\epsilon_\theta$，要怎麼加入這支方向？
+
+U1 的網路通常不是直接輸出 score，而是預測 noise。兩者的換算是
+
+$$
+s_\theta(x_t,t)=-\frac{\epsilon_\theta(x_t,t)}{\sigma_t}.
+$$
+
+把 guided score 也寫成 $-\widetilde\epsilon_\theta/\sigma_t$：
+
+$$
+-\frac{\widetilde\epsilon_\theta(x_t,t,y)}{\sigma_t}
+=-\frac{\epsilon_\theta(x_t,t)}{\sigma_t}
++w\,\nabla_{x_t}\log p_\phi(y\mid x_t,t).
+$$
+
+兩邊乘上 $-\sigma_t$，得到實作時可以直接放進原 sampler 的形式：
+
+$$
+\boxed{
+\widetilde\epsilon_\theta(x_t,t,y)
+=\epsilon_\theta(x_t,t)
+-w\sigma_t\nabla_{x_t}\log p_\phi(y\mid x_t,t)
+}.
+$$
+
+負號沒有反過來：$\epsilon_\theta$ 和 score 本來就差一個負號。classifier gradient 在 score 空間是相加；換到 noise prediction 空間後，就變成從 $\epsilon_\theta$ 減掉它。
+
+<Remark label="補充" summary="$w>1$ 對應的是哪一個 density？">
+若暫時把每個 $t$ 的兩個估計都視為精確，
+
+$$
+s_t(x_t)+w\nabla_{x_t}\log p_t(y\mid x_t)
+=\nabla_{x_t}\log\Big[p_t(x_t)p_t(y\mid x_t)^w\Big].
+$$
+
+$w=1$ 才回到標準的 $p_t(x_t\mid y)$；$w>1$ 對類別 likelihood 做額外的 power reweighting。這就是「類別更明顯、涵蓋範圍變窄」的數學來源，而不是 conditional model 突然估得更準。
+</Remark>
+
+<VizPlan id="u7-1-classifier-guidance" title="Base score 加上 classifier gradient" type="static">
+- 檔名：`w10-1-classifier-guidance.png`；放在 noise-prediction 換算之前。
+- 三格連續畫面：原本 $p_t$ 的等高線與 $s_t$；classifier 的 $p_t(y\mid x_t)$ 等高線與 gradient；兩支向量相加後的 conditional score。
+- 中文標註：`往資料更密的地方`、`往類別 y 更可能的地方`、`兩個需求同時滿足`。
+- 觀察句：Bayes rule 先把 density 相乘，取 log-gradient 後才讓兩支方向相加。
+- 風格：同一個 particle 在三格位置一致；base score 用青綠、classifier gradient 用橘色、合成方向用近白。
+</VizPlan>
+
+<Question id="Q1">
+我們平常已經有一個能把乾淨圖片分成「狗／不是狗」的 classifier。**直接對 noisy $x_t$ 使用它，不就可以省掉重新訓練 noisy classifier 嗎？**
+
+<Answer>
+問題是 reverse sampling 的大部分時間都不在乾淨圖片上。$t$ 很大時，$x_t$ 看起來接近 Gaussian noise；一個只看過 $x_0$ 的 classifier 在這些輸入上屬於 out-of-distribution，它的分類結果與 gradient 都未必有意義。
+
+classifier guidance 真正需要的是
+
+$$
+p_\phi(y\mid x_t,t),
+$$
+
+也就是「在 noise level $t$ 看到 $x_t$ 時，類別 $y$ 有多可能」。實作上會從 labeled data 抽 $x_0$，用 U1 的 closed form 直接造出不同 $t$ 的 $x_t$，再訓練一個 time-dependent noisy classifier。
+
+即使分類 accuracy 很高，gradient 也可能被模型的脆弱方向利用。Kawar、Ganz 與 Elad [2] 因此研究 robust classifier guidance：重點不是只讓答案分對，而是讓 gradient 在影像空間裡提供有意義的方向。這個額外 classifier 的訓練成本與 gradient 品質，正是下一篇想拿掉的東西。
+</Answer>
+</Question>
+
+## 消化一下
+
+<QuizBlock id="w10-1-a">
+classifier guidance 的 Bayes 推導中，$-\log p(y)$ 為什麼消失？
+<Option>因為 $p(y)=1$。</Option>
+<Option correct>因為我們對 $x_t$ 微分，而 $p(y)$ 不隨 $x_t$ 改變。</Option>
+<Option>因為 classifier 已經做過 softmax。</Option>
+<Explanation>
+$p(y)$ 仍然負責 conditional density 的 normalization；只是 score 只看對 $x_t$ 的 log-gradient，因此和 $x_t$ 無關的常數會被繞過。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w10-1-b">
+若 score 與 classifier 都是精確的，哪個 $w$ 對應標準 conditional score $\nabla\log p_t(x_t\mid y)$？
+<Option>$w=0$。</Option>
+<Option correct>$w=1$。</Option>
+<Option>任何 $w>1$ 都更精確。</Option>
+<Explanation>
+$w=0$ 是 unconditional score；$w=1$ 是 Bayes identity；$w>1$ 刻意放大 condition，改變了 sampling distribution。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w10-1-c">
+從 score 換成 noise prediction 後，classifier gradient 前面為什麼變成 $-w\sigma_t$？
+<Option correct>因為 $s_\theta=-\epsilon_\theta/\sigma_t$；兩邊乘上 $-\sigma_t$ 會同時帶來負號與縮放。</Option>
+<Option>因為 reverse process 的時間是負的。</Option>
+<Option>因為 classifier 的 label 要反過來。</Option>
+<Explanation>
+這只是 U1 已經建立的 score／noise affine transformation，不是新增的 sampling 假設。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-classifier-free-guidance">
+classifier guidance 已經回答了「方向怎麼加」：用 Bayes rule，把 conditional score 拆成 base score 與 classifier gradient。可是它要求我們另外訓練一個看過所有 noise levels 的 classifier，而且生成時還要對 classifier 做 backpropagation。<Ref to="dma-classifier-free-guidance"/> 接著問：**conditional diffusion model 自己，能不能把同一支方向提供出來？**
+</Bridge>
+
+## 參考文獻
+
+1. Dhariwal, P., Nichol, A. [*Diffusion Models Beat GANs on Image Synthesis.*](https://arxiv.org/abs/2105.05233) NeurIPS 2021.（Classifier guidance 的提出與 fidelity／diversity trade-off。）
+2. Kawar, B., Ganz, R., Elad, M. [*Enhancing Diffusion-Based Image Synthesis with Robust Classifier Guidance.*](https://arxiv.org/abs/2208.08664) 2022.（Classifier gradient 的 robustness。）

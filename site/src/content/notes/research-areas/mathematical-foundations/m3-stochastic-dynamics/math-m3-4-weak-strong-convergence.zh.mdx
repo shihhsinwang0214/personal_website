@@ -10,8 +10,8 @@ title: "每條路徑對，還是最後的分佈對：Weak 與 Strong Convergence
 category: "courses"
 group: "M3 · Stochastic Dynamics"
 status: "available"
-updated: 2026-09-21
-summary: "模擬一百次股價，你關心的是「每一條路徑都跟真實走法一樣」還是「一年後價格的分佈一樣」？兩種要求對應兩種誤差：strong error 逐路徑比、weak error 只比分佈的平均。Euler–Maruyama 的 strong order 只有 1/2，weak order 卻是 1——同一個方法，換一個問題就快一倍。只要目標是「抽樣本」，看的永遠是 weak error。"
+updated: 2026-10-09
+summary: "比較同一條 Brownian noise 下的終點，與比較 distribution 的統計量，是兩種不同的誤差。從 Euler–Maruyama 漏掉的隨機項理解 strong 與 weak order，並分清 additive noise 的特例、smooth test function 的條件，以及 Monte Carlo sampling error。"
 demos: []
 references:
   - label: "Kloeden & Platen, Numerical Solution of Stochastic Differential Equations (Springer, 1992)"
@@ -40,7 +40,7 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 <Objectives>
 - **分清 strong error（逐路徑、同一組噪聲下比終點）與 weak error（只比終點分佈的平均）。** 寫出兩者的定義。
-- **說出 Euler–Maruyama 的 strong order 是 $1/2$、weak order 是 $1$。** 解釋為什麼同一個方法會有兩個不同的速率。
+- **說出適當條件下 Euler–Maruyama 的一般 strong order $1/2$、weak order $1$。** 解釋 additive noise 為什麼可能得到更好的 strong order。
 - **對一個模擬情境判斷該用哪一種誤差來衡量「模擬夠不夠準」、說出這個判斷依賴的假設（是否共用噪聲、被比較的量是否光滑）。** 用實驗驗證階數。
 </Objectives>
 
@@ -55,7 +55,7 @@ import UsedBy from '../../../components/UsedBy.astro';
 1. **每一條路徑都對。** 如果真實世界擲出了某一串隨機的漲跌（同一組硬幣），我的模擬走出來的那條線，要跟「用同一串硬幣、但以無限小的步長算出來」的真實路徑幾乎重合。
 2. **最後的分佈對。** 我不在乎哪一條線對哪一條，只在乎一年後價格的分佈——平均、變異、超過某個門檻的機率——跟真實的一樣。
 
-先用直覺想：這兩個要求哪個比較嚴格？「一天一步」對哪一個來說夠？如果要把誤差減半，兩個要求各需要把步長縮小多少？寫下你有多確定。
+就像比較兩批人的旅行：可以要求同一個人在兩種導航下走到接近的位置，也可以只比較兩批人最後的分布。**同一個 numerical method，在這兩種比較下會有相同的誤差嗎？** 先定義兩把尺，再決定要花多少計算。
 
 <Question id="Q1">
 把兩個要求翻成數學。「同一串硬幣」在 SDE 的語言裡是什麼？兩個要求各在比較哪個量？
@@ -69,7 +69,7 @@ $$
 e_{\text{strong}}(h)=\mathbb E\big[\,|x_T-\hat x^{(h)}_T|\,\big].
 $$
 
-**要求二**（weak）不共用噪聲——真實與模擬各自抽自己的樣本，只比較某個統計量：
+**要求二**（weak）只比較某個統計量，不要求逐條配對；是否在實驗中共用 noise，都不會改變這個定義：
 
 $$
 e_{\text{weak}}(h)=\big|\,\mathbb E[\varphi(x_T)]-\mathbb E[\varphi(\hat x^{(h)}_T)]\,\big|,
@@ -77,7 +77,7 @@ $$
 
 對一類夠光滑的測試函數 $\varphi$（平均是 $\varphi(x)=x$、二階動差是 $x^2$、超過門檻的機率是一個平滑化的階梯函數）。weak 說的是**分佈**接近，strong 說的是**路徑**接近。
 
-兩者的關係一句話：strong 蘊含 weak（路徑都對了，分佈當然對），反之不成立——分佈對了，每條路徑可以完全對不上。
+若 $\varphi$ 是 $K$-Lipschitz，則 $e_{\mathrm{weak}}\le K\,e_{\mathrm{strong}}$，因為 $|\mathbb E[\varphi(x_T)-\varphi(\hat x_T)]|\le\mathbb E|\varphi(x_T)-\varphi(\hat x_T)|$。所以這類 test function 的 weak error 可由 strong error 控制；對無界或不連續函數，還要額外的 moment 或 regularity 條件。反過來，相同 marginals 不保證同一條 noise 下的兩條路接近。
 </Answer>
 </Question>
 
@@ -89,7 +89,7 @@ $$
 
 第二位根本不看哪條對哪條。她把你的一百個終點倒進一個直方圖，把真實的一百個終點倒進另一個直方圖，比兩個直方圖像不像。這是 **weak** 的尺。
 
-第二位評審寬鬆得多：只要你的路徑「在統計上」走得像，就算每一條都跟真實的錯開，她也給滿分。而寬鬆的尺會給出**更快的收斂**——同樣的步長縮小一半，weak 誤差減半，strong 誤差只減到原來的 $1/\sqrt2$。
+這兩種比較會保留不同的誤差：逐條相減時，正負的隨機偏移都算進距離；先取 expectation 時，有些零均值項會抵消。這提示 weak approximation 為什麼可能有較高階數，但不是所有 SDE、所有統計量都必然有不同速率。
 
 ![兩把尺：逐路徑比，還是比直方圖](./imgs/m3-4-1.svg)
 
@@ -103,7 +103,7 @@ $$
 e_{\text{strong}}(h)\le C\,h^{1/2},\qquad e_{\text{weak}}(h)\le C'\,h^{1} .
 $$
 
-我們說 Euler–Maruyama 有 **strong order $\tfrac12$**、**weak order $1$**。同一個演算法，兩個速率。這不是兩個定理巧合地不一樣，而是同一件事的兩面，可以在一個小例子裡看清楚。
+這是一般的收斂保證，需要 Lipschitz、growth 與 moment 條件；weak order $1$ 還需要係數及 test function 夠 smooth [1, 2]。不是說每個例子的誤差都剛好按這兩個速率下降：additive noise 可以有 strong order $1$，某些統計量甚至完全沒有偏差。下面用 multiplicative noise 看首個漏掉的項。
 
 看最簡單的 SDE $dx=\sigma\,x\,dW_t$（沒有 drift，噪聲乘在 $x$ 上——這正是股價模型的骨架）。Euler–Maruyama 一步是 $\hat x_{t+h}=\hat x_t(1+\sigma\Delta W)$。真實的一步（用 Itô 的結果，這門課只引用）是 $x_{t+h}=x_t\exp(\sigma\Delta W-\tfrac12\sigma^2h)$。把指數展開到二階：
 
@@ -113,7 +113,7 @@ $$
 
 Euler 少掉的那一項是 $\tfrac12\sigma^2x_t\big[(\Delta W)^2-h\big]$。現在用兩把尺量它：
 
-- **Strong 的尺**看它的大小。$(\Delta W)^2$ 的典型大小是 $h$（<Ref to="math-random-walk-brownian"/>：$\Delta W\sim\sqrt h$），所以 $(\Delta W)^2-h$ 的標準差是 $\sqrt2\,h$。每步漏掉的量 $\sim h$，但這些漏掉的量是**隨機的、正負互相獨立**，$N=T/h$ 步累積起來像 random walk：總和 $\sim\sqrt N\cdot h=\sqrt{T/h}\cdot h=\sqrt{Th}$。這就是 $h^{1/2}$。
+- **Strong 的尺**看大小。$(\Delta W)^2-h$ 的標準差是 $\sqrt2\,h$。乘上當下的 $x_t$ 後，各步的項不再是 iid，但對已知的過去仍有 conditional mean 零。在適當 moment bound 下，這類 martingale differences 的二階矩可以累積成 $N\,O(h^2)$，開根號後得到 $O(\sqrt h)$。這是階數的來源，完整證明還要控制誤差傳播。
 - **Weak 的尺**看它的**平均**。$\mathbb E[(\Delta W)^2-h]=0$——這一項在平均下**完全消失**。剩下的偏差來自更高階的項，每步 $O(h^2)$，$N$ 步累積成 $O(h)$。這就是 $h^1$。
 
 一句話：**Euler 每步漏掉的主要誤差是一個零均值的隨機量。** 逐路徑比，它累積成 $\sqrt h$；只比分佈，它平均掉了，剩下的是 $h$。
@@ -121,21 +121,21 @@ Euler 少掉的那一項是 $\tfrac12\sigma^2x_t\big[(\Delta W)^2-h\big]$。現�
 <Details summary="一般 SDE 的版本：為什麼 strong 是 1/2、weak 是 1（Kloeden & Platen 的兩個定理）">
 一般 dx = f(x)dt + g(x)dW。Euler–Maruyama 的單步展開比真實解少掉的首項是 ½ g(x)g′(x)[(ΔW)² − h]（Itô–Taylor 展開的下一項；補上它就是 Milstein 方法，strong order 升到 1）。
 
-Strong：這一項的 L² 大小是 O(h)，各步近乎獨立，N = T/h 步以「平方和開根號」累積 → O(√(N h²)) = O(h^\{1/2\})。若 g 是常數（additive noise），這一項恆為零，Euler–Maruyama 的 strong order 直接變成 1。
+Strong：這一項的 L² 大小是 $O(h)$。在適當係數與 moment 條件下，martingale differences 的二階矩累積後給出 $O(\sqrt h)$；仍要另外控制傳播誤差。Additive noise 讓這個首項消失，夠平滑的 drift 下可提高到 strong order 1，並不是只看 g 為常數就不需其他條件。
 
-Weak：對光滑的 φ，令 u(t,x) = E[φ(x_T) | x_t = x]（它滿足向後的 Kolmogorov 方程）。單步的 weak 誤差是 E[u(t+h, x̂_\{t+h\})] − E[u(t+h, x_\{t+h\})]；把 u 對 x 展開，零均值的隨機項全部被期望消掉，剩下的首項是 O(h²)；N 步累積成 O(h)。條件：φ、f、g 要夠光滑（一般要求 φ 有四階以上的有界導數）；φ 是不光滑的指標函數時，weak order 可能掉到 1/2。這門課只用結論，證明見 Kloeden & Platen [1] 第 10 與 14 章、Milstein & Tretyakov [4]。
+Weak：對 smooth test function $\varphi$，令 $u(t,x)=\mathbb E[\varphi(x_T)\mid x_t=x]$。利用 backward Kolmogorov equation 展開期望，可在相應 smoothness 與 growth 條件下得到單步 $O(h^2)$、全域 $O(h)$。Indicator 不符合這個證明的前提，其 rate 要另外分析；不能直接指定為 $1/2$。完整條件與證明見 [1,4]。
 </Details>
 
 ## 該拿哪把尺
 
 回答老闆。「準不準」取決於他要拿模擬做什麼：
 
-- 若他要的是**一年後價格的分佈**——平均報酬、風險值、超過某門檻的機率——那是 weak 的問題。一天一步（$h=1/252$）給 $O(h)$ 的偏差，通常已經遠小於這些統計量本身的抽樣誤差（一百條路徑的 Monte Carlo 誤差 $\sim1/\sqrt{100}=10\%$）。把步長縮小一半，偏差減半。
-- 若他要的是**逐日對照某條真實走勢**——例如拿模擬去對沖一條特定路徑、或做路徑相依的產品定價時需要每條路徑本身準——那是 strong 的問題。一天一步的誤差是 $O(\sqrt h)$，要減半得把步長縮到四分之一。
+- 若要比較某個終點統計量，例如 mean 或 second moment，就看對應的 weak error。$O(h)$ 只給速率，還有未知常數，不能單憑一天一步就說已經夠準。
+- 若要在同一條 Brownian noise 下比較精確解與 numerical approximation，就看 strong error。這是數學上指定的 coupling，不是要求程式預測真實世界下一次發生的隨機路徑。
 
-多數「模擬」的目的其實都是第一種：**我們要的是樣本，不是某一條特定的路徑**。這時 strong error 是過度嚴格的尺——你為一個沒人要求的目標付出了四倍的計算。這就是為什麼「用 SDE 抽樣本」的世界裡，看的永遠是 weak error。
+抽樣問題通常重視 distribution，但不能只檢查一個 mean 就說整個 distribution 都對。也可以用 Wasserstein 等距離；strong coupling 有時正好提供它的上界。要選哪把尺，取決於用途，不是只要「生成樣本」就永遠不用 strong analysis。
 
-這個判斷依賴兩個假設。第一，**被比較的統計量夠光滑**——weak order $1$ 是對光滑 $\varphi$ 說的，若你要的是「價格恰好超過 100 的機率」這種階梯函數，階數會掉。第二，**你不需要共用噪聲**——一旦你的用途要求「同一組隨機數下模擬與真實對上」（例如把模擬拿去和真實資料逐日對比），你就回到了 strong 的世界。
+對 indicator function，不能直接套用上面 smooth test function 的證明，但也不能直接宣布一定降成 $1/2$ 階；diffusion 的平滑性與其他條件可能保住更好的速率。共用 noise 則只是 coupling 的選擇，也可以用來降低 weak error 估計的 Monte Carlo variance。
 
 ## 把兩條斜率量出來
 
@@ -162,7 +162,7 @@ for h in [1/16, 1/64, 1/256]:
 
 （為什麼不用 $\varphi(x)=x$？因為 $\mathbb E[\hat x_T]=1$ 對任何 $h$ 都**精確**成立——Euler–Maruyama 保住了這個 SDE 的平均，weak error 恰為零。挑一個會出錯的 $\varphi$ 才量得到斜率。）
 
-**刻意違反一個假設。** 把 $\varphi(x)=x$ 換成 $\varphi(x)=\mathbf 1[x>1]$（超過起始價的機率）。weak error 的斜率會從 1 掉下來——階梯函數不光滑，展開框裡「把 $u$ 對 $x$ 展開」的步驟失效。再把 $dW$ 換成模擬與真實**各自獨立抽**的噪聲：strong error 不再隨 $h$ 下降（兩條路徑本來就不該對上），只剩 weak error 有意義。
+可以再比較 $\varphi(x)=\mathbf 1[x>1]$。它不符合這裡的 smoothness 前提，所以要另做分析，不能預先指定實測斜率。若把兩條解的 noise 改成獨立抽取，逐條終點距離也不再是剛才定義的 strong approximation error；兩個精確樣本本來就可能離得很遠。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m3-stochastic-dynamics/m3-4-1.html" class="demo-frame" title="Weak 與 strong convergence 的收斂階" style="height: 820px; width: 100%; border: none;"></iframe>
 
@@ -174,7 +174,7 @@ for h in [1/16, 1/64, 1/256]:
 <Option correct>weak error（對 $\varphi=\mathbf 1[x>30]$ 或它的平滑版本）——發布的是一個分佈的統計量，沒有任何一條模擬路徑需要對上真實的那一條。</Option>
 <Option>兩者都要，缺一不可。</Option>
 <Explanation>
-真實的明天只有一條路徑，而且它的隨機性不會跟你的隨機數產生器共用——strong error 在這裡連定義都不成立。要的是「超過 30 度的機率」這個分佈量，就是 weak。注意 $\mathbf 1[x>30]$ 不光滑，階數可能低於 1，實務上會用平滑化的門檻或直接比較分佈函數。
+發布的是 distribution 的統計量，因此直接相關的是 weak error。Strong error 仍可以在數學上的共用-noise coupling 下定義，只是不要求某一條模擬對上明天的實際路徑。Indicator 不 smooth，所以它的收斂階數需要另外檢查；平滑門檻則會增加另一種 approximation bias。
 </Explanation>
 </QuizBlock>
 
@@ -201,7 +201,7 @@ strong order $\tfrac12$ 來自噪聲係數 $g(x)$ 隨 $x$ 變化那一項；$g$ 
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-markov-chain">
-本篇把「模擬準不準」拆成兩把尺：strong 逐路徑比、weak 只比分佈；Euler–Maruyama 每步漏掉的首項是零均值的隨機量，所以 strong 只有 $\tfrac12$ 階、weak 有 $1$ 階——要的是樣本就看 weak。到這裡，連續狀態的隨機動力學（random walk → SDE → Fokker–Planck → Langevin → 誤差）走完了。接下來的單元 把狀態空間換成有限個格子：明天的天氣只跟今天有關，矩陣乘法就能算出一百天後晴天的比例。
+現在可以分開 trajectory error、distribution 的統計量偏差，以及有限樣本的 Monte Carlo error。接下來把連續位置換成有限個狀態：如果明天的天氣只依賴今天，能不能用一張轉移機率表，算出很多天後的 distribution？
 </Bridge>
 
 ## 參考文獻

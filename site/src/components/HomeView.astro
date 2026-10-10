@@ -4,7 +4,7 @@ import { withBase } from '../lib/url';
 import { profile, research, news, publications, uiText, heroContent } from '../data/content';
 import type { Lang } from '../lib/notes';
 import {
-  categoryLabels,
+  tierLabels,
   courseByKey,
   courseRoute,
   formatNoteDate,
@@ -103,42 +103,68 @@ const recentNews = news.slice(0, 4);
       </a>
       {
         homeBlocks.map((section) => (
-          <section class="writing-category" aria-labelledby={`writing-${section.category}`}>
-            <h3 id={`writing-${section.category}`} class="writing-category-label">
-              {categoryLabels[section.category][lang]}
+          <section class="writing-category" aria-labelledby={`writing-${section.tier}`}>
+            <h3 id={`writing-${section.tier}`} class="writing-category-label">
+              {tierLabels[section.tier][lang]}
             </h3>
-            <div class="topic-cards">
-              {section.items.map((item) => {
-                const key = courseKeyOf(item.id);
-                const course = key ? courseByKey(key) : undefined;
-                const slugs = key ? courseSlugs(key) : [];
-                const href = course ? courseRoute(course.key, lang) : `${notesIndexRoute(lang)}#${item.id}`;
-                return (
-                  <a class="topic-card" href={withBase(href)} data-tone={course?.tone ?? 'neutral'} data-read-count={course ? '' : undefined}>
-                    <span class="topic-card-title">{item.title}</span>
-                    {item.description && <span class="topic-card-desc">{item.description}</span>}
-                    <span class="topic-card-meta">
-                      {item.noteCount} {lang === 'zh' ? '篇' : item.noteCount === 1 ? 'note' : 'notes'}
-                      {item.unitCount > 1
-                        ? ` · ${item.unitCount} ${lang === 'zh' ? '個單元' : 'units'}`
-                        : ''}
-                      {item.latest ? ` · ${formatNoteDate(item.latest, lang)}` : ''}
-                    </span>
-                    {course && (
-                      <span class="topic-card-progress" aria-hidden="true">
-                        <span class="course-progress"><span data-read-bar></span></span>
-                        <span class="topic-card-count" data-read-count-out>0 / {slugs.length}</span>
-                        <span hidden>
-                          {slugs.map((slug) => (
-                            <span data-read-slug={slug} />
-                          ))}
-                        </span>
+            {section.tier === 'academic-skills' ? (
+              /* Craft notes are a side shelf, not a course — a light list, never a card the
+                 size of a 52-note course. */
+              <ul class="skill-list">
+                {section.items.map((item) => (
+                  <li>
+                    <a href={withBase(`${notesIndexRoute(lang)}#${item.id}`)}>
+                      <span class="skill-list-title">{item.title}</span>
+                      <span class="skill-list-meta">
+                        {item.noteCount} {lang === 'zh' ? '篇' : item.noteCount === 1 ? 'note' : 'notes'}
                       </span>
-                    )}
-                  </a>
-                );
-              })}
-            </div>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div class="topic-cards">
+                {section.items.map((item) => {
+                  const key = courseKeyOf(item.id);
+                  const course = key ? courseByKey(key) : undefined;
+                  const slugs = key ? courseSlugs(key) : [];
+                  const href = course ? courseRoute(course.key, lang) : `${notesIndexRoute(lang)}#${item.id}`;
+                  const isFoundation = course?.kind === 'foundation';
+                  return (
+                    <a
+                      class="topic-card"
+                      href={withBase(href)}
+                      data-tone={course?.tone ?? 'neutral'}
+                      data-read-count={course && !isFoundation ? '' : undefined}
+                    >
+                      <span class="topic-card-title">{item.title}</span>
+                      {item.description && <span class="topic-card-desc">{item.description}</span>}
+                      <span class="topic-card-meta">
+                        {isFoundation
+                          ? lang === 'zh'
+                            ? `被 ${item.reuse ?? 0} 篇引用`
+                            : `reused by ${item.reuse ?? 0} notes`
+                          : item.unitCount > 1
+                            ? `${item.unitCount} ${lang === 'zh' ? '個單元' : 'units'}`
+                            : ''}
+                        {item.latest ? `${isFoundation || item.unitCount > 1 ? ' · ' : ''}${formatNoteDate(item.latest, lang)}` : ''}
+                      </span>
+                      {course && !isFoundation && (
+                        <span class="topic-card-progress" aria-hidden="true">
+                          <span class="course-progress"><span data-read-bar></span></span>
+                          <span class="topic-card-count" data-read-count-out>0 / {slugs.length}</span>
+                          <span hidden>
+                            {slugs.map((slug) => (
+                              <span data-read-slug={slug} />
+                            ))}
+                          </span>
+                        </span>
+                      )}
+                    </a>
+                  );
+                })}
+              </div>
+            )}
           </section>
         ))
       }

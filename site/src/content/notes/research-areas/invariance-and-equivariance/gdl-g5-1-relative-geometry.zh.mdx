@@ -1,0 +1,166 @@
+---
+slug: "gdl-g5-1-relative-geometry"
+label: "gdl-relative-geometry"
+lang: "zh"
+title: "不用絕對座標，還能決定往哪裡推嗎？"
+category: "courses"
+group: "G6 · Euclidean Geometry"
+status: "available"
+updated: "2026-10-09"
+summary: "由相對位移與距離構造 scalar-weighted vector updates，逐項驗證 translation、rotation、reflection 與 permutation。"
+prereqs: ["gdl-euclidean-transformations"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Satorras、Hoogeboom 與 Welling（2021），E(n) Equivariant Graph Neural Networks"
+    href: "https://proceedings.mlr.press/v139/satorras21a.html"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 不用絕對座標，還能決定往哪裡推嗎？
+
+<Objectives>
+
+- **推導相對量的 action。** 算出 r'ij=Qr_ij 與距離不變。
+- **用 invariant scalar 製造 vector。** 證明 c_ij r_ij 的等變性。
+- **辨認幾何資訊的限制。** 區分 pairwise distance、角度與鏡像資訊。
+
+</Objectives>
+
+<Prereq items={["gdl-euclidean-transformations"]} />
+
+## 只知道距離，怎麼還能說往哪裡推？
+
+站在桌子的哪個位置，不該改變原子之間的力。想像兩個人拉著一條繩子：我們不必知道他們離房間原點多遠，只要知道兩人相隔多遠、彼此在哪個方向，就能描述拉動。
+
+對兩個原子，先寫相對位移與平方距離：
+
+$$
+r_{ij}=x_i-x_j,\qquad d_{ij}^2=\|r_{ij}\|^2.
+$$
+
+$r_{ij}$ 是從 $j$ 指向 $i$ 的向量；$d_{ij}^2$ 是不帶方向的 scalar。一個可以決定「多大」，另一個可以決定「朝哪裡」。
+
+## 整個分子搬動後，它們怎麼變？
+
+先暫時不重編原子。若 $x_i'=Qx_i+b$，
+
+$$
+r_{ij}'=(Qx_i+b)-(Qx_j+b)=Qr_{ij}.
+$$
+
+共同平移消失。再計算距離：
+
+$$
+d_{ij}^{\prime2}
+=(Qr_{ij})^\top(Qr_{ij})
+=r_{ij}^\top Q^\top Qr_{ij}
+=d_{ij}^2.
+$$
+
+這對所有 orthogonal $Q$ 成立，包括 reflection。相對向量是 equivariant，距離是 invariant。
+
+若還重排原子，兩個量只需一起換 $(i,j)$ 的對應；因此與 G5 的 edge feature action 相容。
+
+## 讓距離決定大小，相對位置決定方向
+
+用共享 scalar 函數 $c$，
+
+$$
+c_{ij}=c(h_i,h_j,d_{ij}^2).
+$$
+
+假設 $h_i,h_j$ 是幾何 invariant 的 scalar features，那麼旋轉或平移後 $c_{ij}'=c_{ij}$。定義 coordinate displacement
+
+$$
+\Delta x_i=\sum_{j\in\mathcal N(i)}c_{ij}r_{ij}.
+$$
+
+變換後
+
+$$
+\Delta x_i'
+=\sum_j c_{ij}Qr_{ij}
+=Q\Delta x_i.
+$$
+
+**大小不變、方向一起轉，sum 也一起轉。** 這已經是我們需要的 vector action。更新 $x_i^+=x_i+\Delta x_i$ 後，
+
+$$
+x_i^{\prime+}=Qx_i+b+Q\Delta x_i=Qx_i^++b.
+$$
+
+所以座標更新保留平移；位移本身則不帶平移。Satorras 等人 [1] 在 EGNN 中使用這個核心結構。
+
+## Scalar 不一定只能使用單一距離
+
+如果要描述夾角，兩個相對向量的 inner product 也不變：
+
+$$
+(Qr_{ij})^\top(Qr_{ik})=r_{ij}^\top r_{ik}.
+$$
+
+結合 norms 就能得到角度。完整的 pairwise distances 在合適條件下也能約束角度與形狀；不能簡單說「距離永遠沒有角度資訊」。
+
+但只讀某一條 edge 的一個 $d_{ij}$，當然不會立刻知道第三個點在哪裡。**每個運算看到多少關係、如何組合，仍影響表示能力。** 更多層可以間接組合資訊，卻不是所有局部距離模型都自動完整。
+
+另一方面，所有 pairwise distances 在 reflection 下都不變，所以單靠它們無法區分鏡像。這是 action 本身的限制，不是隻缺第三個點的局部資訊。
+
+## 等變位移，不一定是物理力
+
+我們可以讓 $c_{ij}$ 不對稱，$c_{ij}\ne c_{ji}$。這時位移仍然 equivariant，但兩點的向量貢獻不一定相互抵消：
+
+$$
+c_{ij}r_{ij}+c_{ji}r_{ji}=(c_{ij}-c_{ji})r_{ij}.
+$$
+
+所以**Euclidean equivariance 不自動保證總力為零或 energy conservation**。若 target 是物理 force，就需要額外結構或約束；G6.3 會從 invariant energy 的 gradient 推導這些關係。
+
+這也回應一個重要判準：一條公式的幾何行為正確，不表示它已經具備任務所有物理性質。
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g5-1.svg" alt="相對位移消除共同平移；距離決定 invariant scalar 權重，再乘相對向量得到 equivariant 更新。" loading="lazy" />
+<figcaption>相對位移消除共同平移；距離決定 invariant scalar 權重，再乘相對向量得到 equivariant 更新。</figcaption>
+</figure>
+
+<Question>
+
+如果一個 scalar-weighted vector layer 在所有旋轉下都等變，是否因此能宣稱它符合 Newton 的作用力與反作用力？
+
+<Answer>
+
+不能。還需要成對貢獻相反等條件，例如 c_ij=c_ji。幾何等變只限制整體變換，不自動約束兩條有向 edge 的權重相同。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+拖動旋轉、平移，再勾選鏡射。Pairwise distance 保持相同，向量分量卻會改變；請分開看 invariant scalar 與 equivariant direction。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=5&chapter=1" class="demo-frame" title="不用絕對座標，還能決定往哪裡推嗎？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="相對位移如何回應平移？" options={[{"text":"會變成 r_ij+b。","explain":"兩端同時加相同 b。"},{"text":"共同平移在相減後抵消。","correct":true,"explain":"兩端同時加相同 b。"}]} />
+
+<Quiz q="為什麼 scalar 乘 vector 仍等變？" options={[{"text":"Scalar 在變換下不變，vector 乘 Q。","correct":true,"explain":"兩個量各有不同的 action。"},{"text":"Scalar 也要加上 translation。","explain":"兩個量各有不同的 action。"}]} />
+
+<Quiz q="Distance-only 可以區分鏡像嗎？" options={[{"text":"可以，只要加入更多距離就能確定手性。","explain":"完整距離仍不含 orientation 的符號。"},{"text":"不可以，reflection 保留所有距離。","correct":true,"explain":"完整距離仍不含 orientation 的符號。"}]} />
+
+<Bridge to="gdl-egnn">
+
+現在我們能用簡單相對量產生合法位移。下一篇將訊息、scalar features 與 coordinate updates 接成一個可堆疊的 EGNN layer。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Satorras、Hoogeboom 與 Welling（2021），E(n) Equivariant Graph Neural Networks](https://proceedings.mlr.press/v139/satorras21a.html)

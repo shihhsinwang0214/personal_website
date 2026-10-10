@@ -1,0 +1,152 @@
+---
+slug: "gdl-g3-1-deep-sets"
+label: "gdl-deep-sets"
+lang: "zh"
+title: "把每個點的資訊加起來，能留下什麼？"
+category: "courses"
+group: "G3 · Sets and Permutations"
+status: "available"
+updated: "2026-10-09"
+summary: "由共享逐點特徵與 sum readout 推導 Deep Sets，並以點數、moments 與反例分辨 aggregation 的資訊損失。"
+prereqs: ["gdl-unordered-sets"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Zaheer 等人（2017），Deep Sets"
+    href: "https://arxiv.org/abs/1703.06114"
+  - label: "Wagstaff 等人（2019），On the Limitations of Representing Functions on Sets"
+    href: "https://proceedings.mlr.press/v97/wagstaff19a.html"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 把每個點的資訊加起來，能留下什麼？
+
+<Objectives>
+
+- **推導 Deep Sets 的 invariance。** 對重新排序的和做換索引。
+- **比較 sum、mean 與 max。** 用重複元素、數量與不同集合給出具體反例。
+- **區分 invariant 與 expressive。** 說明固定 embedding 是否足以分辨任務所需的集合。
+
+</Objectives>
+
+<Prereq items={["gdl-unordered-sets"]} />
+
+## 清點地標時，我們本來就不靠名單順序
+
+想像要整理一群地標的資訊。我們可以逐一觀察每個點，記下同一套摘要，最後把摘要加起來。不論先看總圖還是先看公館站，總和都應相同。
+
+將這個動作寫成模型：先用共享函數 $\phi$ 把每個 $x_i$ 變成 feature，再加總，最後用 $\psi$ 回答全局問題：
+
+$$
+f(X)=\psi\left(\sum_{i=1}^n\phi(x_i)\right).
+$$
+
+$\phi$ 可以是 MLP，$\psi$ 也是可學的函數。Zaheer 等人 [1] 將這種結構稱為 **Deep Sets**。我們先檢查它如何解決順序，再問它是否足以回答我們的任務。
+
+## 每個元素都算一次，換順序沒有差
+
+令重排後第 $i$ 個元素是原來的 $x_{\pi(i)}$。因為 $\pi$ 恰好把每個 index 使用一次，
+
+$$
+\sum_i\phi(x_{\pi(i)})=\sum_j\phi(x_j).
+$$
+
+因此送進 $\psi$ 的向量相同，$f(PX)=f(X)$。這個證明沒有要求 $\phi$ 線性，也沒有要求訓練已經完成；關鍵是**每個點使用同一個 $\phi$，且 aggregation 不依賴排列**。
+
+與直接把所有座標 flatten 不同，這個結構還可以接收不同數量的點。但能接收不同 $n$，不代表訓練後就一定能泛化到遠遠更大的集合。
+
+## 平均與最大值，也一樣嗎？
+
+Mean 與 max 也不依賴排列，卻留下不同資訊。先用最簡單的 $\phi(x)=x$ 看：
+
+$$
+\{1\}\quad\text{與}\quad\{1,1\}
+$$
+
+有相同 mean、相同 max，但 sum 分別為 $1,2$。若任務要數人數，直接 mean 或 max 就看不見重複次數。
+
+反過來，$\{0,2\}$ 與 $\{1,1\}$ 的 sum 都是 $2$。如果任務要判斷分散程度，單一 sum 也不夠。**Aggregation 的對稱性與它保留的資訊，是兩個問題。**
+
+可以讓 $\phi$ 提供更多量：
+
+$$
+\phi(x)=(1,x,x^2).
+$$
+
+加總後得到點數、總和、平方和：
+
+$$
+s=\left(n,\ \sum_i x_i,\ \sum_i x_i^2\right).
+$$
+
+因此 $\psi$ 可以算平均與 variance，例如 $\frac1n\sum_i x_i^2-(\frac1n\sum_i x_i)^2$。剛才兩個集合的平方和分別是 $4,2$，現在就能分開。
+
+這也說明「先學 feature，再加總」和「把原座標直接加總」不同。非線性 $\phi$ 可以讓相同的 aggregation 保留更豐富的資訊。
+
+## 能不能代表所有集合函數？
+
+Deep Sets 的理論說明這種形式有很強的表示能力，但我們不能把它簡化成「任意小 feature 向量都能表示任意集合」。
+
+Wagstaff 等人 [2] 指出，在連續實數輸入與連續函數的設定下，latent dimension 是重要限制。固定大小的摘要可能讓兩組不同集合碰在同一個向量上；如果 target 剛好要區分它們，後面的 $\psi$ 再大也無法補回。
+
+我們這裡不需要先證整個 universal approximation theorem。只要掌握可檢查的原則：**先問任務需要分辨什麼，再檢查摘要有沒有把它們混在一起。**
+
+<Remark summary="Set 的重複、點數與有效元素要先決定">
+
+數學上純 set 不記重複；資料常以 multiset 形式保留重複抽樣。若用 padding 補到相同長度，padding 不是新的真實元素，不能當成零座標的點一起送進 aggregation。實作章節會用 mask 排除它們。
+
+</Remark>
+
+## 這個共享規則還能往哪裡走？
+
+目前 $f$ 回答的是整群點的問題。它把所有資訊壓成同一份摘要，所以不會直接保留每個地標自己的答案。
+
+但逐點分類也需要知道整群地標的環境。下一步我們要問：**能不能讓每個點保留自己的資訊，同時讀取一份不依賴排列的共同摘要？**
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g3-1.svg" alt="共享 φ 將每個點轉成 feature，sum 保留點數相關訊息，ψ 再由同一份集合摘要產生全局答案。" loading="lazy" />
+<figcaption>共享 φ 將每個點轉成 feature，sum 保留點數相關訊息，ψ 再由同一份集合摘要產生全局答案。</figcaption>
+</figure>
+
+<Question>
+
+兩組點的 raw coordinate sum 相同，是否表示任何 Deep Sets 模型都分不開它們？
+
+<Answer>
+
+不是。學到的 φ 可以包含平方、其他非線性特徵，讓 feature sum 不同。但對某個已固定的 φ，若摘要真的相同，後面的 ψ 就無法再區分。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+切換 sum、mean 與 max，再勾選整組重複一次。它們都不受重排影響，卻不一定保留相同的點數與內容資訊。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=3&chapter=1" class="demo-frame" title="把每個點的資訊加起來，能留下什麼？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="Deep Sets 的共享在哪裡？" options={[{"text":"每個 row 都使用自己的 φ。","explain":"共同規則配合對稱 aggregation 消除順序。"},{"text":"每個元素使用同一個 φ。","correct":true,"explain":"共同規則配合對稱 aggregation 消除順序。"}]} />
+
+<Quiz q="Mean 對重複整組元素有什麼限制？" options={[{"text":"整組重複一次，mean 不變。","correct":true,"explain":"若點數是 target，需要額外提供它或選其他摘要。"},{"text":"Mean 一定可以恢復原本點數。","explain":"若點數是 target，需要額外提供它或選其他摘要。"}]} />
+
+<Quiz q="Invariant 是否等於可分辨所有集合？" options={[{"text":"等於，不變性本身就是 universal approximation。","explain":"對稱只限制變換，不保證特徵足夠。"},{"text":"不等於，摘要可能丟失資訊。","correct":true,"explain":"對稱只限制變換，不保證特徵足夠。"}]} />
+
+<Bridge to="gdl-set-equivariant-layers">
+
+全局加總讓順序不再影響答案，但每個地標可能需要不同判斷。下一篇把自己的 feature 與共同摘要接起來，推導逐點的共享規則。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Zaheer 等人（2017），Deep Sets](https://arxiv.org/abs/1703.06114)
+2. [Wagstaff 等人（2019），On the Limitations of Representing Functions on Sets](https://proceedings.mlr.press/v97/wagstaff19a.html)

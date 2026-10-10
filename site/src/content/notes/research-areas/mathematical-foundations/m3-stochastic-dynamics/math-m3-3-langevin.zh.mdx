@@ -9,8 +9,8 @@ title: "山谷裡隨機走的人群：Langevin Dynamics 與 Stationary Distribut
 category: "courses"
 group: "M3 · Stochastic Dynamics"
 status: "available"
-updated: 2026-09-21
-summary: "一群人在山谷裡隨機亂走，但每一步都有點傾向往低處。很久以後大家在哪？答案不依賴出發點，只依賴山谷的形狀：密度 ∝ e^{−V}。把「往低處」寫成 drift −∇V、「亂走」寫成 √2 dW，就是 Langevin dynamics；把 e^{−V} 代進 Fokker–Planck 右邊、看它是否為零，就是證明。也會看到「很久」可以有多久、步長太大會把答案偏掉多少。"
+updated: 2026-10-09
+summary: "往谷底走與隨機散開能否達到平衡？將候選 density e^{−V}/Z 代入 Fokker–Planck，確認它是 stationary distribution，再分清平衡存在、收斂到平衡、混合速度與離散化偏差是不同問題。"
 demos: []
 references:
   - label: "Pavliotis, Stochastic Processes and Applications: Diffusion Processes, the Fokker–Planck and Langevin Equations (Springer, 2014)"
@@ -38,7 +38,7 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 <Objectives>
 - **寫出 Langevin dynamics $dx=-\nabla V(x)\,dt+\sqrt2\,dW_t$。** 解釋 drift 如何把人拉回、噪聲如何把人群攤開。
-- **用 Fokker–Planck 右邊為零，驗證 stationary distribution 是 $p_\infty\propto e^{-V}$。** 說出它為什麼與起點無關。
+- **代入 Fokker–Planck，驗證 $p_\infty=e^{-V}/Z$ 是 stationary distribution。** 分清這個驗證與「從其他起點收斂到它」的不同。
 - **對「一群人在某種地形上帶偏好地亂走、最後分佈在哪」這類情境判斷 $e^{-V}$ 是否適用、說出它依賴的假設（時間夠久、步長夠小）。** 用模擬驗證與破壞它。
 </Objectives>
 
@@ -50,7 +50,7 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 一小時後，這一千個人分佈在哪？如果換一座整體寬兩倍的山谷呢？谷底平坦、邊坡陡峭的山谷呢？
 
-先用直覺回答，並寫下你有多確定。多數人會說「大家聚在谷底附近，但不會全部堆在最低點，因為一直在亂走」。這個描述對。接著問三件事，直覺就開始含糊：聚得多緊？出發點在哪會不會影響結果？山谷形狀怎麼改變答案——寬兩倍的谷會讓大家散開兩倍嗎？平底陡坡的谷呢？
+只有往低處走，大家可能聚到谷底；一直隨機挪動，又讓人散開。**這兩種移動能不能維持一個固定的 density，而不是全部停在同一點？** 我們先找一個「流進與流出恰好抵消」的 distribution，再問是否真的會走到它。
 
 <Question id="Q1">
 翻成數學。「山谷」是什麼？「傾向往低處」與「亂走」各寫成什麼？我們想知道的量——「很久以後大家在哪」——是哪個物件？
@@ -66,7 +66,7 @@ $$
 
 這叫 **Langevin dynamics**（過阻尼版本）。$\sqrt2$ 是慣例，讓後面的答案乾淨；一般寫 $\sqrt{2\tau}$，$\tau$ 是「亂走的強度」，物理上是溫度。
 
-「很久以後大家在哪」問的是：$p_t$ 在 $t\to\infty$ 時有沒有一個極限 $p_\infty$、它長什麼樣。這樣的極限叫 **stationary distribution**（平穩分佈）：一旦分佈變成它，就不再改變——$\partial_tp=0$。注意這不是說每個人停止移動；每個人仍在亂走，只是**整體的密度**不再變。
+**Stationary distribution**（平穩分布）的定義是：從這個 distribution 出發，之後的 distribution 不變，即 $\partial_t p=0$。這不表示每個人停止移動，也不自動保證任意 $p_0$ 都會收斂到它；存在、唯一與吸引其他初始分布，是不同的問題。
 </Answer>
 </Question>
 
@@ -100,16 +100,16 @@ $$
 
 括號裡的量——它是 flux——**逐點為零**，所以它的 divergence 當然為零，$\partial_tp_\infty=0$。✓ $\square$
 
-三行證明裡藏著整個機制：$p\nabla V$ 是 drift 往谷底拉的 flux，$\nabla p$ 是噪聲往外攤的 flux（<Ref to="math-fokker-planck"/> 展開框裡把噪聲寫成 $\nabla\cdot(p\nabla\log p)$ 的那個形式）；$p\propto e^{-V}$ 恰好讓兩股 flux 在**每一點**互相抵消。這就是「拉回與攤開的拔河」的代數版本。
+注意符號：真正的 probability flux 是 $J=-p\nabla V-\nabla p$，因為守恆式是 $\partial_t p=-\nabla\cdot J$。上面括號內的量是 $-J$；代入 $p\propto e^{-V}$ 時兩項逐點抵消，所以確實沒有淨 flux。
 
-**與起點無關。** 上面只證明 $e^{-V}$ 是一個不動點，沒證明「從任何 $p_0$ 出發都會走到它」。後者也成立，只要 $V$ 在遠處長得夠快（例如 $V\to\infty$ 且 $\int e^{-V}<\infty$）：$p_t$ 會以指數速率收斂到 $p_\infty$ [1, 2]。這門課用結論。
+**會不會走到它？** 這需要另加 non-explosion、ergodicity 等條件；收斂速率也需要額外分析。$Z<\infty$ 讓候選 density 可以正規化，卻不足以保證指數收斂。Roberts 與 Tweedie [2] 分析了哪些尾部條件能或不能給出指數收斂；本篇的二次山谷則是可以直接求解的例子。
 
 **山谷形狀怎麼改答案。** $V=x^2/2$：$p_\infty=\mathcal N(0,1)$，標準差 1。橫向拉寬兩倍 $V=x^2/8$：$\mathcal N(0,4)$，標準差 2——散開兩倍。$V=x^2$：標準差 $0.71$——窄谷聚得緊。$V=x^4/4$（谷底平、邊坡陡）：$p_\infty\propto e^{-x^4/4}$，頂部平、尾巴比 Gaussian 薄，標準差約 $0.82$；這個數字沒有直覺可以猜——只有公式能給。加上溫度 $\tau$：$dx=-\nabla V\,dt+\sqrt{2\tau}\,dW$ 的 stationary distribution 是 $e^{-V/\tau}/Z_\tau$，$\tau$ 越大攤得越開。
 
 <Details summary="離散步長不為零時，答案會偏：V = x²/2 的精確計算">
 用 Euler–Maruyama 模擬時步長 h 有限：xₙ₊₁ = (1−h)xₙ + √(2h)·εₙ。這是一條線性遞迴，它自己的 stationary variance 可以精確算：設 Var = s，則 s = (1−h)²s + 2h，解得
 s = 2h / (1 − (1−h)²) = 2h / (2h − h²) = 1 / (1 − h/2)。
-h → 0 時 s → 1，回到理論的 N(0,1)；h = 0.1 時 s ≈ 1.053（偏 5%）；h = 0.5 時 s = 1.33；h = 1 時 s = 2（寬一倍）；h ≥ 2 時 |1−h| ≥ 1，遞迴發散。所以「離散的 Langevin 有它自己的 stationary distribution，與連續版差 O(h)」——這是 Roberts & Tweedie [2] 分析的現象，也是實務上要把 h 選小、或在每步後加一個接受／拒絕修正（MALA）的原因。
+h → 0 時 s → 1；h = 0.1 時 variance 約偏 5%，h = 0.5 時是 1.33，h = 1 時是 2（標準差是 √2 倍，不是兩倍）。上述 stationary variance 需要 0 < h < 2；h ≥ 2 時噪聲持續累積，沒有有限的 stationary variance。這個二次例子的 variance bias 是 O(h)，不代表所有非線性 drift 的 Euler 鏈都穩定或有相同的保證 [2]。
 </Details>
 
 ## 直覺對了，但「很久」有多久
@@ -157,29 +157,29 @@ print((xb > 0).mean())                                      # ≈ 0.05，理論�
 </QuizBlock>
 
 <QuizBlock id="m3-3-b">
-你用 Langevin 模擬一個有兩個谷底、中間山脊很高的地形，從左谷出發跑了很久，直方圖只有左谷有人。理論說 $p_\infty\propto e^{-V}$ 兩谷都該有人。正確的結論是：
+假設 continuous Langevin 確實收斂到 $e^{-V}/Z$，numerical approximation 也已檢查穩定，但從雙井的左側出發，有限時間內仍幾乎沒人到右側。合理的解釋是：
 <Option>理論錯了，stationary distribution 取決於起點。</Option>
 <Option correct>理論沒錯，但翻越山脊的等待時間約 $e^{\Delta V/\tau}$，你等的時間遠不夠；收斂的「指數速率」在這種地形上慢得驚人。</Option>
 <Option>步長太大造成的偏差。</Option>
 <Explanation>
-$e^{-V}$ 是唯一的 stationary distribution，與起點無關——但「無關」是 $t\to\infty$ 的陳述，多久算無窮由地形決定。步長偏差是 $O(h)$ 的形狀誤差，不會讓整個右谷消失。這題的教訓是：理論告訴你終點，實作告訴你現在還在半路。
+在題目的條件下，高位能障礙會造成很長的跨井時間，因此有限時間的分布仍可能保留起點的影響。若沒有先檢查 solver，則也不能只憑直方圖就排除 discretization error；平穩分布公式不是所有模擬失敗的診斷。
 </Explanation>
 </QuizBlock>
 
 <QuizBlock id="m3-3-c">
-把 Langevin dynamics 的噪聲拿掉（$\tau=0$），只留 $dx=-\nabla V\,dt$。很久以後一千個人的分佈是：
-<Option correct>全部堆在谷底那一點（若只有一個谷底）——沒有噪聲就沒有攤開，分佈退化成一個 Dirac，這是梯度下降。</Option>
+對二次山谷 $V(x)=x^2/2$，拿掉噪聲後只剩 $\frac{dx_t}{dt}=-x_t$。起點有有限二階矩，則 $t\to\infty$ 時：
+<Option correct>$x_t=e^{-t}x_0$ 趨近零，distribution 趨近 $\delta_0$。</Option>
 <Option>還是 $e^{-V}$。</Option>
 <Option>隨機分佈在整個山谷。</Option>
 <Explanation>
-$e^{-V/\tau}$ 在 $\tau\to0$ 時越來越尖、集中到 $V$ 的最小值，極限是一個點。這也說明 Langevin 與梯度下降的關係：噪聲的作用正是讓人群不塌縮到一點，而是照 $e^{-V/\tau}$ 分佈。「隨機分佈在整個山谷」是 $\tau\to\infty$ 的另一個極端。
+這個二次例子可以直接算出極限。一般非凸地形的 deterministic gradient flow 可能停在不同的局部 minimum，不能把 $\tau=0$ 的 long-time limit 與先達到平衡、再令 $\tau\to0$ 的極限混在一起。無界空間上 $\tau\to\infty$ 也不表示得到 uniform distribution。
 </Explanation>
 </QuizBlock>
 
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-weak-strong-convergence">
-本篇把「往低處的偏好」寫成 $-\nabla V$、「亂走」寫成噪聲，用 Fokker–Planck 右邊為零驗證 stationary distribution 是 $e^{-V}$，並看到它與起點無關但可能要等 $e^{\Delta V/\tau}$ 那麼久、步長有限時偏 $O(h)$。最後這個 $O(h)$ 直接留下下一個問題：模擬 SDE 時，「誤差」到底是指哪個量？每條路徑對、還是分佈對？接著回答。
+平穩分布可以由淨 flux 為零驗證，但有限時間與有限步長都可能讓模擬偏離它。接下來要先問清楚：說一個 SDE solver「準」，是在比較相同 noise 下的 trajectory，還是在比較 distribution 的統計量？
 </Bridge>
 
 ## 參考文獻

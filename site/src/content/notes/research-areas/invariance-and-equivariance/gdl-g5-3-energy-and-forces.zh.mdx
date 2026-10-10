@@ -1,0 +1,164 @@
+---
+slug: "gdl-g5-3-energy-and-forces"
+label: "gdl-energy-forces"
+lang: "zh"
+title: "能量不變，為什麼它的 gradient 會跟著轉？"
+category: "courses"
+group: "G6 · Euclidean Geometry"
+status: "available"
+updated: "2026-10-09"
+summary: "由 invariant energy 的 chain rule 推導 equivariant forces，再由 translation 與 rotation invariance 推導總力與 torque 約束。"
+prereqs: ["gdl-egnn"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Chmiela 等人（2017），Machine learning of accurate energy-conserving molecular force fields"
+    href: "https://arxiv.org/abs/1611.04678"
+  - label: "Satorras、Hoogeboom 與 Welling（2021），E(n) Equivariant Graph Neural Networks"
+    href: "https://proceedings.mlr.press/v139/satorras21a.html"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 能量不變，為什麼它的 gradient 會跟著轉？
+
+<Objectives>
+
+- **推導 energy gradient 的 action。** 說明為什麼 F=−∇E 隨旋轉一起變。
+- **從 invariance 得到力的限制。** 分別推導總力為零與三維總 torque 為零。
+- **區分幾何與 conservative force。** 說明直接預測等變向量不一定來自同一個 scalar energy。
+
+</Objectives>
+
+<Prereq items={["gdl-egnn"]} />
+
+## 只要力的方向一起轉，就已經像物理了嗎？
+
+EGNN 可以直接給出 equivariant vectors，但不一定保證力來自某個 energy。若我們要模擬分子，通常還希望能量變化與做功有一致關係。
+
+一個自然做法是先學總能量 $E(X)$，再把每個原子的力定義為
+
+$$
+F_i(X)=-\nabla_{x_i}E(X).
+$$
+
+這裡先固定原子型別與 graph，式子中只寫出會變換的座標。Chmiela 等人 [1] 的 GDML 從 force 資料學習保守場，同樣利用 scalar potential 與力的關係；我們這裡採取先學 energy、再求 gradient 的構造，看看不變性還能帶來哪些幾何限制。
+
+## Invariant scalar 的 gradient 為什麼會轉？
+
+把所有座標堆成一個向量 $q\in\mathbb R^{nd}$，讓 $\mathcal Q=I_n\otimes Q$ 在每個原子的空間分量上作用。共同 translation 堆成 $\beta$。
+
+假設 energy 滿足
+
+$$
+E(\mathcal Qq+\beta)=E(q).
+$$
+
+令 $q'=\mathcal Qq+\beta$。對 $q$ 做 chain rule，左邊先經過 $\mathcal Q$，因此
+
+$$
+\mathcal Q^\top\nabla E(q')=\nabla E(q).
+$$
+
+再左乘 $\mathcal Q$，用 $\mathcal Q\mathcal Q^\top=I$：
+
+$$
+\nabla E(q')=\mathcal Q\nabla E(q).
+$$
+
+兩邊加負號，得到 $F(q')=\mathcal QF(q)$。**Energy 的值不變，不表示 gradient 的座標分量不變；gradient 必須用新的方向表示同一個變化。**
+
+Permutation 同理也是 orthogonal 重排：若 energy 不依原子順序，force 就隨原子重排。合起來得到 G6.0 的 force action。
+
+## 共同平移，還給出什麼？
+
+讓所有原子沿同一個向量 $b$ 平移 $\tau b$。Energy 不變，對 $\tau$ 微分：
+
+$$
+0=\left.\frac{d}{d\tau}E(x_1+\tau b,\ldots,x_n+\tau b)\right|_{\tau=0}
+=\sum_i\nabla_{x_i}E(X)\cdot b.
+$$
+
+因為任意 $b$ 都成立，$\sum_i\nabla_{x_i}E=0$，因此
+
+$$
+\sum_iF_i=0.
+$$
+
+這不是額外設一個「總力懲罰」才得到，而是可微 invariant energy 的結果。若外場選定固定位置，energy 本來就不 translation-invariant，不能仍套這個結論。
+
+## 旋轉又給出什麼？
+
+在三維，沿小旋轉的軸向量 $\omega$，原子的一階位移是 $\delta x_i=\omega\times x_i$。Energy 的方向導數為零：
+
+$$
+0=\sum_i\nabla_{x_i}E\cdot(\omega\times x_i)
+=\omega\cdot\sum_i(x_i\times\nabla_{x_i}E).
+$$
+
+第二步用 scalar triple product 的迴圈關係。任意 $\omega$ 都成立，得到
+
+$$
+\sum_i x_i\times F_i=0.
+$$
+
+這是總 **torque（力矩）** 為零的條件：$x_i\times F_i$ 描述這個力對原點造成的轉動效果。它不要求每一對原子都有顯式的成對反向力；一般 many-body energy 可以有更複雜的互動，仍符合總量約束。
+
+## Energy conservation 還要說清楚範圍
+
+若 $E$ 光滑，$F=-\nabla E$ 是 **conservative force（保守力）**：沿路徑積分的做功由端點 potential difference 決定。在適當的連續動力學中，這能與 kinetic energy 一起構成能量守恆。
+
+但數值積分軌跡仍可能有 discretization error。**從 energy 求 force，不代表任意 solver 的有限步計算都會精確守恆。** 同樣，直接預測一個 equivariant force，不保證它是某個 scalar energy 的 gradient。
+
+<Remark summary="訓練 force 時，autograd graph 不能提早切斷">
+
+為了讓 force loss 更新 energy network 參數，計算 $\nabla_X E_\theta$ 時需保留可微 graph，例如 PyTorch 的 create_graph=True。只想評估 force 時不必保留高階 parameter graph，但仍需要對 coordinates 開啟 gradient。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g5-3.svg" alt="先學 invariant energy，再用 chain rule 得到 equivariant force；平移與旋轉 invariance 還約束總力與總 torque。" loading="lazy" />
+<figcaption>先學 invariant energy，再用 chain rule 得到 equivariant force；平移與旋轉 invariance 還約束總力與總 torque。</figcaption>
+</figure>
+
+<Question>
+
+一個直接預測 force 的模型測得 rotation defect 為零，能否據此證明沿任意閉合路徑的做功也為零？
+
+<Answer>
+
+不能。Rotation equivariance 只約束座標變換；閉合路徑做功為零是 conservative force 的性質，需要 scalar potential 或相應 integrability 條件。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+改變旋轉與平移，觀察 energy 不變、force 一起旋轉與 total force 為零。數值來自解析 pair energy，不是預設的訓練成績。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=5&chapter=3" class="demo-frame" title="能量不變，為什麼它的 gradient 會跟著轉？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="Gradient 旋轉結論用到了什麼？" options={[{"text":"Energy 不變，所以 gradient 分量也不變。","explain":"Gradient 是方向敏感的量，不是 scalar value。"},{"text":"Chain rule 與 orthogonal matrix 的 inverse。","correct":true,"explain":"Gradient 是方向敏感的量，不是 scalar value。"}]} />
+
+<Quiz q="總力為零來自哪個條件？" options={[{"text":"可微 energy 對共同 translation invariant。","correct":true,"explain":"對任意共同平移的方向導數為零。"},{"text":"任何 equivariant coordinate update。","explain":"對任意共同平移的方向導數為零。"}]} />
+
+<Quiz q="從 energy 求 force 能保證有限步積分精確守恆嗎？" options={[{"text":"能，任意步長都精確。","explain":"模型結構與時間積分是兩種誤差來源。"},{"text":"不能，numerical solver 仍有誤差。","correct":true,"explain":"模型結構與時間積分是兩種誤差來源。"}]} />
+
+<Bridge to="gdl-chirality">
+
+我們知道哪些對稱能約束 energy 與 force。最後要反過來問：是否每一種幾何變換都應該當成同一件事？鏡像會給出一個重要例子。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Chmiela 等人（2017），Machine learning of accurate energy-conserving molecular force fields](https://arxiv.org/abs/1611.04678)
+2. [Satorras、Hoogeboom 與 Welling（2021），E(n) Equivariant Graph Neural Networks](https://proceedings.mlr.press/v139/satorras21a.html)

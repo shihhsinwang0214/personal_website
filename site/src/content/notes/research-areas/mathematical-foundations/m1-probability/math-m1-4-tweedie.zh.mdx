@@ -10,7 +10,7 @@ title: "去噪就是取 Posterior Mean（Tweedie）"
 category: "courses"
 group: "M1 · 機率與 Conditional Expectation"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-09
 summary: "體重計讀 72.3 kg、雜訊 ±1 kg、全班體重分佈已知——最佳猜測是 72.3 嗎？不是：最佳猜測是 posterior mean，而 Tweedie 公式說它等於 y + σ² ∇log p_Y(y)：讀數往「讀數分佈密度高的方向」修正 σ² 倍的相對斜率。推導只用三件事：微分穿過積分、Gaussian 的 ∇log、Bayes。"
 demos: []
 references:
@@ -50,9 +50,9 @@ import Ref from '../../../components/Ref.astro';
 
 **你對他真實體重的最佳猜測是幾公斤？**
 
-多數人會說「72.3，還能是什麼？雜訊是對稱的，往上往下機率一樣。」寫下你的答案與確定程度。
+雜訊對稱，只表示給定真實值時，讀數的平均沒有偏；看到讀數後反推真實值，還要看哪些來源本來就比較多。上一篇已經給了 posterior weights，平方誤差下的答案是它們加權的平均。
 
-這一篇會算出：最佳猜測是 **72.14**，比讀數低一點。差得不多——但這個「一點」有一條精確的公式，而且當體重計更差時（雜訊 ±3 kg），最佳猜測會變成 **71.0**，差超過一公斤。直覺「雜訊對稱所以不用修正」漏掉了一件事，而那件事正是前面幾篇準備好的工具要處理的。
+**能不能不逐一算出所有 posterior weights，而直接從讀數分布算出這個平均？** 接下來的 Gaussian 微分，會把這個問題轉成密度的局部斜率。
 
 <Question id="Q1">
 把情境翻成數學：隨機變數是什麼？「最佳猜測」的標準是什麼？「全班分佈已知」在這個問題裡扮演什麼角色？
@@ -70,11 +70,11 @@ import Ref from '../../../components/Ref.astro';
 
 ## 站在密度的斜坡上
 
-想像全班的體重密度是一座山，山頂在 62。讀數 72.3 落在山的**右坡**上——往左（更輕）人比較多，往右（更重）人比較少。
+想像許多人被隨機推向左右，現在站在讀數 72.3 的位置往回看。來自偏輕與偏重的人，不會只因雜訊對稱就各占一半：還要乘上兩邊原本的人數。這就是 posterior 重新加權的意思。
 
 雜訊把每個人的真實體重往左右隨機推 1 kg 左右。站在 72.3 這個位置往回看：從左邊被推過來的人（本來更輕）比從右邊被推過來的人（本來更重）多，因為左邊本來就人多。所以「讀到 72.3」這一群人的真實體重，重心在 72.3 的**左邊**——往山頂方向。
 
-這就是修正的方向：**往密度高的方向修正**。修正多少取決於兩件事：坡有多斜（斜坡越陡，左右兩邊的人數差越大），以及雜訊推得多遠（推得越遠，越多遠處的人混進來）。山頂上坡度為零，讀數不用修；山腳下坡很陡、修得多。
+Tweedie 會把這個平均回頭方向，寫成**觀測密度 $p_Y$** 的 score，不是直接使用乾淨密度 $p_X$ 的 slope。兩個密度不要混在一起：noise 已經把原本的人群分布攤開了，下面的公式用的是攤開後的讀數。
 
 ![讀數沿觀測密度的 score 往高密度方向修正。](./imgs/m1-4-1.svg)
 
@@ -82,7 +82,7 @@ import Ref from '../../../components/Ref.astro';
 
 ## 三個工具接起來：Tweedie 公式
 
-把「讀數」的密度寫出來。$Y=X+\sigma\varepsilon$，所以
+令 $Y=X+\sigma\varepsilon$，其中 $\sigma>0$、$\varepsilon\sim\mathcal N(0,1)$ 與 $X$ 獨立，並假設相關條件平均存在、可以交換微分與積分。把讀數的密度寫出來：
 
 $$
 p_Y(y)=\int p_X(x)\,\varphi_\sigma(y-x)\,dx,\qquad \varphi_\sigma(u)=\frac{1}{\sqrt{2\pi}\sigma}e^{-u^2/(2\sigma^2)} .
@@ -116,7 +116,7 @@ $$
 讀法：**最佳猜測＝讀數＋（雜訊的 variance）×（讀數密度的相對斜率）。** 「往密度高處修正」是 $\nabla\log p_Y$ 的方向；「坡越陡修越多」是它的大小；「雜訊越大修越多」是前面的 $\sigma^2$。三個直覺各對應公式的一個因子。
 
 <Details summary="兩個關鍵：只需要 p_Y；以及 ∇log 不在乎正規化">
-**只需要讀數的分佈。** 公式右邊出現的是 $p_Y$——**讀數**的密度——而不是 $p_X$。這表示你其實不需要老師去年量的那張表：只要有夠多的**讀數**（帶雜訊的那種），畫出它們的 histogram、估出斜率，就能算出每個讀數該修多少。Robbins [1] 把這個想法叫 empirical Bayes：prior 不用假設，從資料的邊際分佈裡「借」出來。Efron [2] 在這篇文章裡把它正式命名為 Tweedie's formula，並用它解釋為什麼「被選出來的最大值」通常高估（selection bias）——被選中的讀數多半站在密度稀疏的坡上，該往回修。
+公式需要的是讀數 density $p_Y$，不必先逐點求出 prior。這和 Robbins [1] 的 empirical Bayes 思路相連：由一批 noisy observations 估計 marginal，再借它做推論。Efron [2] 討論 Tweedie 公式及其 selection bias 應用；實際由資料估 score 時，還會有 density estimation 的誤差，不能只畫 histogram 就當成精確答案。
 
 **$\nabla\log$ 不在乎正規化。** <Ref to="math-gradient"/> 說過 $\nabla\log(cf)=\nabla\log f$。所以估 $p_Y$ 時不需要它的積分等於 1，只要形狀對就夠——這在實務上省掉了一個最難算的量。
 </Details>
@@ -131,7 +131,7 @@ $$
 
 換一台雜訊 $\sigma=3$ 的體重計：$Y\sim\mathcal N(62,73)$，修正 $=-9\times\dfrac{10.3}{73}=-1.27$，最佳猜測 **71.03 kg**。
 
-**對照直覺。** 「72.3 就是最佳猜測」隱含的假設是 **$p_X$ 是平的**——全班每個體重的人一樣多，斜率為零，修正為零。真實的班級不是這樣。在 $\sigma=1$ 時直覺只差 0.16 kg，因為雜訊小、$\sigma^2$ 這個因子壓住了修正；換到 $\sigma=3$ 時 $\sigma^2$ 變九倍，直覺就差了一公斤以上。**直覺什麼時候夠好：雜訊的 variance 相對於 prior 的寬度很小的時候。** 什麼時候不夠好：體重計差、或這位同學的讀數落在全班分佈很稀疏的尾端。
+Tweedie 告訴我們，posterior mean 恰好等於 y 的條件是**該點的 marginal score 為零**；它不要求整個 prior 都平坦。例如對稱分布的中心也會零修正。在這個 Gaussian 例子中，$\sigma=1$ 時修正約 $-0.16$ kg，$\sigma=3$ 時約 $-1.03$ kg；因為 marginal score 也隨 noise 改變，不能只看 $\sigma^2$ 增加九倍就認定修正也增加九倍。
 
 **這個結論依賴什麼。** 第一，**雜訊是 Gaussian**——第二步用了 Gaussian 的 $\nabla\log$ 是線性的；換別種雜訊，公式的形狀會變。第二，**$\sigma$ 要對**——修正乘的是 $\sigma^2$，所以 $\sigma$ 估成一半，修正只剩四分之一。第三，**prior 要是這個人所屬的母體**——如果站上去的是來訪的老師，全班的分佈就不是他的 prior，公式會把他往學生的體重拉。第四，這是**平方誤差**下的最佳猜測；換計分方式，答案不再是 posterior mean（<Ref to="math-mse-conditional-expectation"/>）。
 
@@ -192,11 +192,11 @@ $\mathbb E[X\mid Y]$ 是相對於**某個聯合分佈**定義的；公式的 $p_
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-vector-field-ode">
-本篇把前面準備的工具接成一條公式：最佳猜測是 posterior mean，而 posterior mean 等於讀數往密度高處修正 $\sigma^2\nabla\log p_Y$——推導只用了微分穿過積分、Gaussian 的 $\nabla\log$、以及 Bayes。這個 class 的五篇到此收尾：Gaussian 怎麼合併、猜測是分桶平均、平方誤差選它、posterior 是它的權重、Tweedie 把它算出來。接下來的單元 換一種問題：不是「猜一個看不見的數」，而是「一個東西沿著一片箭頭場會漂到哪裡」。
+現在我們把 posterior mean 寫成讀數加上 $\sigma^2\nabla\log p_Y$：Gaussian 的微分給出殘差，除以 marginal 後，Bayes 把它變成 posterior average。但一個修正方向還不是完整的運動規則。下一個單元問的是：每個位置都有一支箭頭後，要怎麼決定一個粒子隨時間走出的整條路？
 </Bridge>
 
 ## 參考文獻
 
 1. Robbins, H. *An Empirical Bayes Approach to Statistics.* Proceedings of the Third Berkeley Symposium on Mathematical Statistics and Probability, Vol. 1, 1956.（公式的出處之一；Robbins 將其歸功於 M. C. K. Tweedie 的私人通訊。全文在 Project Euclid 的 Berkeley Symposium 專輯裡，這裡不附連結——那個站的網址結構常變。）
-2. Efron, B. [*Tweedie's Formula and Selection Bias.*](https://doi.org/10.1198/jasa.2011.tm11181) Journal of the American Statistical Association 2011.（正式命名「Tweedie's formula」、empirical Bayes 的估法、以及 selection bias 的解釋。）
+2. Efron, B. [*Tweedie's Formula and Selection Bias.*](https://doi.org/10.1198/jasa.2011.tm11181) Journal of the American Statistical Association 2011.（Tweedie 公式、empirical Bayes 與 selection bias。）
 3. Stein, C. M. [*Estimation of the Mean of a Multivariate Normal Distribution.*](https://doi.org/10.1214/aos/1176345632) Annals of Statistics 1981.（Stein's lemma——Gaussian 下「微分穿過期望」的同一個代數——與多維的收縮估計。）

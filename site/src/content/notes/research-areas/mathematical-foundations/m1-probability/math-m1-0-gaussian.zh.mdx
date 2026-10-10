@@ -7,7 +7,7 @@ title: "兩台體重計：Gaussian 的線性組合"
 category: "courses"
 group: "M1 · 機率與 Conditional Expectation"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-09
 summary: "兩台雜訊不同的體重計，讀數該怎麼合併？Gaussian 的線性組合仍是 Gaussian、獨立雜訊的 variance 相加，讓「哪種合併最好」變成一個可以算的問題：答案是 inverse-variance weighting，而直接平均可能比只用好的那台還差。多台的情形由 covariance matrix 統一處理，雜訊相關時增益會消失。"
 demos: []
 references:
@@ -33,7 +33,7 @@ import Ref from '../../../components/Ref.astro';
 <Objectives>
 - **說出「Gaussian 的線性組合仍是 Gaussian」與「獨立 Gaussian 相加時 variance 相加」。** 寫出多變量版本 $AX+b\sim\mathcal N(A\mu+b,\,A\Sigma A^{\!\top})$。
 - **用 variance 相加推出合併兩個雜訊讀數的最佳權重（inverse-variance weighting）。** 說出它比直接平均好多少。
-- **對「兩台體重計取平均」這個做法，判斷它何時有效、何時反而變差、依賴什麼假設（獨立、雜訊為 Gaussian）。** 用模擬驗證，包括雜訊相關時增益如何消失。
+- **分清 variance 計算與 Gaussian 分布的角色。** 獨立與有限 variance 足以推出線性無偏估計的最佳權重；Gaussian 另讓合併後的分布可以完整寫下來。說出相關誤差為何需要 covariance。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -44,9 +44,9 @@ import Ref from '../../../components/Ref.astro';
 
 問題：**你該報幾公斤？**
 
-直覺最常見的答案是「取平均，72.35」，也有人說「B 比較準，用 B 的 71.9」。請寫下你的答案和有多確定。
+兩台都參考，聽起來比只用一台穩。但 A 比較容易抖，給它一半權重會不會反而把 B 拖偏？
 
-接著追問：取平均之後，你對這個數字的信心應該比只看 B **更高**還是**更低**？多數人會說更高——「兩個資訊總比一個多」。這一篇會算出來：**直接平均比只用 B 還差。** 但「兩個資訊總比一個多」這句話本身沒錯，錯的是平均的方式。要能說清楚這件事，需要一個能對「雜訊合併」做算術的工具。
+**要怎麼按讀數的可靠程度合併，而不是直接取平均？** 以下把「抖動 1 kg、0.5 kg」明確當成標準差，不是誤差一定落在這個範圍內。先寫出合併後的 variance，再找讓它最小的權重。
 
 <Question id="Q1">
 把情境翻成數學：這裡的隨機變數是什麼？「$\pm1$ kg」該怎麼寫成數學物件？我們想比較的是哪些做法、用什麼標準比？
@@ -121,7 +121,9 @@ $$
 
 權重與 variance 成**反比**，叫 **inverse-variance weighting**；$1/\sigma^2$ 叫 precision，合併後的 precision 是各自 precision 的**和**——「兩個資訊總比一個多」的正確版本。代數字：$a=0.2$、$b=0.8$，$\hat w=0.2\times72.8+0.8\times71.9=72.08$ kg，variance $0.2$、標準差 $0.447$ kg——比 B 單獨的 $0.5$ 好，但只好一點，因為 A 太差、能貢獻的 precision 只有 B 的四分之一。三台、$n$ 台的規則完全一樣：precision 相加、權重按 precision 分。
 
-**這個結論依賴什麼。** 第一，雜訊**獨立**——這一條寫在 $\mathrm{Var}(\hat w)$ 的式子裡沒有 $\mathrm{Cov}$ 項。若兩台放在同一塊會微微下陷的地墊上，兩台會一起偏，$\Sigma_{AB}\ne0$，那部分共同的誤差**平均不掉**：$n$ 台都有同一個共同誤差 $\sigma_c^2$ 時，平均的 variance 是 $\sigma_c^2+\sigma^2/n$，再多台也壓不到 $\sigma_c^2$ 以下。第二，**Gaussian**。上面的最佳性其實只在「線性組合」裡比；雜訊若是 Gaussian，線性組合已經是所有做法裡最好的。雜訊若不是——例如 A 台偶爾會跳出一個差 10 kg 的離譜讀數——任何線性加權都會被那一次拖走，這時「先剔除離群值」或取中位數會更好。
+**這個結論依賴什麼。** 我們比較的是已知、固定 variance 下的**線性無偏估計**，不是所有可能策略在每個真實體重上的 MSE。推導權重只用了無偏與不相關誤差，不必要求 Gaussian；Gaussian 的用途是讓合併後的分布仍可完整寫成 Gaussian。
+
+若兩台都受到同一塊軟地墊影響，還要加上 $2ab\,\mathrm{Cov}(Y_A,Y_B)$，原本的權重不再一定最佳。共同誤差 $c$ 若與各台的獨立誤差無關，$n$ 台平均後的 variance 是 $\sigma_c^2+\sigma^2/n$：共同那一份不會被平均掉。若儀器還有偏差或離群值，則要重新檢查比較標準與誤差模型，不能把上述權重直接當成一般情況的最優解。
 
 ## 模擬一萬個早上
 
@@ -139,7 +141,7 @@ for rho, g in [(0.0, 0), (0.8, 0), (0.0, 1)]:
     print(f"rho={rho}, glitch={g}"); trial(rho, g)
 ```
 
-第一組（獨立、Gaussian）會印出平均 $\approx0.559$、只用 B $\approx0.5$、加權 $\approx0.447$——三個數字與理論值 $\sqrt{0.3125}$、$\sqrt{0.25}$、$\sqrt{0.2}$ 吻合。第二組（相關係數 0.8）加權的優勢幾乎消失，因為兩台一起偏。第三組（A 台偶爾跳格）加權的標準差被拉到 $0.5$ 以上，「只用 B」反而勝出——線性合併對非 Gaussian 的尾巴沒有抵抗力。
+第一組的三個標準差約為 $0.559,0.5,0.447$，與理論吻合。第二組加入相關誤差，原來忽略 covariance 的權重不再最佳；第三組加入跳格，使 A 的實際 variance 改變。這些結果提醒我們更新誤差模型，不是說所有非 Gaussian 誤差都不能線性合併。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m1-probability/m1-0-2.html" class="demo-frame" title="兩台體重計：權重、相關與離群值" style="height: 800px; width: 100%; border: none;"></iframe>
 
@@ -178,7 +180,7 @@ $X\sim\mathcal N(\mu,\Sigma)$ 是三維的，$A$ 是一個 $2\times3$ 矩陣。$
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-conditional-expectation">
-本篇用「Gaussian 的線性組合仍是 Gaussian、獨立時 variance 相加」把體重計問題算清楚：最佳合併是 inverse-variance weighting，直接平均可能比只用好的那台還差，而雜訊相關或非 Gaussian 時結論會變。這裡我們一直把「真實體重」當成固定的數。接著讓它也變成隨機的——只知道一個人的鞋子尺寸，怎麼猜身高？
+現在我們能算出讀數合併後的 variance，並在既定假設下找到線性無偏的最佳權重。這裡的真實體重固定而未知；下一篇改成從一群人中抽出一個人，只知道他的鞋碼。這時要平均的是哪些可能的人，權重又從哪裡來？
 </Bridge>
 
 ## 參考文獻

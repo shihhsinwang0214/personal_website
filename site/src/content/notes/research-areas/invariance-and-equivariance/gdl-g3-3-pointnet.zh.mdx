@@ -1,0 +1,144 @@
+---
+slug: "gdl-g3-3-pointnet"
+label: "gdl-pointnet"
+lang: "zh"
+title: "看完整群點之後，怎麼回頭判斷每個點？"
+category: "courses"
+group: "G3 · Sets and Permutations"
+status: "available"
+updated: "2026-10-10"
+summary: "把 shared MLP、max pooling 與 local-global feature 接成 PointNet，分辨排序對稱與旋轉對稱。"
+prereqs: ["gdl-set-equivariant-layers"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Qi、Su、Mo 與 Guibas（2017），PointNet"
+    href: "https://arxiv.org/abs/1612.00593"
+  - label: "Zaheer 等人（2017），Deep Sets"
+    href: "https://arxiv.org/abs/1703.06114"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 看完整群點之後，怎麼回頭判斷每個點？
+
+<Objectives>
+
+- **寫出 PointNet 的分類與逐點 head。** 說明 shared feature、global max 與 concatenation 的角色。
+- **推導兩種輸出的排列性質。** 全局答案 invariant，逐點答案 equivariant。
+- **指出 max 與 learned alignment 的限制。** 區分 critical points、數量資訊與嚴格 rotation guarantee。
+
+</Objectives>
+
+<Prereq items={["gdl-set-equivariant-layers"]} />
+
+## 看一張椅子的點雲，怎麼知道哪個點是椅腳？
+
+只看一個點的 $(x,y,z)$，不一定能判斷它是椅腳還是椅背。看到整群點大致形成椅子，再回頭看這個點在其中的角色，會合理很多。
+
+這就是上一篇「自己的資訊加共同環境」在 point cloud 上的用法。Qi、Su、Mo 與 Guibas [1] 的 **PointNet** 用共享逐點 MLP、對稱 pooling 與兩種輸出 head，建立一個直接處理點集的模型。
+
+## 先替每個點看同一份特徵
+
+令
+
+$$
+h_i=\phi(x_i)\in\mathbb R^m,
+$$
+
+所有點使用相同 $\phi$。每個 channel 可以學到某個形狀相關訊號，例如有沒有某種局部位置特徵。接著在每個 channel 上取最大值：
+
+$$
+z_c=\max_i h_{i,c},\qquad c=1,\ldots,m.
+$$
+
+這裡的 max 是逐 channel 取，不一定所有 channel 都選中同一個點。它描述「整群點裡，最強的這種訊號有多大」。
+
+重新排列只改比較順序，不改最大值，所以 $z(PX)=z(X)$。分類 head $\psi(z)$ 因此 permutation-invariant。
+
+## 逐點答案，把共同摘要送回去
+
+如果要每個點一個標籤，不能只輸出 $z$。我們把自己的 $h_i$ 與相同的全局 $z$ 接在一起，記作 concatenation：
+
+$$
+y_i=\eta([h_i,z]).
+$$
+
+重排輸入時，$h_i$ 跟自己的點搬動，$z$ 不變，且 $\eta$ 在各點共享。於是
+
+$$
+y_i'=\eta([h_{\pi(i)},z])=y_{\pi(i)}.
+$$
+
+這就得到逐點 equivariance。全局類別與逐點標籤不是兩個矛盾要求，只是同一份特徵用不同 head 讀取。
+
+## Max 到底把哪些點留下？
+
+對固定的 feature $\phi$，每個 channel 至少有一個點達到最大值。從每個 channel 選一個 argmax，最多 $m$ 個點就足以保留這一份 $z$。
+
+這些點形成一組 **critical points**。若刪掉其他點而沒有改變任何 channel 的最大值，global feature 不變；加入一個在每個 channel 都比現有 max 小的點，也不影響它。
+
+這解釋了 max 摘要在缺少部分點的情況下的穩定性，但不是任意刪點都安全。若刪掉支撐重要 channel 的 critical point，最大值就會改變。也不能由「少數點足以保留這次摘要」推出完整幾何必然只需少數點。
+
+重複相同點不改 max，所以它不擅長直接記錄 multiplicity。若任務真的要分辨數量，應加入 count、sum 或其他能保留這件事的資訊。
+
+## 順序問題解決了，轉動問題還在
+
+若 $\phi$ 直接吃絕對座標，旋轉後 $\phi(Rx_i)$ 一般不等於 $\phi(x_i)$。Max pooling 只證明重新排序沒有差，沒有證明座標旋轉沒有差。
+
+PointNet 還使用可學的 alignment network，把 input 或 features 轉到模型偏好的表示。但**可學的對齊，不等於整個網路對所有旋轉有嚴格保證**；要有後者，仍需檢查 alignment 的 action 與後續運算。
+
+因此我們會分別測 permutation defect 與 rotation defect，而不因模型叫 PointNet 就把兩者合併報告。座標幾何的設計會在 G6 再處理。
+
+<Remark summary="點的座標不是資料列編號">
+
+使用座標是讀取幾何內容；使用「第 i 列」的 embedding 是依賴存放順序。兩者都像位置資訊，但只有後者會直接破壞一般 permutation equivariance。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g3-3.svg" alt="PointNet 用共享逐點 feature 與 global max 表示形狀；分類讀全局，分割則把 local 與 global 接回每個點。" loading="lazy" />
+<figcaption>PointNet 用共享逐點 feature 與 global max 表示形狀；分類讀全局，分割則把 local 與 global 接回每個點。</figcaption>
+</figure>
+
+<Question>
+
+如果刪去一半點，但每個 feature channel 的最大值仍由留下的點達到，PointNet 的 global feature 會變嗎？
+
+<Answer>
+
+不會，對這個固定 φ 而言每個 max 都相同。但逐點答案的集合縮小了；這也不代表任意刪去一半點都符合相同條件。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+切到 max，先重排，再把整組點重複一次。Max 對兩種操作都不變，但這不代表它記住了點數；請對照正文的 critical points。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=3&chapter=3" class="demo-frame" title="看完整群點之後，怎麼回頭判斷每個點？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="Max 的 argmax 在所有 channel 相同嗎？" options={[{"text":"一定，只能保留一個全局最重要點。","explain":"Max 是逐分量運算。"},{"text":"不一定，各 channel 可以由不同點支撐。","correct":true,"explain":"Max 是逐分量運算。"}]} />
+
+<Quiz q="PointNet 的排序保證來自什麼？" options={[{"text":"Shared MLP 與對稱 pooling。","correct":true,"explain":"排列與旋轉的機制要分開檢查。"},{"text":"座標對齊網路保證所有旋轉。","explain":"排列與旋轉的機制要分開檢查。"}]} />
+
+<Quiz q="逐點分類為什麼 concat local feature？" options={[{"text":"只是增加參數，不保留任何點的差異。","explain":"各點的 h_i 讓共同環境與自己的角色相遇。"},{"text":"全局摘要本身無法辨認哪個點正在被分類。","correct":true,"explain":"各點的 h_i 讓共同環境與自己的角色相遇。"}]} />
+
+<Bridge to="gdl-attention-problem">
+
+PointNet 用共享規則與共同摘要滿足排列要求。但**每個點都需要讀同一份摘要嗎？** 判斷椅腳與椅背時，想參考的其他點可能不同。下一個單元試著讓參考權重依內容改變：共享的規則仍要保留，但它每次算出的權重不必相同。這些權重要怎麼隨名單重排，才仍是同一群點的互動？
+
+</Bridge>
+
+## 參考文獻
+
+1. [Qi、Su、Mo 與 Guibas（2017），PointNet](https://arxiv.org/abs/1612.00593)
+2. [Zaheer 等人（2017），Deep Sets](https://arxiv.org/abs/1703.06114)

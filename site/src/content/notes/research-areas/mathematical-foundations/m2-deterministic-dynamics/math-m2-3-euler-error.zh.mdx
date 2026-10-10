@@ -9,8 +9,8 @@ title: "導航每 30 秒更新一次：Euler 法與它的誤差"
 category: "courses"
 group: "M2 · Deterministic Dynamics"
 status: "available"
-updated: 2026-09-21
-summary: "導航每 30 秒才更新一次位置，中間假設車子直走；追一條彎路，終點會偏多遠？直路呢？把「假設直走」寫成 Euler 法，用 Taylor 算出每一步的局部誤差 (h²/2)‖ẍ‖，用 Grönwall 不等式把它們累積成全域誤差——結果是一階的 h，乘上整條路的「加速度積分」，再乘上一個會放大的常數。"
+updated: 2026-10-09
+summary: "導航只偶爾更新方向，會漏掉沿途的 velocity 變化。從一步的積分餘項出發，分清新產生的局部誤差與舊誤差的傳播，再推導 Euler 的有限步誤差上界；控制它的是加速度，不只是轉彎。"
 demos: []
 references:
   - label: "Hairer, Nørsett & Wanner, Solving Ordinary Differential Equations I: Nonstiff Problems (Springer, 2nd ed. 1993)"
@@ -35,9 +35,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 # 導航每 30 秒更新一次：Euler 法與它的誤差
 
 <Objectives>
-- **把「每隔 $h$ 秒看一次方向、中間直走」寫成 Euler 法。** 用 Taylor 展開算出一步的局部誤差 $\tfrac{h^2}{2}\|\ddot x\|$。
-- **用 Grönwall 不等式把 $N$ 步的局部誤差累積成全域誤差 $\le \tfrac{h}{2}\,e^{LT}\!\int_0^T\|\ddot x\|\,dt$。** 說出每個因子從哪來、哪個是你不知道大小的常數。
-- **對「導航追一條彎路會偏多遠」這類情境，用這個界判斷更新頻率夠不夠、說出它依賴的假設（Lipschitz、$\ddot x$ 有界）。** 用一個小模擬對照理論預測。
+- **把偶爾查看方向寫成 Euler 更新。** 用加速度 $a_t(x_t)$ 描述它漏掉的 velocity 變化，分清直線與等速直線。
+- **從誤差的向量等式，推出 $e_{k+1}\le(1+hL)e_k+\|r_k\|$。** 說出三角不等式與 Lipschitz 各控制哪一項。
+- **推導 $e_N\le h e^{LT}\int_0^T\|a_t(x_t)\|dt$。** 分清上界、實際誤差與 numerical stability。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -48,23 +48,19 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 走完這個四分之一圓（約 3.1 公里、三分多鐘），導航上的位置和你真正的位置會差多遠？如果換成一條筆直的路呢？
 
-先用直覺回答，並寫下你有多確定、依據是什麼。常見的直覺是「直路完全不會錯；彎路會偏一點，大概幾十公尺吧」。第一句對。第二句對不對——以及「幾十公尺」是怎麼估出來的——直覺說不出來。而且有一個更重要的問題直覺回答不了：**如果改成每 10 秒更新一次，誤差會縮成多少？三分之一？九分之一？**
+就像走路時只偶爾看導航，直路比較容易走，轉彎時卻容易走過頭。不過，直路上如果一直加速或減速，假設速度固定也會算錯。**更新得更頻繁，誤差究竟會怎麼縮小？** 先分開「這一步漏掉的變化」與「前一步的偏移怎麼繼續傳下去」。
 
 <Question id="Q1">
 翻成數學。「真正的位置」是哪個物件？「導航算出的位置」又是哪個？「每 30 秒直走一段」寫成式子是什麼？我們想知道的量是什麼？
 
 <Answer>
-這一題可以直接對上前一篇的語言：真正的位置是 ODE $\dot x=u(x,t)$ 的解 $x(t)$，$u$ 是「在位置 $x$ 時車的速度向量」——沿著路的方向、大小 $v=60\text{ km/h}\approx16.7\text{ m/s}$（<Ref to="math-vector-field-ode"/>）。
-
-導航算的是另一串東西。令 $h=30$ 秒，$t_n=nh$。導航記錄的位置 $x_n$ 由
+真正的位置 $x_t$ 遵守 $\frac{dx_t}{dt}=v_t(x_t)$。導航的近似位置記成 $\hat x_{t_k}$；$t_k=kh$，每次只使用近似位置上的 velocity：
 
 $$
-x_{n+1}=x_n+h\,u(x_n,t_n)
+\hat x_{t_{k+1}}=\hat x_{t_k}+h\,v_{t_k}(\hat x_{t_k}).
 $$
 
-一步一步算出來：在目前的位置看一次方向，往那個方向直走 $h$ 秒。這條規則叫 **Euler 法**，它就是 <Ref to="math-vector-field-ode"/> 結尾那段「順著箭頭走」的程式。
-
-我們想知道的量是**全域誤差** $e_N=\|x(t_N)-x_N\|$：走完全程（$N=T/h$ 步）之後，真實位置與導航位置的距離。以及它怎麼隨 $h$ 變化。這裡沒有隨機變數；誤差完全來自「兩次讀取之間假設直走」。
+這就是 **Euler method**。兩者從相同起點出發，要比較的是終點距離 $e_N=\|x_T-\hat x_T\|$。這裡沒有 sampling randomness，只有解 ODE 時的 discretization error。
 </Answer>
 </Question>
 
@@ -74,7 +70,7 @@ $$
 
 下一步從那個已經偏外的點出發。它會犯同樣的錯（又沿切線離開），還會多一件事：它現在站在一個「真車從來沒去過」的位置，讀到的方向也不是真車此刻的方向。前面的錯誤會被帶著走，有時還會被放大。全程的誤差就是這兩件事的疊加：**每步新犯的錯**，加上**舊錯被帶著走的方式**。
 
-直路上切線就是路本身，一步的誤差是零，帶著走的也是零。這就是「直路完全不會錯」的畫面版。
+等速直線上，整段 velocity 都相同，Euler 才會一步精確。只是方向沒變、速度仍在增加時，一樣會留下沿路的誤差。
 
 ![Euler 沿切線走一步、逐步累積誤差，以及直線等速的精確情況。](./imgs/m2-3-1.svg)
 
@@ -82,42 +78,62 @@ $$
 
 ## 一步的錯、多步的累積
 
-**局部誤差。** 假設第 $n$ 步從**正確**的位置 $x(t_n)$ 出發。真實的下一個位置用 Taylor 展開（<Ref to="math-taylor"/>）：
+先假設 velocity 夠 smooth，沿精確 trajectory 定義**加速度**
 
 $$
-x(t_n+h)=x(t_n)+h\,\dot x(t_n)+\tfrac{h^2}{2}\,\ddot x(\xi_n),\qquad \xi_n\in[t_n,t_n+h].
+a_t(x_t):=\frac{d}{dt}v_t(x_t)
+=\partial_t v_t(x_t)+\nabla_xv_t(x_t)\,v_t(x_t).
 $$
 
-Euler 給的是 $x(t_n)+h\,u(x(t_n),t_n)=x(t_n)+h\,\dot x(t_n)$——恰好是 Taylor 的前兩項。兩者相減：
+這是 <Ref to="math-total-derivative"/> 的 chain rule：場隨時間改變，以及移動後讀到不同位置的速度。它包含轉向、加速與減速，並不是幾何 curvature。
+
+**先看一步。** 精確位移是 velocity 的積分。把 velocity 與起點值的差，再寫成加速度的積分：
 
 $$
-\big\|x(t_n+h)-\big[x(t_n)+h\,u(x(t_n),t_n)\big]\big\|=\tfrac{h^2}{2}\,\|\ddot x(\xi_n)\|.
+\begin{aligned}
+x_{t_{k+1}}&=x_{t_k}+h\,v_{t_k}(x_{t_k})+r_k,\\
+r_k&=\int_{t_k}^{t_{k+1}}\!\big(v_s(x_s)-v_{t_k}(x_{t_k})\big)\,ds\\
+&=\int_{t_k}^{t_{k+1}}(t_{k+1}-r)\,a_r(x_r)\,dr.
+\end{aligned}
 $$
 
-一步的誤差是 $h^2$ 的量級，係數是**加速度** $\ddot x$。沿著解，$\ddot x=\tfrac{d}{dt}u(x(t),t)=\partial_t u+(\nabla u)\,u$（<Ref to="math-total-derivative"/>）；對等速轉彎的車，$\|\ddot x\|=v^2/R$。
+最後一行交換了兩次積分的順序。所以 $\|r_k\|\le h^2M_k/2$，其中 $M_k=\sup_{[t_k,t_{k+1}]}\|a_t(x_t)\|$。這個積分餘項也適用於向量，不必假設各分量都有同一個 Taylor 中間點。
 
-**全域誤差。** 記 $e_n=x(t_n)-x_n$。第 $n$ 步 Euler 不是從正確位置出發，而是從 $x_n$：
-
-$$
-e_{n+1}=\underbrace{x(t_n)+h\,u(x(t_n),t_n)+\tfrac{h^2}{2}\ddot x(\xi_n)}_{x(t_{n+1})}-\underbrace{\big[x_n+h\,u(x_n,t_n)\big]}_{x_{n+1}}
-= e_n+h\big[u(x(t_n),t_n)-u(x_n,t_n)\big]+\tfrac{h^2}{2}\ddot x(\xi_n).
-$$
-
-中括號裡是「在兩個相距 $\|e_n\|$ 的位置讀到的方向差」，Lipschitz 條件（<Ref to="math-vector-field-ode"/>）說它不超過 $L\|e_n\|$。所以
+**再看舊誤差怎麼傳。** 精確更新減掉 Euler 更新，得到
 
 $$
-\|e_{n+1}\|\le(1+hL)\,\|e_n\|+\tfrac{h^2}{2}M_n,\qquad M_n=\max_{[t_n,t_{n+1}]}\|\ddot x\|.
+x_{t_{k+1}}-\hat x_{t_{k+1}}
+=(x_{t_k}-\hat x_{t_k})
++h\big(v_{t_k}(x_{t_k})-v_{t_k}(\hat x_{t_k})\big)+r_k.
 $$
 
-這就是**離散版 Grönwall 不等式**的形狀：每步舊誤差乘上 $(1+hL)$、再加上新的局部誤差。從 $e_0=0$ 展開，用 $(1+hL)^k\le e^{khL}\le e^{LT}$：
+記 $e_k=\|x_{t_k}-\hat x_{t_k}\|$，先取 norm、用三角不等式：
 
 $$
-\|e_N\|\;\le\;\sum_{n=0}^{N-1}(1+hL)^{N-1-n}\,\tfrac{h^2}{2}M_n
-\;\le\;e^{LT}\,\tfrac{h}{2}\sum_{n=0}^{N-1}h\,M_n
-\;\approx\;\boxed{\;\frac{h}{2}\,e^{LT}\int_0^T\|\ddot x(t)\|\,dt\;}
+e_{k+1}\le e_k
++h\|v_{t_k}(x_{t_k})-v_{t_k}(\hat x_{t_k})\|+\|r_k\|.
 $$
 
-$\square$（最後一步把黎曼和換成積分。）三個因子各有意思：**$h$**——步長縮一半、誤差縮一半，Euler 是一階方法；**$\int\|\ddot x\|dt$**——整條路的加速度總量，路越彎、轉得越急，誤差越大；直路是零。**$e^{LT}$**——場對位置越敏感（$L$ 越大），舊誤差被放大得越凶。這是一個**上界**，不是等式：前兩個因子通常抓得很準，$e^{LT}$ 常常太悲觀。
+假設 $v_t$ 對位置是 $L$-Lipschitz，中間那項至多是 $hLe_k$，因此
+
+$$
+e_{k+1}\le(1+hL)e_k+\|r_k\|.
+$$
+
+三項分別是舊的位置偏移、站錯位置後讀到的 velocity 差，以及本步漏掉的變化。由 $e_0=0$ 展開：
+
+$$
+e_N\le\sum_{k=0}^{N-1}(1+hL)^{N-1-k}\|r_k\|
+\le e^{LT}\sum_{k=0}^{N-1}\|r_k\|.
+$$
+
+餘項中的 $t_{k+1}-r\le h$，所以得到真正的上界
+
+$$
+\boxed{e_N\le h e^{LT}\int_0^T\|a_t(x_t)\|\,dt.}
+$$
+
+若整段加速度還有共同上界 $M$，也可由每步的 $h^2M/2$ 得到 $e_N\le e^{LT}ThM/2$。兩者都顯示 Euler 是一階方法：小步長區域的誤差上界隨 $h$ 縮小。但上界變小不等於實際誤差每次都精確減半，$e^{LT}$ 也只是傳播的最壞情況估計。
 
 <Details summary="連續版 Grönwall 不等式與它的證明（四行）">
 連續版：若 φ(t) ≥ 0 滿足 φ(t) ≤ A + L∫₀ᵗ φ(s) ds，則 φ(t) ≤ A·e^(Lt)。
@@ -127,11 +143,11 @@ $\square$（最後一步把黎曼和換成積分。）三個因子各有意思�
 
 ## 直覺對了一半，數字對不上
 
-用界估一次。$v=16.7$ m/s、$R=2000$ m，$\|\ddot x\|=v^2/R\approx0.139$ m/s²，全程 $T\approx188$ s，所以 $\int\|\ddot x\|dt\approx26$ m/s。$h=30$：$\tfrac{h}{2}\times26\approx390$ m。$L$ 是場對位置的敏感度：方向隨位置改變的速率約 $v/R\approx0.008$ /s，$LT\approx1.6$，$e^{LT}\approx4.8$，上界約 1900 m。
+在圓弧上，速率 $c=16.7$ m/s、半徑 $R=2000$ m，故 $\|a_t\|=c^2/R\approx0.139$ m/s²，全程約 188 秒。代入共同上界 $M$ 的版本，$hTM/2$ 約為 390 m；還要乘上 velocity field 在相關區域的 Lipschitz 傳播因子。這是保守上界，不是終點偏移的預測等式。
 
-真實跑出來（下一節）是 **486 公尺**。所以：直覺的「幾十公尺」錯了一個數量級——隱含的假設是「每步只偏一點」，忘了六步會累積、還會被帶著放大；「直路不會錯」則完全正確，因為 $\ddot x=0$。上界 1900 m 抓到了正確的數量級，但 $e^{LT}$ 把它撐大了四倍——這正是理論常見的處境：**它告訴你誤差隨哪些量、以什麼速率變化，但常數要靠實作校準。**
+下面的程式可以算出實際偏移，並與更新得更頻繁的結果比較。注意程式會將最後一步調整到恰好抵達 $T$，所以顯示的 30 秒是近似的步長。理論說明了哪些量控制誤差，實際數值則要由這個明確的場與 solver 計算。
 
-而那個直覺回答不了的問題現在有答案：更新間隔改成 10 秒，$h$ 縮三倍，誤差也縮**三倍**（不是九倍）；要縮九倍得每 3.3 秒更新一次。
+更新間隔改成 10 秒，在這個平滑範例的小步長區域，誤差大約縮三倍，而不是九倍；這是全域一階與局部二階的差別。
 
 還有一件容易忘的假設：$\ddot x$ 是**加速度**，不只是轉彎。直路上如果你一直在加減速，$\ddot x\ne0$，Euler 也會錯——只是錯在沿路的前後位置，不是偏出路面。
 
@@ -150,7 +166,7 @@ for h in [30, 10, 3, 1]: print(h, round(euler(h)))
 # 486, 161, 49, 17：h 縮三倍、誤差縮三倍——一階
 ```
 
-四個數字每次縮三倍，符合「一階」。再把 $h$ 往另一邊推：對 $\dot x=-kx$（往路中央拉回的修正力，$k$ 大表示拉得急），Euler 一步是 $x_{n+1}=(1-hk)x_n$。$hk<1$ 時單調收斂；$1<hk<2$ 時來回震盪但仍收斂；**$hk>2$ 時 $|1-hk|>1$，每步放大，發散**——這對應到界裡的 $(1+hL)^N$ 真的爆掉，界不再「太悲觀」，而是老實地預告了災難。步長不只影響精度，還影響穩定。
+另一個問題是**穩定性**。對 $\frac{dx_t}{dt}=-kx_t$、$k>0$，精確解會衰減，Euler 卻每步乘上 $1-hk$。當 $0<hk<2$ 時其絕對值小於 1；$hk=2$ 不衰減，$hk>2$ 則發散。這要檢查實際的更新因子，不能只由保守的 $(1+hL)$ 上界判定。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m2-deterministic-dynamics/m2-3-1.html" class="demo-frame" title="Euler：步長、曲率、速度與穩定性" style="height: 800px; width: 100%; border: none;"></iframe>
 
@@ -177,19 +193,19 @@ for h in [30, 10, 3, 1]: print(h, round(euler(h)))
 </QuizBlock>
 
 <QuizBlock id="m2-3-c">
-誤差界 $\tfrac{h}{2}e^{LT}\!\int\|\ddot x\|dt$ 裡，若場的 Lipschitz 常數 $L$ 很大（方向對位置極敏感，例如在岔路口附近），會發生什麼？
+在 $h e^{LT}\int\|a_t(x_t)\|dt$ 這個上界裡，$L$ 控制什麼？
 <Option>局部誤差 $\tfrac{h^2}{2}\|\ddot x\|$ 變大。</Option>
 <Option>誤差界不受影響，因為 $L$ 只出現在存在唯一定理裡。</Option>
-<Option correct>局部誤差不變，但舊誤差每步被放大 $(1+hL)$ 倍；$hL$ 大到一定程度時甚至會發散——這時要縮小 $h$ 不是為了精度，而是為了穩定。</Option>
+<Option correct>站錯位置後讀到的 velocity 差，以及由此產生的誤差傳播上界；它不單獨決定實際方法是否發散。</Option>
 <Explanation>
-$L$ 不進局部誤差（那只看 $\ddot x$），它控制的是「站錯位置之後讀到錯方向」的放大效應。$\dot x=-kx$ 的例子裡 $L=k$，$hk>2$ 就發散。「$L$ 只跟存在唯一有關」漏掉了它在誤差傳播裡的角色。
+局部餘項由沿 trajectory 的加速度決定，$L$ 則用來估計兩個位置的 velocity 差。改變整個場時，兩者都可能改變。較大的 $L$ 使傳播上界更保守，但是否真的不穩定，仍要檢查數值更新；例如線性衰減場的因子是 $1-hk$。
 </Explanation>
 </QuizBlock>
 
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-higher-order">
-本篇把「中間假設直走」寫成 Euler 法，用 Taylor 得到局部誤差 $\tfrac{h^2}{2}\|\ddot x\|$、用 Grönwall 累積成一階的全域誤差，並看到它由步長、路的加速度積分、與場的敏感度三者決定。要縮小誤差，最直接的做法是縮小 $h$——但每縮一次就多讀一次方向。接著問：如果在 30 秒的中點多看一眼方向，能不能用同樣的讀取次數換到更小的誤差？
+Euler 漏掉的是一步裡的 velocity 變化。縮小步長可以改善近似，但也要多讀方向。下一篇換一個想法：在同一步裡多看一次 velocity，能不能捕捉它的變化，用相同的讀取預算得到更小的誤差？
 </Bridge>
 
 ## 參考文獻

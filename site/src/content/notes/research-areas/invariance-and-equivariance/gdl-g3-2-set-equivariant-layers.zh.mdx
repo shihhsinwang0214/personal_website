@@ -1,0 +1,153 @@
+---
+slug: "gdl-g3-2-set-equivariant-layers"
+label: "gdl-set-equivariant-layers"
+lang: "zh"
+title: "每個點都要一個答案，還能忽略排列嗎？"
+category: "courses"
+group: "G3 · Sets and Permutations"
+status: "available"
+updated: "2026-10-09"
+summary: "從自己的資訊與全局資訊，推導 permutation-equivariant 的線性層與共享逐點更新。"
+prereqs: ["gdl-deep-sets"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Zaheer 等人（2017），Deep Sets"
+    href: "https://arxiv.org/abs/1703.06114"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 每個點都要一個答案，還能忽略排列嗎？
+
+<Objectives>
+
+- **構造逐點 equivariant 更新。** 使用自己的 feature 與集合共同摘要。
+- **推導線性權重的限制。** 說明為什麼 diagonal 與 off-diagonal 各自共享。
+- **檢查多維矩陣的型態。** 寫出 XA+11ᵀXB，並確認輸出 rows 跟著重排。
+
+</Objectives>
+
+<Prereq items={["gdl-deep-sets"]} />
+
+## 每個地標需要自己的答案，也需要知道附近是什麼
+
+如果只有一個點的座標，我們可能分不清它是不是校園邊緣；看到整群點的分佈，判斷才更完整。但讓每個點都只讀全局 sum，又會失去它自己與別人的差別。
+
+一個自然做法是：**自己保留一份資訊，大家共享一份環境資訊。** 令
+
+$$
+s(X)=\sum_j\phi(x_j),\qquad
+y_i=\eta(x_i,s(X)).
+$$
+
+所有點使用相同 $\eta$。重排後 $s(PX)=s(X)$，新第 $i$ 列就讀原來對應點的 $x_{\pi(i)}$，因此
+
+$$
+y_i'=\eta(x_{\pi(i)},s(X))=y_{\pi(i)}.
+$$
+
+也就是 $F(PX)=PF(X)$。這個結構不要求各個點答案一樣，而是要求**相同內容與相同環境，使用同一條判斷規則**。
+
+## 一般線性 layer 會被限制成什麼？
+
+先讓每個點只有一個 scalar，$x\in\mathbb R^n$，考慮 $y=Wx$。Permutation equivariance 要求
+
+$$
+WP=PW
+$$
+
+對每個 permutation 都成立。等價地，$PWP^\top=W$：把輸入與輸出點一起重編，權重表不變。
+
+對角線 $W_{i,i}$ 描述自己對自己的影響。任意兩個點都能被重編互換，所以每個 diagonal entry 要相同，記成 $a$。同理，對所有不同的 $(i,j)$，我們可以一起重編成另一組不同點，因此所有 off-diagonal entries 要相同，記成 $b$。
+
+所以
+
+$$
+W=(a-b)I+b\mathbf1\mathbf1^\top.
+$$
+
+第 $i$ 個答案為
+
+$$
+y_i=(a-b)x_i+b\sum_jx_j.
+$$
+
+第一項是自己的訊息，第二項是共同摘要。剛才生活例子提出的做法，現在從線性 equivariance 的限制重新得到了。
+
+這個推導固定 $n$，且假設所有元素的 permutation 都合法。若資料另有角色、型別或固定分割槽，允許的 permutation 可能比較少，權重限制也要隨之改變。
+
+## 多個 feature，型態怎麼寫？
+
+回到 $X\in\mathbb R^{n\times d}$。讓 $A,B\in\mathbb R^{d\times m}$ 分別作用在自己的 feature 與加總 feature，得到
+
+$$
+F(X)=XA+\mathbf1\mathbf1^\top XB.
+$$
+
+輸出是 $n\times m$，每個 row 都有自己的答案。因為 $P\mathbf1=\mathbf1$ 且 $\mathbf1^\top P=\mathbf1^\top$，
+
+$$
+\begin{aligned}
+F(PX)
+&=PXA+\mathbf1\mathbf1^\top PXB\\
+&=PXA+P\mathbf1\mathbf1^\top XB\\
+&=PF(X).
+\end{aligned}
+$$
+
+若再加上一個所有 row 共享的 bias，也不破壞等式。相同的逐點 activation 可依照 G1 的組合規則繼續接。
+
+## Equivariant 會不會限制點只能一樣？
+
+不會。當 $x_i$ 不同，自己的那一項就不同，最後答案可以不同。只有在兩個點的 input 與模型可見的環境完全相同時，架構才不能靠「它恰好排第一列」製造差別。
+
+這其實是我們想要的限制：不能因存檔順序不同而改判；但仍要利用真正的內容區分點。
+
+Zaheer 等人 [1] 對 permutation-equivariant layers 給出這類結構分析。下一篇把它用在 point cloud：先看每個點，再把全局形狀接回每個點，讓同一個模型同時能分類整群點與標記各個部分。
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g3-2.svg" alt="逐點更新由兩部分構成：每個點自己的 feature，以及所有點共享的 invariant 摘要。" loading="lazy" />
+<figcaption>逐點更新由兩部分構成：每個點自己的 feature，以及所有點共享的 invariant 摘要。</figcaption>
+</figure>
+
+<Question>
+
+如果兩個點 feature 完全相同，但想只因第一個排在第一列，就給它不同答案，這與 permutation equivariance 相容嗎？
+
+<Answer>
+
+不相容。交換兩點後輸入矩陣相同，equivariance 又要求輸出交換，因此兩點答案只能相同。要有不同答案，就需要模型能看見的內容或關係有差別。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+先看全局摘要，再切到 Attention 的逐點輸出，按下重排資料列。全局答案不變，逐點答案則要跟著同一個點重排。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=3&chapter=2" class="demo-frame" title="每個點都要一個答案，還能忽略排列嗎？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="Linear equivariant W 有哪些共享？" options={[{"text":"自己對自己的權重共享，自己對其他人的權重共享。","correct":true,"explain":"Diagonal 和 off-diagonal 是兩種不同關係。"},{"text":"每一個 W 的 entry 都必須相同。","explain":"Diagonal 和 off-diagonal 是兩種不同關係。"}]} />
+
+<Quiz q="共同摘要會讓每個點答案相同嗎？" options={[{"text":"會，任何 sum 都消除所有點的差別。","explain":"逐點更新不是隻輸出摘要。"},{"text":"不會，各點還保留自己的 feature。","correct":true,"explain":"逐點更新不是隻輸出摘要。"}]} />
+
+<Quiz q="Row bias 可以隨 index 任意不同嗎？" options={[{"text":"不可以，除非相應 action 另有定義。","correct":true,"explain":"一般 permutation 要求同一種 row 使用共同 bias。"},{"text":"可以，bias 不會影響排列。","explain":"一般 permutation 要求同一種 row 使用共同 bias。"}]} />
+
+<Bridge to="gdl-pointnet">
+
+我們有了逐點共享與全局摘要。下一篇把這些操作組成 PointNet，並檢查 max pooling 到底保留哪些形狀訊息。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Zaheer 等人（2017），Deep Sets](https://arxiv.org/abs/1703.06114)

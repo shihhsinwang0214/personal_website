@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Attention：內容、位置與共同重排</title>
+<link rel="icon" href="data:,">
+<script src="_demo-common.js"></script><script src="attention-math.js"></script>
+<style>
+h1{font-size:1.05rem;margin:0 0 10px}h2{font-size:.85rem;margin:14px 0 8px}
+.controls{margin-bottom:14px}.panels{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.heatmap{display:grid;grid-template-columns:32px repeat(5,minmax(0,1fr));gap:3px}
+.cell{display:grid;place-items:center;height:39px;border-radius:5px;font-size:.73rem;font-variant-numeric:tabular-nums}
+.axis{font-weight:700;color:#646c78}.weight{border:1px solid #d8dce5;color:#172a42}
+.selected{outline:2px solid #c98c22;outline-offset:-2px}
+body[data-dark="1"] .axis{color:#aaa79f}body[data-dark="1"] .weight{border-color:#3a3b42;color:#f0eee9}
+table{width:100%;border-collapse:collapse;font-size:.76rem;font-variant-numeric:tabular-nums}
+th,td{padding:6px 3px;text-align:left;border-bottom:1px solid #d8dce5}body[data-dark="1"] th,body[data-dark="1"] td{border-color:#3a3b42}
+.bars{display:grid;gap:9px;margin-top:14px}.bar-row{display:grid;grid-template-columns:25px 1fr 44px;gap:7px;font-size:.76rem;align-items:center}
+.track{background:#eceff6;height:12px;border-radius:4px;overflow:hidden}.fill{height:100%;background:#d79c3e}
+body[data-dark="1"] .track{background:#303642}
+.vector{font-family:ui-monospace,monospace;font-size:.78rem;margin:12px 0 0}
+@media(max-width:550px){.panels{grid-template-columns:1fr;gap:4px}.cell{height:30px}.bars{gap:5px;margin-top:10px}h2{margin-top:10px}.controls{gap:7px}.card{padding:12px}}
+</style>
+</head>
+<body>
+<section class="card">
+<h1>誰參考誰：名單重排與附帶資訊</h1>
+<p class="goal">固定五個點與三組 projection，實際算出 Q／K／V、權重與輸出。沒有訓練模型；重排只改目前的存放順序。</p>
+<div class="controls">
+<div class="row">
+<label>附帶資訊 <select id="mode"><option value="plain">沒有固定位置</option><option value="absolute">固定位置</option><option value="relative">相對位置 bias</option><option value="causal">Causal mask</option></select></label>
+<button id="shuffle">重排名單</button><button id="reset">還原</button>
+</div>
+<div class="row">
+<label><input type="checkbox" id="joint" checked>資訊一起搬（位置／關係）</label>
+<label>詢問者 <select id="query"><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option></select></label>
+</div>
+<div class="row"><label for="temperature">溫度</label><input id="temperature" type="range" min="0.5" max="2" step=".1" value="1"><output id="temperature-value">1.0</output></div>
+</div>
+<div class="panels">
+<div>
+<h2>權重表：row 問 column</h2><div id="heatmap" class="heatmap" role="table" aria-label="Attention weights"></div>
+<p class="observe">金色框是目前的 query；每列權重加總為 1。禁止參考的位置是 0。</p>
+</div>
+<div>
+<h2>目前的資料列與輸出（依身分對齊）</h2>
+<table><thead><tr><th>點</th><th>content</th><th>實際 Y′</th><th>預期 PY</th></tr></thead><tbody id="outputs"></tbody></table>
+<h2 id="query-title"></h2><div id="bars" class="bars"></div>
+<p class="vector" id="value"></p>
+</div>
+</div>
+<div class="metrics">
+<div class="metric"><strong>輸出 defect：max |Y′−PY|</strong><span id="defect"></span></div>
+<div class="metric"><strong>權重 defect：max |A′−PAPᵀ|</strong><span id="weight-defect"></span></div>
+</div>
+<p id="explanation" class="observe"></p>
+</section>
+<script>
+(function(){
+  const m=GDLAttention,$=id=>document.getElementById(id);
+  const names=["A","B","C","D","E"];
+  const h=[[-1,.2],[-.4,1.1],[.5,.9],[1.2,-.5],[.2,-1]];
+  const e=h.map((_,i)=>[Math.sin(i*1.3),Math.cos(i*.9)]);
+  const bias=h.map((_,i)=>h.map((_,j)=>-.6*Math.abs(j-i)));
+  const blocked=h.map((_,i)=>h.map((_,j)=>j>i));
+  let p=[0,1,2,3,4];
+  const chapter=Number(new URLSearchParams(location.search).get("chapter"));
+  if(chapter===4)$("mode").value="absolute";
+  if(chapter===5)$("mode").value="relative";
+  function options(mode){
+    const o={temperature:Number($("temperature").value)};
+    if(mode==="absolute")o.positions=e;
+    if(mode==="relative")o.bias=bias;
+    if(mode==="causal")o.mask=blocked;
+    return o;
+  }
+  const fmt=x=>Math.abs(x)<1e-11?"0":x.toFixed(3);
+  function render(){
+    const pal=NDFlow.applyTheme(),mode=$("mode").value,joint=$("joint").checked;
+    const o=options(mode),base=m.attention(h,o),other={...o};
+    if(joint){
+      if(o.positions)other.positions=m.permute(o.positions,p);
+      if(o.bias)other.bias=m.conjugate(o.bias,p);
+      if(o.mask)other.mask=m.conjugate(o.mask,p);
+    }
+    const result=m.attention(m.permute(h,p),other),expected=m.permute(base.output,p);
+    const defect=m.error(result.output,expected);
+    const weightDefect=m.error(result.weights,m.conjugate(base.weights,p));
+    const identity=names.indexOf($("query").value),row=p.indexOf(identity);
+    $("temperature-value").textContent=o.temperature.toFixed(1);
+    $("heatmap").replaceChildren();
+    for(let i=-1;i<5;i++)for(let j=-1;j<5;j++){
+      const cell=document.createElement("div");
+      cell.className="cell "+(i<0||j<0?"axis":"weight")+(i===row?" selected":"");
+      cell.setAttribute("role",i<0||j<0?"columnheader":"cell");
+      if(i<0||j<0)cell.textContent=i<0&&j<0?"q / k":names[p[i<0?j:i]];
+      else{
+        const w=result.weights[i][j];cell.textContent=w.toFixed(2);
+        cell.style.background=pal.dark?"rgba(121,168,255,"+(.07+.65*w)+")":"rgba(42,103,199,"+(.05+.45*w)+")";
+        cell.title=names[p[i]]+" → "+names[p[j]]+": "+w.toFixed(6);
+      }
+      $("heatmap").appendChild(cell);
+    }
+    $("outputs").innerHTML=p.map((id,i)=>"<tr><th>"+names[id]+"</th><td>"+h[id].map(fmt).join(", ")+"</td><td>"+result.output[i].map(fmt).join(", ")+"</td><td>"+expected[i].map(fmt).join(", ")+"</td></tr>").join("");
+    $("query-title").textContent=names[identity]+" 這次參考誰？";
+    $("bars").innerHTML=p.map((id,j)=>'<div class="bar-row"><span>'+names[id]+'</span><div class="track"><div class="fill" style="width:'+100*result.weights[row][j]+'%"></div></div><span>'+result.weights[row][j].toFixed(3)+'</span></div>').join("");
+    $("value").textContent="加權 value = ("+result.output[row].map(fmt).join(", ")+")";
+    $("defect").textContent=defect.toExponential(2);
+    $("weight-defect").textContent=weightDefect.toExponential(2);
+    $("explanation").textContent=mode==="plain"?"沒有固定順序資訊：重排後的結果只跟著點搬動。":joint?"位置／關係跟同一個點一起搬：資料本身沒變，對齊後的 defect 應接近浮點誤差。":"只搬 content，附帶資訊仍固定在原儲存位置。這改變了點的位置或關係，一般不再符合原來的 joint relabeling。";
+    window.gdlTestState={mode,joint,order:p.slice(),defect,weightDefect,weights:result.weights,output:result.output};
+  }
+  $("shuffle").addEventListener("click",()=>{
+    const old=p.join();do{for(let i=4;i>0;i--){const j=Math.floor(Math.random()*(i+1));[p[i],p[j]]=[p[j],p[i]];}}while(p.join()===old);
+    render();
+  });
+  $("reset").addEventListener("click",()=>{p=[0,1,2,3,4];render();});
+  for(const id of ["mode","joint","query","temperature"])$(id).addEventListener("input",render);
+  NDFlow.onThemeChange(render);render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,226 @@
+---
+slug: "gdl-g5-2-egnn"
+label: "gdl-egnn"
+lang: "zh"
+title: "用距離決定大小，用相對位置決定方向：EGNN"
+category: "courses"
+group: "G6 · Euclidean Geometry"
+status: "available"
+updated: "2026-10-10"
+summary: "先推導相對位移與距離的 action，再用 scalar messages 接成 EGNN；分開幾何等變、鄰居選擇與物理力的要求。"
+prereqs: ["gdl-euclidean-transformations"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Satorras、Hoogeboom 與 Welling（2021），E(n) Equivariant Graph Neural Networks"
+    href: "https://proceedings.mlr.press/v139/satorras21a.html"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 用距離決定大小，用相對位置決定方向：EGNN
+
+<Objectives>
+
+- **分清相對位移與距離的角色。** 推導共同平移如何消失、方向如何跟著旋轉，以及 scalar 權重為何不變。
+- **把這些相對量接成 EGNN 的三個更新。** 區分 edge message、scalar feature 與 coordinate output，檢查一整層的幾何與排列 action。
+- **指出保證成立的條件。** 鄰居圖、tie-breaking 與 normalization 必須相容；等變位移不自動等於物理力。
+
+</Objectives>
+
+<Prereq items={["gdl-euclidean-transformations"]} />
+
+## 只知道距離，怎麼還能說往哪裡推？
+
+站在桌子的哪個位置，不該改變原子之間的力。想像兩個人拉著一條繩子：我們不必知道他們離房間原點多遠，只要知道兩人相隔多遠、彼此在哪個方向，就能描述拉動。
+
+對兩個原子，先寫相對位移與平方距離：
+
+$$
+r_{ij}=x_i-x_j,\qquad d_{ij}^2=\|r_{ij}\|^2.
+$$
+
+$r_{ij}$ 是從 $j$ 指向 $i$ 的向量；$d_{ij}^2$ 是不帶方向的 scalar。一個可以決定「多大」，另一個可以決定「朝哪裡」。
+
+## 整個分子搬動後，它們怎麼變？
+
+先暫時不重編原子。若 $x_i'=Qx_i+b$，
+
+$$
+r_{ij}'=(Qx_i+b)-(Qx_j+b)=Qr_{ij}.
+$$
+
+共同平移消失。再計算距離：
+
+$$
+d_{ij}^{\prime2}
+=(Qr_{ij})^\top(Qr_{ij})
+=r_{ij}^\top Q^\top Qr_{ij}
+=d_{ij}^2.
+$$
+
+這對所有 orthogonal $Q$ 成立，包括 reflection。相對向量是 equivariant，距離是 invariant。
+
+若還重排原子，兩個量只需一起換 $(i,j)$ 的對應；因此與 G5 的 edge feature action 相容。
+
+## 讓距離決定大小，相對位置決定方向
+
+用共享 scalar 函數 $c$，
+
+$$
+c_{ij}=c(h_i,h_j,d_{ij}^2).
+$$
+
+假設 $h_i,h_j$ 是幾何 invariant 的 scalar features，那麼旋轉或平移後 $c_{ij}'=c_{ij}$。定義 coordinate displacement
+
+$$
+\Delta x_i=\sum_{j\in\mathcal N(i)}c_{ij}r_{ij}.
+$$
+
+變換後
+
+$$
+\Delta x_i'
+=\sum_j c_{ij}Qr_{ij}
+=Q\Delta x_i.
+$$
+
+**大小不變、方向一起轉，sum 也一起轉。** 這已經是我們需要的 vector action。更新 $x_i^+=x_i+\Delta x_i$ 後，
+
+$$
+x_i^{\prime+}=Qx_i+b+Q\Delta x_i=Qx_i^++b.
+$$
+
+所以座標更新保留平移；位移本身則不帶平移。Satorras 等人 [1] 在 EGNN 中使用這個核心結構。
+
+## 把這些相對量接成可學的 layer
+
+大小與方向已經能合法地組合，但我們不只想看原始距離，還想逐輪更新原子的環境，再讓這份資訊影響下一次移動。這正好能接上 G5 的 message passing。
+
+Satorras、Hoogeboom 與 Welling [1] 的 **E(n)-Equivariant Graph Neural Network（EGNN）** 使用 scalar features 與座標做這件事。以下以 $d$ 表示空間維度，避免把論文名稱的 $n$ 與原子數混淆。
+
+## 三個更新，各自負責哪種資料？
+
+Layer $\ell$ 的座標與 scalar features 是 $x_i^\ell,h_i^\ell$。先寫 message：
+
+$$
+m_{ij}
+=\phi_e\left(
+h_i^\ell,h_j^\ell,\|x_i^\ell-x_j^\ell\|^2,e_{ij}
+\right).
+$$
+
+$\phi_e$ 在所有 edges 共享，$e_{ij}$ 是幾何 invariant 的 edge attributes，例如鍵型別。$m_{ij}$ 仍是 scalar feature 向量，不是空間方向向量。
+
+用另一個 scalar 輸出函數 $\phi_x$ 決定位移大小：
+
+$$
+x_i^{\ell+1}
+=x_i^\ell+C_i\sum_{j\in\mathcal N(i)}
+(x_i^\ell-x_j^\ell)\phi_x(m_{ij}).
+$$
+
+$C_i$ 是和 node 身份一致的 normalization，例如完整圖中用 $1/(n-1)$。接著更新 scalar feature：
+
+$$
+h_i^{\ell+1}
+=\phi_h\left(h_i^\ell,\sum_{j\in\mathcal N(i)}m_{ij}\right).
+$$
+
+這是本章使用的 EGNN-style layer；實際模型還可以有 attention、residual 等變形，但每次增加運算都要重新檢查 action。
+
+## 前面的幾何推導，能不能用在整層？
+
+將座標改成 $Qx_i^\ell+b$，距離、scalar features 與 edge attributes 都不變，所以 $m_{ij}$ 和 $\phi_x(m_{ij})$ 不變。Coordinate update 因而正是前面已證過的「scalar 乘相對向量」：
+
+$$
+x_i^{\prime\ell+1}=Qx_i^{\ell+1}+b,
+\qquad h_i^{\prime\ell+1}=h_i^{\ell+1}.
+$$
+
+一層後，座標仍是座標，scalar features 仍是 scalar features，下一層才能沿用同樣規則。
+
+## 再檢查原子重編
+
+把 $(x_i,h_i)$ 改成 $(x_{\pi(i)},h_{\pi(i)})$，鄰居與 edges 也一起重編，$m_{ij}'=m_{\pi(i),\pi(j)}$。將加總重新索引，得到
+
+$$
+x_i^{\prime\ell+1}=x_{\pi(i)}^{\ell+1},
+\qquad h_i^{\prime\ell+1}=h_{\pi(i)}^{\ell+1}.
+$$
+
+兩種 action 合起來，就是 G6.0 的聯合 action。Proof 仍與 MLP 訓練值無關；幾何保證來自資料型態與運算，不是來自最後的 loss 很小。
+
+## 鄰居圖也算架構的一部分
+
+如果使用原本固定的 molecular graph，它只隨原子重編。若每層重新用 cutoff distance 建圖，距離不變，所以合法邊集也不變。
+
+但使用 k-nearest neighbors 時，恰好相同距離的 tie 若用 row index 決定，重編可能選到不同鄰居。這在一般隨機點中少見，卻是精確保證的邊界；可以保留全部 ties，或明確處理並單獨測試。
+
+$C_i$ 若是 degree normalization，也要跟著自己的 node 重新排列。把一個依 row index 定義的額外係數放進去，會破壞 permutation equivariance，即使其他幾何項正確。
+
+<Remark summary="距離可以組合幾何資訊，但不能留下鏡像的符號">
+
+Inner product 也不變：$(Qr_{ij})^\top(Qr_{ik})=r_{ij}^\top r_{ik}$。結合 norms 可以描述角度；完整 pairwise distances 在合適條件下也能約束形狀。但單條 edge 的距離不會立刻告訴我們第三個點在哪裡，模型如何組合這些關係仍影響表示能力。
+
+所有距離在 reflection 下都相同，因此即使知道全部距離，仍不能辨認鏡像的 orientation。這個問題留到 <Ref to="gdl-chirality" />。
+
+</Remark>
+
+<Remark summary="等變位移，不一定是物理力">
+
+若 scalar 權重不對稱，$c_{ij}\ne c_{ji}$，兩條有向邊的貢獻相加為
+
+$$
+c_{ij}r_{ij}+c_{ji}r_{ji}=(c_{ij}-c_{ji})r_{ij},
+$$
+
+不一定抵消。幾何等變不自動保證總力為零、動量守恆或來自某個 energy。若 target 是 force，下一篇會從 invariant energy 的 gradient 加入這份結構。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g5-2.svg" alt="EGNN 以 invariant edge messages 更新 scalar features，並用 scalar 權重乘相對位移更新 coordinates。" loading="lazy" />
+<figcaption>EGNN 以 invariant edge messages 更新 scalar features，並用 scalar 權重乘相對位移更新 coordinates。</figcaption>
+</figure>
+
+<Question>
+
+若 message 的 MLP 完全沒有訓練，EGNN 的幾何等變性會因此不成立嗎？
+
+<Answer>
+
+不會，只要運算、鄰居圖和資料型態符合上述條件，任意參數都保留等式。但未訓練模型的 task error 仍可能很大。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+改變幾何變換，檢查 distance 與 force defect。Demo 使用解析 energy 的 gradient 展示向量 action；完整 EGNN coordinate update 則在實作篇逐項測試。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=5&chapter=2" class="demo-frame" title="用距離決定大小，用相對位置決定方向：EGNN：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="EGNN message 是什麼型態？" options={[{"text":"由距離與 scalar features 產生的幾何 invariant feature。","correct":true,"explain":"方向來自 coordinate update 中的相對位移。"},{"text":"直接當成任意方向的三維向量。","explain":"方向來自 coordinate update 中的相對位移。"}]} />
+
+<Quiz q="Distance cutoff 建圖與旋轉相容嗎？" options={[{"text":"不相容，所有鄰居一定改變。","explain":"仍需按同一套規則處理重編與數值邊界。"},{"text":"相容，旋轉不改距離。","correct":true,"explain":"仍需按同一套規則處理重編與數值邊界。"}]} />
+
+<Quiz q="等變性是否要求訓練到收斂？" options={[{"text":"架構保證不用，但任務答案仍需要訓練。","correct":true,"explain":"公式的性質與參數是否學好是不同問題。"},{"text":"需要，所有任意初始化都不等變。","explain":"公式的性質與參數是否學好是不同問題。"}]} />
+
+<Bridge to="gdl-energy-forces">
+
+EGNN 給出合法幾何更新，但若要預測物理力，我們還想保留能量與力的關係。下一篇從 scalar energy 的 gradient 出發，看看這會額外得到什麼。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Satorras、Hoogeboom 與 Welling（2021），E(n) Equivariant Graph Neural Networks](https://proceedings.mlr.press/v139/satorras21a.html)

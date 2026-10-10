@@ -1,0 +1,146 @@
+---
+slug: "gdl-g2-4-readout-and-discretization"
+label: "gdl-rotation-readout"
+lang: "zh"
+title: "要不要把方向留下來？"
+category: "courses"
+group: "G2 · Rotations and Feature Types"
+status: "available"
+updated: "2026-10-09"
+summary: "從 group pooling 與 group averaging 檢查 invariant readout，並限定 C4 與連續旋轉的差別。"
+prereqs: ["gdl-feature-types"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Cohen 與 Welling（2016），Group Equivariant Convolutional Networks"
+    href: "https://arxiv.org/abs/1602.07576"
+  - label: "Cohen 與 Welling（2017），Steerable CNNs"
+    href: "https://arxiv.org/abs/1612.08498"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 要不要把方向留下來？
+
+<Objectives>
+
+- **推導方向 pooling 的效果。** 區分消除方向與消除位置。
+- **證明有限 group averaging 的 invariance。** 說明重新索引為什麼成立。
+- **限定離散旋轉的保證。** 分清 C4 的精確 action 與 arbitrary-angle interpolation。
+
+</Objectives>
+
+<Prereq items={["gdl-feature-types"]} />
+
+## 四個方向都記住了，最後一定要留下來嗎？
+
+現在道路偵測能隨地圖旋轉。若只想分類「是不是台大」，朝哪裡並不重要；若要回傳導航箭頭，朝向卻正是答案。
+
+所以最後一層仍要回到 G1 的問題：**這個任務需要 invariant summary，還是 equivariant output？** 不能因為方向 channel 已經建立，就一定把它們全部平均掉。
+
+## 先把方向加掉，位置還在
+
+對四方向 feature $h(u,r)$，定義
+
+$$
+s(u)=\sum_{r=0}^3 h(u,r).
+$$
+
+輸入旋轉 $q$ 後，$h'(u,r)=h(R_q^{-1}u,r-q)$，所以
+
+$$
+s'(u)=\sum_r h(R_q^{-1}u,r-q)=s(R_q^{-1}u).
+$$
+
+這一步只重新索引方向求和。**方向 channel 消失，但位置仍一起旋轉。** 如果要整個答案 invariant，還需要在保持位置集合的旋轉下再加總位置：
+
+$$
+z=\sum_u s(u),\qquad z'=z.
+$$
+
+這就是分類 head 的一個選擇。若改成定位或向量任務，則需要保留對應的空間 action 或 vector representation，而不是把它交給全局 invariant summary。
+
+## 已有任意模型，可以直接平均四次嗎？
+
+假設已有一個分類函數 $f$，不保證旋轉 invariant。一個自然想法是從四個視角各問一次，再平均：
+
+$$
+\bar f(x)=\frac14\sum_{g\in C_4}f(T(g)x).
+$$
+
+對任意 $q\in C_4$，
+
+$$
+\bar f(T(q)x)=\frac14\sum_{g\in C_4}f(T(gq)x)=\bar f(x).
+$$
+
+最後一步因為 $g\mapsto gq$ 只重排四個 group elements，沒有增加或刪掉其中一個。這是 **group averaging**；在這個有限 group 上，它給出精確的 invariant 函數，即使原來 $f$ 不具有這個性質。
+
+但代價是要算四次。它和 G-CNN 中間各層的共享不同，也不保證 task accuracy 會更好。若任務 label 本來會隨旋轉改變，直接平均不對齊的答案還可能抹去訊號。
+
+<Remark summary="Equivariant averaging 要先把每次輸出轉回同一個座標系">
+
+對線性 output representation $\rho$，可以定義
+
+$$
+\bar F(x)=\frac1{|G|}\sum_{g\in G}\rho(g)^{-1}F(T(g)x).
+$$
+
+重新索引 $h=gq$，則 $\rho(g)^{-1}=\rho(q)\rho(h)^{-1}$，得到 $\bar F(T(q)x)=\rho(q)\bar F(x)$。例如平均導航箭頭前，要先把每個旋轉視角的箭頭轉回原座標，不能直接平均四支不同座標系的箭頭。
+
+</Remark>
+
+## 四個方向不是任意角度
+
+$C_4$ 的九十度旋轉能精確重排正方像素格點；三十度旋轉後，原像素常落在格點之間，必須 interpolation。兩次 interpolation 不一定等於一次合成角度的 interpolation，有限影像也可能被裁切。
+
+所以一個 $C_4$-equivariant 網路，應先對四個合法旋轉檢查等式，再把其他角度列為額外的 robustness 測試。不能用「旋轉誤差很小」混合精確 group action 與近似取樣。
+
+若任務真的需要連續旋轉，還能設計不同 feature representations 與 steerable kernels。這會在第二階段的 tensor features 裡展開；這裡先留下最重要的判準：**先指定 group 和 feature 型態，再談保證包含哪些變換。**
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g2-4.svg" alt="先 pool 方向只得到 scalar field；再 pool 位置才得到全局 invariant 答案。向量輸出則要保留旋轉 action。" loading="lazy" />
+<figcaption>先 pool 方向只得到 scalar field；再 pool 位置才得到全局 invariant 答案。向量輸出則要保留旋轉 action。</figcaption>
+</figure>
+
+<Question>
+
+把四個視角的導航箭頭直接相加，是否與四個視角的分類分數平均一樣合理？
+
+<Answer>
+
+不一樣。分類分數的類別座標可以固定；箭頭住在各個旋轉後的座標系，先要逆旋轉回同一座標系，才能平均。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+在四方向 lifting 下切換旋轉。每個 channel 的強度會重排，但四者的總和不變；這正是保留方向與加總方向的差異。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=2&chapter=4" class="demo-frame" title="要不要把方向留下來？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="方向 pooling 後是否立刻全局 invariant？" options={[{"text":"是，任何方向加總都會移除位置。","explain":"兩種索引是分開的。"},{"text":"不一定，空間位置仍然跟著旋轉。","correct":true,"explain":"兩種索引是分開的。"}]} />
+
+<Quiz q="Group averaging 為什麼有保證？" options={[{"text":"完整列舉有限 group，乘上 q 只重排元素。","correct":true,"explain":"封閉與可逆性是重新索引的條件。"},{"text":"四個任意 augmentation 都可當成 group。","explain":"封閉與可逆性是重新索引的條件。"}]} />
+
+<Quiz q="測試 30° 旋轉應怎麼報告？" options={[{"text":"當成 C4 等式必須精確成立的元素。","explain":"它涉及不同 action 與 interpolation 誤差。"},{"text":"當成 C4 保證以外的額外測試。","correct":true,"explain":"它涉及不同 action 與 interpolation 誤差。"}]} />
+
+<Bridge to="gdl-rotation-lab">
+
+G2 把方向 feature、共享與輸出要求接了起來。下一篇逐一測試四個旋轉，並用沒有共享的模型作比較；讓等式落到可跑的張量操作。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Cohen 與 Welling（2016），Group Equivariant Convolutional Networks](https://arxiv.org/abs/1602.07576)
+2. [Cohen 與 Welling（2017），Steerable CNNs](https://arxiv.org/abs/1612.08498)

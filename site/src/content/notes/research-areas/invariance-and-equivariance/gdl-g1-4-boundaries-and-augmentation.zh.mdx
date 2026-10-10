@@ -1,0 +1,148 @@
+---
+slug: "gdl-g1-4-boundaries-and-augmentation"
+label: "gdl-boundaries-augmentation"
+lang: "zh"
+title: "寫進架構的對稱，實作時還保得住嗎？"
+category: "courses"
+group: "G1 · Symmetry and Translation"
+status: "available"
+updated: "2026-10-09"
+summary: "從 padding、stride 與 augmentation 分開理想架構的保證、有限影像的誤差與任務成效。"
+prereqs: ["gdl-composition-pooling"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Cohen 與 Welling（2016），Group Equivariant Convolutional Networks"
+    href: "https://arxiv.org/abs/1602.07576"
+  - label: "Bronstein、Bruna、Cohen 與 Veličković（2021），Geometric Deep Learning"
+    href: "https://arxiv.org/abs/2104.13478"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 寫進架構的對稱，實作時還保得住嗎？
+
+<Objectives>
+
+- **找出有限影像的破口。** 用 padding 與下取樣說明全平移群如何被限制。
+- **分清 augmentation 與結構保證。** 寫出增強後的 target，說明有限訓練不等於處處相等。
+- **定義 equivariance defect。** 指出它比較的兩條計算路，並與 task error 分開。
+
+</Objectives>
+
+<Prereq items={["gdl-composition-pooling"]} />
+
+## 公式沒錯，為什麼實際 CNN 仍會變？
+
+假設一條道路在影像中央，convolution 可以看見它兩側；把道路移到最右邊，右側的街區消失，padding 補進來的是零。偵測器用的權重一樣，看到的內容卻不一樣。
+
+所以我們要檢查的不是「CNN 有沒有 convolution」而已，而是：**整個實作還是不是上一篇證明裡的那個 action？**
+
+## Padding 改了我們能看到什麼
+
+先看三格影像 $x=(1,2,3)$。把它向右移一格並丟掉超出範圍的內容，變成 $(0,1,2)$；再向左移，得到 $(1,2,0)$，不能恢復 $3$。
+
+這種有限視窗的移動不是 invertible action。對所有像素要求完全 equivariant，已經超出前面平移 group 的假設。Zero padding 讓邊界位置與中央位置的環境不同，差異也可能隨更多 layer 往內傳。
+
+若改用 circular padding，右邊出去的內容從左邊進來，位置只是週期重排，有限格點就重新具有精確的平移 action。但城市並不真的首尾相接；這是方便檢查架構的理想設定，不一定適合每個資料集。
+
+## Stride 為什麼只保留部分平移？
+
+下取樣每兩格取一個值，記成 $[D_2h](u)=h(2u)$。把輸入平移兩格，
+
+$$
+[D_2T(2a)h](u)=h(2u-2a)=[T(a)D_2h](u).
+$$
+
+在粗格點上，它對應平移 $a$ 格。但若輸入只移一格，
+
+$$
+[D_2T(1)h](u)=h(2u-1),
+$$
+
+我們讀到原來沒有取樣的奇數位置。它一般不能由粗格點上的整數平移得到。
+
+所以 stride 不是讓所有平移關係都消失，而是通常只保留**與取樣間距相容的 subgroup**。多次下取樣後，相容間距還會累積。Anti-aliasing 可以降低某些實際偏差，但不能把不存在的整數格點 action 直接補回來。
+
+## 多看轉換過的資料，不就夠了嗎？
+
+另一個方法是 data augmentation：把訓練資料 $(x,y)$ 變成
+
+$$
+(T_{\mathrm{in}}(g)x,\ T_{\mathrm{out}}(g)y).
+$$
+
+分類的 $y$ 可以不變，mask 與向量 label 則要一起變。若忘了轉 target，我們不是在教模型對稱，而是在給互相衝突的答案。
+
+這能鼓勵模型學到一致性，但有限資料、有限模型與沒有完全收斂的訓練，**不保證每個沒看過的 $(x,g)$ 都滿足等式**。結構性的 equivariance 則對合適 action 下的所有參數成立。兩者可以搭配，但不是同一件事。
+
+## 怎麼量「沒有一起變」？
+
+對一個輸入和變換，先算兩條路的差：
+
+$$
+d_g(x)=f(T_{\mathrm{in}}(g)x)-T_{\mathrm{out}}(g)f(x).
+$$
+
+取 norm 再對測試輸入與指定變換分佈平均，得到 equivariance defect：
+
+$$
+D=\mathbb E_{x,g}\|d_g(x)\|.
+$$
+
+這裡 $x$ 來自測試資料，$g$ 來自我們明確列出的變換。$D=0$ 表示這組測試的兩條路一致，不表示對所有可能輸入都已有數學證明。
+
+若要比較不同量級的輸出，可另外除以參考輸出的 norm 加一個小正數；這是另一個 normalized metric，不能和原本的 $D$ 混報。實作章節會同時列出 task loss 與 defect，而不把其中一個當成另一個的替代。
+
+<Remark summary="指定錯誤的對稱，可能直接排除正確答案">
+
+如果任務要判斷「箭頭向左還是向右」，強制它對九十度旋轉 invariant 會把不同答案混在一起。對稱是對任務的假設，不是越多越好。只有輸入與 target 的關係真的符合它，結構保證才有用。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g1-4.svg" alt="同一個平移測試有兩條路；padding 改變可見資訊，stride 則限制相容的移動間距。" loading="lazy" />
+<figcaption>同一個平移測試有兩條路；padding 改變可見資訊，stride 則限制相容的移動間距。</figcaption>
+</figure>
+
+<Question>
+
+某模型的 defect 接近零，是否可以說它的分類一定很好？
+
+<Answer>
+
+不能。永遠輸出同一個類別可以讓 invariant defect 為零，但可能答錯大部分資料。Defect 檢查變換的一致性；task loss 檢查答案是否接近 target。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+切換 boundary 與 stride，觀察 absolute max defect。特別比較 stride=2 時，平移一格和兩格的差異。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=1&chapter=4" class="demo-frame" title="寫進架構的對稱，實作時還保得住嗎？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="Stride 2 與輸入平移如何對應？" options={[{"text":"輸入平移兩格，可對應粗格點平移一格。","correct":true,"explain":"奇偶取樣位置不同，不能一般性地交換。"},{"text":"輸入平移一格，一定等於粗格點平移一格。","explain":"奇偶取樣位置不同，不能一般性地交換。"}]} />
+
+<Quiz q="Augmentation 的 mask target 要怎麼處理？" options={[{"text":"不變，只有影像需要改。","explain":"否則輸入與正確位置不再對齊。"},{"text":"與輸入用同一個空間變換。","correct":true,"explain":"否則輸入與正確位置不再對齊。"}]} />
+
+<Quiz q="Circular padding 保證代表什麼？" options={[{"text":"週期格點的理想平移測試可精確成立。","correct":true,"explain":"有限視窗裁切仍是不同的資訊問題。"},{"text":"真實影像所有裁切都不會影響答案。","explain":"有限視窗裁切仍是不同的資訊問題。"}]} />
+
+<Bridge to="gdl-translation-lab">
+
+我們把權重共享的保證、有限影像的限制與訓練成效分開了。下一篇用同一批訊號，直接算這三件事，看看實作是否符合推導。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Cohen 與 Welling（2016），Group Equivariant Convolutional Networks](https://arxiv.org/abs/1602.07576)
+2. [Bronstein、Bruna、Cohen 與 Veličković（2021），Geometric Deep Learning](https://arxiv.org/abs/2104.13478)

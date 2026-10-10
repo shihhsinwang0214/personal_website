@@ -45,9 +45,9 @@
 </head>
 <body>
 <div class="card">
-  <p class="goal">學習目標：「取最好的那一次」估的是分布的<b>極值</b>，不是中心，所以它不會隨重複次數收斂到任何東西。兩個<b>完全相同</b>的方法各跑 k 次、各報最好的，贏家看起來就會好一截——而那個假優勢的大小由你的相對抖動決定。</p>
-  <canvas id="clouds" style="aspect-ratio:5/3" aria-label="一條分數軸上兩片重疊的點雲（兩個方法，真實中心畫成虛線）；實心點＝這次抽到的 k 個，圈起來的是各自最好的那個"></canvas>
-  <p class="cap">一條分數軸上兩片重疊的點雲（兩個方法，真實中心畫成虛線）；實心點＝這次抽到的 k 個，圈起來的是各自最好的那個</p>
+  <p class="goal">學習目標：最好結果和平均、中位數是不同物件。兩個同分布方法各跑 k 次、各報最好，仍可能看起來有差距；增加重複次數不會把最好結果變成中心估計。這裡固定一種右偏分布，觀察報法、散佈與次數的影響。</p>
+  <canvas id="clouds" style="aspect-ratio:5/3" aria-label="兩個方法的點雲，虛線是各自的平均；實心點是這次抽到的 k 個，圈起來的是最好結果"></canvas>
+  <p class="cap">兩個方法的點雲，虛線是各自的平均；實心點是這次抽到的 k 個，圈起來的是最好結果。</p>
   <canvas id="curve" style="aspect-ratio:5/2" aria-label="下圖可切換：「假優勢對 k」或「用中位數報法時，正確分辨真實差距的機率」"></canvas>
   <p class="cap">下圖可切換：「假優勢對 k」或「用中位數報法時，正確分辨真實差距的機率」</p>
   <div class="controls">
@@ -57,13 +57,13 @@
       <label for="dl">真實差距</label><input id="dl" type="range" min="0" max="0.3" step="0.01" value="0" />
     </div>
     <div class="row">
-      <span class="seg"><button id="b1" aria-pressed="true">假優勢</button><button id="b2" aria-pressed="false">要幾個種子</button></span>
+      <span class="seg"><button id="b1" aria-pressed="true">假優勢</button><button id="b2" aria-pressed="false">中位數排名正確率</button></span>
       <label class="chk"><input id="pair" type="checkbox" checked /> 配對比較</label>
       <button id="re" class="ghost">🎲 重抽</button>
     </div>
     <div class="stats"><span>相對抖動 = <b id="vc">—</b></span> <span>k = <b id="vk">—</b></span> <span>假優勢 中位數 = <b id="v1">—</b></span> <span>90 百分位 = <b id="v2">—</b></span> <span>中位數報法：真差 10% 的正確率 = <b id="v3">—</b></span></div>
   </div>
-  <p class="observe">觀察：把真實差距設成 0（兩個方法一模一樣），k=3 時假優勢的中位數大約是 <b>7%</b>，十次裡有一次超過 <b>21%</b>（筆記裡那組 200 個 seed 的實測分布給的是 10.5% 與 26.8%——分布的形狀會影響數字，方向與量級一致）。重點是它<b>降得很慢而且不收斂到零</b>：取最好估的是極值。切到「要幾個種子」：把相對抖動從 0.29 調到 0.10，同樣的把握需要的種子數少一個數量級；關掉配對比較，整組曲線往右移。</p>
+  <p class="observe">觀察：真實差距為 0 時，兩組最好結果仍會不同。在這個有有限下界的分布裡，最小值會隨次數接近下界，但不是在估平均或中位數。另一個模式量的是「兩組中位數排對順序」的比例，沒有設定顯著水準，不能稱為檢定 power。配對模式另外假設正相關；改變分布或相關性，數字也會改變，不能直接拿來決定真實專案的種子數。</p>
 </div>
 
 <script src="../_demo-common.js"></script>
@@ -77,7 +77,7 @@
   var pal = MLF.palette(), seed = 1, mode = 'fake', R = null;
 
   /* 單次實驗的結果：有下限的右偏分布（形狀仿照筆記裡那 200 個 seed），
-     中位數正規化成 1、標準差 = cv。數字越小越好。 */
+     平均正規化成 1、標準差 = cv。數字越小越好。 */
   function val(z, cv) {
     var A = cv / SD, L = 1 - A;
     return L + A * Math.exp(S * z - S * S / 2);
@@ -123,7 +123,7 @@
     var pad = (hi - lo) * 0.06;
     var ax = MLF.axes(ctx, s, { x: [lo - pad, hi + pad], y: [0, 1], pal: pal,
       xticks: [lo, 1, hi], yticks: [], fmtx: function (v) { return v.toFixed(2); },
-      xlab: '一次實驗的結果（越小越好；中位數正規化成 1）', pad: { l: 0.05, b: 0.16 } });
+      xlab: '一次實驗的結果（越小越好；平均正規化成 1）', pad: { l: 0.05, b: 0.16 } });
     var r = MLF.rng(3), i;
     for (i = 0; i < R.cloudA.length; i++) MLF.dot(ctx, ax, R.cloudA[i], 0.58 + 0.3 * r(), MLF.rgb(pal.b, 0.28), 2.2);
     for (i = 0; i < R.cloudB.length; i++) MLF.dot(ctx, ax, R.cloudB[i], 0.12 + 0.3 * r(), MLF.rgb(pal.d, 0.28), 2.2);
@@ -159,7 +159,7 @@
         yticks: [0, 0.5, 1], fmty: function (v) { return (v * 100).toFixed(0) + '%'; },
         xlab: '種子數 k', ylab: '正確分辨的機率' });
       MLF.ref(ctx, ax, { y: 0.8, color: MLF.rgb(pal.a, 0.7) });
-      MLF.label(ctx, ax.box.l + 5, ax.Y(0.8) - 7, '80% 把握', MLF.rgb(pal.a, 0.9));
+      MLF.label(ctx, ax.box.l + 5, ax.Y(0.8) - 7, '80% 排名正確率', MLF.rgb(pal.a, 0.9));
       var cols = [pal.b, pal.c, pal.e, pal.d], names = ['真差 2%', '5%', '10%', '20%'];
       ['d02', 'd05', 'd10', 'd20'].forEach(function (key, i) {
         MLF.line(ctx, ax, R.curve.map(function (c) { return [c.K, c[key]]; }), MLF.rgb(cols[i]), 2);

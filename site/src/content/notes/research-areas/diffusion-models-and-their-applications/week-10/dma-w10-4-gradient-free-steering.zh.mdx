@@ -1,0 +1,203 @@
+---
+slug: "dma-w10-4-gradient-free-steering"
+label: "dma-gradient-free-steering"
+prereqs:
+  - dma-reward-tilting
+  - dma-flow-map
+  - math-markov-chain
+lang: "zh"
+title: "Reward 只會打分、不會給方向，還能怎麼引導？"
+category: "courses"
+group: "Unit 7 · Test-time Guidance"
+status: "available"
+updated: 2026-10-09
+summary: "Black-box reward 沒有 gradient 時，可以增加候選而不是硬算方向。這篇從 Best-of-N 的命中率出發，建立 Feynman–Kac path reweighting 與 SMC 的 propagate–weight–resample，再比較 DAS、BoNG 與 source-space parallel tempering 各自使用 reward 的方式。"
+demos: []
+references:
+  - label: "Singhal et al., A General Framework for Inference-time Scaling and Steering of Diffusion Models (ICML 2025)"
+    href: "https://proceedings.mlr.press/v267/singhal25b.html"
+  - label: "Kim, Kim & Park, Test-time Alignment of Diffusion Models without Reward Over-optimization (2025)"
+    href: "https://arxiv.org/abs/2501.05803"
+  - label: "Wang et al., Test-Time Guidance for Flow-Based Generative Models via Parallel Tempering on Source Distributions (ICML 2026)"
+    href: "https://proceedings.mlr.press/v306/wang26da.html"
+  - label: "Kim et al., Best-of-N Guidance for Test-time Diffusion Alignment (2026)"
+    href: "https://arxiv.org/abs/2610.05108"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# Reward 只會打分、不會給方向，還能怎麼引導？
+
+<Objectives>
+- **算出 Best-of-$N$ 對 rare target 的命中率。** 由 $1-(1-p)^N$ 說明只在終點選最好樣本的能力與成本。
+- **解釋 Feynman–Kac 與 SMC 的分工。** 前者定義如何重新加權整條 sampling path；後者用 propagate、weight、resample 的 particles 近似這個 distribution。
+- **比較幾種 gradient-free steering 的動作。** 分清 DAS／FK steering、BoNG 與 Source Parallel Tempering 在哪個空間搜尋、何時使用 reward，以及它們不保證什麼。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 只知道結果好不好，沒有「往哪裡走」
+
+<Ref to="dma-reward-tilting"/> 已經定義出目標：$p_R(x_0)\propto p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}$。若 reward 可微，我們可以近似 $\nabla\log h_t$，在每個 noisy state 加上一支方向。
+
+但很多 reward 比較像一位評審：作品完成後，他能打出 0 到 10 分，卻說不出每一個 pixel、token 或分子座標該往哪裡移。人類偏好、外部模擬器、compiler 是否通過、碰撞檢查與 hard constraint 都可能是這種 **black-box reward**。
+
+這時不能再假設 gradient 存在。比較自然的動作，是同時保留幾個候選，讓 reward 告訴我們**哪一些候選應該留下更多後代**。
+
+<Ask>
+Reward 只能比較候選的好壞時，<br />
+我們怎麼把有限的 sampling compute 移向高分區域？
+</Ask>
+
+## 最直接的方法：多抽幾次，再挑最好的
+
+抽 $N$ 個獨立樣本 $x_0^{(1)},\ldots,x_0^{(N)}\sim p_{\mathrm{data}}$，再輸出
+
+$$
+\widehat x_0=\arg\max_{1\le i\le N}R(x_0^{(i)}).
+$$
+
+這就是 **Best-of-$N$**。它完全不需要 reward gradient，也不修改 sampler；多出來的成本只有平行生成與 $N$ 次 reward evaluations。
+
+假設「符合要求」的區域在 base distribution 下機率是 $p$。一次都沒抽中的機率是 $(1-p)^N$，所以至少命中一次的機率為
+
+$$
+\boxed{
+\mathbb P(\text{至少命中一次})=1-(1-p)^N
+}.
+$$
+
+這條式子直接顯示它的限制：$p$ 很小時，需要的 $N$ 大約和 $1/p$ 同一個量級。更重要的是，只有最後那個最大值被使用；其他候選得到的 reward 沒有回頭幫助 sampling path。
+
+## 不等走完，在途中就重新分配 particles
+
+想像幾隊人在山裡找一個很少見的景點。Best-of-$N$ 讓每隊一路走到底，最後才比較誰走得好。另一種做法是在幾個檢查點估計「這條路繼續走下去有沒有希望」：分數高的隊伍複製幾份，分數低的隊伍停止，把剩下的預算集中到比較有希望的方向。
+
+把 reverse sampling 的時間切成 $T=t_K>t_{K-1}>\cdots>t_0=0$，同時維持 $M$ 個 particles $x_{t_k}^{(1)},\ldots,x_{t_k}^{(M)}$。每一段做三個動作：
+
+1. **Propagate：** 每個 particle 用原本的 reverse sampler 從 $t_k$ 走到 $t_{k-1}$。
+2. **Weight：** 用一個 potential $G_{k-1}$ 算權重 $\omega_{k-1}^{(i)}\propto G_{k-1}(x_{t_{k-1}}^{(i)})$。
+3. **Resample：** 按 normalized weights 重新抽 $M$ 個 particles；高權重者可能被複製，低權重者可能消失。
+
+這就是 **Sequential Monte Carlo**（SMC）的基本節奏。它讓中途得到的 reward information 真正改變後續計算分配，而不只是最後挑一張。
+
+## Feynman–Kac 先說要重加權哪一整條路
+
+只寫 propagate–weight–resample 還不夠，因為 potential 不能隨便選。若它只獎勵某個中間畫面「現在看起來分數高」，可能反而淘汰那些目前不明顯、最後會變好的 trajectories。
+
+Feynman–Kac（FK）把目標先寫在整條 path 上。令 $P$ 表示 pretrained sampler 產生 sampling trajectory 的分布，選一串 potentials $G_k$ 後，新的 path distribution 寫成
+
+$$
+\Pi_R(\mathrm d x_{t_K:0})
+\propto
+P(\mathrm d x_{t_K:0})
+\prod_{k=0}^{K-1}G_k(x_{t_k}).
+$$
+
+右邊保留 base sampler 的 path probability，再用沿途 potentials 重新加權。若 potentials 的乘積被設計成 terminal weight $e^{\lambda R(x_0)}$，或是一串逐步接近它的 tempering weights，終點就會偏向 reward-tilted target。
+
+Singhal 等人的 **FK steering** [1] 先用這個 framework 決定 path weighting，再用 interacting particle system 實作。Kim、Kim 與 Park 的 **DAS** [2] 則以 SMC 與 reward tempering 做 test-time alignment。兩者共同的核心不是某一條固定公式，而是：**reward 不必提供 gradient，只要能替 particles 算相對權重。**
+
+<Remark label="分清楚" summary="Feynman–Kac 與 SMC 不是兩個同義詞">
+Feynman–Kac model 是**數學上的 target**：它說一條 base path 要乘上哪些 potentials，才形成新的 path distribution。
+
+SMC 是**計算上的 approximation**：有限數量的 particles 透過 propagate、weight、resample 去近似那個 target。Particles 有限、potentials 估得不準或 resampling 太早時，實際結果仍會有誤差。
+</Remark>
+
+<Question id="Q1">
+既然要把計算集中到高 reward 區域，**每個 checkpoint 都只保留當下分數最高的 particle，再把它複製成 $M$ 份，不是最有效率嗎？**
+
+<Answer>
+這樣會很快失去 diversity，而且越早期越危險。高 noise 時，一個 particle 的 clean outcome 還有很多可能；當下看起來最好的 denoised estimate，未必是最後 reward 最高的那條路。
+
+若每次只留下最大值，第一次判斷稍微偏掉，所有 particles 就會變成同一個祖先。後面即使還有很多 network evaluations，也只是在很窄的區域重複搜尋。這個現象叫 **particle degeneracy**。
+
+SMC 因此使用 normalized weights 做隨機 resampling，而不是只複製冠軍；實作上也會看 effective sample size，只有權重真的太集中時才 resample。Reward tempering 則把 $e^{\lambda R}$ 分成幾段慢慢加入，避免一次 weighting 就把 population 壓扁。
+
+所以 particles 的目的不是每一步都立刻選出贏家，而是**在集中計算與保留多種可能未來之間取得平衡**。
+</Answer>
+</Question>
+
+## 還可以在哪裡搜尋？
+
+有了「多個候選＋reward weighting」這個骨架，近期方法在不同位置使用它。
+
+**BoNG：在 denoising particles 之間交換訊號。** Kim 等人的 Best-of-$N$ Guidance（BoNG）[4] 不等到終點才做 Best-of-$N$；它在 reverse diffusion 途中找出目前的 best particle，再用非對稱的 particle interaction 引導其他 particles。這比 terminal Best-of-$N$ 更充分地使用中間 reward，但它是近期提出的 sampling method，不能因名稱含有 Best-of-$N$ 就解讀成 exact sampling from $p_R$。
+
+**SPT：回到簡單的 source space 搜尋。** 若 <Ref to="dma-flow-map"/> 的 deterministic map 把 source $z\sim p_Z$ 送成 $x_0=G(z)$，reward-tilted target 可以拉回 source：
+
+$$
+\pi_R(z)\propto p_Z(z)e^{\lambda R(G(z))}.
+$$
+
+Wang 等人的 Source Parallel Tempering（SPT）[3] 在 $z$ 空間做 local proposals，並維持多個不同 reward temperatures 的 chains；高溫 chain 比較容易跨過 modes 之間的低 reward 區域，再透過 swap 把探索結果傳給低溫 target chain。它不需要 $R$ 的 gradient，但每一次 proposal 都要經過生成 map 與 reward evaluation，成本轉成了 source-space search。
+
+這些方法的差別可以縮成一張表：
+
+| 方法 | Reward 在哪裡使用？ | 主要好處 | 主要限制 |
+|---|---|---|---|
+| Best-of-$N$ | 完整樣本的終點 | 最單純、完全 model-agnostic | rare target 需要很大的 $N$ |
+| FK steering／DAS | 多個中間 checkpoints | 途中重新分配 compute | 需要設計 intermediate potentials，可能 particle degeneracy |
+| BoNG | reverse diffusion 的 particle population | Best sample 能在途中影響其他 particles | 不是自動等於 exact tilted sampling |
+| SPT | deterministic generator 的 source space | gradient-free，能用 tempering 跨越 modes | 每個 proposal 都要生成並評分 |
+
+<VizPlan id="u7-4-particles" title="從終點挑選到途中 resampling" type="static">
+- 檔名：`w10-4-gradient-free-steering.png`；放在方法比較表之前。
+- 左格畫 Best-of-$N$：八條互不交流的 trajectories，終點只留最高分；中格畫 SMC：三個 checkpoints 的 propagate–weight–resample；右格畫 SPT：source space 中多個 temperatures 交換位置。
+- 中文標註：`走完才評分`、`途中重新分配 particles`、`在 source space 跨過低分區域`。
+- 觀察句：沒有 gradient 時，steering 靠的不是一支方向，而是候選之間如何分配下一輪計算。
+- 風格：延續 U3 trajectory 圖的線條語言；particle lineage 用透明度呈現，不畫成流程圖方塊。
+</VizPlan>
+
+## 消化一下
+
+<QuizBlock id="w10-4-a">
+若 base model 命中某 rare event 的機率是 $p=0.001$，Best-of-$N$ 想讓命中率明顯上升，$N$ 的合理量級是：
+<Option>與 $p$ 同一量級，約 $10^{-3}$。</Option>
+<Option correct>與 $1/p$ 同一量級，約 $10^3$。</Option>
+<Option>和 sample dimension 無關，所以 $N=1$ 已足夠。</Option>
+<Explanation>
+命中率是 $1-(1-p)^N$。當 $p$ 很小，$N$ 要累積到約 $1/p$，指數裡的 $Np$ 才會到常數量級。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w10-4-b">
+SMC 的 resampling 改變了什麼？
+<Option>pretrained diffusion model 的參數。</Option>
+<Option>每個 particle 的 reward function。</Option>
+<Option correct>下一段 sampling compute 分配給哪些 particle lineages。</Option>
+<Explanation>
+高權重 particles 被複製後，會有更多後代繼續走；低權重者則少走或停止。模型與 reward 都不必重新訓練。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w10-4-c">
+SPT 為什麼特別適合 deterministic flow map？
+<Option correct>每個 source $z$ 會對到確定的 $G(z)$，因此可以把 reward-tilted density 拉回 source space 做 MCMC 與 tempering。</Option>
+<Option>因為 deterministic model 的 reward 一定可微。</Option>
+<Option>因為 source distribution 沒有 density。</Option>
+<Explanation>
+SPT 不需要 reward gradient。它利用的是 source space 通常較簡單，而且 deterministic map 讓每個 proposal 的 output 與 reward 都能明確計算。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-guidance-applications">
+現在我們有兩種基本工具：reward 可微時近似 $\nabla\log h_t$；reward 只會打分時，讓多個候選透過 weighting、resampling 或 source-space search 分享資訊。但「reward」在應用裡不一定真的叫 reward。它可能是一筆量測的 likelihood、一段軌跡的 return、物理 constraint，或一個 rare event。<Ref to="dma-guidance-applications"/> 會把這些場景放回同一個 tilted-distribution 公式，並指出它們各自多了什麼結構。
+</Bridge>
+
+## 參考文獻
+
+1. Singhal, R. et al. [*A General Framework for Inference-time Scaling and Steering of Diffusion Models.*](https://proceedings.mlr.press/v267/singhal25b.html) ICML 2025.（FK steering 與 interacting particles。）
+2. Kim, S., Kim, M., Park, D. [*Test-time Alignment of Diffusion Models without Reward Over-optimization.*](https://arxiv.org/abs/2501.05803) 2025.（DAS、SMC 與 reward tempering。）
+3. Wang, S.-H. et al. [*Test-Time Guidance for Flow-Based Generative Models via Parallel Tempering on Source Distributions.*](https://proceedings.mlr.press/v306/wang26da.html) ICML 2026.（Source Parallel Tempering。）
+4. Kim, R. L. et al. [*Best-of-$N$ Guidance for Test-time Diffusion Alignment.*](https://arxiv.org/abs/2610.05108) 2026.（BoNG；近期 preprint。）

@@ -1,0 +1,602 @@
+---
+/**
+ * MoleculeMap.astro — the Geometric Deep Learning map: its own space, deliberately not the sky.
+ *
+ * One atom per note. Each unit is a DIFFERENT molecule, and the molecule is chosen because its
+ * symmetry is what that unit teaches (polymer chain = translation, aromatic ring = rotation,
+ * identical ligands = permutation, mirror-image pair = chirality …). The motif for each unit is
+ * `molecule` on its lecture in lib/notes.ts; the geometry lives in lib/molecules.ts.
+ *
+ * Units are laid out by position (six per row), never by note count, so a painted backdrop
+ * can be drawn to fixed zones: drop `molecule-day.{webp,png}` and `molecule-night.{webp,png}`
+ * into `public/notes/molecule/` (brief: docs/molecule-map-art-brief.md) and the procedural
+ * plain stage (soft light + shadow per molecule) steps aside for it. Missing files → the plain
+ * stage, so nothing breaks meanwhile.
+ *
+ * Drawn as a ball-and-stick model (shaded spheres, tube bonds, a soft shadow). Hovering a unit's
+ * NAME plays that unit's symmetry on its molecule (rotate a ring by one step, reflect the chiral
+ * pair …); the molecule itself never moves under the pointer, so clicking an atom stays reliable.
+ * Written notes are solid, clickable atoms; planned notes (lib/notes.ts `plannedNotes`) are
+ * wireframe, so a planned unit already shows its molecule and fills in as notes get written.
+ * Read state is painted client-side by lib/reading.ts.
+ */
+import type { Lang, NoteEntry } from '../lib/notes';
+import {
+  courseByKey,
+  courseRoute,
+  lectureAnchor,
+  noteHref,
+  noteOrderIndex,
+  notesForLang,
+  plannedNotes,
+} from '../lib/notes';
+import { groupCode, noteTitles } from '../lib/noteRefs';
+import { withBase } from '../lib/url';
+import { bondPath, buildMotif, demoPlan, messageHead } from '../lib/molecules';
+import type { Attrs, Bond, Deco, Demo, MoleculeMotif, Pulse } from '../lib/molecules';
+import MapHead from './MapHead.astro';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+interface Props {
+  notes: NoteEntry[];
+  lang: Lang;
+  courseKey?: string;
+}
+const { notes, lang, courseKey = 'geometric-deep-learning' } = Astro.props;
+const zh = lang === 'zh';
+const course = courseByKey(courseKey);
+const titles = await noteTitles();
+const published = notesForLang(notes, lang);
+
+// Optional painted backdrop (same convention as the sky map).
+const artDir = resolve(process.cwd(), 'public/notes/molecule');
+const findArt = (stem: string) => {
+  for (const ext of ['webp', 'png', 'jpg']) {
+    if (existsSync(resolve(artDir, `${stem}.${ext}`))) return withBase(`notes/molecule/${stem}.${ext}`);
+  }
+  return undefined;
+};
+const artDay = findArt('molecule-day');
+const artNight = findArt('molecule-night');
+const painted = Boolean(artDay && artNight);
+
+/** What each motif means — shown as the tooltip on its unit label. */
+const caption: Record<MoleculeMotif, Record<Lang, string>> = {
+  chain: { zh: '聚合物鏈：平移一個重複單元就和自己重合；鏈的兩端就是邊界。', en: 'A polymer chain: shift one repeat unit and it lands on itself; its ends are the boundaries.' },
+  ring: { zh: '芳香環：旋轉對稱；原子旁的箭頭是會跟著一起轉的 vector feature。', en: 'An aromatic ring with rotation symmetry; the arrows are a vector feature that turns with it.' },
+  star: { zh: '同一個中心上的相同配體：任意交換兩個，分子不變。', en: 'Identical ligands on one centre: swap any two and the molecule is unchanged.' },
+  clique: { zh: '每個原子都和其他所有原子相連，鍵的強弱不同，少數被遮蔽。', en: 'Every atom bonds to every other, with varying strength; a few pairs are masked.' },
+  tree: { zh: '分支分子：訊息沿著鍵往中心傳，虛線圈是 1-hop 與 2-hop 的範圍。', en: 'A branched molecule: messages flow toward the centre; dashed rings are the 1- and 2-hop neighbourhoods.' },
+  chiral: { zh: '楔形與虛線鍵畫出的立體中心，和它的鏡像：怎麼旋轉都疊不回去。', en: 'A stereocentre and its mirror image: no rotation superimposes them.' },
+  orbital: { zh: 'd 軌域：tensor features 建立在 spherical harmonics 之上。', en: 'A d-orbital: tensor features are built on spherical harmonics.' },
+  fused: { zh: '萘：原子旁的刻度是最高頻 graph eigenmode 的正負號。', en: 'Naphthalene, marked with the signs of its highest-frequency graph eigenmode.' },
+  bowl: { zh: '碗狀的 corannulene，邊上有兩組局部座標系。', en: 'Corannulene, a curved carbon bowl, with two local frames on its rim.' },
+  distorted: { zh: 'Jahn–Teller 扭曲的環疊在理想形狀上；箭頭是選定的標準方向。', en: 'A Jahn–Teller-distorted ring over its ideal shape; the arrow is a chosen canonical direction.' },
+  cloud: { zh: '散亂的雜訊流向一個環：從 noise 到結構。', en: 'Scattered noise flowing into a ring: from noise to structure.' },
+};
+
+const W = 1120;
+const COLS = 6;
+const SW = W / COLS;
+const R = 56;
+const ROW0 = 100;
+const ROW_STEP = 212;
+const f = (n: number) => Number(n.toFixed(1));
+const lectureName = (group: string) => group.replace(/^[^·]*·\s*/, '');
+
+/** Two short lines instead of one long one, so labels never run into the next unit. */
+function wrapName(name: string): string[] {
+  const i = name.indexOf(' and ');
+  if (i > 0) return [name.slice(0, i + 4), name.slice(i + 5)];
+  if (name.length <= 16) return [name];
+  const words = name.split(' ');
+  let best = 1, bestDiff = Infinity;
+  for (let k = 1; k < words.length; k++) {
+    const diff = Math.abs(words.slice(0, k).join(' ').length - words.slice(k).join(' ').length);
+    if (diff < bestDiff) { bestDiff = diff; best = k; }
+  }
+  return [words.slice(0, best).join(' '), words.slice(best).join(' ')];
+}
+
+interface AtomView { x: number; y: number; note?: NoteEntry; plannedTitle?: string; phantom?: boolean; attrs: Attrs }
+interface BondView { b: Bond; attrs: Attrs }
+interface UnitView {
+  code: string;
+  name: string[];
+  href: string;
+  motif: MoleculeMotif;
+  planned: boolean;
+  cx: number;
+  cy: number;
+  slot: { x: number; y: number; w: number; h: number };
+  atoms: AtomView[];
+  bonds: BondView[];
+  pulses: Pulse[];
+  deco: Deco[];
+  demo: Demo;
+  demoAttrs: Attrs;
+  writtenCount: number;
+  plannedCount: number;
+}
+
+const lectures = course?.lectures ?? [];
+const rows = Math.ceil(lectures.length / COLS);
+const units: UnitView[] = lectures.map((lecture, i) => {
+  const written = published.filter((n) => n.data.group === lecture.group);
+  const writtenSlugs = new Set(written.map((n) => n.data.slug));
+  const stillPlanned = Object.values(plannedNotes)
+    .filter((p) => p.group === lecture.group && !writtenSlugs.has(p.slug))
+    .sort((a, b) => noteOrderIndex(a.slug) - noteOrderIndex(b.slug));
+  const n = written.length + stillPlanned.length;
+
+  const row = Math.floor(i / COLS);
+  const col = i % COLS;
+  // Fixed grid, left-aligned: a unit's cell never moves when another unit is added, so a
+  // painted backdrop drawn to these cells stays aligned (up to twelve units, two rows).
+  const offset = 0;
+  const cx = f(offset + SW * (col + 0.5));
+  const cy = ROW0 + row * ROW_STEP;
+  const motif = lecture.molecule ?? 'ring';
+  const g = buildMotif(motif, cx, cy, R, n);
+  const slot = { x: f(offset + SW * col + 4), y: cy - R - 34, w: f(SW - 8), h: 2 * R + 68 };
+  const atoms: AtomView[] = g.atoms.map((p, k) =>
+    k < written.length
+      ? { ...p, note: written[k], attrs: {} }
+      : { ...p, plannedTitle: stillPlanned[k - written.length]?.title[lang], attrs: {} },
+  );
+  // How this unit performs its symmetry on hover (lib/molecules.ts `demoPlan`).
+  const plan = demoPlan(motif, g, cx, cy);
+  atoms.forEach((a, k) => { a.attrs = plan.atomAttrs[k] ?? {}; });
+  const bonds: BondView[] = [
+    ...plan.phantomBonds.map((b) => ({ b, attrs: { 'data-fade': 'in' } })),
+    ...g.bonds.map((b, i) => ({ b, attrs: plan.bondAttrs[i] ?? {} })),
+  ];
+  atoms.unshift(...plan.phantoms.map((p) => ({ ...p, phantom: true, attrs: { 'data-fade': 'in' } })));
+  const pulses = plan.pulses;
+  const demo = plan.demo;
+  const demoAttrs = plan.unitAttrs;
+
+  return {
+    code: groupCode(lecture.group),
+    name: wrapName(lectureName(lecture.group)),
+    href: withBase(`${courseRoute(courseKey, lang)}#${lectureAnchor(lecture.group)}`),
+    motif,
+    planned: written.length === 0,
+    cx,
+    cy,
+    slot,
+    atoms,
+    bonds,
+    pulses,
+    deco: g.deco,
+    demo,
+    demoAttrs,
+    writtenCount: written.length,
+    plannedCount: stillPlanned.length,
+  };
+});
+const H = ROW0 + (rows - 1) * ROW_STEP + R + 104;
+const labelY = (u: UnitView) => u.cy + R + 30;
+---
+
+{units.length > 0 && course && (
+  <section class="mol" id="molecule-map" data-tone={course.tone} aria-labelledby="molecule-map-title">
+    <MapHead
+      id="molecule-map-title"
+      title={course.title[lang]}
+      lead={course.mapIntro?.[lang] ?? course.description[lang]}
+      note={zh
+        ? '滑過單元名稱，分子會表演它的對稱：鏈平移一個單元、兩個配體互換位置、訊息沿著鍵一層層傳進中心、手性分子翻到鏡像。'
+        : 'Hover a unit name and its molecule performs its symmetry: the chain shifts one repeat unit, two ligands trade places, messages travel inward along the bonds, the chiral molecule flips to its mirror image.'}
+      href={withBase(courseRoute(courseKey, lang))}
+      linkLabel={zh ? '課程地圖 →' : 'Course map →'}
+      tone={course.tone}
+    />
+
+    <div class="mol-frame">
+      <svg
+        class:list={['mol-svg', { 'mol-svg--painted': painted }]}
+        viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        aria-label={zh
+          ? `${course.title[lang]}：每一顆原子是一篇筆記，每個單元是一種分子`
+          : `${course.title[lang]}: one atom per note, one molecule per unit`}
+      >
+        <defs>
+          <radialGradient id="mol-sph" cx="35%" cy="32%" r="70%">
+            <stop offset="0" class="mol-s-hi" /><stop offset="0.55" class="mol-s-mid" /><stop offset="1" class="mol-s-lo" />
+          </radialGradient>
+          <radialGradient id="mol-sph-read" cx="35%" cy="32%" r="70%">
+            <stop offset="0" class="mol-r-hi" /><stop offset="0.55" class="mol-r-mid" /><stop offset="1" class="mol-r-lo" />
+          </radialGradient>
+          <radialGradient id="mol-spot">
+            <stop offset="0" class="mol-spot-in" /><stop offset="1" class="mol-spot-out" />
+          </radialGradient>
+        </defs>
+
+        <rect class="mol-bg" width={W} height={H} rx="16" />
+        {painted && (
+          <g class="mol-art" aria-hidden="true">
+            <image class="mol-art-day" href={artDay} x="0" y="0" width={W} height={H} preserveAspectRatio="xMidYMid slice" />
+            <image class="mol-art-night" href={artNight} x="0" y="0" width={W} height={H} preserveAspectRatio="xMidYMid slice" />
+          </g>
+        )}
+
+        {units.map((u) => (
+          <g
+            class:list={['mol-unit', `mol-unit--${u.motif}`, { 'is-planned': u.planned }]}
+            data-lecture={u.code}
+            data-read-count={u.planned ? undefined : ''}
+            data-demo={u.demo}
+            {...u.demoAttrs}
+          >
+            <circle class="mol-spot" cx={u.cx} cy={u.cy} r={R + 26} fill="url(#mol-spot)" aria-hidden="true" />
+            <ellipse class="mol-shadow" cx={u.cx} cy={u.cy + R + 6} rx={f(R * 0.72)} ry="5" aria-hidden="true" />
+
+            {/* The label comes first in the DOM so that hovering it can drive the molecule (~). */}
+            <a class="mol-unit-label" href={u.href}>
+              <title>{caption[u.motif][lang]}</title>
+              <text class="mol-label-code" x={u.cx} y={labelY(u)} text-anchor="middle">{u.code}</text>
+              {u.name.map((line, k) => (
+                <text class="mol-label-name" x={u.cx} y={labelY(u) + 15 + k * 14} text-anchor="middle">{line}</text>
+              ))}
+              {u.planned && (
+                <text class="mol-label-status" x={u.cx} y={labelY(u) + 15 + u.name.length * 14} text-anchor="middle">
+                  {zh ? `規劃中 · ${u.plannedCount} 篇` : `planned · ${u.plannedCount} notes`}
+                </text>
+              )}
+            </a>
+
+            <g class="mol-sym" style={`transform-origin:${u.cx}px ${u.cy}px`}>
+              <g class="mol-deco" aria-hidden="true">
+                {u.deco.map((d) =>
+                  d.kind === 'path' ? <path class={d.cls} d={d.d} />
+                  : d.kind === 'circle' ? <circle class={d.cls} cx={d.cx} cy={d.cy} r={d.r} />
+                  : d.kind === 'ellipse' ? <ellipse class={d.cls} cx={d.cx} cy={d.cy} rx={d.rx} ry={d.ry} transform={`rotate(${d.rot} ${d.cx} ${d.cy})`} />
+                  : <text class={d.cls} x={d.x} y={d.y}>{d.s}</text>,
+                )}
+              </g>
+
+              <g class="mol-mover">
+                <g class="mol-bonds" aria-hidden="true">
+                  {u.bonds.map(({ b, attrs }) =>
+                    b.kind === 'weighted' ? (
+                      <>
+                        <path {...attrs} class="mol-tube-edge" d={bondPath(b)} style={`${attrs.style ?? ''};stroke-opacity:${b.w}`} />
+                        <path {...attrs} class="mol-tube-core" d={bondPath(b)} style={`${attrs.style ?? ''};stroke-opacity:${b.w}`} />
+                      </>
+                    ) : b.kind === 'single' || b.kind === 'message' ? (
+                      <>
+                        <path {...attrs} class="mol-tube-edge" d={bondPath(b)} />
+                        <path {...attrs} class="mol-tube-core" d={bondPath(b)} />
+                        {b.kind === 'message' && <path class="mol-msg-head" d={messageHead(b)} />}
+                      </>
+                    ) : (
+                      <path {...attrs} class={`mol-bond mol-bond--${b.kind}`} d={bondPath(b)} />
+                    ),
+                  )}
+                  {u.pulses.map((p) => (
+                    <circle class="mol-pulse" cx={p.x} cy={p.y} r="4.2" data-dx={p.dx} data-dy={p.dy} />
+                  ))}
+                </g>
+
+                {u.atoms.map((a) =>
+                  a.note ? (
+                    <a class="mol-atom" href={withBase(noteHref(a.note))} data-read-slug={a.note.data.slug}>
+                      <title>{titles.of(a.note)}</title>
+                      <g class="mol-atom-body" {...a.attrs}>
+                        <circle class="mol-atom-hit" cx={a.x} cy={a.y} r="15" />
+                        <circle class="mol-atom-glow" cx={a.x} cy={a.y} r="14" />
+                        <circle class="mol-atom-core" cx={a.x} cy={a.y} r="8" />
+                        <circle class="mol-atom-spec" cx={f(a.x - 2.5)} cy={f(a.y - 2.5)} r="2" />
+                      </g>
+                    </a>
+                  ) : a.phantom ? (
+                    <g class="mol-atom mol-atom--phantom" aria-hidden="true">
+                      <g class="mol-atom-body" {...a.attrs}>
+                        <circle class="mol-atom-core" cx={a.x} cy={a.y} r="8" />
+                        <circle class="mol-atom-spec" cx={f(a.x - 2.5)} cy={f(a.y - 2.5)} r="2" />
+                      </g>
+                    </g>
+                  ) : (
+                    <g class="mol-atom mol-atom--planned">
+                      <title>{a.plannedTitle ? `${a.plannedTitle} — ${zh ? '規劃中' : 'planned'}` : zh ? '規劃中' : 'planned'}</title>
+                      <g class="mol-atom-body" {...a.attrs}>
+                        <circle class="mol-atom-core" cx={a.x} cy={a.y} r="5" />
+                      </g>
+                    </g>
+                  ),
+                )}
+              </g>
+            </g>
+          </g>
+        ))}
+      </svg>
+    </div>
+
+    <div class="mol-legend">
+      <span><span class="mol-legend-dot is-on"></span>{zh ? '已讀' : 'read'}</span>
+      <span><span class="mol-legend-dot"></span>{zh ? '未讀' : 'unread'}</span>
+      <span><span class="mol-legend-dot is-planned"></span>{zh ? '規劃中' : 'planned'}</span>
+      <span class="mol-legend-note">{zh ? '紀錄只留在這台裝置' : 'kept on this device only'}</span>
+    </div>
+  </section>
+)}
+
+<style>
+  /* Ball-and-stick tokens. Light by default; dark follows the site's data-theme switch. */
+  .mol {
+    margin: 40px 0 0;
+    --sph-hi: #ffffff; --sph-mid: #e8e3ee; --sph-lo: #b3a7c4;
+    --sph-read-hi: #ecdff8; --sph-read-mid: #9b6cc6; --sph-read-lo: #563682;
+    --tube-edge: #6f5b88; --tube-core: #cdbbe0;
+    --mol-shadow: rgba(31, 39, 51, .16); --mol-spot: rgba(255, 255, 255, .75);
+  }
+  :global(:root[data-theme=dark]) .mol {
+    --sph-hi: #dcd8e2; --sph-mid: #8e8898; --sph-lo: #3b3843;
+    --sph-read-hi: #f3e9ff; --sph-read-mid: #b795dd; --sph-read-lo: #66478f;
+    --tube-edge: #4b3c62; --tube-core: #b89cd8;
+    --mol-shadow: rgba(0, 0, 0, .28); --mol-spot: rgba(183, 149, 221, .09);
+  }
+  .mol-s-hi { stop-color: var(--sph-hi); } .mol-s-mid { stop-color: var(--sph-mid); } .mol-s-lo { stop-color: var(--sph-lo); }
+  .mol-r-hi { stop-color: var(--sph-read-hi); } .mol-r-mid { stop-color: var(--sph-read-mid); } .mol-r-lo { stop-color: var(--sph-read-lo); }
+  .mol-spot-in { stop-color: var(--mol-spot); } .mol-spot-out { stop-color: var(--mol-spot); stop-opacity: 0; }
+
+  .mol-frame { border-radius: 16px; overflow: hidden; }
+  .mol-svg { display: block; width: 100%; height: auto; }
+  .mol-bg { fill: var(--surface-2, var(--surface)); stroke: var(--border); stroke-width: 1; }
+  .mol-art image { opacity: 1; }
+  .mol-art-night { display: none; }
+  :global(:root[data-theme=dark]) .mol-art-night { display: inline; }
+  :global(:root[data-theme=dark]) .mol-art-day { display: none; }
+
+  /* stage: a soft light behind each molecule and its shadow on the floor */
+  .mol-spot { opacity: .8; transition: opacity .3s ease; }
+  .mol-unit.is-complete .mol-spot { opacity: 1; }
+  .mol-shadow { fill: var(--mol-shadow); }
+  .mol-unit.is-planned .mol-shadow { opacity: .45; }
+
+  /* tubes */
+  .mol-tube-edge { fill: none; stroke: var(--tube-edge); stroke-width: 5.4; stroke-linecap: round; }
+  .mol-tube-core { fill: none; stroke: var(--tube-core); stroke-width: 2.6; stroke-linecap: round; }
+  .mol-bond { fill: none; stroke: var(--tube-edge); stroke-width: 1.6; stroke-linecap: round; }
+  .mol-bond--wedge { fill: var(--tube-edge); stroke: none; }
+  .mol-bond--hash { stroke-width: 1.5; }
+  .mol-bond--skeleton { stroke: var(--tone, var(--accent)); stroke-width: 1.2; stroke-dasharray: 2 4; opacity: .4; }
+  .mol-msg-head { fill: var(--tube-edge); }
+
+  /* motif decoration */
+  .mol-deco path, .mol-deco circle, .mol-deco ellipse { fill: none; stroke: var(--tone, var(--accent)); stroke-width: 1.2; stroke-linecap: round; }
+  .mol-deco .mol-stub { stroke-dasharray: 2 3; opacity: .55; stroke-width: 2; }
+  .mol-deco .mol-bracket { opacity: .55; stroke-width: 1.4; }
+  .mol-deco .mol-sub { fill: var(--tone, var(--accent)); stroke: none; font-size: 10px; font-style: italic; opacity: .75; }
+  .mol-deco .mol-shift, .mol-deco .mol-canon { opacity: .6; }
+  .mol-deco .mol-shift-head, .mol-deco .mol-canon-head,
+  .mol-deco .mol-vec-head, .mol-deco .mol-swap-head { fill: var(--tone, var(--accent)); stroke: none; opacity: .75; }
+  .mol-deco .mol-aromatic { opacity: .45; }
+  .mol-deco .mol-vec { opacity: .7; stroke-width: 1.4; }
+  .mol-deco .mol-swap { opacity: .55; stroke-dasharray: 3 3; }
+  .mol-deco .mol-hop { opacity: .3; stroke-dasharray: 2 5; }
+  .mol-deco .mol-mirror { opacity: .55; stroke-dasharray: 6 4; stroke-width: 1.4; }
+  .mol-deco .mol-ghost-bond { opacity: .28; stroke-width: 1.6; }
+  .mol-deco path.mol-ghost-bond[d*='Z'] { fill: var(--tone, var(--accent)); stroke: none; opacity: .22; }
+  .mol-deco .mol-ghost-atom { fill: var(--surface); opacity: .45; stroke-width: 1.4; }
+  .mol-deco .mol-sphere { opacity: .35; stroke-dasharray: 3 4; }
+  .mol-deco .mol-lobe { fill: var(--tone-soft, transparent); opacity: .8; }
+  .mol-deco .mol-lobe--neg { fill: none; stroke-dasharray: 3 2; }
+  .mol-deco .mol-nucleus { fill: var(--tone, var(--accent)); stroke: none; }
+  .mol-deco .mol-mode { opacity: .55; stroke-width: 1.6; }
+  .mol-deco .mol-frame { opacity: .7; stroke-width: 1.4; }
+  .mol-deco .mol-ideal { opacity: .3; stroke-dasharray: 2 3; }
+  .mol-deco .mol-noise { fill: var(--tone, var(--accent)); stroke: none; opacity: .4; }
+  .mol-deco .mol-flow { opacity: .35; stroke-dasharray: 1 4; }
+
+  /* atoms: porcelain spheres until read, then violet */
+  .mol-atom { cursor: pointer; }
+  .mol-atom-hit { fill: transparent; }
+  .mol-atom-glow { fill: var(--tone, var(--accent)); opacity: 0; transition: opacity .2s ease; }
+  .mol-atom-core { fill: url(#mol-sph); }
+  .mol-atom.is-read .mol-atom-core { fill: url(#mol-sph-read); }
+  .mol-atom-spec { fill: #fff; opacity: .75; pointer-events: none; }
+  .mol-atom:hover .mol-atom-glow, .mol-atom:focus-visible .mol-atom-glow { opacity: .22; }
+  .mol-atom:focus-visible { outline: none; }
+  .mol-atom:focus-visible .mol-atom-core { stroke: var(--tone, var(--accent)); stroke-width: 2.4; }
+  .mol-atom--planned { cursor: default; }
+  .mol-atom--planned .mol-atom-core { fill: none; stroke: var(--tone, var(--accent)); stroke-width: 1.4; stroke-dasharray: 2 2; }
+  .mol-unit.is-planned .mol-deco, .mol-unit.is-planned .mol-bonds { opacity: .5; }
+
+  /* the symmetry, performed on demand when you hover or focus the unit's name (script below) */
+  .mol-sym, .mol-mover, [data-swap], .mol-pulse { transform-box: view-box; }
+  [data-fade='in'] { opacity: 0; }                       /* phantom chain atoms wait off-stage */
+  .mol-atom--phantom { pointer-events: none; }
+  .mol-pulse { fill: var(--tone, var(--accent)); opacity: 0; pointer-events: none; }
+  /* translation is about structure, so the chain is shown uncoloured while it slides */
+  .mol-unit.is-demo .mol-atom.is-read .mol-atom-core { fill: url(#mol-sph); }
+  /* a swap keeps the colours: they are how you see which ligand went where */
+  .mol-unit.is-swapping .mol-swap { opacity: 1; }
+  /* attention: everything dims except the current query's row */
+  .mol-unit.is-attending [data-i] { opacity: .12; transition: opacity .35s ease; }
+  .mol-unit.is-attending [data-i].is-attn { opacity: 1; }
+  .mol-atom-body.is-query .mol-atom-glow { opacity: .35; }
+
+  /* labels */
+  .mol-unit-label { text-decoration: none; cursor: help; }
+  .mol-unit-label:focus-visible { outline: none; }
+  .mol-unit-label:focus-visible .mol-label-code { text-decoration: underline; }
+  .mol-label-code { fill: var(--tone, var(--accent)); font-family: var(--font-mono); font-size: 12.5px; font-weight: 700; letter-spacing: 0.06em; }
+  .mol-label-name { fill: var(--text-muted); font-size: 12px; }
+  .mol-label-status { fill: var(--text-muted); font-family: var(--font-mono); font-size: 10.5px; opacity: 0.75; }
+  .mol-unit-label:hover .mol-label-name { fill: var(--text); }
+  .mol-unit.is-planned .mol-label-code { opacity: 0.6; }
+  .mol-svg--painted text { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+
+  .mol-legend {
+    display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center;
+    margin-top: 10px; font-size: 0.78rem; color: var(--text-muted);
+  }
+  .mol-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .mol-legend-dot { width: 10px; height: 10px; border-radius: 50%; background: radial-gradient(circle at 35% 32%, var(--sph-hi), var(--sph-mid) 55%, var(--sph-lo)); }
+  .mol-legend-dot.is-on { background: radial-gradient(circle at 35% 32%, var(--sph-read-hi), var(--sph-read-mid) 55%, var(--sph-read-lo)); }
+  .mol-legend-dot.is-planned { background: none; border: 1.5px dashed var(--tone, var(--accent)); }
+  .mol-legend-note { margin-left: auto; opacity: 0.8; }
+
+  @media (max-width: 720px) {
+    .mol-label-name { font-size: 15px; }
+    .mol-label-code { font-size: 15px; }
+    .mol-label-status { font-size: 13px; }
+    .mol-legend-note { margin-left: 0; }
+  }
+</style>
+
+<script>
+  import { paintReadState } from '../lib/reading';
+
+  const EASE = 'cubic-bezier(.45, 0, .2, 1)';
+  type Performer = { start(): void; stop(): void };
+
+  /** Forward on hover, backward on leave — from wherever the animation currently is. */
+  function reversible(makers: (() => Animation)[]): Performer {
+    let anims: Animation[] | null = null;
+    return {
+      start() {
+        if (!anims) anims = makers.map((make) => make());
+        else anims.forEach((a) => (a.playbackRate < 0 ? a.reverse() : a.play()));
+      },
+      stop() {
+        anims?.forEach((a) => { if (a.playbackRate > 0) a.reverse(); });
+      },
+    };
+  }
+  const withClass = (unit: Element, cls: string, inner: Performer): Performer => ({
+    start() { unit.classList.add(cls); inner.start(); },
+    stop() { unit.classList.remove(cls); inner.stop(); },
+  });
+
+  const demos: Record<string, (unit: HTMLElement) => Performer | null> = {
+    // A rigid symmetry operation on the whole molecule (rotate one step, reflect …).
+    rigid(unit) {
+      const sym = unit.querySelector<SVGGElement>('.mol-sym');
+      const op = unit.dataset.op;
+      if (!sym || !op) return null;
+      return reversible([() => sym.animate([{ transform: 'none' }, { transform: op }], { duration: 900, easing: EASE, fill: 'both' })]);
+    },
+    // The chain slides one repeat unit under the fixed brackets; phantoms enter, the tail leaves.
+    translate(unit) {
+      const group = unit.querySelector<SVGGElement>('.mol-mover');
+      const shift = Number(unit.dataset.shift);
+      if (!group || !shift) return null;
+      const opts: KeyframeAnimationOptions = { duration: 1100, easing: EASE, fill: 'both' };
+      const fade = (sel: string, from: number, to: number) =>
+        [...unit.querySelectorAll<SVGElement>(sel)].map((el) => () => el.animate([{ opacity: from }, { opacity: to }], opts));
+      return withClass(unit, 'is-demo', reversible([
+        () => group.animate([{ transform: 'translateX(0px)' }, { transform: `translateX(${shift}px)` }], opts),
+        ...fade("[data-fade='in']", 0, 1),
+        ...fade("[data-fade='out']", 1, 0),
+      ]));
+    },
+    // A transposition: two ligands trade places, one passing in front (larger), one behind.
+    swap(unit) {
+      const els = [...unit.querySelectorAll<SVGElement>('[data-swap]')];
+      if (!els.length) return null;
+      const opts: KeyframeAnimationOptions = { duration: 1200, easing: EASE, fill: 'both' };
+      return withClass(unit, 'is-swapping', reversible(els.map((el) => () => {
+        const angle = Number(el.dataset.angle);
+        const depth = el.dataset.swap === 'front' ? 1.28 : 0.62;
+        return el.animate([
+          { transform: 'rotate(0deg) scale(1)' },
+          { transform: `rotate(${angle / 2}deg) scale(${depth})` },
+          { transform: `rotate(${angle}deg) scale(1)` },
+        ], opts);
+      })));
+    },
+    // Two synchronous rounds of message passing; the hop rings light up as information arrives.
+    message(unit) {
+      const pulses = [...unit.querySelectorAll<SVGCircleElement>('.mol-pulse')];
+      if (!pulses.length) return null;
+      const rings = [...unit.querySelectorAll<SVGElement>('.mol-hop')];
+      const receivers = [...unit.querySelectorAll<SVGGElement>(".mol-atom-body[data-depth='0'], .mol-atom-body[data-depth='1']")];
+      const D = 2600;
+      let running: Animation[] = [];
+      return {
+        start() {
+          const loop: KeyframeAnimationOptions = { duration: D, iterations: Infinity };
+          running = pulses.map((el) => {
+            const to = `translate(${el.dataset.dx}px, ${el.dataset.dy}px)`;
+            return el.animate([
+              { offset: 0, transform: 'translate(0px, 0px)', opacity: 0 },
+              { offset: 0.04, opacity: 1 },
+              { offset: 0.3, transform: to, opacity: 1 },
+              { offset: 0.34, transform: to, opacity: 0 },
+              { offset: 0.5, transform: 'translate(0px, 0px)', opacity: 0 },
+              { offset: 0.54, opacity: 1 },
+              { offset: 0.8, transform: to, opacity: 1 },
+              { offset: 0.84, transform: to, opacity: 0 },
+              { offset: 1, transform: to, opacity: 0 },
+            ], { ...loop, easing: 'ease-in-out' });
+          });
+          rings.forEach((ring, i) => {
+            const at = i === 0 ? 0.3 : 0.8; // 1-hop after round one, 2-hop after round two
+            running.push(ring.animate([
+              { offset: 0, opacity: 0.3 }, { offset: at - 0.02, opacity: 0.3 }, { offset: at + 0.02, opacity: 1 },
+              { offset: 0.95, opacity: 1 }, { offset: 1, opacity: 0.3 },
+            ], loop));
+          });
+          receivers.forEach((body) => {
+            const glow = body.querySelector('.mol-atom-glow');
+            if (!glow) return;
+            const peak = body.dataset.depth === '0' ? 0.5 : 0.35;
+            running.push(glow.animate([
+              { offset: 0, opacity: 0 }, { offset: 0.28, opacity: 0 }, { offset: 0.32, opacity: 0.35 }, { offset: 0.44, opacity: 0 },
+              { offset: 0.78, opacity: 0 }, { offset: 0.82, opacity: peak }, { offset: 0.94, opacity: 0 }, { offset: 1, opacity: 0 },
+            ], loop));
+          });
+        },
+        stop() { running.forEach((a) => a.cancel()); running = []; },
+      };
+    },
+    // Attention, one query at a time: the query's bonds stay lit, weighted; the rest dim.
+    attention(unit) {
+      const atoms = [...unit.querySelectorAll<SVGGElement>('.mol-atom-body[data-k]')];
+      const bonds = [...unit.querySelectorAll<SVGElement>('[data-i]')];
+      if (atoms.length < 2) return null;
+      let q = 0;
+      let timer = 0;
+      const show = () => {
+        atoms.forEach((a) => a.classList.toggle('is-query', Number(a.dataset.k) === q));
+        bonds.forEach((b) => b.classList.toggle('is-attn', Number(b.dataset.i) === q || Number(b.dataset.j) === q));
+        q = (q + 1) % atoms.length;
+      };
+      return {
+        start() { unit.classList.add('is-attending'); q = 0; show(); timer = window.setInterval(show, 900); },
+        stop() {
+          window.clearInterval(timer);
+          unit.classList.remove('is-attending');
+          atoms.forEach((a) => a.classList.remove('is-query'));
+          bonds.forEach((b) => b.classList.remove('is-attn'));
+        },
+      };
+    },
+  };
+
+  function initMolecule() {
+    const root = document.getElementById('molecule-map');
+    if (!root) return;
+    paintReadState(root);
+    if (typeof Element.prototype.animate !== 'function') return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    root.querySelectorAll<HTMLElement>('.mol-unit').forEach((unit) => {
+      const label = unit.querySelector('.mol-unit-label');
+      const demo = label ? demos[unit.dataset.demo ?? '']?.(unit) : null;
+      if (!label || !demo) return;
+      let on = false;
+      const enter = () => { if (!on) { on = true; demo.start(); } };
+      const leave = () => { if (on) { on = false; demo.stop(); } };
+      label.addEventListener('mouseenter', enter);
+      label.addEventListener('focus', enter);
+      label.addEventListener('mouseleave', leave);
+      label.addEventListener('blur', leave);
+    });
+  }
+  initMolecule();
+</script>

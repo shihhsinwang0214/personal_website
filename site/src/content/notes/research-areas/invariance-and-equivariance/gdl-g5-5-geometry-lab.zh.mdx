@@ -1,0 +1,173 @@
+---
+slug: "gdl-g5-5-geometry-lab"
+label: "gdl-geometry-lab"
+lang: "zh"
+title: "實作：座標、力與鏡像的三種檢查"
+category: "courses"
+group: "G6 · Euclidean Geometry"
+status: "available"
+updated: "2026-10-09"
+summary: "執行 EGNN energy、coordinate 與 force 的聯合 action，並用有序四點檢查距離與 signed volume 的鏡像差異。"
+prereqs: ["gdl-chirality"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Satorras、Hoogeboom 與 Welling（2021），E(n) Equivariant Graph Neural Networks"
+    href: "https://proceedings.mlr.press/v139/satorras21a.html"
+  - label: "Chmiela 等人（2017），Machine learning of accurate energy-conserving molecular force fields"
+    href: "https://arxiv.org/abs/1611.04678"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 實作：座標、力與鏡像的三種檢查
+
+<Objectives>
+
+- **測試三種 output actions。** Energy 不變、position 加平移、force 不加平移。
+- **由 energy 用 autograd 得到 force。** 分清訓練時的 create_graph 與只做評估。
+- **測試 reflection 的任務限制。** 比較鏡像距離、energy 與 signed volume，而不把它們視為同一 target。
+
+</Objectives>
+
+<Prereq items={["gdl-chirality"]} />
+
+## 同一批原子，分別檢查三種答案
+
+G6 已經說清楚幾何模型不能只測「轉動後好像一樣」。我們要知道輸出的型態：energy 是 scalar，force 是向量，position 是座標。
+
+這次使用三維點與 scalar node features，EGNN 先更新 features 與 coordinates，再由 invariant readout 產生 energy。訓練 target 是一個平滑的 pair-distance energy，不代表真實 molecular force field。
+
+## 準備與執行
+
+本課的實作使用 Python 3.10 以上與 PyTorch 2.x，CPU 就可以計算。請在自己的 Python 環境安裝 PyTorch，再下載 [gdl_labs.py](/personal_website/notes/research_areas/invariance-and-equivariance/gdl_labs.py)。環境目錄與下載的第三方套件不要加入網站的 Git repository。
+
+```powershell
+python -m pip install torch
+python gdl_labs.py --unit 6 --steps 40
+```
+
+檔案包含可重用的模型與 `Trainer`。模型、loss 與資料來源由外部指定；換資料時保留對稱一致的 tensor interface，不需要修改 training loop。
+
+```python
+from gdl_labs import Trainer
+
+trainer = Trainer(model, loss, lr=0.003)
+history = trainer.fit(batch_fn, steps=40)
+# batch_fn() returns ((model_input_1, model_input_2, ...), target)
+```
+
+## 先看介面
+
+```python
+from gdl_labs import EGNN
+import torch
+
+model = EGNN(in_dim=2, hidden=24, layers=2)
+x = torch.randn(4, 5, 3)
+h = torch.randn(4, 5, 2)  # scalar node features
+energy = model(x, h)      # B,1
+new_x, features = model.encode(x, h)
+forces = model.forces(x, h)
+```
+
+空間維度由 `x.shape[-1]` 決定，不繫結二維或三維。Scalar features 的維度則由 `in_dim` 指定；這兩個維度扮演不同角色。
+
+## 合法變換與 expected output
+
+程式抽一個 orthogonal $Q$，把 determinant 修成 $1$，再加共同平移 $b$ 與原子重排 $p$：
+
+```python
+moved_x = x[:, p] @ Q.T + b
+moved_h = h[:, p]
+# Energy expected: energy
+# Position expected: new_x[:, p] @ Q.T + b
+# Force expected: forces[:, p] @ Q.T
+```
+
+請對照三個 expected 的平移差異。程式逐項 assert defect 小於浮點 tolerance，也檢查總 force；後者來自 invariant energy 的 gradient，不是一般 EGNN coordinate update 自動保證。
+
+## Force training 的 gradient
+
+```python
+predicted_forces = model.forces(x, h, create_graph=True)
+loss = (predicted_forces - target_forces).square().mean()
+loss.backward()
+```
+
+Force loss 要再對 model parameters 微分，因此保留 coordinate gradient 的計算 graph。只做測試時可用預設 `create_graph=False`，但計算 force 仍必須在能對 coordinate 求 gradient 的區域裡；函數已用 `torch.enable_grad()` 處理外層 evaluation context。
+
+如果 dataset 有 padding，請使用 mask 計算 energy；目前方便的 `forces` helper 接收完整有效點，若要 force training with mask，需把 mask 傳給 energy computation 並排除假點的 loss。
+
+## 鏡像不是旋轉測試的另一個名稱
+
+程式另外鏡射一個有四種角色的 tetrahedron：所有 pairwise distances 相同，signed volume 由 $1$ 變成 $-1$。Distance-based energy head 仍同值，符合它的 E(d)-invariant 假設。
+
+若改成預測 handedness label，就不能仍用這個 invariant energy head。請先改 target action 與 feature construction，再問模型為什麼沒有學到。
+
+## 作業
+
+對同一批資料列出 permutation、translation、proper rotation、reflection 四組測試。每組報告 energy、position、force 的 expected action 與 absolute max defect，不要只列一個總數。
+
+加分部分：比較直接的 coordinate displacement 與 energy-gradient force 的總和。說明為什麼前者可能 equivariant，卻沒有成對抵消或 conservative guarantee。
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g5-5.svg" alt="三種 expected outputs 分開測試：energy 不變，position 旋轉加平移，force 只旋轉與重排。" loading="lazy" />
+<figcaption>三種 expected outputs 分開測試：energy 不變，position 旋轉加平移，force 只旋轉與重排。</figcaption>
+</figure>
+
+<Question>
+
+為什麼 coordinate update 的 displacement 可以總和不為零，而 energy gradient 得到的 total force 卻應接近零？
+
+<Answer>
+
+前者只按幾何 action 構造向量，scalar edge weights 不必成對對稱；後者來自對共同 translation invariant 的 energy，方向導數強制所有 forces 的總和為零。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+分開測試平移、旋轉與鏡射；再故意不旋轉向量。請對照三種輸出的 expected action，而不是只看某一個總 defect。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=5&chapter=5" class="demo-frame" title="實作：座標、力與鏡像的三種檢查：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="Force expected 要加 b 嗎？" options={[{"text":"不要，它是向量不是位置。","correct":true,"explain":"座標與方向需要不同 action。"},{"text":"要，所有三維 tensor 都使用相同 affine action。","explain":"座標與方向需要不同 action。"}]} />
+
+<Quiz q="Force loss 為什麼用 create_graph=True？" options={[{"text":"只為了讓數字看起來更接近零。","explain":"訓練需要保留可再微分的 graph。"},{"text":"還要從 force gradient 反向更新 energy parameters。","correct":true,"explain":"訓練需要保留可再微分的 graph。"}]} />
+
+<Quiz q="距離相同、signed volume 相反，代表什麼？" options={[{"text":"鏡像保留距離，但改變 orientation。","correct":true,"explain":"Scalar output 的 action 仍需由任務決定。"},{"text":"所有幾何 scalar 都應該一樣。","explain":"Scalar output 的 action 仍需由任務決定。"}]} />
+
+<Bridge to="gdl-g6-0">
+
+第一階段已把對稱從任務、數學運算接到可執行的檢查。擴充階段將從「scalar 與 vector 之外還需要哪些 features」出發，再走向 graph spectral methods、曲面與幾何生成模型；接下來的順序列在下方補充。
+
+</Bridge>
+
+<Remark summary="接下來的擴充規劃">
+
+第一階段之後，我們會接著處理五組問題：
+
+- **G7 · Tensor Features：** scalar 與 vector 不夠時，如何表示角度與更高階的幾何 features？
+- **G8 · Graph Structure and Spectral Methods：** 局部訊息不足時，如何補上 graph frequency、遠方資訊與結構？
+- **G9 · Surfaces and Local Frames：** 沿曲面移動時，不同位置的方向要怎麼比較？
+- **G10 · Approximate Symmetry and Canonicalization：** 對稱只近似成立時，如何保留有用的限制？
+- **G11 · Geometric Generative Models：** score、velocity 與取樣過程要怎麼遵守幾何 action？
+
+目前依這些問題規劃為 7、8、7、5、7 篇，共 34 篇擴充。Graph frequency 與 filtering、局部 kernel 與完整網路、ODE 與 SDE 的取樣檢查分開講；問題與偏差量測則放在一起。這是後續的分篇規劃，正文尚未完成。
+
+</Remark>
+
+## 參考文獻
+
+1. [Satorras、Hoogeboom 與 Welling（2021），E(n) Equivariant Graph Neural Networks](https://proceedings.mlr.press/v139/satorras21a.html)
+2. [Chmiela 等人（2017），Machine learning of accurate energy-conserving molecular force fields](https://arxiv.org/abs/1611.04678)

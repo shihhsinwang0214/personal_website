@@ -1,188 +1,194 @@
 ---
 slug: "rotation-and-group-equivariant-cnns"
+label: "gdl-rotation-problem"
 lang: "zh"
-title: "手機轉了，模型該不該跟著轉？"
-category: "research-areas"
-group: "Invariance and Equivariance"
+title: "手機轉了，同一個偵測器要怎麼一起轉？"
+category: "courses"
+group: "G2 · Rotations and Feature Types"
 status: "available"
-updated: 2026-06-23
-summary: "把手機地圖每次轉 90°，看 orientation channels 如何循環搬動，並分清 augmentation、averaging 與架構等變。"
-demos:
-  - "notes/research_areas/invariance-and-equivariance/group-cnn-rotation.html"
+updated: "2026-10-10"
+summary: "先用普通 convolution 的反例找出缺少的方向共享，再轉動同一個 kernel 建立四方向 lifting，推導位置與方向的聯合 action。"
+prereqs: ["gdl-translation-lab"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
 references:
-  - label: "Cohen & Welling, Group Equivariant Convolutional Networks (2016)"
+  - label: "Cohen 與 Welling（2016），Group Equivariant Convolutional Networks"
     href: "https://arxiv.org/abs/1602.07576"
-  - label: "Cohen & Welling, Steerable CNNs (2016)"
-    href: "https://arxiv.org/abs/1612.08498"
 ---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
 import Quiz from '../../components/Quiz.astro';
-import SeriesNote from '../../components/SeriesNote.astro';
 
-# 手機轉了，模型該不該跟著轉？
+# 手機轉了，同一個偵測器要怎麼一起轉？
 
-<SeriesNote>
-「Invariance and Equivariance」系列第 5 篇。前兩篇把地圖改成 set 與 graph；現在回到影像分支，處理一般 CNN 尚未保證的旋轉。
-</SeriesNote>
+<Objectives>
 
-回到手機地圖。你把手機轉了 30 度，羅斯福路不再水平，新生南路不再垂直，台大總圖在畫面中的座標也轉到另一個方向。對人來說，這仍然是同一段城市結構；對一般 CNN 來說，這卻不一定是同一個 pattern。
+- **指出普通 convolution 為什麼不保證旋轉 equivariance。** 比較旋轉輸入與旋轉輸出時，kernel 的方向如何改變。
+- **用同一個 kernel 建立四方向 lifting。** 推導位置與方向索引的聯合 action，說明 $r-q$ 如何對應道路轉動。
+- **分清共享的保證與成本。** 四方向 kernel 的關係不依賴訓練，但參數量、feature 大小與計算量不是同一件事。
 
-上一篇的 convolution 保證的是：畫面平移時，feature map 跟著平移。但旋轉不是平移。把一條水平道路旋成斜線後，普通 filter 不會自動知道「這是同一種道路，只是方向變了」。
+</Objectives>
 
-這篇只追一件事：
+<Prereq items={["gdl-translation-lab"]} />
 
-> **平移等變只告訴模型如何處理位置改變；旋轉等變還需要模型知道 feature 的方向、型別，以及輸出空間如何隨旋轉改變。**
+## 一條道路轉過去，還是同一條道路
 
-如果你只說「我要 rotation invariant」，可能會把方向資訊抹掉；如果你說「我要 rotation equivariant」，你又必須說清楚：哪個輸出要旋轉？哪個 feature 是 scalar？哪個 feature 是 vector？哪個 feature 是 orientation channel？
+G1 讓偵測器在每個位置重用相同規則。因此道路往右移，偵測結果也往右移。但如果整張地圖轉九十度，原本水平的道路變成垂直，**同一個偵測器還會給出對應的答案嗎？**
 
-## 回到那支旋轉中的手機
+想像用一把細長的尺找道路：尺可以在任何位置使用，但始終橫著放，就不會自然變成直著放的尺。平移共享解決「在哪裡」，沒有自動解決「朝哪裡」。
 
-上一篇把平移寫成 $T_a$：
-
-$$
-F(T_a x)=T_aF(x).
-$$
-
-現在把手機旋轉，記作 $R_\theta$。如果任務是 segmentation，我們會希望
+我們用一個具體的 kernel 看，不把這件事只留在比喻裡。令
 
 $$
-F(R_\theta \cdot x)=R_\theta F(x),
+k_h(-1,0)=-1,\qquad k_h(1,0)=1,
 $$
 
-也就是輸入影像旋轉後，輸出的 mask 也跟著旋轉。
-
-如果任務是地點分類，則希望
+其他位置都是零，則輸出是
 
 $$
-f(R_\theta \cdot x)=f(x).
+H(x)(u)=x(u+(1,0))-x(u-(1,0)).
 $$
 
-同一個旋轉，對不同輸出有不同要求。這是第 1 篇的核心判斷再次出現：先看 output space，再決定 invariance 或 equivariance。
+它比較左右兩邊，是水平方向的差分。把圖片轉過去後，影像裡的左右方向對應到原圖的另一個方向；它不再是在原圖上問相同問題。
 
-把平移、旋轉、反射以及它們的組合放在一起，就得到一個 group $G$。Group-equivariant CNN 想問的是：
+## 把旋轉代入 convolution
 
-> **對一整組 transformations $g \in G$，模型能不能穩定滿足 $F(g \cdot x)=\rho(g)F(x)$？**
-
-下面的 demo 只允許 $0^\circ,90^\circ,180^\circ,270^\circ$ 四個方向。普通單一 filter 的 response 會隨道路方向忽高忽低；group feature 則把 response 在四個 orientation channels 間循環搬動。被保留的不是某一格數值，而是整個有結構的 feature。
-
-<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/group-cnn-rotation.html" class="demo-frame" title="Group CNN 旋轉等變互動 demo" style="height: 720px; width: 100%; border: none;"></iframe>
-
-## 先別急著說 steerable：從四個方向盒子開始
-
-想像我們做了一組道路偵測器：一個偵測水平道路，一個偵測 30 度道路，一個偵測 60 度道路，一個偵測垂直道路。當手機地圖旋轉時，原本落在「水平道路 channel」的訊號，可能會跑到「30 度道路 channel」。
-
-這個畫面非常重要。旋轉不只移動 spatial location，也可能在 feature channels 之間搬動資訊。
-
-普通 CNN 的 feature map 主要標記「哪裡有某種 feature」。Group convolution 的 feature map 更像標記：
-
-> **這個 pattern 在哪個位置、以哪個 group element 或 orientation 出現？**
-
-所以 feature 不再只住在平面位置 $(u,v)$ 上，也可能住在 $(u,v,r)$ 上，其中 $r$ 表示某個離散方向或 group element。旋轉輸入時，feature 會同時改變位置與 orientation index。
-
-這就是 group convolution 的直覺入口：filter 不只在不同位置上滑動，也在不同 orientation 或 group elements 上比較。
-
-## 三種「看過旋轉」不是同一件事
-
-在進入正式架構前，先分清楚三種常被混在一起的方法。
-
-**Data augmentation**：訓練時把地圖旋轉很多角度，讓模型看過更多方向。這可以鼓勵模型學到旋轉 robustness，但它不保證每一層都滿足 exact equivariance。
-
-**Test-time averaging**：推論時把同一張圖旋轉多次，分別預測，再把結果平均或投票。這可以讓 classification output 更穩定，但成本較高，而且通常只處理最後輸出，不一定給你結構化的 equivariant feature。
-
-**Architectural equivariance**：直接設計 layer，使它在數學上滿足
+沿用 $[T(R)x](u)=x(R^{-1}u)$。普通 convolution 是 $C_k(x)(u)=\sum_v k(v)x(u+v)$，所以
 
 $$
-F(g \cdot x)=\rho(g)F(x).
+\begin{aligned}
+C_k(T(R)x)(u)
+&=\sum_v k(v)x(R^{-1}u+R^{-1}v)\\
+&=\sum_w k(Rw)x(R^{-1}u+w).
+\end{aligned}
 $$
 
-這是 group-equivariant CNN 的目標。它不是靠模型自己碰巧學會，而是把 symmetry 寫進運算。
+第二行令 $w=R^{-1}v$；九十度旋轉讓格點一一對應，因此可以換索引。右邊現在使用的是 **$k(Rw)$，不是原本的 $k(w)$**。
 
-三者都可能有用，但不是同一件事。Augmentation 是資料策略，test-time averaging 是推論策略，architectural equivariance 是模型設計。
-
-## Feature 自己也有型別
-
-Steerable features 最容易被講得像魔法。其實它先問一個很日常的問題：**feature 自己是什麼型別？**
-
-回到台北地圖：
-
-- 「這個 patch 有沒有建築物」比較像 scalar feature。旋轉座標時，數值本身不需要旋轉。
-- 「這條道路的方向」比較像 vector feature。旋轉手機時，方向也要旋轉。
-- 「某個 pattern 以哪個角度出現」可以表示成 orientation channels。旋轉輸入時，channel index 會循環移動。
-- 更高階的 geometric feature 可能不是普通 scalar 或 vector，而需要更一般的 representation。
-
-用 representation 的語言說，feature space 也帶著 group action。當輸入被 $g$ 作用，feature 不只是重新排列 spatial locations，也會在 feature channels 內依照某個 $\rho(g)$ 變換。
-
-所以 steerable CNN 的精神不是「讓 filter 自己旋轉很酷」。更準確地說，它是把不同 feature type 對 transformation 的反應方式寫清楚，讓 layer 在這些型別之間做一致的 equivariant mapping。[Cohen & Welling (2017)](https://arxiv.org/abs/1612.08498) 把這件事表達成一套 feature type system：不同 representation 決定 feature 在 symmetry 下如何混合。
-
-## 把 filter 從平面搬到 group 上
-
-普通 convolution 可以被看成在 translation group 上滑動 filter：把 filter 放到每個位置，比對輸入 patch。
-
-Group convolution 則把「滑動」推廣到更大的 group 上。若 $G$ 包含平移與離散旋轉，filter 會在不同位置與不同方向上被應用。輸出 feature 因此可以記錄「某個 pattern 在哪裡、以哪個方向出現」。
-
-對離散 group，group convolution 的一個標準寫法是
+相對地，先計算再只旋轉 feature map，得到
 
 $$
-(f\star\psi)(g)
-=\sum_{h\in G}f(h)\,\psi(g^{-1}h).
+[T(R)C_k(x)](u)=\sum_w k(w)x(R^{-1}u+w).
 $$
 
-這裡 $f$ 是定義在 group 上的 feature，$\psi$ 是 filter，$g$ 是我們要計算輸出的位置或 orientation，$h$ 掃過 group elements。關鍵的 $g^{-1}h$ 表示：比較 filter 與輸入時，要用相對 transformation，而不是絕對名稱。這個相對結構使 left action 與 group convolution commute；[Cohen & Welling (2016)](https://arxiv.org/abs/1602.07576) 用它建立 G-CNN。
+除非 kernel 本身對這個旋轉不變，兩條路一般不同。$k_h$ 就不是這種 kernel：轉過去後，它會比較另一組鄰居。
 
-在方形 pixel grid 上，常見的 **p4** 包含整數平移與 $90^\circ$ 旋轉；**p4m** 再加入反射。它們適合 demo 裡這種四方向世界，卻不等於連續任意角度的旋轉。從離散 orientation channels 走向更一般 feature types，才會接到 steerable CNN。
+這個反例說明的是「普通 convolution 不保證旋轉 equivariance」，不是說 CNN 永遠學不出旋轉相關的任務。它可以靠資料學出多個方向的偵測器，只是權重之間沒有被架構要求保持關係。
 
-這對手機地圖很自然。道路、河流、建築邊界、路口形狀不會因為地圖旋轉就失去意義；但方向仍然可能是任務需要的資訊。Group-equivariant CNN 的目標，是不要在旋轉後從頭學另一套 filter，也不要把方向粗暴平均掉。
+## 我們要保留方向，還是把方向抹掉？
 
-不過這裡也有保守界線：G-CNN 常處理離散旋轉或有限 group；連續旋轉、插值、邊界、grid discretization 都會帶來實作上的近似。這些問題會在最後一篇回到 exact vs approximate symmetry。
+一個解法是所有 kernel 都做成圓形對稱。但如果任務要知道道路朝哪裡，這樣會先消除需要的方向資訊。
 
-## 幾個容易想歪的地方
+另一個比較自然的想法是：**同一把尺，轉成四個方向一起用。** 每個位置除了位置索引 $u$，還有方向索引 $r\in\{0,1,2,3\}$。轉動輸入時，偵測結果不只搬位置，還要把方向 channel 一起重排。
 
-<Quiz
-  q="如果任務是判斷手機畫面是否包含台大，旋轉手機後答案應該如何變？"
-  options={[
-    { text: "答案應該跟著旋轉。", explain: "分類 label 沒有方向可以旋轉。這類輸出通常希望 invariant。" },
-    { text: "答案應該保持一樣。", correct: true, explain: "對。是否包含台大是語意判斷，通常不應受手機方向影響。" },
-    { text: "答案一定會變，因為 pixel 座標變了。", explain: "pixel 座標變了，不代表語意答案變了。" },
-  ]}
-/>
+例如原圖「向右的道路」在新圖變成「向上的道路」，答案應轉到新的方向 channel。只旋轉每張 feature map 的位置、卻不改 channel 的意義，仍會對錯方向。
 
-<Quiz
-  q="如果任務是輸出每條道路在畫面中的方向，旋轉手機後輸出應該如何變？"
-  options={[
-    { text: "方向輸出應該完全不變。", explain: "如果座標系旋轉了，畫面中的方向座標也應該跟著改變。" },
-    { text: "模型應該忽略所有方向。", explain: "方向正是這個任務要輸出的資訊，不能被抹掉。" },
-    { text: "方向輸出也應該跟著旋轉。", correct: true, explain: "對。這是 vector output 的 equivariance。" },
-  ]}
-/>
+Cohen 與 Welling [1] 的 Group Equivariant CNN 把這個想法寫成跨位置與方向的共享。我們先把這四個偵測器做出來，再檢查它們是不是照同一套規則轉動。
 
-<Quiz
-  q="Data augmentation 和 architectural equivariance 的差別是什麼？"
-  options={[
-    { text: "沒有差別，只要訓練資料旋轉過，模型就一定 exact equivariant。", explain: "不對。Augmentation 可以鼓勵 robustness，但不保證 layer 滿足數學上的等變關係。" },
-    { text: "Augmentation 是資料策略；architectural equivariance 是把 transformation law 寫進 layer 設計。", correct: true, explain: "正解。兩者可以搭配，但保證程度與成本不同。" },
-    { text: "Architectural equivariance 只能用在分類，augmentation 只能用在 segmentation。", explain: "不是。兩者都可用於不同任務，差別在於是否 hard-code symmetry。" },
-  ]}
-/>
+## 同一把尺，怎麼轉成四個方向？
 
-## 這怎麼接到論文？
+前面已經知道：模型不只要偵測道路在哪裡，也要把「哪個方向」一起記住。現在先學一個 kernel $k$，其他三個不另外學，直接從它旋轉而來。
 
-Cohen & Welling 的 Group Equivariant CNNs 把 convolution 從平移推廣到更一般的離散 group，例如旋轉與反射。直覺上，它讓 filter 在 group 上共享，讓 feature map 對更大的 transformation family 保持等變。
+令 $R_r$ 是旋轉 $r\times90^\circ$ 的矩陣，$r=0,1,2,3$。在方向 $r$ 上使用
 
-Steerable CNNs 進一步把 feature type 說清楚：feature 不一定只是 scalar channel。不同 feature type 對旋轉有不同 transformation law，而 representation theory 提供了一套語言描述這些 transformation law。這不是為了把數學變難，而是為了避免把向量、方向、orientation channel 都當成普通 scalar feature。
+$$
+k_r(v)=k(R_r^{-1}v).
+$$
 
-研究上，真正要問的不是「能不能做 rotation equivariance」，而是：
+這裡新位置 $v$ 的權重來自原 kernel 的 $R_r^{-1}v$；和搬動影像時的 inverse action 是同一個機制。將每個 kernel 放到同一個輸入上，
 
-1. 這個任務真的需要 exact rotation equivariance 嗎？
-2. 輸出是 invariant label，還是 equivariant mask/vector/field？
-3. Feature type 是 scalar、vector、orientation channel，還是更高階 representation？
-4. 用離散 group 夠不夠，還是需要連續旋轉或 3D geometry？
+$$
+h_x(u,r)=\sum_v k(R_r^{-1}v)x(u+v).
+$$
 
-如果地圖永遠 north-up，硬塞 rotation equivariance 可能沒有必要；如果是顯微影像、天文影像、分子或 3D 場，旋轉 symmetry 可能就是核心結構。
+$h_x(u,r)$ 告訴我們：在位置 $u$，方向 $r$ 的偵測器看到多少訊號。把原本只有位置的影像，提升成「位置加方向」的 feature，這一層稱為 **lifting layer**。
 
-## 下一步：從影像方向走到空間向量
+## 轉一次輸入，四個 channel 會怎麼變？
 
-到目前為止，地圖都被我們當成影像。但地圖也可以不是 pixel grid。下一篇把它改寫成一堆點：建築物中心、路口、GPS samples。這時最先冒出的 symmetry，不是旋轉，而是點的輸入順序根本不該重要。
+假設把輸入轉 $q\times90^\circ$，$x'(u)=x(R_q^{-1}u)$。我們希望找出 $h_{x'}$ 和 $h_x$ 的關係，而不是只說「應該跟著轉」。
+
+代入 definition：
+
+$$
+h_{x'}(u,r)
+=\sum_v k(R_r^{-1}v)x(R_q^{-1}u+R_q^{-1}v).
+$$
+
+令 $w=R_q^{-1}v$，也就是 $v=R_qw$。四個平面旋轉可用角度相加，所以 $R_r^{-1}R_q=R_{r-q}^{-1}$：
+
+$$
+\begin{aligned}
+h_{x'}(u,r)
+&=\sum_w k(R_{r-q}^{-1}w)x(R_q^{-1}u+w)\\
+&=h_x(R_q^{-1}u,r-q).
+\end{aligned}
+$$
+
+方向索引以 modulo $4$ 計算，例如 $r-q=-1$ 代表方向 $3$。這一式就是 feature 的 action：
+
+$$
+[T(q)h](u,r)=h(R_q^{-1}u,r-q).
+$$
+
+**位置轉過去，方向索引也移過去。** 原本方向 $r_0$ 的強響應，在新圖會出現在 $r_0+q$。這和看到一條道路從水平變垂直，是同一件事。
+
+## 為什麼它不必靠訓練學會？
+
+推導裡沒有用到 $k$ 的特殊數值。Kernel 可以還是隨機初始化，只要其他方向真的是它的旋轉版本，兩條路就一致。
+
+這與「四個 channel 分別學，最後碰巧長得相似」不同。共享約束直接縮小允許的參數集合，使得每一個合法 kernel 都符合 action。
+
+但少學四套參數，不等於只算一次。輸出仍有四個方向，記憶體與計算量都可能增加。要比較效率，至少分開報告參數量、feature 大小與實際時間；不能只看其中一項就說成本沒有變。
+
+<Remark summary="四方向的保證，先固定角度與索引慣例">
+
+九十度旋轉能精確重排正方格點，所以先使用 $C_4$。任意角度還有 interpolation 與裁切問題，不能把四方向的保證當成所有角度的保證。
+
+方向採逆時針增加；新 channel $r$ 讀原 channel $r-q$，因此原本在 $r_0$ 的強響應搬到 $r_0+q$。程式若採 clockwise 為正，kernel、空間旋轉與 channel shift 都要一起改。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g2-1.svg" alt="四個方向共用一個 kernel；輸入旋轉後，偵測位置與方向 channel 都依同一套 action 搬動。" loading="lazy" />
+<figcaption>平移只搬動偵測位置；旋轉還會改變偵測方向，所以位置 action 之外還需要方向 channel 的重排。</figcaption>
+</figure>
+
+<Question>
+
+如果四個方向各自使用獨立學到的 kernel，即使 channel 數量剛好是四，也能保證旋轉後只做 cyclic shift 嗎？
+
+<Answer>
+
+不能。四個 kernel 可能學到毫無關係的圖形。要保證 channel 按旋轉重排，就要讓它們是同一個 kernel 的旋轉版本，並檢查後續 layers 的共享。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+切換四個旋轉角度，比較普通 channel 與共享四方向的 defect，再看強響應如何循環搬動。共享不是只旋轉位置，還要一起換方向 channel。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=2&chapter=1" class="demo-frame" title="手機轉了，同一個偵測器要怎麼一起轉？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="普通 CNN 的共享先解決什麼？" options={[{"text":"相同 kernel 自動覆蓋任意方向。","explain":"位置共享與方向共享不是同一個限制。"},{"text":"相同 kernel 在不同位置重用。","correct":true,"explain":"位置共享與方向共享不是同一個限制。"}]} />
+
+<Quiz q="旋轉 feature map 需要只動位置嗎？" options={[{"text":"若 channel 表示方向，也要一起重排 channel。","correct":true,"explain":"方向本身會隨座標系旋轉。"},{"text":"需要，所有 channel 永遠保留原意義。","explain":"方向本身會隨座標系旋轉。"}]} />
+
+<Quiz q="C4 的精確保證包含 30° 嗎？" options={[{"text":"包含；學了四個方向就包含連續旋轉。","explain":"任意角度的取樣與模型設計需要另外處理。"},{"text":"不包含；30° 不是四個 group elements 之一。","correct":true,"explain":"任意角度的取樣與模型設計需要另外處理。"}]} />
+
+<Bridge to="gdl-group-convolution">
+
+我們已用同一個 kernel 造出能一起轉動的位置與方向 feature。但下一層若任意混合這些 channels，仍可能把關係破壞。**有了方向之後，要怎麼沿位置與方向一起共享？**
+
+</Bridge>
 
 ## 參考文獻
 
-1. [Cohen, T., & Welling, M. *Group Equivariant Convolutional Networks.* ICML, 2016.](https://arxiv.org/abs/1602.07576)
-2. [Cohen, T., & Welling, M. *Steerable CNNs.* ICLR, 2017.](https://arxiv.org/abs/1612.08498)
+1. [Cohen 與 Welling（2016），Group Equivariant Convolutional Networks](https://arxiv.org/abs/1602.07576)

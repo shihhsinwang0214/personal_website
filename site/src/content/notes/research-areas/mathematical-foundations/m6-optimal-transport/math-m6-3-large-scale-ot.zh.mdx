@@ -10,8 +10,8 @@ title: "五萬個倉庫怎麼算：Sinkhorn 與 Minibatch 近似"
 category: "courses"
 group: "M6 · Optimal Transport"
 status: "available"
-updated: 2026-09-21
-summary: "五萬個倉庫對五萬家店，運輸表有二十五億格，LP 算不動。兩條出路：把問題弄平滑——在成本上加一個 entropy 項，最佳解變成「兩個對角縮放夾一個矩陣」，交替正規化列與欄就能收斂（Sinkhorn）；或只在隨機抽出的小組裡配對（minibatch）。兩者都會偏：前者偏向「拆得更散」、後者高估距離、低估配對的精確度。這一篇把偏差寫成公式，並看它們隨 ε 與 batch 大小怎麼變。"
+updated: 2026-10-09
+summary: "運輸表太大時，能不能允許分散配對，或先替小批貨物安排路線？推導 entropy regularization 與 Sinkhorn 的列欄縮放，再分清 minibatch 配對和 population OT。小批最優成本的期望上界，不等於每一批都高估完整問題。"
 demos: []
 references:
   - label: "Cuturi, Sinkhorn Distances: Lightspeed Computation of Optimal Transport (NeurIPS 2013)"
@@ -43,18 +43,18 @@ import UsedBy from '../../../components/UsedBy.astro';
 <Objectives>
 - **寫出 entropic OT 與最佳解 $\pi=\mathrm{diag}(u)K\mathrm{diag}(v)$ 的形狀。** 解釋 Sinkhorn 為什麼只要交替正規化列和欄。
 - **說出 $\varepsilon$ 如何在精確 OT 與獨立 coupling 之間插值。** 解釋它為什麼讓運輸表更分散、原始運輸成本偏高。
-- **說出 minibatch 近似的偏差方向：在小組內配對得到的距離期望高於真實 $W_2$、得到的配對比真實最佳配對「更亂」，且偏差隨 batch 變大而縮小。** 對一個大規模情境判斷該用哪種近似、驗證偏差的方向與大小。
+- **分清 minibatch 的平方搬運成本與 population $W_2^2$。** 推導期望成本的上界方向，並說明有限 batch、抽樣波動與漸近收斂的差別。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
 ## 二十五億格的表
 
-<Ref to="math-warehouse-ot"/> 的運輸表在三個倉庫、三家店時是九格，LP 一瞬間解完。現在倉庫與店各有五萬個：表有 $5\times10^4\times5\times10^4=2.5\times10^9$ 格。光是把成本矩陣存進記憶體就要二十 GB，LP 的複雜度更是 $n^3$ 量級——算不動。
+三個倉庫對三家店的運輸表只有九格；五萬對五萬卻有 $2.5\times10^9$ 格。若每格用 8 bytes，單是成本矩陣就約二十 GB，還沒算 solver 的其他資料。精確求解的成本依演算法與結構而定，不能把所有 transport LP 都寫成同一個 $n^3$ 複雜度。
 
 而「五萬個」在現實裡很常見：五萬張圖片的特徵、五萬個顧客、五萬個粒子。你需要 $W_2$ 或最佳配對，但不可能精確算。
 
-先用直覺想兩條路，並寫下你覺得各自會**偏在哪個方向**：（一）不要求「最省」，接受一個「差不多省、但好算」的搬法；（二）不要一次配五萬個，隨機抽兩百個倉庫、兩百家店，在小組裡配，多抽幾次取平均。第一條路的答案會比真實成本高還是低？第二條路算出來的距離會比真實 $W_2$ 大還是小？
+如果整張表太大，可以改問題，也可以縮小一次處理的範圍。前者允許較分散、容易計算的配對；後者每次只替一小批貨配對。**這兩種近似各改了什麼？算出的成本還能跟原本的 OT 比較嗎？**
 
 <Question id="Q1">
 翻成數學。「差不多省、但好算」可以怎麼寫成一個修改過的最佳化問題？「在小組裡配」估的是什麼量——它和 $W_2(\mu,\nu)$ 是同一個東西嗎？
@@ -68,13 +68,13 @@ $$
 
 這叫 **entropic optimal transport**。$\varepsilon$ 是「願意為了好算而多付多少油錢」的兌換率。它的最佳解會比精確解**分散**、成本**偏高**——這是第一條路的偏差方向，下面會證明。
 
-第二條路：抽 $B$ 個倉庫、$B$ 家店，在小組裡精確解 $W_2$（$B$ 小到可以用 LP 或排序），對很多組取平均：$\mathbb E\big[W_2(\hat\mu_B,\hat\nu_B)\big]$，$\hat\mu_B$ 是 $B$ 個樣本的經驗分佈。它**不是** $W_2(\mu,\nu)$：一個小組裡的兩百個點根本代表不了整個分佈，硬要在組內把每個倉庫配到某家店，會被迫配到不該配的地方。這條路的偏差方向是：估出來的距離**高於** $W_2(\mu,\nu)$，配對比真實最佳配對**更亂**。
+第二條路是抽 $B$ 個來源與 $B$ 個終點，形成 empirical distributions $\hat\mu_B,\hat\nu_B$，再解組內 OT。下面比較的是 $\mathbb E[W_2^2(\hat\mu_B,\hat\nu_B)]$ 與 $W_2^2(\mu,\nu)$：平方成本的期望不低於 population 值，卻不代表每個抽出的 batch 都比較高，也不能直接把開根號後的期望套進同一證明。
 </Answer>
 </Question>
 
 ## 把稜角磨圓，或只看一小塊
 
-精確 OT 的解是運輸多面體的一個頂點——一個有稜角的東西，最多 $m+n-1$ 格不為零。要找到頂點得走 LP 那種組合式的路。
+有限 transport LP 至少能選到一個 vertex 最佳解，它至多有 $m+n-1$ 個非零 entries；不是每個最佳解都一定是 vertex。這種稀疏結構有利於精確求解，但大矩陣仍可能難處理。
 
 **Entropic OT 把稜角磨圓。** 加了 $-\varepsilon H(\pi)$ 之後，目標是 strictly convex 的，最佳解在多面體**內部**、每一格都嚴格大於零，而且有一個極簡的形狀：一個固定的矩陣 $K_{ij}=e^{-c_{ij}/\varepsilon}$，左右各乘一個對角縮放。要找到它，只要**輪流**把列和調成 $a$、把欄和調成 $b$——每一輪是一次矩陣乘向量。這就是 Sinkhorn。
 
@@ -103,7 +103,7 @@ $$
 \text{欄和}=b:\ \ v_j=\frac{b_j}{(K^{\!\top}u)_j}.
 $$
 
-輪流做——固定 $v$ 解 $u$、固定 $u$ 解 $v$——每一步都精確滿足其中一組約束、稍微破壞另一組。Sinkhorn & Knopp [3] 證明它收斂到唯一的 $(u,v)$（差一個常數倍）；Cuturi [1] 把它帶進大規模 OT。每一輪是兩次矩陣乘向量，$O(mn)$；五萬對五萬時 $K$ 仍是 $2.5\times10^9$ 格，但不需要 LP 的組合搜尋，而且矩陣乘向量可以平行、可以用 GPU，幾十輪就收斂。
+固定 v 更新 u，再固定 u 更新 v，就輪流滿足列與欄的邊際。對正的 K 與正 marginals，Sinkhorn–Knopp [3] 的結果給出縮放後矩陣的收斂；u、v 本身有互相抵消的比例自由度。Cuturi [1] 將它用於 entropic OT。每輪是 $O(mn)$ 的矩陣運算，但所需輪數依 $\varepsilon$、矩陣與容許誤差而定，不能保證幾十輪完成。
 
 **$\varepsilon$ 兩端的極限。** $\varepsilon\to\infty$：$K\to$ 全 1 的矩陣，$\pi\to$ 獨立 coupling $ab^\top$——完全不看成本。$\varepsilon\to0$：$-\varepsilon H$ 消失，回到精確 OT（但 $K=e^{-c/\varepsilon}$ 的元素會下溢到 0，數值上要在 $\log$ 域做——展開框）。中間的 $\varepsilon$ 是取捨：越小越準、越大越快收斂、越穩定。
 
@@ -112,7 +112,9 @@ $$
 <Details summary="log 域的 Sinkhorn、Sinkhorn divergence、以及 ε 的偏差量級">
 數值上 K = e^\{−c/ε\} 在 ε 小時會下溢（c/ε ≈ 700 就變成 0）。改在 log 域做：令 f = ε log u、g = ε log v，更新變成 f_i = ε log a_i − ε log Σ_j exp((g_j − c_\{ij\})/ε)，用 log-sum-exp 穩定計算。這是實務上的標準寫法。
 
-entropic 成本 ⟨π_ε, c⟩ 與精確 OT 的差是 O(ε log(1/ε)) 量級（Peyré & Cuturi [2] 第 4.1 節）；ε → 0 時收斂但很慢。另外 entropic OT 有一個討厭的性質：把同一個分佈搬到自己，成本不是零（π_ε 會把質量拆散到鄰近的點）。Genevay et al. [5] 的修正是 **Sinkhorn divergence**：S_ε(μ,ν) = OT_ε(μ,ν) − ½OT_ε(μ,μ) − ½OT_ε(ν,ν)，把「搬到自己也有成本」的那部分扣掉；它在 μ = ν 時為零、對 ε 的偏差小得多，是拿 entropic OT 當「距離」用時的標準版本。
+對固定有限、總質量為 1 的 $m\times n$ 問題，最優性給出 $0\le\langle\pi_\varepsilon,c\rangle-\langle\pi^*,c\rangle\le\varepsilon(H(\pi_\varepsilon)-H(\pi^*))\le\varepsilon\log(mn)$。這是有限問題的界，不能直接當成所有連續問題的速率。
+
+Genevay 等人 [5] 使用的 **Sinkhorn divergence** 是 $S_\varepsilon(\mu,\nu)=\mathrm{OT}_\varepsilon(\mu,\nu)-\frac12\mathrm{OT}_\varepsilon(\mu,\mu)-\frac12\mathrm{OT}_\varepsilon(\nu,\nu)$，這裡 $\mathrm{OT}_\varepsilon$ 指包含 entropy regularization 的最優目標值，不是只取 $\langle\pi_\varepsilon,c\rangle$。扣除自我項讓相同分布的值為零；其他距離性質仍需要成本與 kernel 的條件。
 </Details>
 
 ## Minibatch 的偏差
@@ -125,9 +127,9 @@ $$
 \mathbb E\big[W_2^2(\hat\mu_B,\hat\nu_B)\big]\;\ge\;W_2^2\big(\mathbb E\hat\mu_B,\mathbb E\hat\nu_B\big)=W_2^2(\mu,\nu).
 $$
 
-直覺是：組內的配對被「組裡只有這 $B$ 家店」的限制綁住，每個倉庫的最近選項比全體裡少，被迫送得更遠。極端例子：$\mu=\nu$，真實 $W_2=0$；但兩組獨立抽出的 $B$ 個點幾乎不會重合，$W_2(\hat\mu_B,\hat\nu_B)>0$ 嚴格成立，且在 $d$ 維以 $B^{-1/d}$ 的速率緩慢趨近零（經驗分佈的 $W_2$ 收斂速率，見 Peyré & Cuturi [2]）。所以 **minibatch $W_2$ 對「兩個分佈其實相同」的判斷有系統性偏差**，$B$ 越小、維度越高越嚴重 [4]。
+例如兩端是同一個連續分布，population $W_2=0$，兩份獨立抽出的有限點集卻幾乎必然不同，empirical 距離因而為正。收斂速率依維度、矩條件與分布規則性而變，不能一律寫成 $B^{-1/d}$ [2,4]。
 
-**配對偏亂。** 把每一組內的最佳配對合起來，得到一個「minibatch coupling」$\bar\pi_B=\mathbb E[\pi^*_B]$。它是 $\mu,\nu$ 的合法 coupling（每組內邊際都對，平均後也對），所以它的成本 $\ge W_2^2$——又是「任何 coupling 給上界」。而且它**不是**一個映射：同一個倉庫在不同組裡會被配到不同的店，平均後一個 $x$ 對應到一片 $y$。$B\to\infty$ 時 $\bar\pi_B\to\pi^*$，$B=1$ 時 $\bar\pi_1=\mu\otimes\nu$（獨立 coupling）——**$B$ 在「精確 OT」與「完全隨機配」之間插值**，角色與 Sinkhorn 的 $\varepsilon$ 相同。
+**整體配對。** 把每批最佳 coupling 平均，得到 $\bar\pi_B=\mathbb E[\pi_B^*]$。它的兩端 marginals 仍是 $\mu,\nu$，因此是合法 coupling，成本不低於 population OT。但有限 batch 的配對通常不是 deterministic map；$B=1$ 時更直接得到 independent coupling。適當矩條件下，大 batch 的成本可趨近 population OT；要宣稱 coupling 趨近某個指定 $\pi^*$，還需要唯一性等條件。
 
 兩種近似殊途同歸：**都給出一個比精確解更分散的 coupling、成本偏高**；一個用 $\varepsilon$ 控制、一個用 $1/B$ 控制。
 
@@ -135,9 +137,9 @@ $$
 
 回答起點問題。第一條路（entropic）成本**偏高**、配對**偏散**，偏差由 $\varepsilon$ 控制，代價是 $O(mn)$ 的矩陣乘向量——五萬對五萬在 GPU 上可行，但 $K$ 要 $2.5\times10^9$ 格的記憶體（可以分塊）。第二條路（minibatch）成本**偏高**、配對**偏亂**，偏差由 $B$ 控制，記憶體只要 $B^2$，但每組的估計有隨機性、要多抽幾組平均。
 
-選擇的判準：**你要的是「距離」還是「配對」？** 若要的是一個數字（兩個大點雲差多少），Sinkhorn divergence 加中等的 $\varepsilon$ 通常最好——偏差可控、無隨機性。若要的是「每個 $x$ 該配哪個 $y$」而且要在訓練迴圈裡每一步都算，minibatch 是唯一現實的選擇——這時你要清楚配對是「偏亂」的，$B$ 越大越接近真實 OT。
+選擇前先問：需要距離數值，還是訓練時的配對？Sinkhorn 修改目標，minibatch 限制這次能看到的端點，兩者也可以合用。需要依記憶體、精度與用途選擇，不能說其中一種永遠最好或是唯一可行方法。
 
-依賴的假設：Sinkhorn 的收斂需要 $K$ 沒有全零的列或欄（$\varepsilon$ 太小時會發生，要用 log 域）；minibatch 的偏差分析假設樣本獨立同分佈抽自 $\mu,\nu$。兩者的偏差方向（成本偏高）是嚴格的，但偏差的大小要靠實驗量。
+有限成本與 $\varepsilon>0$ 讓理論 K 嚴格為正；計算時需避免 underflow，並確認兩側 marginal residual。只要求「沒有全零列欄」對一般帶零的矩陣還不夠。Minibatch 的期望平方成本比較則要用 iid sampling：上界方向成立在期望下，不是每一批都一定較高；entropic **raw transport cost** 也要和含 entropy 的 objective 分清楚。
 
 ## 縮小成兩千個，把三個數並排
 
@@ -190,17 +192,17 @@ for B in [8, 512]: print('same', B, round(minibatch_w2(C2, B, 50), 3))     # 1.3
 <Option correct>entropic OT 的固有性質——$\varepsilon>0$ 時最佳解會把每個點的質量拆散到鄰近的點，搬到自己也要付成本；拿它當距離用時要改用 Sinkhorn divergence，把自我運輸的成本扣掉。</Option>
 <Option>$\varepsilon$ 太小造成的數值誤差。</Option>
 <Explanation>
-精確 OT 搬到自己成本為零（coupling 取 $y=x$）；entropic 解在多面體內部、每格都為正，不可能集中在對角線上。$\varepsilon$ 越大這個「自我成本」越大，不是越小。Sinkhorn divergence $\mathrm{OT}_\varepsilon(\mu,\nu)-\tfrac12\mathrm{OT}_\varepsilon(\mu,\mu)-\tfrac12\mathrm{OT}_\varepsilon(\nu,\nu)$ 就是為此設計的。
+對多個不同點、正權重與有限成本，entropic 解有正的 off-diagonal 質量，因此 raw self-transport cost 可為正。常用 debiasing 是 $S_\varepsilon=\mathrm{OT}_\varepsilon(\mu,\nu)-\tfrac12\mathrm{OT}_\varepsilon(\mu,\mu)-\tfrac12\mathrm{OT}_\varepsilon(\nu,\nu)$；這裡 $\mathrm{OT}_\varepsilon$ 使用一致的 **regularized optimal value** 定義，不要和只算 $\langle C,\pi_\varepsilon\rangle$ 的 raw cost 混用。
 </Explanation>
 </QuizBlock>
 
 <QuizBlock id="m6-3-b">
 你要在訓練迴圈裡、每一步都拿到「這批 $x$ 該配哪些 $y$」的最佳配對，資料有百萬筆。現實的選擇是：
 <Option>每一步對全部百萬筆解一次 LP。</Option>
-<Option correct>minibatch：在每一批（例如 256 對 256）裡精確解 assignment，接受配對「偏亂」、成本偏高的代價；$B$ 越大越接近真實 OT，但記憶體與時間是 $B^2$。</Option>
+<Option correct>先在 minibatch 裡解 assignment；成本矩陣需要 $O(B^2)$ 空間，求解時間則依演算法，常見 assignment 方法是 $O(B^3)$。</Option>
 <Option>用 $\varepsilon\to0$ 的 Sinkhorn 算全部百萬筆。</Option>
 <Explanation>
-百萬筆的 LP 或 Sinkhorn 每步都算不可行（$K$ 是 $10^{12}$ 格）。minibatch 是唯一現實的路，重點是**知道它偏在哪**：得到的配對是「組內最佳」而非「全體最佳」，同一個 $x$ 在不同批會配到不同 $y$，平均起來像一個比精確解更散的 coupling。
+Minibatch 是這幾個選項中可行的做法，但不是所有大規模 OT 方法中唯一的選擇。它得到的是組內最佳，而非 population 最佳；batch sampling 誘導的 coupling 需要另外分析。
 </Explanation>
 </QuizBlock>
 
@@ -210,7 +212,7 @@ for B in [8, 512]: print('same', B, round(minibatch_w2(C2, B, 50), 3))     # 1.3
 <Option correct>兩者都趨近**獨立 coupling** $\mu\otimes\nu$——完全不看成本的隨機配對；精確 OT 在另一端（$\varepsilon\to0$、$B\to\infty$）。</Option>
 <Option>Sinkhorn 趨近精確 OT，minibatch 趨近獨立 coupling。</Option>
 <Explanation>
-$\varepsilon\to\infty$ 時 $K\to$ 全 1，$\pi\to ab^\top$；$B=1$ 時每組只有一個 $x$ 一個 $y$、只能配在一起，平均後是 $\mu\otimes\nu$。兩個設定都在同一條線段的兩端之間插值，只是一個用平滑、一個用抽樣。
+$\varepsilon\to\infty$ 時，有限問題的 entropic coupling 趨近 $ab^\top$；獨立抽樣的 $B=1$ 也給出 $\mu\otimes\nu$。兩者共享這個端點，不代表中間的 couplings 都在同一條線段上做 convex interpolation。
 </Explanation>
 </QuizBlock>
 

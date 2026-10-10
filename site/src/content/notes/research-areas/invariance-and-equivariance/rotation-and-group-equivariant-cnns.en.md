@@ -2,8 +2,8 @@
 slug: "rotation-and-group-equivariant-cnns"
 lang: "en"
 title: "When the Phone Rotates, Should the Model Rotate Too?"
-category: "research-areas"
-group: "Invariance and Equivariance"
+category: "courses"
+group: "G2 · Rotations and Feature Types"
 status: "missing"
 updated: 2026-06-23
 summary: "English translation in progress; content-agent task."

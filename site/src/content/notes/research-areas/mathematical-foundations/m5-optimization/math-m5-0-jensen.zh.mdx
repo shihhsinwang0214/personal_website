@@ -9,8 +9,8 @@ title: "保險為什麼存在：Convex Function 與 Jensen 不等式"
 category: "courses"
 group: "M5 · Optimization、Convexity 與距離"
 status: "available"
-updated: 2026-09-21
-summary: "保險公司平均一定賺、你平均一定虧，為什麼你還買？因為「損失的平均」和「平均的損失」不是同一件事，差多少由一條曲線的彎度決定。把彎度寫成 convex，這個差距就是 Jensen 不等式：φ(E[X]) ≤ E[φ(X)]。等號何時成立、彎度怎麼量化差距、以及當 φ 不是 convex 時結論會怎麼反過來。"
+updated: 2026-10-09
+summary: "為什麼有人願意付出高於期望損失的保費？因為金額與它造成的影響不一定成正比。從這個差別引入 convex function 與 Jensen 不等式，再分清它能保證的方向、局部差距近似與實際需要比較的量。"
 demos: []
 references:
   - label: "Boyd & Vandenberghe, Convex Optimization (Cambridge University Press, 2004)"
@@ -44,13 +44,11 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 <Prereq items={frontmatter.prereqs} />
 
-## 一筆穩賠的交易
+## 平均多付錢，為什麼還願意買？
 
-你一年付 6,000 元的機車險。保險公司的資料說：像你這樣的騎士，一年裡有 2% 的機率出一次事故、平均賠 20 萬，其他 98% 什麼事也沒有。算一下期望損失：$0.02\times200{,}000=4{,}000$ 元。你付 6,000，拿回的期望值是 4,000——**平均而言你每年虧 2,000**，保險公司每年賺 2,000。
+先想一個簡化的保險模型，不是實際保單報價：一年有 2% 的機率損失 20 萬，其他時候沒有損失；付 6,000 元後，這筆損失會完全獲得補償。期望損失是 $0.02\times200{,}000=4{,}000$ 元，所以買保險平均多付了 2,000 元。
 
-這筆交易對雙方都是自願的，而且幾百年來一直存在。請先用直覺回答：一筆平均讓你虧錢的交易，你為什麼還是買？寫下你有多確定、依據是什麼。
-
-課堂上的回答大致是「因為我怕」「因為 20 萬我付不出來」「因為安心」。這些都對，但它們說不出**為什麼「怕」可以值 2,000 元、而不是 200 元或 20,000 元**——也說不出保險公司為什麼不怕。這一篇要把「怕」寫成一條曲線的形狀，然後那個 2,000 元就會有一個數學位置。
+但「確定付 6,000」與「偶爾突然少掉 20 萬」，對生活的影響可能差很多。少掉一萬元還能應付，少掉二十萬元卻可能要借錢。**我們在意的，究竟是損失的金額，還是這個金額造成的影響？** 要比較兩者，就得先把這個影響寫成函數。
 
 <Question id="Q1">
 翻成數學。這裡的隨機變數是什麼？「你在意的東西」是它的哪個函數？「平均虧 2,000」比較的是哪兩個量——而它漏掉了哪個量？
@@ -74,7 +72,9 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 碗往上彎，所以**弦在曲線上方**：$\mathbb E[\varphi(X)]\ge\varphi(\mathbb E[X])$。「不買保險的期望痛苦」比「確定損失 4,000 的痛苦」高。高出多少，就是弦與曲線在 $x=4{,}000$ 處的垂直距離——曲線彎得越厲害、兩個端點拉得越開，這段距離越長。
 
-你願意多付的那 2,000 元，就是把這段垂直距離換成錢：只要 $\varphi(6{,}000)\le\mathbb E[\varphi(X)]$，買保險就是理性的。保險公司呢？它同時承保十萬個人，它的 $X$ 是十萬個獨立損失的平均，散佈小到幾乎是一個定點——弦與曲線的距離趨近零，它的曲線在這個尺度上幾乎是直的。**它不怕，因為它的 $X$ 幾乎不隨機。**
+不過，Jensen 目前只比較了 $\varphi(4{,}000)$ 與 $\mathbb E[\varphi(X)]$，還沒有比較保費 6,000。只有再確認 $\varphi(6{,}000)\le\mathbb E[\varphi(X)]$，我們才能說這份保險在這個模型下比較合適。
+
+若公司承保很多互相獨立的同類損失，每人的平均損失會比較穩定：$n$ 人的平均變異數是 $\mathrm{Var}(X)/n$。這是分散風險的效果，不是公司保證獲利；共同事故、營運成本與理賠條件仍會影響結果。
 
 ![Jensen gap：凸曲線的弦、期望與保險池的散佈](./imgs/m5-0-1.svg)
 
@@ -96,7 +96,7 @@ $$
 \boxed{\;\varphi\big(\mathbb E[X]\big)\;\le\;\mathbb E\big[\varphi(X)\big].\;}
 $$
 
-**證明（五行）。** 在 $m=\mathbb E[X]$ 處畫一條**支撐線**：convex 函數在任何一點都有一條直線 $\ell(x)=\varphi(m)+c\,(x-m)$，整條曲線都在它上方，$\varphi(x)\ge\ell(x)$ 對所有 $x$ 成立（可微時 $c=\varphi'(m)$，就是切線）。對這個不等式兩邊取期望：
+**證明。** 假設 $m=\mathbb E[X]$ 位於 convex 函數定義區間的內部。在這裡畫一條**支撐線** $\ell(x)=\varphi(m)+c(x-m)$：整條曲線都在它上方，$\varphi(x)\ge\ell(x)$（可微時 $c=\varphi'(m)$，就是切線）。對兩邊取期望：
 
 $$
 \mathbb E[\varphi(X)]\;\ge\;\mathbb E[\ell(X)]=\varphi(m)+c\,\big(\mathbb E[X]-m\big)=\varphi(m).\qquad\square
@@ -112,19 +112,23 @@ $$
 \mathbb E[\varphi(X)]-\varphi(\mathbb E[X])\;\approx\;\tfrac12\,\varphi''(m)\,\mathrm{Var}(X).
 $$
 
-**Jensen gap ≈ 彎度 × 散佈。** 彎度是你「怕」的程度，散佈是風險的大小；兩者相乘就是保費裡合理的那部分溢價。
+這個近似適合 $X$ 集中在 $m$ 附近、且高階餘項可忽略時；不能只因為變異數很大，就拿它當精確公式。若整個相關區間都滿足 $0\le m_2\le\varphi''\le M_2$，Taylor 餘項才給出明確的界：
+
+$$
+\frac{m_2}{2}\mathrm{Var}(X)\le \mathbb E[\varphi(X)]-\varphi(\mathbb E[X])\le\frac{M_2}{2}\mathrm{Var}(X).
+$$
+
+所以，曲線的彎度與輸入的散佈共同影響 gap，但一般情況下不能只看變異數，就比較兩個 gap 的大小。
 
 <Details summary="把 Jensen 用在 concave 函數與 conditional expectation 上">
 concave 的 φ（例如 log、√）把不等式反過來：φ(E[X]) ≥ E[φ(X)]。最常見的例子是 E[log X] ≤ log E[X]——「先取 log 再平均」小於「先平均再取 log」；一筆投資如果每年 +50% 或 −50% 各半，算術平均報酬是 0，但 E[log(1+r)] = ½(log 1.5 + log 0.5) ≈ −0.144 \< 0，長期複利下財富會趨近零。這是「分散投資降低波動本身就有價值」的來源，也是 Jensen gap 的另一個生活版本。
 
-條件版本：對任何 σ-代數（任何「已知資訊」）Y，φ(E[X|Y]) ≤ E[φ(X)|Y] 逐點成立——證明一字不改，只要把期望換成 conditional expectation，支撐線的斜率 c 可以依 Y 而變。對兩邊再取期望就回到原式。這個版本在後面比較「先平均再算」與「先算再平均」的各種情境時都會用到。
+條件版本：用 $Y$ 表示已知資訊，在適當可積分條件下，$\varphi(\mathbb E[X\mid Y])\le\mathbb E[\varphi(X)\mid Y]$ 幾乎必然成立。固定已知資訊後，用同樣的支撐線證明即可；斜率可以依資訊而變。
 </Details>
 
 ## 直覺對了，數字現在有了
 
-回答起點問題。你買保險不是因為算錯，而是因為你比較的是 $\varphi(6{,}000)$ 與 $\mathbb E[\varphi(X)]$，不是 6,000 與 4,000。只要你的痛苦函數夠彎——$\tfrac12\varphi''(4{,}000)\cdot\mathrm{Var}(X)$ 大於 $\varphi(6{,}000)-\varphi(4{,}000)$——多付 2,000 就是理性的。$\mathrm{Var}(X)=0.02\times0.98\times200{,}000^2\approx7.8\times10^8$，很大；一個存款 30 萬的人在 20 萬那一端的 $\varphi''$ 也很大。
-
-保險公司站在同一條不等式的另一邊：它的 $X$ 是十萬個獨立損失的平均，$\mathrm{Var}$ 被除以十萬，gap 趨近零，它可以幾乎照 $\mathbb E[X]$ 定價、再加一點利潤。**同一個 Jensen，兩邊的 $\mathrm{Var}(X)$ 不同，就是保險存在的理由。**
+回到起點：要比較的是 $\varphi(6{,}000)$ 與 $0.98\varphi(0)+0.02\varphi(200{,}000)$，不是只比較金額。選好 $\varphi$ 後，這兩個量都能直接算；Jensen 解釋了為什麼「平均損失」不足以代表「平均影響」，但沒有替我們決定每個人的 $\varphi$。
 
 這個判斷依賴的假設：
 
@@ -157,12 +161,12 @@ print(phi_c(np.array([4000.])).item(), phi_c(loss).mean())         # φ(E[X]) > 
 ## 檢查理解
 
 <QuizBlock id="m5-0-a">
-你有 100 萬要投資，兩個選擇：全部押一支股票（一年後翻倍或歸零各半），或分散到 100 支互相獨立、每支同樣「翻倍或歸零各半」的股票。兩者的期望財富都是 100 萬。若你的滿足感是財富的 $\log$，哪個選擇的期望滿足感高？
+考慮一個數學模型：100 萬全部放在一項隨機收益，或平均分成 100 份放在互相獨立的同類收益。每項一年後變成原金額的 1.5 倍或 0.5 倍，各半。兩者的期望財富都是 100 萬。若滿足感是財富的 $\log$，哪個期望滿足感較高？
 <Option>一樣高，因為期望財富相同。</Option>
-<Option correct>分散的那個——$\log$ 是 concave，$\mathbb E[\log W]\le\log\mathbb E[W]$，而分散讓 $W$ 的散佈變小、gap 變小，期望滿足感更接近上界 $\log(100\text{ 萬})$。</Option>
-<Option>全押的那個，因為有機會翻倍。</Option>
+<Option correct>分散的那個；對每組收益用 concavity 比較，再取期望即可證明。</Option>
+<Option>全押的那個，因為有機會增加 50%。</Option>
 <Explanation>
-「期望財富相同」只看了 $\mathbb E[W]$，漏掉了 Jensen gap。$\log$ 往下彎，散佈越大 $\mathbb E[\log W]$ 掉得越多——全押時它是 $\tfrac12\log(200\text{ 萬})+\tfrac12\log 0=-\infty$。分散把 $W$ 收攏到 100 萬附近，gap 趨近零。「有機會翻倍」是只看上端點的直覺，忽略了下端點被 $\log$ 放大的懲罰。
+令 $W_i$ 是全部資金放在第 $i$ 項時的財富。分散後是 $\overline W=\frac1{100}\sum_iW_i$。Concavity 給出 $\log\overline W\ge\frac1{100}\sum_i\log W_i$，再取期望，右邊就是單項的期望滿足感。這不是「變異數較小就一定較好」的泛用定理。題目也刻意保留正財富：若每項都有歸零機率，有限項全部歸零仍有正機率，兩種方案的 $\mathbb E[\log W]$ 都可能是 $-\infty$。
 </Explanation>
 </QuizBlock>
 
@@ -177,19 +181,19 @@ Jensen 的等號 $\varphi(\mathbb E[X])=\mathbb E[\varphi(X)]$，在 $\varphi$ s
 </QuizBlock>
 
 <QuizBlock id="m5-0-c">
-一家餐廳每天的客人數 $N$ 隨機，廚房的等待時間是客人數的函數 $T(N)$，而且客人越多、每多一人增加的等待時間越長（$T$ convex）。老闆用「平均客人數」算出的等待時間 $T(\mathbb E[N])$，和顧客實際體驗的平均等待 $\mathbb E[T(N)]$ 比：
+一家餐廳每天的客人數 $N$ 隨機，當天平均等待時間是 $T(N)$，且 $T$ convex。隨機選一天來記錄等待時間，所得平均 $\mathbb E[T(N)]$，與老闆用平均客人數算出的 $T(\mathbb E[N])$ 比：
 <Option correct>低估了——$T$ convex 時 $\mathbb E[T(N)]\ge T(\mathbb E[N])$，尖峰日的等待被凸性放大，平均客人數算出來的數字永遠偏樂觀。</Option>
 <Option>剛好相等，因為長期來看會平均掉。</Option>
 <Option>高估了，因為離峰日很快。</Option>
 <Explanation>
-這是同一個 Jensen：用「平均輸入」算「輸出」，等於取曲線上的點；顧客體驗的是弦上的點。凸性把尖峰的懲罰放得比離峰的獎勵大。「長期平均掉」是把 $T$ 當成線性——只有 $T$ 是直線時才成立。若 $T$ 是 concave（人多反而更有效率），結論才會反過來。
+這是同一個 Jensen。若 $T$ 在相關區間 strictly convex，且 $N$ 不是常數，就有嚴格差距。注意這裡每一天的權重相同；若改成隨機選一位顧客，客人多的日子更容易被選中，平均的權重也要跟著改。
 </Explanation>
 </QuizBlock>
 
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-kl">
-本篇把「怕」寫成一條往上彎的曲線，「弦在曲線上方」就是 Jensen 不等式：$\varphi(\mathbb E[X])\le\mathbb E[\varphi(X)]$，gap 由彎度乘散佈決定，$X$ 不隨機時等號成立。接著把 Jensen 用在 $\varphi=-\log$ 上：用一張錯的機率表下注一年，平均會多輸多少——那個「多輸的量」有一個名字，而它永遠非負的證明只有兩行。
+現在我們能分清「先平均再算」與「先算再平均」，也知道使用 Jensen 前要確認函數的形狀。下一篇把它用在 $-\log$：若用錯的機率表預測事件，平均會多付出多少 log loss？這個差距就是 KL divergence。
 </Bridge>
 
 ## 參考文獻

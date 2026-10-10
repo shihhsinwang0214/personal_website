@@ -16,6 +16,7 @@ import {
   notesIndexRoute,
   noteRoute,
   courseByKey,
+  plannedNotes,
 } from '../lib/notes';
 import { groupCode, noteTitles, resolveNoteRef, stripNoteCode } from '../lib/noteRefs';
 import type { ResolvedNoteRef } from '../lib/noteRefs';
@@ -64,11 +65,18 @@ for (const lecture of course.lectures) {
     name: lectureName(lecture.group),
     description: lecture.description[lang],
     notes,
+    planned: notes.length === 0 ? (await Promise.all(
+      Object.entries(plannedNotes)
+        .filter(([, note]) => note.group === lecture.group)
+        .map(([label]) => resolveNoteRef(label, lang)),
+    )).filter((note): note is ResolvedNoteRef => Boolean(note)) : [],
     tools,
     latest: latestNoteDate(notes),
   });
 }
 const totalNotes = lectures.reduce((n, l) => n + l.notes.length, 0);
+const readyUnitCount = lectures.filter((l) => l.notes.length > 0).length;
+const plannedUnitCount = lectures.length - readyUnitCount;
 const firstNote = lectures[0]?.notes[0];
 const latest = latestNoteDate(lectures.flatMap((l) => l.notes));
 const alternates = [
@@ -98,7 +106,8 @@ const alternates = [
         <h1>{course.title[lang]}</h1>
         <p class="course-desc">{course.description[lang]}</p>
         <div class="course-stats" data-read-count>
-          <span>{lectures.length} {zh ? '個單元' : 'units'}</span>
+          <span>{readyUnitCount} {zh ? '個單元' : 'units'}</span>
+          {plannedUnitCount > 0 && <span>+ {plannedUnitCount} {zh ? '個規劃中' : 'planned'}</span>}
           <span aria-hidden="true">·</span>
           <span>{totalNotes} {zh ? '篇' : 'notes'}</span>
           <span aria-hidden="true">·</span>
@@ -149,6 +158,13 @@ const alternates = [
               </summary>
               <div class="course-week-body">
                 {lecture.notes.length === 0 && <p>{zh ? '文章尚在規劃中。' : 'Articles are being planned.'}</p>}
+                {lecture.planned.length > 0 && (
+                  <ol class="course-planned-notes">
+                    {lecture.planned.map((note) => (
+                      <li><span>{note.code}</span> {note.shortTitle}</li>
+                    ))}
+                  </ol>
+                )}
                 <ol class="course-notes">
                   {lecture.notes.map((note) => (
                     <li class="course-note" data-read-slug={note.data.slug}>
@@ -203,7 +219,7 @@ const alternates = [
       if (last && last.courseKey === courseKey) {
         target = weeks.find((w) => w.querySelector(`[data-read-slug="${last.slug}"]`));
       }
-      if (!target) target = weeks.find((w) => !w.classList.contains('is-complete')) ?? weeks[0];
+      if (!target) target = weeks.find((w) => w.querySelector('.course-note') && !w.classList.contains('is-complete')) ?? weeks[0];
       if (!location.hash) {
         weeks.forEach((w) => {
           const d = w.querySelector<HTMLDetailsElement>('details');
@@ -265,3 +281,9 @@ const alternates = [
     initCourseMap();
   </script>
 </Base>
+
+<style>
+  .course-planned-notes { list-style: none; margin: 12px 0; padding: 0; color: var(--text-muted); }
+  .course-planned-notes li { padding: 6px 0; line-height: 1.65; }
+  .course-planned-notes li span { display: inline-block; min-width: 4.5em; font-size: 0.85em; }
+</style>

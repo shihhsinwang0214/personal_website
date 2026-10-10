@@ -1,4 +1,5 @@
 import type { CollectionEntry } from 'astro:content';
+import type { MoleculeMotif } from './molecules';
 
 export type Lang = 'en' | 'zh';
 export type NoteEntry = CollectionEntry<'notes'>;
@@ -92,6 +93,13 @@ export const noteSlugList = [
   'dma-w9-4-distribution-matching',
   'dma-w9-5-unified-table',
   'dma-w9-6-lab',
+  'dma-w10-0-test-time-steering',
+  'dma-w10-1-classifier-guidance',
+  'dma-w10-2-classifier-free-guidance',
+  'dma-w10-3-reward-tilting',
+  'dma-w10-4-gradient-free-steering',
+  'dma-w10-5-guidance-applications',
+  'dma-w10-6-lab-guidance',
   // Mathematical Foundations — tool notes reused by the courses above
   // (category: "courses"; group: "M{class} · …"; ordered within each class by this list)
   'math-m0-0-gradient',
@@ -155,14 +163,72 @@ export const noteSlugList = [
   'ml-l5-1-latent-variables-elbo',
   'ml-l5-2-autoregressive-factorization',
   'ml-l5-3-evaluating-generative-models',
-  // Invariance and Equivariance — geometric deep learning bridge notes
+  // Geometric Deep Learning — G1–G6 core with variable unit lengths, G7–G11 planned expansion
   'map-view-invariance-equivariance',
+  'gdl-g1-1-group-actions',
   'cnn-translation-equivariance-from-map-views',
-  'sets-and-point-clouds-permutation-invariance',
-  'gnn-permutation-equivariance-road-networks',
+  'gdl-g1-3-equivariant-networks',
+  'gdl-g1-4-boundaries-and-augmentation',
+  'gdl-g1-5-translation-lab',
   'rotation-and-group-equivariant-cnns',
+  'gdl-g2-2-group-convolution',
+  'gdl-g2-3-feature-types',
+  'gdl-g2-4-readout-and-discretization',
+  'gdl-g2-5-rotation-lab',
+  'sets-and-point-clouds-permutation-invariance',
+  'gdl-g3-1-deep-sets',
+  'gdl-g3-2-set-equivariant-layers',
+  'gdl-g3-3-pointnet',
+  'gdl-g4-0-attention-from-sets',
+  'gdl-g3-4-set-attention',
+  'gdl-g4-3-transformer-block',
+  'gdl-g4-4-order-and-position',
+  'gdl-g4-5-relations-and-masks',
+  'gdl-g3-5-set-lab',
+  'gnn-permutation-equivariance-road-networks',
+  'gdl-g4-2-gcn',
+  'gdl-g4-3-aggregation-and-gin',
+  'gdl-g4-4-expressivity',
+  'gdl-g4-5-graph-lab',
   'euclidean-equivariant-gnns-point-clouds',
+  'gdl-g5-2-egnn',
+  'gdl-g5-3-energy-and-forces',
   'frontiers-of-equivariant-learning',
+  'gdl-g5-5-geometry-lab',
+  'gdl-g6-0-overview',
+  'gdl-g6-1-foundations',
+  'gdl-tensor-feature-types',
+  'gdl-g6-2-construction',
+  'gdl-g6-3-analysis',
+  'gdl-g6-4-limits',
+  'gdl-g6-5-lab',
+  'gdl-g7-0-overview',
+  'gdl-g7-1-foundations',
+  'gdl-g7-2-construction',
+  'gdl-spectral-filtering',
+  'gdl-g7-3-analysis',
+  'gdl-g7-4-limits',
+  'gdl-structural-information',
+  'gdl-g7-5-lab',
+  'gdl-g8-0-overview',
+  'gdl-g8-1-foundations',
+  'gdl-g8-2-construction',
+  'gdl-g8-3-analysis',
+  'gdl-g8-4-limits',
+  'gdl-surface-layers',
+  'gdl-g8-5-lab',
+  'gdl-g9-0-overview',
+  'gdl-g9-2-construction',
+  'gdl-g9-3-analysis',
+  'gdl-g9-4-limits',
+  'gdl-g9-5-lab',
+  'gdl-g10-0-overview',
+  'gdl-g10-1-foundations',
+  'gdl-g10-2-construction',
+  'gdl-g10-3-analysis',
+  'gdl-geometric-sde',
+  'gdl-g10-4-limits',
+  'gdl-g10-5-lab',
   'writing-compelling-introduction',
   'academic-website-starter-prompt',
 ] as const;
@@ -170,6 +236,10 @@ export const noteSlugList = [
 const noteOrder = new Map(noteSlugList.map((slug, index) => [slug, index]));
 // Keep old URLs and reference labels working after articles are merged.
 export const mergedNoteAliases: Record<string, string> = {
+  'gdl-g2-1-orientation-channels': 'rotation-and-group-equivariant-cnns',
+  'gdl-g4-1-query-key-value': 'gdl-g4-0-attention-from-sets',
+  'gdl-g4-1-message-passing': 'gnn-permutation-equivariance-road-networks',
+  'gdl-g5-1-relative-geometry': 'gdl-g5-2-egnn',
   'dma-w6-2-masked-diffusion': 'dma-w6-1-d3pm',
   'dma-w7-0-why-continuous-time': 'dma-w6-4-absorbing-vs-uniform',
   'dma-w7-5-applications': 'dma-w7-4-discrete-flow-matching',
@@ -186,7 +256,6 @@ const groupOrder = [
   // Research Areas
   'From Noise to Data',
   'Diffusion & Flow Models',
-  'Invariance and Equivariance',
   // Courses — All the Math You Need for Deep Learning
   'Lecture 1 · Vectors & Similarity',
   'Lecture 2 · Eigen, SVD & PCA',
@@ -201,11 +270,24 @@ const groupOrder = [
   // Courses — Diffusion Models and Their Applications
   'Unit 1 · Diffusion Models',
   'Unit 2 · Flow Matching',
+  '作業 · Unit 1–2',
   'Unit 3 · 減少 ODE 的離散化誤差',
   'Unit 4 · Discrete Diffusion',
   'Unit 5 · Consistency Models',
-  'Unit 6 · Flow Maps 與分佈匹配',
+  'Unit 6 · Consistency Trajectory Model and Flow Map',
   'Unit 7 · Test-time Guidance',
+  // Courses — Geometric Deep Learning
+  'G1 · Symmetry and Translation',
+  'G2 · Rotations and Feature Types',
+  'G3 · Sets and Permutations',
+  'G4 · Attention and Transformers',
+  'G5 · Graphs and Message Passing',
+  'G6 · Euclidean Geometry',
+  'G7 · Tensor Features',
+  'G8 · Graph Structure and Spectral Methods',
+  'G9 · Surfaces and Local Frames',
+  'G10 · Approximate Symmetry and Canonicalization',
+  'G11 · Geometric Generative Models',
   // Courses — Mathematical Foundations
   'M0 · Calculus 工具箱',
   'M1 · 機率與 Conditional Expectation',
@@ -254,13 +336,6 @@ export const groupMeta: Record<string, GroupMeta> = {
     },
     ordered: true,
   },
-  'Invariance and Equivariance': {
-    description: {
-      zh: 'geometric deep learning：把對稱性（invariance / equivariance）寫進模型。',
-      en: 'Geometric deep learning: building symmetry (invariance / equivariance) into models.',
-    },
-    ordered: true,
-  },
   'Paper Writing': {
     description: {
       zh: '學術論文寫作技巧。',
@@ -289,6 +364,40 @@ export interface PlannedNote {
   title: Record<Lang, string>;
 }
 export const plannedNotes: Record<string, PlannedNote> = {
+  'gdl-g6-0': { slug: 'gdl-g6-0-overview', group: 'G7 · Tensor Features', title: { zh: 'Scalar 與 vector 還不夠描述什麼？', en: 'What do scalars and vectors leave out?' } },
+  'gdl-g6-1': { slug: 'gdl-g6-1-foundations', group: 'G7 · Tensor Features', title: { zh: '球面上的方向要怎麼編碼？', en: 'How can we encode directions on a sphere?' } },
+  'gdl-tensor-feature-types': { slug: 'gdl-tensor-feature-types', group: 'G7 · Tensor Features', title: { zh: '旋轉之後，這組 angular features 要怎麼一起變？', en: 'How do angular features transform together?' } },
+  'gdl-g6-2': { slug: 'gdl-g6-2-construction', group: 'G7 · Tensor Features', title: { zh: '把兩種 feature 組合後，會得到哪種型態？', en: 'What types result from combining features?' } },
+  'gdl-g6-3': { slug: 'gdl-g6-3-analysis', group: 'G7 · Tensor Features', title: { zh: 'Tensor field layer 要遵守什麼？', en: 'What must a tensor field layer respect?' } },
+  'gdl-g6-4': { slug: 'gdl-g6-4-limits', group: 'G7 · Tensor Features', title: { zh: 'Parity 與 feature budget 要怎麼選？', en: 'How should we choose parity and a feature budget?' } },
+  'gdl-g6-5': { slug: 'gdl-g6-5-lab', group: 'G7 · Tensor Features', title: { zh: '實作：typed tensor features 的旋轉測試', en: 'Lab: rotation tests for typed tensor features' } },
+  'gdl-g7-0': { slug: 'gdl-g7-0-overview', group: 'G8 · Graph Structure and Spectral Methods', title: { zh: '局部訊息不夠，要新增哪種資訊？', en: 'What information is missing from local messages?' } },
+  'gdl-g7-1': { slug: 'gdl-g7-1-foundations', group: 'G8 · Graph Structure and Spectral Methods', title: { zh: '圖上的平滑與 Laplacian', en: 'Smoothing and the graph Laplacian' } },
+  'gdl-g7-2': { slug: 'gdl-g7-2-construction', group: 'G8 · Graph Structure and Spectral Methods', title: { zh: '沒有規則格點，frequency 是什麼？', en: 'What is frequency without a regular grid?' } },
+  'gdl-spectral-filtering': { slug: 'gdl-spectral-filtering', group: 'G8 · Graph Structure and Spectral Methods', title: { zh: '知道 graph frequency 後，要怎麼設計 filter？', en: 'How can graph frequencies define a filter?' } },
+  'gdl-g7-3': { slug: 'gdl-g7-3-analysis', group: 'G8 · Graph Structure and Spectral Methods', title: { zh: '多傳幾輪，訊息為什麼變得太像？', en: 'Why do messages become too similar?' } },
+  'gdl-g7-4': { slug: 'gdl-g7-4-limits', group: 'G8 · Graph Structure and Spectral Methods', title: { zh: '遠方資訊都擠進同一個向量，會怎樣？', en: 'What happens when distant information meets a bottleneck?' } },
+  'gdl-structural-information': { slug: 'gdl-structural-information', group: 'G8 · Graph Structure and Spectral Methods', title: { zh: '要補遠方資訊，可以改連線或加入結構嗎？', en: 'Can connections and structure provide distant information?' } },
+  'gdl-g7-5': { slug: 'gdl-g7-5-lab', group: 'G8 · Graph Structure and Spectral Methods', title: { zh: '實作：深度、瓶頸與 structural encoding', en: 'Lab: depth, bottlenecks, and structural encoding' } },
+  'gdl-g8-0': { slug: 'gdl-g8-0-overview', group: 'G9 · Surfaces and Local Frames', title: { zh: '沿曲面走，直線還是最短路嗎？', en: 'Is a straight line still shortest on a surface?' } },
+  'gdl-g8-1': { slug: 'gdl-g8-1-foundations', group: 'G9 · Surfaces and Local Frames', title: { zh: '每個位置自己的 tangent plane', en: 'A tangent plane at each position' } },
+  'gdl-g8-2': { slug: 'gdl-g8-2-construction', group: 'G9 · Surfaces and Local Frames', title: { zh: '不同位置的箭頭怎麼比較？', en: 'How can we compare arrows at different positions?' } },
+  'gdl-g8-3': { slug: 'gdl-g8-3-analysis', group: 'G9 · Surfaces and Local Frames', title: { zh: '換一套 local frame，答案怎麼變？', en: 'How does an answer change with its local frame?' } },
+  'gdl-g8-4': { slug: 'gdl-g8-4-limits', group: 'G9 · Surfaces and Local Frames', title: { zh: '曲面上的 kernel，要怎麼配合 local frames？', en: 'How should a surface kernel respect local frames?' } },
+  'gdl-surface-layers': { slug: 'gdl-surface-layers', group: 'G9 · Surfaces and Local Frames', title: { zh: '局部運算接成整個網路，還保留哪些幾何關係？', en: 'Which geometric relations survive a full surface network?' } },
+  'gdl-g8-5': { slug: 'gdl-g8-5-lab', group: 'G9 · Surfaces and Local Frames', title: { zh: '實作：局部座標系變換的檢查', en: 'Lab: testing changes of local frames' } },
+  'gdl-g9-0': { slug: 'gdl-g9-0-overview', group: 'G10 · Approximate Symmetry and Canonicalization', title: { zh: '對稱只近似成立，偏差來自任務還是模型？', en: 'Is approximate symmetry a task or a model mismatch?' } },
+  'gdl-g9-2': { slug: 'gdl-g9-2-construction', group: 'G10 · Approximate Symmetry and Canonicalization', title: { zh: '多看幾個視角，或先換到標準視角？', en: 'Multiple views or a canonical view?' } },
+  'gdl-g9-3': { slug: 'gdl-g9-3-analysis', group: 'G10 · Approximate Symmetry and Canonicalization', title: { zh: '標準方向突然翻轉，模型會怎樣？', en: 'What happens when a canonical orientation jumps?' } },
+  'gdl-g9-4': { slug: 'gdl-g9-4-limits', group: 'G10 · Approximate Symmetry and Canonicalization', title: { zh: '允許偏離對稱時，應保留哪些限制？', en: 'What should remain when symmetry is relaxed?' } },
+  'gdl-g9-5': { slug: 'gdl-g9-5-lab', group: 'G10 · Approximate Symmetry and Canonicalization', title: { zh: '實作：近似對稱的效能與一致性', en: 'Lab: performance and consistency with approximate symmetry' } },
+  'gdl-g10-0': { slug: 'gdl-g10-0-overview', group: 'G11 · Geometric Generative Models', title: { zh: '生成一個分子，答案是座標還是分布？', en: 'Is a generated molecule a coordinate set or a distribution?' } },
+  'gdl-g10-1': { slug: 'gdl-g10-1-foundations', group: 'G11 · Geometric Generative Models', title: { zh: '整體平移與中心化的機率模型', en: 'Translation and centered probability models' } },
+  'gdl-g10-2': { slug: 'gdl-g10-2-construction', group: 'G11 · Geometric Generative Models', title: { zh: 'Score 與 velocity 應怎麼隨旋轉變？', en: 'How should scores and velocities transform?' } },
+  'gdl-g10-3': { slug: 'gdl-g10-3-analysis', group: 'G11 · Geometric Generative Models', title: { zh: '沿等變 ODE 取樣，分布也會對稱嗎？', en: 'Does an equivariant ODE preserve distributional symmetry?' } },
+  'gdl-geometric-sde': { slug: 'gdl-geometric-sde', group: 'G11 · Geometric Generative Models', title: { zh: 'SDE 的每條樣本都不一樣，對稱要怎麼檢查？', en: 'How should we test symmetry in a stochastic sampler?' } },
+  'gdl-g10-4': { slug: 'gdl-g10-4-limits', group: 'G11 · Geometric Generative Models', title: { zh: '幾何合理，化學也一定合理嗎？', en: 'Does geometric consistency imply chemical validity?' } },
+  'gdl-g10-5': { slug: 'gdl-g10-5-lab', group: 'G11 · Geometric Generative Models', title: { zh: '實作：幾何生成與有效性評估', en: 'Lab: geometric generation and validity evaluation' } },
 };
 
 // Old URLs; the redirect pages in pages/(zh/)notes/flow-matching-*.astro now land on the
@@ -299,6 +408,20 @@ export const legacyNoteRedirects: Record<string, string> = {
 };
 
 export const categoryOrder = ['courses', 'research-areas', 'academic-skills'] as const;
+
+// ── Listing tiers ────────────────────────────────────────────────────────────
+// What the home page and the notes index show as top-level headings. A tier is the
+// ROLE a block plays for the reader, which is why a course and a foundation are not
+// in the same bucket even though both are CourseDefs. Order here is the order shown —
+// never by note count, so a 52-note course cannot crowd out a 7-note one.
+export const tierOrder = ['courses', 'foundations', 'research-areas', 'academic-skills'] as const;
+export type NoteTier = (typeof tierOrder)[number];
+export const tierLabels: Record<NoteTier, Record<Lang, string>> = {
+  courses: { en: 'Courses', zh: '課程' },
+  foundations: { en: 'Foundations', zh: '基礎' },
+  'research-areas': { en: 'Research Areas', zh: '研究領域' },
+  'academic-skills': { en: 'Academic Skills', zh: '學術技能' },
+};
 
 export const researchAreaOrder = ['flow-based-generative-modeling', 'geometric-deep-learning'] as const;
 
@@ -320,7 +443,7 @@ export const researchAreaDescriptions: Record<ResearchAreaKey, Record<Lang, stri
     en: 'From noise to structured data: probability paths, vector fields, sampling, and the shared core of diffusion and flow matching.',
   },
   'geometric-deep-learning': {
-    zh: '介紹如何利用資料中的幾何與對稱結構設計機器學習模型，涵蓋圖神經網路、不變性與等變性，以及分子、蛋白質與其他結構化資料上的應用。',
+    zh: '從 symmetry 的問題出發，推導 CNN、集合模型、Attention／Transformer 與 GNN，再建立幾何、energy 與 force 的關係。第一階段 G1–G6 共 31 篇；G7–G11 規劃 34 篇擴充。依問題與推導決定每個單元的篇幅。',
     en: 'Designing machine learning models around the geometric and symmetry structure in data: graph neural networks, invariance and equivariance, and applications to molecules, proteins and other structured data.',
   },
 };
@@ -328,7 +451,6 @@ export const researchAreaDescriptions: Record<ResearchAreaKey, Record<Lang, stri
 const groupResearchAreas: Record<string, ResearchAreaKey | undefined> = {
   'From Noise to Data': 'flow-based-generative-modeling',
   'Diffusion & Flow Models': 'flow-based-generative-modeling',
-  'Invariance and Equivariance': 'geometric-deep-learning',
 };
 
 export const categoryLabels: Record<(typeof categoryOrder)[number], Record<Lang, string>> = {
@@ -389,17 +511,34 @@ export interface CourseLectureDef {
   /** Stable key so notes can point at a whole week/class with <Ref week="…"/>. */
   label?: string;
   constellation?: Constellation;
+  /**
+   * `realm: 'lattice'` courses only: the molecular motif this unit is drawn as on the
+   * molecule map. Pick the motif whose symmetry IS the unit's topic (see lib/molecules.ts);
+   * a unit without one falls back to a ring.
+   */
+  molecule?: MoleculeMotif;
 }
 /** Colour family for a course — see `--tone-*` in global.css. */
-export type CourseTone = 'dma' | 'math' | 'ml' | 'neutral';
-/** Where the course lives on the notes sky map: constellations, buoys on the sea, lights on the shore. */
-export type CourseRealm = 'sky' | 'sea' | 'land';
+export type CourseTone = 'dma' | 'gdl' | 'math' | 'ml' | 'neutral';
+/** Where the course lives. 'sky' | 'sea' | 'land' place it on the sky map (constellations,
+ *  buoys on the sea, lights on the shore). 'lattice' keeps it OFF the sky map entirely — it
+ *  gets its own geometric map instead. */
+export type CourseRealm = 'sky' | 'sea' | 'land' | 'lattice';
+/**
+ * How the course is LISTED (home page + notes index): 'course' is something to read through,
+ * 'foundation' is a tool layer other notes reuse via `prereqs`. This is listing only — it has
+ * nothing to do with `realm`, so a foundation still draws on the sky map exactly as before.
+ */
+export type CourseKind = 'course' | 'foundation';
 export interface CourseDef {
   key: string;
+  kind: CourseKind;
   title: Record<Lang, string>;
   /** One line, for the home page's condensed notes list. */
   description: Record<Lang, string>;
   category: (typeof categoryOrder)[number];
+  /** Paragraphs shown above this course's map on the notes landing page (falls back to `description`). */
+  mapIntro?: Record<Lang, string[]>;
   tone: CourseTone;
   realm: CourseRealm;
   lectures: CourseLectureDef[];
@@ -408,6 +547,7 @@ export interface CourseDef {
 export const courses: CourseDef[] = [
   {
     key: 'math-for-dl',
+    kind: 'course',
     tone: 'neutral',
     realm: 'land',
     title: {
@@ -494,6 +634,17 @@ export const courses: CourseDef[] = [
   },
   {
     key: 'diffusion-models-applications',
+    kind: 'course',
+    mapIntro: {
+      zh: [
+        '這是一片可以探索diffusion model、flow matching和其相關領域的知識世界：腳下是數學構築的陸地，眼前是機器學習的海洋；再抬頭望去，則是一門門課程組成的星空。',
+        '每一顆星，都是一篇筆記；每讀完一篇，就點亮一顆星。從一顆星開始，慢慢點亮屬於你的 DMA 星空吧！',
+      ],
+      en: [
+        'A world of knowledge for exploring diffusion models, flow matching and the fields around them: mathematics is the land underfoot, machine learning the sea ahead, and overhead, a sky made of courses.',
+        'Every star is a note; finish one and it lights up. Start with a single star and light up a DMA sky of your own.',
+      ],
+    },
     tone: 'dma',
     realm: 'sky',
     title: {
@@ -525,6 +676,15 @@ export const courses: CourseDef[] = [
         },
       },
       {
+        group: '作業 · Unit 1–2',
+        label: 'dma-week-homework-u1-u2',
+        constellation: { anchor: [400, 170], stars: [[0, 0, 3.0], [46, 30, 3.4], [88, 4, 2.8]], edges: [[0, 1], [1, 2]] },
+        description: {
+          zh: 'Unit 1–2 的作業：把 diffusion 與 flow matching 的推導與實作自己走一遍。',
+          en: 'Homework for Units 1–2: work through the diffusion and flow-matching derivations and implementations yourself.',
+        },
+      },
+      {
         group: 'Unit 3 · 減少 ODE 的離散化誤差',
         label: 'dma-week-interpolants',
         constellation: { anchor: [400, 50], stars: [[0, 40, 3.4], [44, 66, 2.9], [78, 24, 4.9], [120, 44, 3.2], [170, 4, 3.0], [214, 36, 4.0]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5]] },
@@ -552,28 +712,159 @@ export const courses: CourseDef[] = [
         },
       },
       {
-        group: 'Unit 6 · Flow Maps 與分佈匹配',
+        group: 'Unit 6 · Consistency Trajectory Model and Flow Map',
         label: 'dma-week-flow-maps',
         constellation: { anchor: [900, 280], stars: [[0, 20, 3.2], [30, -30, 4.6], [84, -46, 3.0], [130, -20, 3.6], [150, 40, 4.4], [112, 72, 2.8], [60, 50, 3.4]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 0]] },
         description: {
-          zh: '從 t 直接跳到 s：flow map 的四個條件、flow map matching 的三種損失、MeanFlow identity 與條件速度代換、Shortcut / AYF，以及回歸式與分佈匹配式（DMD）蒸餾的失敗模式。',
-          en: 'Jumping from t straight to s: the four conditions of a flow map, the three flow-map-matching losses, the MeanFlow identity, Shortcut / AYF, and the failure modes of regression vs. distribution-matching (DMD) distillation.',
+          zh: '從 CTM 首先提出的任意 t→s 跳躍出發，再把它整理成 flow map：四個條件、Flow Map Matching 的三種損失、MeanFlow identity、Shortcut / AYF，以及回歸式與分佈匹配式（DMD）蒸餾的失敗模式。',
+          en: 'Start from CTM\'s arbitrary t→s traversal, then organize it as a flow map: four defining conditions, the three Flow Map Matching losses, the MeanFlow identity, Shortcut / AYF, and failure modes of regression versus distribution-matching (DMD) distillation.',
         },
       },
       {
         group: 'Unit 7 · Test-time Guidance',
-        planned: true,
         label: 'dma-week-guidance',
-        constellation: { anchor: [630, 260], stars: [[0, 22, 3.1], [32, -12, 3.6], [70, 20, 3.0], [100, -26, 4.0], [132, 14, 3.3]], edges: [[0, 1], [1, 2], [2, 3], [3, 4]] },
+        constellation: { anchor: [630, 260], stars: [[0, 22, 3.1], [28, -14, 3.6], [64, 18, 3.0], [94, -28, 4.0], [128, 8, 3.3], [102, 52, 2.9], [52, 58, 3.5]], edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 0]] },
         description: {
-          zh: '規劃中：模型訓練好之後，如何在生成時加入條件或目標，引導取樣結果？',
-          en: 'Planned: how can conditions or objectives guide sampling after a model has been trained?',
+          zh: '模型訓練好之後，如何在 sampling 時加入新的 condition、observation 或 reward？從 classifier guidance、CFG 與 reward tilting，走到 black-box rewards 的 Best-of-N、Feynman–Kac／SMC、SPT，以及 inverse problems、data assimilation、planning 與 scientific design。',
+          en: 'How can a trained model incorporate a new condition, observation, or reward at sampling time? From classifier guidance, CFG, and reward tilting to Best-of-N, Feynman–Kac/SMC, SPT, inverse problems, data assimilation, planning, and scientific design.',
         },
       },
     ],
   },
   {
+    key: 'geometric-deep-learning',
+    kind: 'course',
+    mapIntro: {
+      zh: [
+        '這是一片可以探索 geometric deep learning 與 symmetry 的知識世界：每一個單元都是一種分子，而那個分子的形狀，隱約的藏著這個單元要講的對稱——不斷重複的長鏈、可以旋轉的環、任意交換也不變的配體，還有照鏡子也疊不回去的手性。',
+        '每一顆原子，都是一篇筆記；每讀完一篇，就點亮一顆原子，讀完一個單元，整個分子就會亮起來。從一顆原子開始，慢慢組出屬於你的 GDL 分子吧！',
+      ],
+      en: [
+        'A world of knowledge for exploring geometric deep learning and symmetry: each unit is a molecule, and hidden in the shape of that molecule is the symmetry the unit is about — a chain that repeats, a ring that turns, ligands you can swap without changing a thing, and a handedness no mirror can undo.',
+        'Every atom is a note; finish one and it lights up, and finish a unit to light up the whole molecule. Start with a single atom and build a GDL molecule of your own.',
+      ],
+    },
+    tone: 'gdl',
+    realm: 'lattice',
+    title: {
+      en: 'Geometric Deep Learning',
+      zh: 'Geometric Deep Learning',
+    },
+    description: {
+      zh: '從 symmetry 的問題出發，推導運算限制、交代設計選擇，再構造 CNN、集合模型、Attention／Transformer 與 GNN，並建立幾何、energy 與 force 的關係。第一階段 G1–G6 共 31 篇；G7–G11 規劃 34 篇擴充。',
+      en: 'Designing machine learning models around the geometric and symmetry structure in data: graph neural networks, invariance and equivariance, and applications to molecules, proteins and other structured data.',
+    },
+    category: 'courses',
+    lectures: [
+      {
+        "group": "G1 · Symmetry and Translation",
+        "label": "gdl-unit-map-views",
+        "molecule": "chain",
+        "description": {
+          "zh": "地圖轉過去，答案怎麼變？從輸出 action、group 與 convolution 的共享推導，到 layer composition、boundary 與實作測試。",
+          "en": "Output actions, groups, convolutional sharing, composition, boundaries, and translation tests."
+        }
+      },
+      {
+        "group": "G2 · Rotations and Feature Types",
+        "label": "gdl-unit-rotations",
+        "molecule": "ring",
+        "description": {
+          "zh": "普通 CNN 為什麼不自動跟著旋轉？從四方向 detector、group convolution 與 feature types，推導 readout 並逐一測試 C4。",
+          "en": "Orientation channels, group convolution, feature types, readouts, and C4 tests."
+        }
+      },
+      {
+        "group": "G3 · Sets and Permutations",
+        "label": "gdl-unit-sets-graphs",
+        "molecule": "star",
+        "description": {
+          "zh": "名單順序沒有意義，內容仍要留下：從 Deep Sets、逐點共享到 PointNet，最後問每個點是否都要讀同一份摘要。",
+          "en": "Deep Sets, per-point sharing, and PointNet; where a shared summary falls short."
+        }
+      },
+      {
+        "group": "G4 · Attention and Transformers",
+        "label": "gdl-unit-attention",
+        "molecule": "clique",
+        "description": {
+          "zh": "每個點要參考誰？先用排列要求限制內容權重，再構造 Q／K／V 與 Transformer block，分清設計選擇、真實順序與關係 mask，最後用程式檢查。",
+          "en": "Content-dependent attention, Q/K/V, permutation equivariance, Transformer blocks, order, relations, and tests."
+        }
+      },
+      {
+        "group": "G5 · Graphs and Message Passing",
+        "label": "gdl-unit-graphs",
+        "molecule": "tree",
+        "description": {
+          "zh": "道路關係要留下，node 編號要忽略：從重編要求構造共享訊息與鄰居摘要，再討論 GCN、GIN 與 1-WL 的限制，檢查重編與不可辨識例子。",
+          "en": "Relabeling, message passing, GCN, GIN, and expressivity limits."
+        }
+      },
+      {
+        "group": "G6 · Euclidean Geometry",
+        "label": "gdl-unit-frontiers",
+        "molecule": "chiral",
+        "description": {
+          "zh": "座標與箭頭不能用同一種 action：相對幾何、EGNN、energy-gradient forces 與鏡像，逐一檢查聯合對稱。",
+          "en": "Relative geometry, EGNN, energy-gradient forces, and chirality."
+        }
+      },
+      {
+        "group": "G7 · Tensor Features",
+        "planned": true,
+        "label": "gdl-unit-tensors",
+        "molecule": "orbital",
+        "description": {
+          "zh": "擴充規劃（7 篇）：從 scalar／vector 的不足出發，分開引入 spherical harmonics、feature 的旋轉型態、tensor products 與 layer，再檢查 parity 與實作。",
+          "en": "Planned expansion."
+        }
+      },
+      {
+        "group": "G8 · Graph Structure and Spectral Methods",
+        "planned": true,
+        "label": "gdl-unit-graph-structure",
+        "molecule": "fused",
+        "description": {
+          "zh": "擴充規劃（8 篇）：分開建立 Laplacian、graph frequency 與 spectral filtering，再分析 oversmoothing、oversquashing，最後比較補充結構與遠方資訊的方法。",
+          "en": "Planned expansion."
+        }
+      },
+      {
+        "group": "G9 · Surfaces and Local Frames",
+        "planned": true,
+        "label": "gdl-unit-surfaces",
+        "molecule": "bowl",
+        "description": {
+          "zh": "擴充規劃（7 篇）：從曲面行走建立 tangent plane，再分開處理方向比較、local frame 的變換、kernel 與完整網路的相容條件。",
+          "en": "Planned expansion."
+        }
+      },
+      {
+        "group": "G10 · Approximate Symmetry and Canonicalization",
+        "planned": true,
+        "label": "gdl-unit-approximate-symmetry",
+        "molecule": "distorted",
+        "description": {
+          "zh": "擴充規劃（5 篇）：把近似對稱的問題與偏差量測放在同一篇，再比較多視角與 canonicalization，檢查不連續、放寬限制及實驗。",
+          "en": "Planned expansion."
+        }
+      },
+      {
+        "group": "G11 · Geometric Generative Models",
+        "planned": true,
+        "label": "gdl-unit-geometric-generation",
+        "molecule": "cloud",
+        "description": {
+          "zh": "擴充規劃（7 篇）：從座標與分布分開的要求出發，建立中心化、score／velocity action，再分別檢查 ODE、SDE 的取樣對稱與化學有效性。",
+          "en": "Planned expansion."
+        }
+      }
+    ],
+  },
+  {
     key: 'mathematical-foundations',
+    kind: 'foundation',
     tone: 'math',
     realm: 'land',
     title: {
@@ -646,6 +937,7 @@ export const courses: CourseDef[] = [
   },
   {
     key: 'machine-learning-foundations',
+    kind: 'foundation',
     tone: 'ml',
     realm: 'sea',
     title: {
@@ -763,6 +1055,29 @@ export function isPublishedNote(note: NoteEntry): boolean {
   return isListedNote(note) && !isHiddenNote(note);
 }
 
+/**
+ * How many notes outside a foundation course declare one of its notes as a prereq.
+ * This is what a foundation card shows instead of a reading progress bar: nobody reads
+ * the tool layer front to back, so "reused by N notes" is the honest measure.
+ */
+export function foundationReuse(notes: NoteEntry[], courseKey: string): number {
+  const course = courseByKey(courseKey);
+  if (!course) return 0;
+  const groups = new Set(course.lectures.map((l) => l.group));
+  const own = notes.filter((n) => groups.has(n.data.group));
+  const keys = new Set<string>();
+  for (const n of own) {
+    keys.add(n.data.slug);
+    if (n.data.label) keys.add(n.data.label);
+  }
+  let count = 0;
+  for (const n of notes) {
+    if (groups.has(n.data.group)) continue;
+    if (n.data.prereqs.some((p) => keys.has(p))) count++;
+  }
+  return count;
+}
+
 export interface CourseLectureView {
   group: string;
   description: string;
@@ -825,9 +1140,11 @@ export interface HomeSectionItem {
   /** Lectures / groups underneath, when there is more than one. */
   unitCount: number;
   latest?: Date;
+  /** Foundations only: how many notes elsewhere reuse this one. */
+  reuse?: number;
 }
 export interface HomeSection {
-  category: (typeof categoryOrder)[number];
+  tier: NoteTier;
   items: HomeSectionItem[];
 }
 
@@ -845,7 +1162,32 @@ export function homeSections(notes: NoteEntry[], lang: Lang): HomeSection[] {
   const listed = notesForListingLang(notes, lang);
   const sections: HomeSection[] = [];
 
-  // Research areas: the area label is the top-level heading.
+  // Courses and foundations are both CourseDefs; `kind` decides which heading they sit under.
+  const views = courseSections(listed, lang).filter((course) => course.noteCount > 0);
+  const toItem = (course: CourseView): HomeSectionItem => {
+    const def = courseByKey(course.key);
+    return {
+      id: courseAnchor(course.key),
+      title: course.title,
+      description: def ? def.description[lang] : '',
+      noteCount: course.noteCount,
+      unitCount: course.readyLectureCount,
+      latest: latestNoteDate(course.lectures.flatMap((lecture) => lecture.notes)),
+    };
+  };
+
+  const courseItems = views
+    .filter((course) => courseByKey(course.key)?.kind !== 'foundation')
+    .map(toItem);
+  if (courseItems.length > 0) sections.push({ tier: 'courses', items: courseItems });
+
+  const foundationItems = views
+    .filter((course) => courseByKey(course.key)?.kind === 'foundation')
+    .map((course) => ({ ...toItem(course), reuse: foundationReuse(listed, course.key) }));
+  if (foundationItems.length > 0) sections.push({ tier: 'foundations', items: foundationItems });
+
+  // Research areas: the area label is the top-level heading. Empty today (every area group is
+  // hidden), so the heading simply does not render; adding a research-area note brings it back.
   const areaItems: HomeSectionItem[] = [];
   for (const area of researchAreaOrder) {
     const inArea = listed.filter(
@@ -861,23 +1203,7 @@ export function homeSections(notes: NoteEntry[], lang: Lang): HomeSection[] {
       latest: latestNoteDate(inArea),
     });
   }
-  if (areaItems.length > 0) sections.push({ category: 'research-areas', items: areaItems });
-
-  // Courses: the course title is the top-level heading.
-  const courseItems: HomeSectionItem[] = courseSections(listed, lang)
-    .filter((course) => course.noteCount > 0)
-    .map((course) => {
-      const def = courseByKey(course.key);
-      return {
-        id: courseAnchor(course.key),
-        title: course.title,
-        description: def ? def.description[lang] : '',
-        noteCount: course.noteCount,
-        unitCount: course.readyLectureCount,
-        latest: latestNoteDate(course.lectures.flatMap((lecture) => lecture.notes)),
-      };
-    });
-  if (courseItems.length > 0) sections.push({ category: 'courses', items: courseItems });
+  if (areaItems.length > 0) sections.push({ tier: 'research-areas', items: areaItems });
 
   // Academic skills have no course or area layer, so the group itself is the top.
   const skills = listed.filter((n) => n.data.category === 'academic-skills');
@@ -893,12 +1219,10 @@ export function homeSections(notes: NoteEntry[], lang: Lang): HomeSection[] {
       latest: latestNoteDate(inGroup),
     };
   });
-  if (skillItems.length > 0) sections.push({ category: 'academic-skills', items: skillItems });
+  if (skillItems.length > 0) sections.push({ tier: 'academic-skills', items: skillItems });
 
-  // Same order as the notes index (`categoryOrder`), so the home page and the index agree.
-  return sections.sort(
-    (a, b) => categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category),
-  );
+  // Fixed tier order — never by note count, so the biggest course cannot take over the page.
+  return sections.sort((a, b) => tierOrder.indexOf(a.tier) - tierOrder.indexOf(b.tier));
 }
 
 export function noteRoute(slug: string, lang: Lang): string {

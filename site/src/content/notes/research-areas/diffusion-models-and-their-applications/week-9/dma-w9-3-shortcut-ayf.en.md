@@ -7,7 +7,7 @@ prereqs:
 lang: "en"
 title: "Shortcut 與 Align Your Flow：同一張表的其他格子"
 category: "courses"
-group: "Unit 6 · Flow Maps 與分佈匹配"
+group: "Unit 6 · Consistency Trajectory Model and Flow Map"
 status: "missing"
 updated: 2026-09-06
 summary: "English translation in progress; content-agent task."

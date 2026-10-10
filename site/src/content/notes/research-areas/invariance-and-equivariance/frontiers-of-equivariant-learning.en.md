@@ -2,8 +2,8 @@
 slug: "frontiers-of-equivariant-learning"
 lang: "en"
 title: "Symmetry Is Not a Free Lunch"
-category: "research-areas"
-group: "Invariance and Equivariance"
+category: "courses"
+group: "G6 · Euclidean Geometry"
 status: "missing"
 updated: 2026-06-23
 summary: "English translation in progress; content-agent task."

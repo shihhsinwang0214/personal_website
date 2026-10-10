@@ -1,0 +1,152 @@
+---
+slug: "gdl-g4-1-message-passing"
+label: "gdl-message-passing"
+lang: "zh"
+title: "只看自己不夠，能不能先問附近的路口？"
+category: "courses"
+group: "G5 · Graphs and Message Passing"
+status: "available"
+updated: "2026-10-09"
+summary: "用鄰居訊息與共同更新函數建立 MPNN，逐項證明 node relabeling 下的 equivariance。"
+prereqs: ["gdl-graph-relabeling"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Gilmer 等人（2017），Neural Message Passing for Quantum Chemistry"
+    href: "https://proceedings.mlr.press/v70/gilmer17a.html"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 只看自己不夠，能不能先問附近的路口？
+
+<Objectives>
+
+- **寫出 message 與 update。** 區分 edge 訊息、aggregation 與 node 新狀態。
+- **證明 message passing 不依賴編號。** 追蹤重編後的鄰居集合與加總。
+- **說明多層能看多遠。** 以道路距離推導 receptive field，而非只用層數名詞。
+
+</Objectives>
+
+<Prereq items={["gdl-graph-relabeling"]} />
+
+## 想知道這裡塞不塞，先問接過來的路口
+
+一個路口本身的車量，不足以描述接下來會不會壅塞。附近道路的車流可能馬上送到這裡。最自然的做法，是讓每個鄰居傳來一份訊息，再由路口一起判斷。
+
+用 $h_i$ 表示目前 node $i$ 的狀態，$e_{ij}$ 表示道路的屬性，例如寬度或距離。先用共享函數 $\phi$ 產生訊息：
+
+$$
+m_{ij}=\phi(h_i,h_j,e_{ij}).
+$$
+
+$i$ 是接收者，$j$ 是送出者。訊息可以依接收者改變：同一個鄰居對不同路口，不一定該提供同一份內容。
+
+再把鄰居送來的訊息加總：
+
+$$
+m_i=\sum_{j\in\mathcal N(i)}m_{ij},
+\qquad h_i^+=\eta(h_i,m_i).
+$$
+
+$\mathcal N(i)$ 是能送到 $i$ 的鄰居集合，$\eta$ 是所有 nodes 共享的更新函數。這是 **message passing（訊息傳遞）**；Gilmer 等人 [1] 將這些角色統整成 MPNN。
+
+## 換了名字，訊息還會送到同一個人嗎？
+
+令新 node $i$ 對應原 node $\pi(i)$。Features 是 $h_i'=h_{\pi(i)}$，道路屬性是 $e_{ij}'=e_{\pi(i),\pi(j)}$，鄰居則滿足
+
+$$
+j\in\mathcal N'(i)
+\quad\Longleftrightarrow\quad
+\pi(j)\in\mathcal N(\pi(i)).
+$$
+
+因為所有 edges 使用同一個 $\phi$，
+
+$$
+m_{ij}'=\phi(h_{\pi(i)},h_{\pi(j)},e_{\pi(i),\pi(j)})
+=m_{\pi(i),\pi(j)}.
+$$
+
+把鄰居加起來，再令 $\ell=\pi(j)$：
+
+$$
+\begin{aligned}
+m_i'
+&=\sum_{j\in\mathcal N'(i)}m_{\pi(i),\pi(j)}\\
+&=\sum_{\ell\in\mathcal N(\pi(i))}m_{\pi(i),\ell}\\
+&=m_{\pi(i)}.
+\end{aligned}
+$$
+
+最後更新 $h_i^{\prime+}=\eta(h_{\pi(i)},m_{\pi(i)})=h_{\pi(i)}^+$。所以整層 equivariant。
+
+這個證明與 $\phi,\eta$ 是否線性無關。關鍵是**共享運算、正確搬動 edges、以及不依順序的 aggregation**，不是「用了 graph 套件」就自然成立。
+
+## 一輪只能聽到誰？
+
+假設初始 feature 只描述 node 自己。一輪更新後，$h_i$ 包含自己與一條 edge 內的鄰居；第二輪讀取鄰居的第一輪狀態，就間接收到兩條 edges 以內的訊息。
+
+用 induction 看，第 $\ell$ 輪至多看到 graph distance 不超過 $\ell$ 的部分。這叫 **receptive field（可觀察範圍）**。它是道路連線的距離，不一定是地圖上的 Euclidean distance。
+
+多層擴大範圍，但也可能把訊息平均得太像，或把大量遠方資訊壓進固定維度。這些限制會在第二階段深入；目前先注意，多層不代表所有 graph 都能分開。
+
+## Sum 是唯一選擇嗎？
+
+Mean、max 或符合重編規則的 attention 也能 aggregation。只要它們對鄰居 permutation invariant，node-level proof 的主線仍成立。
+
+但換一種 aggregation，保留的內容就會變。某路口的鄰居都是相同車流，兩條路與十條路的 mean 可能完全相同；sum 卻不同。**是否等變，與是否能辨認任務需要的鄰居差異，仍要分開問。**
+
+下一篇先從最常見的鄰居平均出發，看看 GCN 怎麼把它寫成矩陣運算，再回來檢查平均究竟丟掉什麼。
+
+<Remark summary="共享是對角色共享，不是把所有 edge features 設成一樣">
+
+每條道路可以有自己的 $e_{ij}$，共同的 $\phi$ 讀取不同資料。若直接使用 edge 的存檔序號當特徵，序號也必須有合理 action；否則共享函數仍可能讀到不該影響答案的表示資訊。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g4-1.svg" alt="每個 node 用共同規則產生 edge messages，對鄰居加總，再用共同 update 更新自己的狀態。" loading="lazy" />
+<figcaption>每個 node 用共同規則產生 edge messages，對鄰居加總，再用共同 update 更新自己的狀態。</figcaption>
+</figure>
+
+<Question>
+
+不同道路有不同寬度，會不會破壞 message passing 的 permutation equivariance？
+
+<Answer>
+
+不會，只要寬度屬性隨 edge 一起重編。共享的是處理寬度的方法，不是要求所有道路寬度相同。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+拖動訊息輪數，觀察每個路口的值如何依 adjacency 更新，再重編 nodes。每一輪都使用相同的 message 與 update 規則。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=4&chapter=1" class="demo-frame" title="只看自己不夠，能不能先問附近的路口？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="兩層 message passing 能看到多遠？" options={[{"text":"最多兩條 edges 以內的初始訊息。","correct":true,"explain":"每層只沿一輪鄰居傳遞。"},{"text":"自動讀到整張任意大小 graph。","explain":"每層只沿一輪鄰居傳遞。"}]} />
+
+<Quiz q="訊息可依接收者改變嗎？" options={[{"text":"不可以，所有訊息必須相同。","explain":"共享函數仍可以使用不同內容。"},{"text":"可以，φ 可以同時讀 h_i 與 h_j。","correct":true,"explain":"共享函數仍可以使用不同內容。"}]} />
+
+<Quiz q="Mean 與 sum 都 equivariant，表示效果相同嗎？" options={[{"text":"不表示，它們丟失的資訊不同。","correct":true,"explain":"等變性只檢查編號一致性。"},{"text":"表示，所有對稱 aggregation 都完全等價。","explain":"等變性只檢查編號一致性。"}]} />
+
+<Bridge to="gdl-gcn">
+
+我們有了一般的訊息傳遞規則。下一篇把「鄰居太多時不要直接加爆」這個想法寫成 normalized adjacency，推導 GCN 的一層。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Gilmer 等人（2017），Neural Message Passing for Quantum Chemistry](https://proceedings.mlr.press/v70/gilmer17a.html)

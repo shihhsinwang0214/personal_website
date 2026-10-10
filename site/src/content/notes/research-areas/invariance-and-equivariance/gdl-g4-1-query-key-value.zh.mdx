@@ -1,0 +1,135 @@
+---
+slug: "gdl-g4-1-query-key-value"
+label: "gdl-query-key-value"
+lang: "zh"
+title: "怎麼把「我要參考誰」寫成可學的權重？"
+category: "courses"
+group: "G4 · Attention and Transformers"
+status: "available"
+updated: "2026-10-10"
+summary: "以查詢、索引與內容的生活操作解釋 Q／K／V，逐步構造 scaled dot-product attention，並算一個三元素的例子。"
+prereqs: ["gdl-attention-problem"]
+demos: ["notes/research_areas/invariance-and-equivariance/attention-workbench.html"]
+references:
+  - label: "Vaswani 等人（2017），Attention Is All You Need"
+    href: "https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 怎麼把「我要參考誰」寫成可學的權重？
+
+<Objectives>
+
+- **說明 query、key、value 的不同角色。** 比較用的 feature 不必等於最後讀取的內容。
+- **從 pairwise score 寫到 attention output。** 交代矩陣大小、row-wise softmax 與加權平均。
+- **算一個具體的權重例子。** 說明 scaling 的作用，以及為何 attention 不必對稱。
+
+</Objectives>
+
+<Prereq items={["gdl-attention-problem"]} />
+
+## 要參考誰，能不能從內容學出來？
+
+上一篇留下的是權重 $a_{ij}(H)$：點 $i$ 要讀多少點 $j$ 的資訊。但若手動規定「永遠參考第二列」，又把沒有意義的名單順序放回去了。我們要比較的是兩個點的內容。
+
+想像在圖書館找「去機場的交通」。我們拿自己的問題去比對書的索引，再讀相關的內容。**問題、供比較的索引、實際讀到的內容，做的是三件不同的事。**
+
+## 三種角色，都從同一份 features 產生
+
+讓每個點都用相同的三組 linear maps：
+
+$$
+Q=HW_Q,\qquad K=HW_K,\qquad V=HW_V.
+$$
+
+$H\in\mathbb R^{n\times d}$；$Q,K\in\mathbb R^{n\times d_k}$，$V\in\mathbb R^{n\times d_v}$。第 $i$ 列 $q_i$ 是它拿來詢問的 **query**，第 $j$ 列 $k_j$ 是它提供給別人比較的 **key**，$v_j$ 則是實際被讀取的 **value**。
+
+三個矩陣都從 $H$ 產生，所以稱為 **self-attention**。若 queries 來自另一份資料，而 keys 與 values 來自這份資料，就是 cross-attention；這裡先處理同一批點。
+
+## 先比較，再把分數變成權重
+
+一個容易計算的比較方式是 dot product。Vaswani 等人 [1] 使用
+
+$$
+S_{ij}=\frac{q_i^\top k_j}{\sqrt{d_k}},
+\qquad S=\frac{QK^\top}{\sqrt{d_k}}.
+$$
+
+每一列固定一個詢問者，每一欄是一個可參考對象。分數還不是權重：它可能為負，也沒有加總為一。因此對固定 $i$ 的整列做 softmax：
+
+$$
+A_{ij}=\frac{e^{S_{ij}}}{\sum_{\ell=1}^n e^{S_{i\ell}}},
+\qquad y_i=\sum_j A_{ij}v_j.
+$$
+
+分母只比較「同一個詢問者能參考的對象」，不是整張矩陣的總和。全部一起算，就是
+
+$$
+Y=AV=\operatorname{softmax}_{\mathrm{row}}
+\left(\frac{QK^\top}{\sqrt{d_k}}\right)V.
+$$
+
+這就是 **scaled dot-product attention**：先依內容算權重，再依權重讀取 values。
+
+## 三個對象，真的算一次
+
+考慮 $d_k=1$。某個 query 與三個 keys 比較後，分數是 $(0,\log2,0)$，三個 values 是 $(10,20,40)$。Exponentials 是 $(1,2,1)$，所以
+
+$$
+(A_{i1},A_{i2},A_{i3})=\left(\frac14,\frac12,\frac14\right),
+\qquad y_i=\frac14(10)+\frac12(20)+\frac14(40)=22.5.
+$$
+
+第二個對象被參考得最多，但輸出仍混合了三份內容。換一個 query，分數會改，它收到的摘要也會改。
+
+<Remark summary="為什麼除以 √dₖ？">
+
+作為尺度的說明，若 $q$、$k$ 各分量彼此獨立、平均為零、variance 為一，$q^\top k=\sum_r q_rk_r$ 的 variance 是 $d_k$。除以 $\sqrt{d_k}$ 後才是同一個量級，避免維度變大時分數容易把 softmax 推得過度尖銳。這是原論文的尺度理由，不是說訓練後 features 必然符合這些獨立假設。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/attention-1.svg" alt="Query 比較 keys 產生分數，row-wise softmax 產生權重，再讀取 values。" loading="lazy" />
+<figcaption>Query 比較 keys 產生分數，row-wise softmax 產生權重，再讀取 values。</figcaption>
+</figure>
+
+<Question>
+
+點 $i$ 很參考點 $j$，是否表示點 $j$ 也同樣參考點 $i$？
+
+<Answer>
+
+不一定。$q_i^\top k_j$ 與 $q_j^\top k_i$ 一般不同；即使分數碰巧對稱，每列的 softmax 分母也可能不同。詢問需求與提供的資訊不是同一種角色。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+切換詢問者與溫度，對照 heatmap 的一列與加權輸出。Demo 使用固定的 projection，展示這條式子如何計算；它不是訓練好的語言模型。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/attention-workbench.html?chapter=1" class="demo-frame" title="怎麼把「我要參考誰」寫成可學的權重？：attention 計算與重排" style="height: 840px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="哪個量最後被加權相加？" options={[{"text":"Value。","correct":true,"explain":"Query 與 key 產生比較分數，value 提供輸出內容。"},{"text":"一定是 key。","explain":"比較用的索引與實際讀取的內容分開。"}]} />
+<Quiz q="Softmax 在這裡沿哪個方向算？" options={[{"text":"每個 query 的所有 keys。","correct":true,"explain":"固定詢問者，再分配它的參考權重。"},{"text":"所有 queries 與 keys 合成一個分母。","explain":"那就不是每個詢問者各自的加權摘要。"}]} />
+<Quiz q="Attention weight 能直接當成因果解釋嗎？" options={[{"text":"能，它必然表示真實原因。","explain":"這裡只定義了模型內部的加權運算。"},{"text":"不能僅由這個定義推出。","correct":true,"explain":"參考權重與因果或解釋的保證是不同問題。"}]} />
+
+<Bridge to="gdl-set-attention">
+
+Q、K、V 讓權重可以依內容學習。但前面的要求還沒檢查：**同一批點換了排列，算出的權重與輸出真的只會跟著重排嗎？**
+
+</Bridge>
+
+## 參考文獻
+
+1. [Vaswani 等人（2017），Attention Is All You Need](https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf)

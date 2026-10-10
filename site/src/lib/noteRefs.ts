@@ -77,9 +77,9 @@ async function noteIndex(): Promise<Map<string, NoteEntry[]>> {
   return indexPromise;
 }
 
-const GROUP_CODE = /^(Unit|Week|Lecture|U|W|L|M)\s*(\d+)/i;
+const GROUP_CODE = /^(Unit|Week|Lecture|U|W|L|M|G)\s*(\d+)/i;
 
-/** "Unit 1 · Diffusion Models" → "U1"; "M1 · …" → "M1"; otherwise "". */
+/** "Unit 1 · Diffusion Models" → "U1"; "M1 · …" → "M1"; "G1 · …" → "G1"; otherwise "". */
 export function groupCode(group: string): string {
   const m = GROUP_CODE.exec(group);
   if (!m) return '';
@@ -91,7 +91,7 @@ export function groupCode(group: string): string {
  * not supposed to have one any more; this only keeps an old hand-typed prefix from being
  * doubled up with the derived code.
  */
-const TITLE_CODE = /^[UWLM]\d+(?:\.\d+)?\s*[·:：]?\s*/;
+const TITLE_CODE = /^[UWLMG]\d+(?:\.\d+)?\s*[·:：]?\s*/;
 
 export function stripNoteCode(title: string): string {
   return title.replace(TITLE_CODE, '');

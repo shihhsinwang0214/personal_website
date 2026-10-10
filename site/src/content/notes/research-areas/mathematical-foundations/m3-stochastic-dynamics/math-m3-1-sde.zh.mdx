@@ -9,8 +9,8 @@ title: "水流加亂流：SDE 是加了噪聲的 ODE"
 category: "courses"
 group: "M3 · Stochastic Dynamics"
 status: "available"
-updated: 2026-09-21
-summary: "河裡有確定的水流，也有隨機的亂流，葉子怎麼漂？把 ODE 的每一小步加上一個 √h 尺度的 Gaussian，就是 SDE dx = f dt + g dW 的全部讀法；照著這個讀法寫程式就是 Euler–Maruyama。不需要 Itô 積分——但要知道 √h 為什麼不能寫成 h，以及哪些情況下這個讀法會出問題。"
+updated: 2026-10-09
+summary: "在確定的水流之外加入 Brownian 擾動，用增量理解 drift 與 diffusion，再建立 Euler–Maruyama 的近似。分清 SDE 的隨機路徑、每個時刻的分布，以及固定主流特例才有的 g√t 寬度。"
 demos: []
 references:
   - label: "Särkkä & Solin, Applied Stochastic Differential Equations (Cambridge University Press, 2019)"
@@ -39,7 +39,7 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 <Objectives>
 - **把 $dx=f(x,t)\,dt+g(t)\,dW_t$ 讀成「每一小步 $h$：確定地走 $f h$，再加一個 $g\sqrt h\,\varepsilon$ 的 Gaussian」。** 說出 $f$（drift）與 $g$（diffusion coefficient）各控制什麼。
-- **寫出 Euler–Maruyama 法。** 說明為什麼噪聲項是 $\sqrt h$ 而不是 $h$、為什麼 SDE 的「解」是一個分佈而不是一條路。
+- **寫出 Euler–Maruyama 法。** 說明 $\sqrt h$ 尺度，並分清解的 random process、單次 realization 與 marginal distribution。
 - **對「有亂流的河裡葉子會漂到哪」這類情境，判斷用 SDE 模擬是否恰當、說出它依賴的假設（噪聲是 Brownian 增量、$g$ 不依賴 $x$）。** 用模擬驗證與破壞它。
 </Objectives>
 
@@ -51,7 +51,7 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 你在橋下放一片葉子。一分鐘後它在哪？
 
-先用直覺回答，並寫下你有多確定。多數人會說「大概在下游 30 公尺處，左右晃一點」。這個答案的骨架是對的，但兩件事說不清楚：「晃一點」是多少——一公分、一公尺、十公尺？以及如果你想用電腦模擬這片葉子，每一步該加多大的隨機推力？上一篇（<Ref to="math-random-walk-brownian"/>）給了一個提示：亂流的累積效果按 $\sqrt t$ 長。這一篇把水流與亂流放在同一條式子裡。
+主流會把葉子帶往下游，隨機擾動卻讓相同起點的葉子走出不同的路。**要怎麼把這兩種移動放進同一條規則？** 上一篇的 random walk 已經給了噪聲的尺度：時間 $h$ 內的增量是 $\sqrt h$ 大小；主流的位移則是 $h$ 大小。
 
 <Question id="Q1">
 翻成數學。「主流」與「亂流」各是什麼物件？「一分鐘後的位置」是什麼——一個數、還是一個分佈？把 ODE $\dot x=f(x,t)$ 改成含亂流的版本，該怎麼寫？
@@ -71,29 +71,29 @@ $$
 dx_t=f(x_t,t)\,dt+g(t)\,dW_t .
 $$
 
-這叫 **SDE**（stochastic differential equation）。**主流是 $f$**，叫 **drift**（確定的推動）；**亂流的強度是 $g$**，叫 **diffusion coefficient**（隨機的擴散）。「一分鐘後的位置」$x_{60}$ 是一個**隨機變數**——每片葉子走出不同的路；我們能問的是它的**分佈**：均值、標準差、長什麼形狀。這與 ODE 的根本差別：ODE 的解是一條路，SDE 的解是一個分佈隨時間的演化。
+這叫 **SDE**（stochastic differential equation）。$f$ 是 **drift**，$g$ 是 **diffusion coefficient**。它的解是一個隨時間變動的 **random process**；每次給定 Brownian noise 的 realization，就得到一條 random trajectory。$x_{60}$ 則是其中一個時刻的隨機變數，它的 distribution 不是整條 process 本身。
 </Answer>
 </Question>
 
 ## 一條路變成一把扇子
 
-ODE 的葉子畫出一條線。SDE 的葉子每一瞬間被隨機推一下，畫出一條抖動的線；放一百片葉子，一百條抖動的線從同一點出發，往下游張開成一把**扇子**——中心線是 drift 帶著走的那條 ODE 軌跡，扇子的寬度按 $g\sqrt t$ 長。
+對固定主流 $f=c$、固定強度 $g$，一百條路會像扇子散開：中心是 $x_0+ct$，標準差是 $g\sqrt t$。這個特例很適合先理解兩項的角色，但一般 drift 會影響散開程度；例如往中央拉回的 drift，可以讓 variance 不再持續增加。
 
-所以 SDE 可以拆成兩個你已經認識的東西疊起來：**一條 ODE 的路**（<Ref to="math-vector-field-ode"/>）加上**一個 random walk 的散開**（<Ref to="math-random-walk-brownian"/>）。drift 決定扇子往哪彎，$g$ 決定扇子多寬。
+一般情況不能把解直接拆成「ODE 解加 Brownian motion」。因為隨機偏移後，葉子讀到的 drift 也會改變；$\frac{d}{dt}\mathbb E[x_t]=\mathbb E[f(x_t,t)]$，通常不等於 $f(\mathbb E[x_t],t)$。
 
 ![一條路變成一把扇子](./imgs/m3-1-1.svg)
 
-*圖：SDE 的中心線由 drift 決定，路徑扇面的典型寬度由 g√t 決定。*
+*圖：固定 drift 與固定 diffusion 的特例，中心平移、標準差按 $g\sqrt t$ 增加。*
 
 ## 讀法、模擬、以及為什麼是 $\sqrt h$
 
-**讀法就是定義（本課程採用的層次）。** 給 $f$、$g$，SDE $dx=f\,dt+g\,dW$ 的意思是：對任何很小的 $h$，
+**先用一小步理解。** 假設係數滿足適當的存在、唯一與收斂條件，SDE 在小步長下可以近似為
 
 $$
-x_{t+h}=x_t+f(x_t,t)\,h+g(t)\sqrt h\,\varepsilon_t,\qquad \varepsilon_t\sim\mathcal N(0,I)\ \text{彼此 independent},
+x_{t+h}\approx x_t+f(x_t,t)\,h+g(t)\sqrt h\,\varepsilon_t,\qquad \varepsilon_t\sim\mathcal N(0,I)\ \text{彼此 independent}.
 $$
 
-且 $h\to0$ 時這串點的分佈收斂。嚴格的定義需要 Itô 積分 [3]，這門課刻意不走那條路：上面這個讀法在 $g$ 不依賴 $x$ 時與嚴格定義一致，而且它**就是**演算法。
+這是 **Euler–Maruyama approximation**，不是有限步的精確等式。嚴格的 Itô SDE 由積分定義：$x_t=x_0+\int_0^t f(x_s,s)\,ds+\int_0^t g(s)\,dW_s$ [1, 3]。本篇先用增量理解這個式子，收斂的條件留到本單元最後。
 
 **Euler–Maruyama 法。** 把讀法直接寫成迴圈：
 
@@ -148,19 +148,19 @@ for h in [1.0, 0.1, 0.01]:
 # 均值 30.0、標準差 2.32，與 h 無關；用 h 當尺度時標準差 2.3 → 0.73 → 0.23，隨 h 消失
 ```
 
-用 $\sqrt h$ 時三種步長給出同樣的均值與標準差，與理論 $\mathcal N(30,2.32^2)$ 一致——這是「模型合法」的實作證據。用 $h$ 時標準差每縮 $h$ 十倍就縮 $\sqrt{10}$ 倍，模擬結果取決於你選的步長，理論預告的失敗兌現了。再進一步違反假設：把 $\varepsilon_n$ 換成前後相關的序列（例如 $\varepsilon_n=\rho\varepsilon_{n-1}+\sqrt{1-\rho^2}\eta_n$），標準差會被放大，且放大的倍數隨 $h$ 改變——噪聲不再是 Brownian 增量，SDE 的讀法不再適用。
+用 $\sqrt h$ 的結果與本例的 Gaussian 理論相符；改用 $h$，累積變異數則隨步長縮小而消失。若改成 stationary AR(1) 擾動、固定 $0<\rho<1$，離散增量就不是 independent Brownian increments。在適當極限下，它仍可能得到 Brownian 模型，但有效變異數會多出 $(1+\rho)/(1-\rho)$ 的因子，不能原封不動沿用原來的 $g$；若相關時間本身也隨 h 改變，更需重新分析。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m3-stochastic-dynamics/m3-1-1.html" class="demo-frame" title="Euler–Maruyama：噪聲尺度與路徑扇面" style="height: 840px; width: 100%; border: none;"></iframe>
 
 ## 檢查理解
 
 <QuizBlock id="m3-1-a">
-一個電池的電量每小時穩定下降 2%，同時因為溫度波動每小時隨機上下浮動、浮動彼此獨立。要模擬 24 小時後電量的分佈，該用哪個工具？
-<Option>ODE $\dot x=-0.02x$，因為浮動會平均掉。</Option>
-<Option correct>SDE $dx=-0.02x\,dt+g\,dW$，用 Euler–Maruyama 模擬多條路徑，看終點的分佈——浮動的累積效果按 $\sqrt t$ 長，不會平均掉。</Option>
+假設一個量有固定下降速度 $c>0$，又受到 Brownian 擾動，想在這個理想模型下描述時間 $T$ 後的 distribution。該用哪個工具？
+<Option>只用 ODE，因為浮動會平均掉。</Option>
+<Option correct>SDE $dx=-c\,dt+g\,dW$，同時保留下降趨勢與隨機散布。</Option>
 <Option>Random walk，因為主要是隨機浮動。</Option>
 <Explanation>
-「浮動會平均掉」是把期望值當成典型值——獨立浮動累積起來是 $g\sqrt{24}$ 的標準差，不是零；只用 ODE 會給出一個確定的數字、漏掉不確定性。只用 random walk 則漏掉確定的下降趨勢。兩者疊起來就是 SDE。
+此例的終點是 $\mathcal N(x_0-cT,g^2T)$。ODE 只給出中心位置，random walk 則漏掉下降的 drift；兩者都不足以單獨描述這個模型。
 </Explanation>
 </QuizBlock>
 
@@ -187,7 +187,7 @@ $g$ 依賴 $x$ 時，「在步的哪個位置評估 $g$」在 $h\to0$ 後仍留�
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-fokker-planck">
-本篇把 SDE 讀成「每一小步走 $fh$、加 $g\sqrt h\,\varepsilon$」，看到它的解是一把扇子而不是一條路，並用 variance 與 $h$ 無關來檢驗 $\sqrt h$。一片葉子的分佈我們用模擬得到；接著像 <Ref to="math-continuity-equation"/> 那樣，不追葉子，直接寫下這個分佈自己滿足的方程式。
+現在有了每片葉子的隨機移動規則。但如果想知道一整群葉子的 density 怎麼變，仍得另找一個描述。下一篇延續 continuity equation 的記帳方式，看看加入噪聲後，多出的淨流量怎麼寫。
 </Bridge>
 
 ## 參考文獻

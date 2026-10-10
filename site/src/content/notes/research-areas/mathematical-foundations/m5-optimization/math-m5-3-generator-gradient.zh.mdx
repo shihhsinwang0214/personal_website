@@ -10,7 +10,7 @@ title: "只看得到樣本，怎麼調機器：對 Generator 微分"
 category: "courses"
 group: "M5 · Optimization、Convexity 與距離"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-09
 summary: "一台機器把亂數變成產品，你只看得到吐出來的樣本，卻想調它讓產品的分佈接近目標。把「抽樣」寫成「固定亂數、再過一個可微的函數」（reparameterization），KL 對機器參數的梯度就能算，而且長得很乾淨：在每個樣本上，兩個 ∇log p 的差、乘上機器對參數的靈敏度。一維四行推導、一個會被忽略的零項、以及當你只有目標的樣本時這條公式還缺什麼。"
 demos: []
 references:
@@ -50,13 +50,11 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 ## 一台把亂數變成產品的機器
 
-工廠裡有一台機器：每次按下按鈕，它內部擲一把骰子（亂數 $z$），然後依照參數 $\theta$ 把骰子的結果加工成一個產品 $x=G_\theta(z)$。你看不到骰子、看不到內部，只看得到吐出來的產品。
+想像一台機器把亂數 $z$ 加工成產品 $x=G_\theta(z)$。在生成模型裡，這台機器是我們能微分的程式：訓練時知道 $z$ 與 $G_\theta$，但不一定知道成品的密度 $p_\theta(x)$。
 
 客戶給了你一個目標：產品的**分佈**要像某個規格 $p^*$——不是每個產品都一樣，而是整體的散佈要對。你可以調整機器的參數 $\theta$。這些參數應該往哪個方向更新？
 
-先用直覺回答：你會怎麼做？拿一批產品、跟規格比、然後怎麼把「比出來的差距」變成「參數該更新的方向」？寫下你有多確定。
-
-課堂上的回答通常是「多抽一些，看哪邊多了就往反方向調」。這是對的方向，但它說不出**每個參數該更新多少**——尤其當參數很多（$\theta$ 是幾百萬維）時，「哪邊多了」根本無法逐一看。我們需要的是一個**梯度**：分佈的差距對每個參數的偏導數。
+若把同一份亂數固定住，再稍微改變 $\theta$，我們就能看出產品如何移動。**能不能從這些樣本的移動，算出整個分布差距的梯度？** 這就是下面要做的事。
 
 <Question id="Q1">
 翻成數學。「產品的分佈」是 $\theta$ 的什麼函數？「跟規格的差距」用哪個量寫？直接對它微分會卡在哪裡？
@@ -70,7 +68,7 @@ $$
 
 （方向是 $\mathrm{KL}(p_\theta\|p^*)$：對「機器把產品放在規格幾乎不允許的地方」罰得重——這正是「不要生出不合規格的產品」要的方向。）
 
-直接微分會卡在兩處。第一，期望是**對 $p_\theta$ 取的**，而 $p_\theta$ 本身隨 $\theta$ 變——「抽樣」這個動作不可微，你沒辦法對「從一個分佈抽一個數」這件事求導。第二，被積函數裡有 $\log p_\theta(x)$，它也隨 $\theta$ 變。兩個 $\theta$ 糾在一起。
+直接微分要處理兩件事：抽樣分布 $p_\theta$ 隨參數改變，被積函數的 $\log p_\theta(x)$ 也隨參數改變。單純呼叫黑箱抽樣器，沒有提供樣本如何隨參數移動的資訊；重參數化提供的正是這條路徑。它不是唯一的梯度估計方式。
 
 解開第一個結的方法，就是這一篇的物件：**把隨機性搬到 $\theta$ 外面**。$x\sim p_\theta$ 與「$z\sim p_z$ 然後 $x=G_\theta(z)$」是同一件事，但第二種寫法裡隨機的只有 $z$，它不依賴 $\theta$；$\theta$ 只出現在一個普通的、可微的函數 $G_\theta$ 裡。這叫 **reparameterization**（重參數化）。
 </Answer>
@@ -90,7 +88,7 @@ $$
 
 ## 在一維上把它算出來
 
-一維、$\theta$ 是一個實數。reparameterize 之後：
+先看一維、$\theta$ 是實數的情況。假設 $G_\theta$ 可微，$p_\theta,p^*$ 有適當的光滑密度、KL 有限，且可交換微分與積分。還需要 $p_\theta$ 的 support 不隨 $\theta$ 改變，或已正確處理邊界項。重參數化後：
 
 $$
 L(\theta)=\mathbb E_{z}\Big[\log p_\theta\big(G_\theta(z)\big)-\log p^*\big(G_\theta(z)\big)\Big].
@@ -106,7 +104,7 @@ $$
 \end{aligned}
 $$
 
-(B) 看起來很麻煩——它是「分佈本身對 $\theta$ 的變化率」在樣本處的值。但它的期望是零：
+(B) 的 $\partial_\theta$ 是**固定 $x$** 時對密度參數的偏導數，不是沿 $G_\theta(z)$ 的 total derivative。在上面的假設下，它的期望是零：
 
 $$
 \mathbb E_z\big[\partial_\theta\log p_\theta(G_\theta(z))\big]=\mathbb E_{x\sim p_\theta}\big[\partial_\theta\log p_\theta(x)\big]=\int p_\theta\,\frac{\partial_\theta p_\theta}{p_\theta}\,dx=\partial_\theta\!\int p_\theta\,dx=\partial_\theta1=0.
@@ -118,14 +116,14 @@ $$
 \boxed{\;\partial_\theta\,\mathrm{KL}(p_\theta\|p^*)=\mathbb E_{z}\Big[\big(\partial_x\log p_\theta(x)-\partial_x\log p^*(x)\big)\Big|_{x=G_\theta(z)}\cdot\partial_\theta G_\theta(z)\Big].\;}
 $$
 
-多維時 $\partial_x\log$ 換成 $\nabla_x\log$、$\partial_\theta G$ 換成 Jacobian，形狀是「向量 $\times$ 矩陣」，其餘一字不改。
+多維時，令 $J_\theta G\in\mathbb R^{d\times m}$（樣本 $d$ 維、參數 $m$ 維），公式是 $\nabla_\theta L=\mathbb E_z[(J_\theta G)^\top(s_\theta-s^*)]$，其中 $s=\nabla_x\log p$。這樣得到的梯度才是 $m$ 維。
 
 讀一遍每個符號。$\nabla_x\log p(x)$ 是密度的**對數梯度**——有時叫 **score function**，它指向「密度上升最快」的方向，並且**不需要知道 normalizing constant**：$\log(\tilde p/Z)$ 對 $x$ 微分時 $\log Z$ 消失（<Ref to="math-gradient"/> 裡 $\nabla\log$ 的意義）。$\partial_\theta G_\theta(z)$ 是參數的靈敏度，由機器本身給。整條公式說：**梯度 $=$ 在每個樣本處，機器的 score 減規格的 score，乘上靈敏度，取平均。**
 
 <Details summary="為什麼 (B) 消失這件事重要：兩種估計量與變異數">
-若不用 reparameterization，另一條路是「score-function estimator」（REINFORCE）：∂_θ E_\{p_θ\}[f(x)] = E_\{p_θ\}[f(x)·∂_θ log p_θ(x)]。它不需要 G 可微、連 x 是離散的都能用，但變異數通常很大——f(x) 的絕對大小整個進入估計量。reparameterization 把「分佈怎麼變」換成「每個樣本怎麼動」，估計量只含 f 的梯度，變異數小得多（Mohamed et al. [3] 的系統比較）。
+另一條路是 score-function estimator：對不含 $\theta$ 的 $f$，$\partial_\theta\mathbb E_{p_\theta}[f]=\mathbb E_{p_\theta}[f\,\partial_\theta\log p_\theta]$。它使用的是參數方向的 score，與正文的 $\nabla_x\log p$ 不同；離散輸出也能用。哪一種估計量變異數較小，取決於問題與控制變異數的方法，不是普遍的大小關係 [3]。
 
-而 (B) 這一項：它的期望是零，但**單一樣本上不是零**。實作時若把 log p_θ(G_θ(z)) 對 θ 直接自動微分，autodiff 會忠實地算出 (A)+(B)——(B) 平均下來是零，卻帶進額外的雜訊。Roeder et al. [4] 指出把 (B) 手動去掉（對 p_θ 的參數做 stop-gradient、只讓梯度從 G_θ 流過）會得到變異數更低的估計量；在 p_θ = p* 的最佳點，去掉 (B) 的估計量每個樣本都恰好為零，保留 (B) 的則仍在抖。「一個期望為零的項，留著或去掉」是實作品質的分水嶺。
+Roeder、Wu 與 Duvenaud [4] 分析去掉零均值項 (B) 的估計量。去掉它仍然 unbiased，但不能只因為 $\mathbb E[B]=0$ 就斷定變異數一定下降：$\mathrm{Var}(A+B)=\mathrm{Var}(A)+\mathrm{Var}(B)+2\mathrm{Cov}(A,B)$。特別在 $p_\theta=p^*$ 時，(A) 每個樣本都為零，去掉 (B) 才能消除這個來源的抖動。
 </Details>
 
 ## 公式能用，但缺一樣東西
@@ -136,7 +134,7 @@ $$
 2. **$\nabla_x\log p^*(x_i)$**——規格的 score。若客戶給的規格是一條公式（例如「常態、均值 5、標準差 1」），直接算。若客戶只給了**一批合規格的樣本**、沒有公式——這是現實中最常見的情形——這一項**你沒有**。從樣本估一個分佈的 score 是一個獨立的問題（score matching [5]），要另外訓一個模型。
 3. **$\nabla_x\log p_\theta(x_i)$**——機器自己的 score。這也不是免費的：你知道 $G_\theta$，但**你不知道 $p_\theta$ 的密度**——pushforward 的密度要算 $G_\theta^{-1}$ 的 Jacobian，一般的 $G$ 做不到。所以這一項也要另外估：拿機器吐出來的樣本、訓一個 score 模型。
 
-於是「只看得到樣本、要調分佈」這件事的完整流程是：**兩個 score 模型（一個學規格、一個學機器）加一個可微的機器**，梯度是兩個 score 的差乘靈敏度。直覺「哪邊多了就往反方向調」的精確版本正是這樣——「哪邊多」由兩個 score 的差說出，「怎麼調」由靈敏度說出。
+所以這條公式需要兩個 score 的資訊，但不一定需要兩個額外的 neural networks：可能有解析公式，也可能用其他估計方法。若兩者都未知，估計它們是額外的工作。Normalizing constant 在對 $x$ 微分時被繞過，並不是被算出來；有梯度資訊仍不代表拿到了 likelihood 或 KL 的數值。
 
 這個判斷依賴的假設：**$G_\theta$ 對 $\theta$ 可微、對 $z$ 是連續的**（產品若是離散的類別，reparameterization 就沒有直接版本，要用展開框裡的 score-function estimator 或其他 relaxation）；**兩個 score 估得夠準**（尤其在樣本稀疏的區域，估錯的 score 會把產品推向錯的方向）；以及 **KL 的方向**——$\mathrm{KL}(p_\theta\|p^*)$ 允許機器「漏掉」規格的某一塊（mode dropping），若客戶要求每一種合規格的產品都要出現，該用另一個方向或另一個距離。
 
@@ -162,7 +160,7 @@ print(theta)                                                   # → 5.0
 
 $\theta$ 從 0 走到 5，`grad_A` 每步恰等於 $\theta-5$（因為兩個 score 的差不依賴 $x$，這個例子裡 (A) 沒有抽樣雜訊）。`grad_B` 每步在 $\pm0.06$ 附近抖——它的期望是零，但每一批都不是零；若把它加進更新，$\theta$ 收斂後仍會在 5 附近抖動，而只用 (A) 的版本在最佳點每一步都精確為零。
 
-**刻意違反一個假設。** 把 `score_target` 換成一個從 $p^*$ 的 200 個樣本估出來的粗糙版本（例如用核密度估計取對數再差分）：在樣本稀疏的尾端 score 估錯，$\theta$ 會收斂到 5 附近但帶偏差；樣本越少偏得越多。再把 $G_\theta(z)=\theta+z$ 換成 $G_\theta(z)=\theta+|z|$——機器只會吐正的產品，pushforward 的密度 $p_\theta$ 你不再有 closed form，`score_model` 那一行必須改成從機器樣本估——這就是「第三樣東西也不免費」的意思。
+若改用有限樣本估出的 score，尾端資訊不足可能帶來偏差，結果需要另外檢查。也不能把「非線性 generator」直接等同「沒有解析密度」：例如 $\theta+|z|$ 仍有 shifted half-normal 密度，卻因 support 隨 $\theta$ 移動，不能直接沿用 (B) 為零的證明。低維 latent 映到高維空間時，甚至可能沒有環境空間的密度；這時必須先確認 KL 與 score 公式是否有定義。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m5-optimization/m5-3-1.html" class="demo-frame" title="Generator gradient 互動示範" style="height: 900px; width: 100%; border: none;"></iframe>
 
@@ -176,17 +174,17 @@ $\theta$ 從 0 走到 5，`grad_A` 每步恰等於 $\theta-5$（因為兩個 sco
 <Option correct>不能直接用——$\arg\max$ 對 $\theta$ 的導數幾乎處處為零，「每個樣本怎麼動」在離散空間沒有意義；要改用 score-function estimator $\mathbb E[f(x)\,\partial_\theta\log p_\theta(x)]$，或對離散變數做連續的 relaxation。</Option>
 <Option>可用，只要把 KL 換成別的距離。</Option>
 <Explanation>
-reparameterization 的核心是「讓參數改變一點、每個樣本連續地動一點」；離散輸出沒有「動一點」。$\arg\max$ 的梯度處處為零（跳躍點除外），autodiff 會給你零梯度。換距離不解決可微性的問題。score-function estimator 不需要 $G$ 可微，但變異數大——這是它與 reparameterization 之間永遠的取捨。
+Pathwise derivative 需要可微的樣本路徑，argmax 的跳躍不符合這個前提。Score-function estimator 可以處理離散取值，但兩類估計量的 variance 沒有普遍的大小排序，還要看問題與 variance reduction。
 </Explanation>
 </QuizBlock>
 
 <QuizBlock id="m5-3-b">
 把 (B) 那一項 $\partial_\theta\log p_\theta$ 在樣本處的值留在梯度裡，不去掉。長期而言：
 <Option>梯度會偏，收斂到錯的 $\theta$。</Option>
-<Option correct>梯度**不偏**（(B) 的期望是零），但每一批的估計多了一份雜訊；在最佳點附近，只用 (A) 的估計量可以每個樣本都恰好為零，保留 (B) 的則持續抖動。</Option>
+<Option correct>在上述正則條件下仍然 unbiased；本篇 Gaussian 例子中 (A) 沒有抽樣波動，保留 (B) 會多出波動，但一般情況的 variance 差別還要看 covariance。</Option>
 <Option>沒有任何差別，autodiff 會自動處理。</Option>
 <Explanation>
-(B) 的期望為零是一個對整個分佈的陳述，不是對單一樣本的；所以它不引入偏差，但引入變異數。autodiff 若不加 stop-gradient 會忠實地把 (B) 算進去——它不知道你想去掉它。這正是「一個期望為零的項該不該留」成為實作議題的原因。
+(B) 在適當假設下不引入偏差，但保留或去掉它的變異數差別還要看 covariance。在本篇 Gaussian 例子與完全匹配點，去掉它確實更穩；不能推廣成所有參數位置的保證。
 </Explanation>
 </QuizBlock>
 
@@ -194,16 +192,16 @@ reparameterization 的核心是「讓參數改變一點、每個樣本連續地�
 客戶只給了 200 個合規格的樣本，沒有公式。你用本篇的梯度公式調機器，發現產品分佈在規格的**主體**吻合得很好、但**尾端**明顯偏掉。最合理的診斷是：
 <Option>學習率太大。</Option>
 <Option>reparameterization 在尾端失效。</Option>
-<Option correct>規格的 score $\nabla\log p^*$ 是從 200 個樣本估出來的，尾端幾乎沒有樣本、估出來的坡是錯的；產品在那裡被推向錯的方向。要修的是 score 的估計（更多樣本、更好的估計方法），不是梯度公式。</Option>
+<Option correct>尾端樣本少，score 估計是值得先檢查的來源；但也要排除模型容量、未收斂與最佳化問題，不能只從終點偏差確定原因。</Option>
 <Explanation>
-公式本身在任何 $x$ 都成立；出錯的是輸入公式的那個量。樣本稀疏的地方 score 估計的變異數與偏差都大，這與學習率、與 reparameterization 都無關。理論告訴你「梯度是兩個 score 的差」，實作告訴你「其中一個 score 在尾端不可信」——兩者合起來才知道該往哪修。
+有限樣本的尾端 score 是值得檢查的來源，但單從終點偏差不能排除學習率、模型容量或未收斂。應比較解析 toy case、score 估計品質與訓練穩定性，再判斷主要原因。
 </Explanation>
 </QuizBlock>
 
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-warehouse-ot">
-本篇把「抽樣」拆成「固定骰子 + 可微的機器」，於是 KL 對機器參數的梯度可以算：每個樣本處兩個 score 的差、乘靈敏度、取平均；那個期望為零的項留著只會增加雜訊。到這裡 M5 的四個工具——Jensen、KL、EMA、對 generator 微分——都建好了。接下來的單元 換一種「距離」的想法：不問「兩個分佈在每一點差多少」，而問「把一堆貨從這個擺法搬成那個擺法，最少要多少油」。
+固定亂數後，我們能把樣本的移動接到參數梯度，但仍需要密度、score 與可交換微分的假設。下一個單元換一種比較分布的方式：不只看每個位置的機率，而問把一堆貨從一個擺法搬成另一個擺法，最少需要多少搬運成本？
 </Bridge>
 
 ## 參考文獻

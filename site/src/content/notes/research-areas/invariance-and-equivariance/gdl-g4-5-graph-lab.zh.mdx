@@ -1,0 +1,147 @@
+---
+slug: "gdl-g4-5-graph-lab"
+label: "gdl-graph-lab"
+lang: "zh"
+title: "實作：重編路口與分不開的兩張 graph"
+category: "courses"
+group: "G5 · Graphs and Message Passing"
+status: "available"
+updated: "2026-10-09"
+summary: "以可重用的 dense batched GCN，測 features、adjacency 的共同重編，並執行 1-WL 限制的反例。"
+prereqs: ["gdl-graph-expressivity"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Kipf 與 Welling（2017），Semi-Supervised Classification with Graph Convolutional Networks"
+    href: "https://arxiv.org/abs/1609.02907"
+  - label: "Xu、Hu、Leskovec 與 Jegelka（2019），How Powerful are Graph Neural Networks?"
+    href: "https://arxiv.org/abs/1810.00826"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 實作：重編路口與分不開的兩張 graph
+
+<Objectives>
+
+- **執行 graph batch 的共同重編。** 同時變更 adjacency 的 rows、columns 與 node features。
+- **分開 node features 與 graph readout。** 用不同 expected tensor 檢查兩種輸出。
+- **實際重現不可辨識例子。** 對相同 input features 的 C6 與兩個三角形驗證相同 prediction。
+
+</Objectives>
+
+<Prereq items={["gdl-graph-expressivity"]} />
+
+## 程式裡也要把兩端索引一起換
+
+G5 的 proof 用 $A'=PAP^\top$。在 PyTorch 中，這通常是對 adjacency 的兩個 node axes 使用同一份 index，而不是隻 shuffle features。
+
+這次用小型 undirected graphs 與 scalar node features，target 是所有 node features 的總和。模型有兩層 GCN 與 invariant sum readout；它示範訓練介面與 action，不用這個簡單 target 宣稱已學會 graph topology。
+
+## 準備與執行
+
+本課的實作使用 Python 3.10 以上與 PyTorch 2.x，CPU 就可以計算。請在自己的 Python 環境安裝 PyTorch，再下載 [gdl_labs.py](/personal_website/notes/research_areas/invariance-and-equivariance/gdl_labs.py)。環境目錄與下載的第三方套件不要加入網站的 Git repository。
+
+```powershell
+python -m pip install torch
+python gdl_labs.py --unit 5 --steps 40
+```
+
+檔案包含可重用的模型與 `Trainer`。模型、loss 與資料來源由外部指定；換資料時保留對稱一致的 tensor interface，不需要修改 training loop。
+
+```python
+from gdl_labs import Trainer
+
+trainer = Trainer(model, loss, lr=0.003)
+history = trainer.fit(batch_fn, steps=40)
+# batch_fn() returns ((model_input_1, model_input_2, ...), target)
+```
+
+## 同一份 permutation 用三次
+
+```python
+from gdl_labs import GCN, defect
+import torch
+
+model = GCN(in_dim=2, hidden=24, layers=2)
+x = torch.randn(4, 7, 2)
+a = torch.zeros(4, 7, 7)
+a[:, 0, 1] = a[:, 1, 0] = 1
+p = torch.randperm(7)
+new_x = x[:, p]
+new_a = a[:, p][:, :, p]
+print(defect(model(new_x, new_a), model(x, a)))
+print(defect(model.features(new_x, new_a), model.features(x, a)[:, p]))
+```
+
+Graph output 不變，node features 跟著重排。程式也支援有效 nodes 的 mask；padding nodes 不加入 self-loop，不參與 edge aggregation 或 readout。
+
+這個 dense adjacency 版本適合小圖與教學。大型 sparse graph 應改用 edge-index 的 aggregation，避免配置 $N\times N$ 矩陣；替換計算表示後仍需保持相同 node action。
+
+## 為什麼還要測兩張不同 graph？
+
+```python
+from gdl_labs import graph_pair
+cycle, triangles = graph_pair()
+h = torch.ones(1, 6, 2)
+print(defect(model(h, cycle[None]), model(h, triangles[None])))
+```
+
+兩張圖不是只重編號就等價，但模型在這組相同 features 下仍給相同答案。這是 <Ref to="gdl-graph-expressivity" /> 的 induction 對應程式結果，不是 symmetry test 失敗。
+
+如果額外加入 degree，兩圖仍 degree $2$，所以也無法補回差別。任意加入 node ID 可能打破初始相同，卻要另外回答是否還符合 node relabeling 的任務要求。
+
+## 作業
+
+先做合法 permutation，再故意只重排 adjacency 的一個 axis，比較差異。請說明後者改了哪一個 node 的連線，而不是隻說「數值變了」。
+
+第二題，給 C6 與兩個三角形不同的 graph labels，在相同初始 features 下訓練。為什麼無法同時精確擬合，卻仍可保持很小的 permutation defect？
+
+加分部分：為可辨識的另一組 graphs 建立 node 或 edge attributes，說明額外資訊從哪裡來，且在重編下怎麼搬動。不要只是把 target 藏進 input。
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g4-5.svg" alt="Graph test 用同一 permutation 更新 node rows 與 adjacency 的兩軸；不可辨識測試則比較內容不同的兩張圖。" loading="lazy" />
+<figcaption>Graph test 用同一 permutation 更新 node rows 與 adjacency 的兩軸；不可辨識測試則比較內容不同的兩張圖。</figcaption>
+</figure>
+
+<Question>
+
+C6 與兩個三角形 prediction 一樣，能否說模型違反了 permutation equivariance？
+
+<Answer>
+
+不能。Equivariance 要求同一份 graph 重編後答案一致，沒有要求所有不同 graphs 都給不同答案。這個結果顯示表示能力的限制。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+重編路網，檢查逐點 defect；再切換兩張 degree 2 的圖，檢查 readout gap。前者驗證架構一致性，後者展示內容辨識的限制。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=4&chapter=5" class="demo-frame" title="實作：重編路口與分不開的兩張 graph：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="Adjacency 要重排幾個 node axes？" options={[{"text":"兩個，而且使用同一份 permutation。","correct":true,"explain":"Edge 兩端都要對上新編號。"},{"text":"一個，只要 shape 不變。","explain":"Edge 兩端都要對上新編號。"}]} />
+
+<Quiz q="C6 與兩個三角形加 degree 後會分開嗎？" options={[{"text":"一定分開，degree 記錄全局 connectedness。","explain":"Degree 只保留局部鄰居數。"},{"text":"仍可能分不開，所有 nodes 都是 degree 2。","correct":true,"explain":"Degree 只保留局部鄰居數。"}]} />
+
+<Quiz q="Dense adjacency 適合什麼？" options={[{"text":"小圖與直接檢查矩陣 action。","correct":true,"explain":"大型圖需要考慮 sparse 表示。"},{"text":"任意大型圖都完全沒有記憶體代價。","explain":"大型圖需要考慮 sparse 表示。"}]} />
+
+<Bridge to="gdl-euclidean-transformations">
+
+我們在實作裡分開了一致性與 graph 辨識能力。下一個單元把 nodes 放到空間，讓原子距離與方向也成為模型可以使用的內容。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Kipf 與 Welling（2017），Semi-Supervised Classification with Graph Convolutional Networks](https://arxiv.org/abs/1609.02907)
+2. [Xu、Hu、Leskovec 與 Jegelka（2019），How Powerful are Graph Neural Networks?](https://arxiv.org/abs/1810.00826)

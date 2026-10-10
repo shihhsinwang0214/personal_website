@@ -1,0 +1,301 @@
+---
+slug: "dma-w10-3-reward-tilting"
+label: "dma-reward-tilting"
+prereqs:
+  - dma-classifier-free-guidance
+  - math-kl
+  - math-bayes-posterior
+lang: "zh"
+title: "既要像資料，又要 reward 高：我們真正想抽哪個 distribution？"
+category: "courses"
+group: "Unit 7 · Test-time Guidance"
+status: "available"
+updated: 2026-10-09
+summary: "把 high reward 與 data fidelity 寫成一個 distributional objective，會得到 p_R(x)∝p_data(x)e^{λR(x)}。但 diffusion 在 noisy x_t 上需要的不是直接對 R 微分，而是 future reward 的條件期望 h_t；常見 plug-in guidance 正是在近似這一項。"
+demos: []
+references:
+  - label: "Bansal et al., Universal Guidance for Diffusion Models (2023)"
+    href: "https://arxiv.org/abs/2302.07121"
+  - label: "Geyfman et al., Calibrated Test-Time Guidance for Bayesian Inference (ICML 2026)"
+    href: "https://proceedings.mlr.press/v306/geyfman26a.html"
+  - label: "Dandapanthula & Boffi, Are We Really Tilting? (2026)"
+    href: "https://arxiv.org/abs/2606.02884"
+  - label: "Ouyang et al., Training Language Models to Follow Instructions with Human Feedback (NeurIPS 2022)"
+    href: "https://arxiv.org/abs/2203.02155"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Details from '../../../components/Details.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 既要像資料，又要 reward 高：我們真正想抽哪個 distribution？
+
+<Objectives>
+- **從「reward 高又像資料」推出 tilted distribution。** 將 entropy 與 data likelihood 一起考慮，推得 $p_R(x_0)\propto p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}$。
+- **寫出 noisy state 上真正需要的 guidance。** 推導 $p_t^R(x_t)\propto p_t(x_t)h_t(x_t)$，其中 $h_t$ 是 future reward exponent 的 posterior expectation。
+- **分清 exact tilt 與常見 plug-in approximation。** 說出對 $R(\hat x_0)$ 求 gradient 為什麼不等於精確的 $\nabla\log h_t$，以及 approximation 可能造成的偏差。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 一個高分樣本，還是一個高分 distribution？
+
+CFG 使用的是 training 時就存在的 condition。現在換成更一般的情況：模型訓練完後，我們才拿到一個 reward $R(x_0)$。它可以是美感分數、蛋白質穩定性、軌跡回報，或一筆觀測的 data fidelity。
+
+我們希望 reward 越高越好，但又不能只顧 reward。若產生出一張 reward model 給滿分、在人眼看來卻完全不像資料的影像，steering 並沒有成功。用機率的語言說，我們同時在乎
+
+- $R(x_0)$：這個樣本有多符合這次目標；
+- $\log p_{\mathrm{data}}(x_0)$：這個樣本在原本 data distribution 下有多合理。
+
+如果只想找**一個點**，最直接的目標是最大化 $\lambda R(x_0)+\log p_{\mathrm{data}}(x_0)$；$\lambda>0$ 決定 reward 的影響強度。但生成模型通常不是只交出一個最佳點，而是要建立一個新的 sampling distribution $\widetilde p$，保留多種合理答案。
+
+<Ask>
+要讓整個 distribution 同時偏向高 reward、<br />
+又不要離開原本的 data distribution，我們該最大化什麼？
+</Ask>
+
+## 把 data fidelity、reward 與 diversity 放進同一個 objective
+
+最自然的嘗試，是對 $\widetilde p$ 抽出的樣本最大化
+
+$$
+\mathbb E_{x_0\sim \widetilde p}
+\big[\lambda R(x_0)+\log p_{\mathrm{data}}(x_0)\big].
+$$
+
+這兩項確實同時顧到 reward 與 data likelihood，但它們仍然只在比較**單一樣本的分數**。若 $\widetilde p$ 可以自由選，最佳解會把所有 mass 放到分數最高的點，不會保留一個有寬度的 distribution。
+
+少掉的要求是 diversity。用 entropy $H(\widetilde p)=-\mathbb E_{\widetilde p}[\log \widetilde p(x_0)]$ 表示後，完整目標可以寫成
+
+$$
+\max_{\widetilde p}\;
+\mathbb E_{\widetilde p}\big[\lambda R(x_0)+\log p_{\mathrm{data}}(x_0)\big]
++H(\widetilde p).
+$$
+
+因為 expectation 是 linear 的，把 entropy 展開後，三項可以放進同一個 log：
+
+$$
+\begin{aligned}
+&\mathbb E_{\widetilde p}\big[\lambda R(x_0)+\log p_{\mathrm{data}}(x_0)\big]+H(\widetilde p)\\
+&\qquad=\mathbb E_{\widetilde p}\left[
+\log\frac{p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}}{\widetilde p(x_0)}
+\right].
+\end{aligned}
+$$
+
+現在定義 normalizing constant 與新的 target distribution：
+
+$$
+Z_R=\int p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}\,\mathrm dx_0,
+\qquad
+p_R(x_0)=\frac{1}{Z_R}p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}.
+$$
+
+把 $p_{\mathrm{data}}e^{\lambda R}=Z_Rp_R$ 代回去：
+
+$$
+\begin{aligned}
+\mathbb E_{\widetilde p}\left[
+\log\frac{p_{\mathrm{data}}e^{\lambda R}}{\widetilde p}
+\right]
+&=\log Z_R+\mathbb E_{\widetilde p}\left[\log\frac{p_R}{\widetilde p}\right]\\
+&=\log Z_R-D_{\mathrm{KL}}(\widetilde p\|p_R).
+\end{aligned}
+$$
+
+$\log Z_R$ 不隨 $\widetilde p$ 改變，而 KL 的最小值在 $\widetilde p=p_R$。所以我們真正想抽的 distribution 是
+
+$$
+\boxed{
+p_R(x_0)=\frac{1}{Z_R}p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}
+}.
+$$
+
+它把原本的 data density 乘上一個 reward-dependent weight：高 reward 的區域被放大，但原本幾乎沒有 data density 的區域仍然受到抑制。這個做法稱為 **exponential tilting** 或 **reward tilting**。
+
+這裡的 $p_{\mathrm{data}}$ 是理想的 base distribution。實作時，我們只能使用 pretrained model 學到的 $p_\theta$ 或它的 score；因此 steering 能逼近的是以 learned model 為 base 的 tilted distribution，原本的 model error 並不會因此消失。
+
+<Question id="Q1">
+既然我們在乎的就是 reward 與 likelihood，**把 entropy $H(\widetilde p)$ 拿掉，直接最大化兩個 expectation，不是更單純嗎？**
+
+<Answer>
+拿掉 entropy 後，objective 對 $\widetilde p$ 是 linear 的。令 $F(x_0)=\lambda R(x_0)+\log p_{\mathrm{data}}(x_0)$，則
+
+$$
+\max_{\widetilde p}\ \mathbb E_{\widetilde p}[F(x_0)]
+$$
+
+會把全部 mass 放到 $F$ 最大的點；若有多個並列最大點，才可能分到它們上面。這是在做 mode seeking，不是在建立一個保留 uncertainty 的 distribution。
+
+entropy 的角色不是額外裝飾。它懲罰 $\widetilde p$ 過度集中，並讓 objective 等價於
+
+$$
+\lambda\mathbb E_{\widetilde p}[R(x_0)]
+-D_{\mathrm{KL}}\!\left(\widetilde p\|p_{\mathrm{data}}\right).
+$$
+
+第一項拉向高 reward，第二項限制 $\widetilde p$ 不要離 base distribution 太遠。**要找一個最佳樣本，可以不需要 entropy；要定義我們想抽的整個 distribution，就不能省掉它。**
+</Answer>
+</Question>
+
+<Details summary="同一個 tilted distribution，在論文裡還有哪些常見寫法？">
+上面的 objective 常以幾種等價或相近的形式出現。
+
+**KL-regularized reward maximization：**
+
+$$
+\max_{\widetilde p}\;
+\mathbb E_{\widetilde p}[R(x_0)]
+-\frac{1}{\lambda}D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}}).
+$$
+
+乘上正的常數 $\lambda$，就回到正文的 objective。
+
+**Constrained formulation：** 最大化 $\mathbb E_{\widetilde p}[R]$，同時要求 $D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}})\le\delta$。在適當的 regularity 與 Lagrange multiplier 下，它會得到同一族 tilted distributions。
+
+**Bayesian posterior：** 若 $R(x_0)=\log p(y\mid x_0)$ 且 $\lambda=1$，則
+
+$$
+p_R(x_0)\propto p_{\mathrm{data}}(x_0)p(y\mid x_0)=p(x_0\mid y).
+$$
+
+這時 reward 就是 observation likelihood，steering 變成 posterior sampling。
+
+**RLHF：** 把 $x_0$ 換成 response、$p_{\mathrm{data}}$ 換成 reference policy，常見目標是 $\mathbb E_{\widetilde p}[R]-\beta D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{ref}})$ [4]。符號不同，結構仍是「提高 reward，同時限制偏離 base model」。
+</Details>
+
+## 若 reward 可以微分，直接把 gradient 加上去嗎？
+
+在乾淨資料端，tilted density 的 score 很容易寫：
+
+$$
+\nabla_{x_0}\log p_R(x_0)
+=\nabla_{x_0}\log p_{\mathrm{data}}(x_0)
++\lambda\nabla_{x_0}R(x_0).
+$$
+
+所以若我們直接在 $x_0$ 上做 Langevin sampling，reward gradient 的確可以和 base score 相加。這和 classifier guidance 的結構完全相同：classifier 只是取了 $R(x_0)=\log p(y\mid x_0)$ 的特例。
+
+但 diffusion sampling 大部分時間拿到的是 noisy $x_t$，而 reward 通常定義在最後的 clean sample $x_0$。真正要走的 noisy tilted marginal 是
+
+$$
+p_t^R(x_t)=\int q(x_t\mid x_0)p_R(x_0)\,\mathrm dx_0.
+$$
+
+把 $p_R$ 的定義代進去：
+
+$$
+\begin{aligned}
+p_t^R(x_t)
+&=\frac{1}{Z_R}\int q(x_t\mid x_0)
+p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}\,\mathrm dx_0\\
+&=\frac{p_t(x_t)}{Z_R}
+\mathbb E\!\left[e^{\lambda R(x_0)}\mid x_t\right].
+\end{aligned}
+$$
+
+第二個等號先乘除 $p_t(x_t)$，被積分的 posterior 正好是 $p(x_0\mid x_t)$。為了讓後面可以直接指向這個量，記
+
+$$
+h_t(x_t):=
+\mathbb E\!\left[e^{\lambda R(x_0)}\mid x_t\right].
+$$
+
+$h_t$ 問的是：**從現在這個 noisy state 出發，所有可能 clean outcomes 的 exponentiated reward 平均有多高？** 因此 exact tilted score 是
+
+$$
+\boxed{
+\nabla_{x_t}\log p_t^R(x_t)
+=s_t(x_t)+\nabla_{x_t}\log h_t(x_t)
+}.
+$$
+
+這裡真正需要的 guidance 不是 $\nabla R(x_t)$，而是 **future reward 在 posterior 下的 log-gradient**。
+
+## 實作上的近似，近似的是哪一項？
+
+$h_t$ 要把給定 $x_t$ 後所有可能的 $x_0$ 都考慮進去，通常不可算。Bansal 等人的 Universal Guidance [1] 與許多後續方法會先用 denoiser 得到 $\hat x_0(x_t,t)$，再近似
+
+$$
+h_t(x_t)
+\approx e^{\lambda R(\hat x_0(x_t,t))}.
+$$
+
+取 log-gradient 後，guidance 變成
+
+$$
+\nabla_{x_t}\log h_t(x_t)
+\approx\lambda\nabla_{x_t}R(\hat x_0(x_t,t)),
+$$
+
+其中 gradient 會穿過 $\hat x_0$ 對 $x_t$ 的 denoising calculation。這個做法直覺上是在問：「如果把目前的 noisy state 去噪，reward 會往哪裡上升？」
+
+但它不是 exact tilt，因為一般來說
+
+$$
+\mathbb E\!\left[e^{\lambda R(x_0)}\mid x_t\right]
+\neq e^{\lambda R(\mathbb E[x_0\mid x_t])}.
+$$
+
+左邊保留 posterior 裡所有可能 outcomes；右邊先把它們平均成一個 $\hat x_0$，再算 reward。當 posterior 有多個 modes 時，平均圖可能不屬於任何一個 mode；reward model 也可能在 denoiser 或 classifier 的脆弱方向上被過度最佳化。Geyfman 等人 [2] 與 Dandapanthula、Boffi [3] 的分析都指出，常見 plug-in guidance 不應被直接解讀成精確 sampling from $p_R$。
+
+<VizPlan id="u7-3-reward-tilt" title="Reward tilting 與 noisy future reward" type="static">
+- 檔名：`w10-3-reward-tilting.png`；放在 exact tilted score 之後。
+- 上排：base density 地形乘上 $e^{\lambda R}$，形成 tilted density；下排：同一個 noisy $x_t$ 對應多個可能的 $x_0$，$h_t$ 對它們的 exponentiated rewards 做 posterior average。
+- 中文標註：`原本像資料的程度`、`reward reweighting`、`新的 target distribution`、`同一個 noisy state 的可能未來`。
+- 觀察句：乾淨端的 $\nabla R$ 很直接；在 noisy state 上，exact guidance 要先對所有可能未來取平均。
+- 風格：地形沿用 U1 的 density 視覺，posterior branches 使用半透明細線，避免畫成單一路徑。
+</VizPlan>
+
+## 消化一下
+
+<QuizBlock id="w10-3-a">
+為什麼 reward-tilted distribution 要含有 $p_{\mathrm{data}}(x_0)$？
+<Option>讓 reward 的數值永遠介於 0 與 1。</Option>
+<Option correct>讓高 reward 樣本仍受到 base data density 約束；原本極不合理的區域不會只因 reward 高就自動變合理。</Option>
+<Option>用來計算 classifier 的 label。</Option>
+<Explanation>
+$e^{\lambda R}$ 只負責重新加權；$p_{\mathrm{data}}$ 保留原本模型學到的 data prior。兩者相乘後還要除以 $Z_R$ 才成為 density。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w10-3-b">
+在 noisy state $x_t$ 上，exact reward guidance 是哪一項？
+<Option>$\lambda\nabla R(x_t)$。</Option>
+<Option>$R(\mathbb E[x_0\mid x_t])$。</Option>
+<Option correct>$\nabla_{x_t}\log\mathbb E[e^{\lambda R(x_0)}\mid x_t]$。</Option>
+<Explanation>
+reward 定義在 clean outcome。給定 $x_t$ 後仍有很多可能的 $x_0$，exact tilted marginal 必須先對這個 posterior 取 expectation。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w10-3-c">
+將 $h_t$ 近似成 $e^{\lambda R(\hat x_0)}$ 時，最主要省掉了什麼？
+<Option>base score $s_t$。</Option>
+<Option correct>給定 $x_t$ 後，對所有可能 clean outcomes 的 posterior expectation。</Option>
+<Option>normalizing constant $Z_R$。</Option>
+<Explanation>
+$Z_R$ 原本就會在 score 中消失。plug-in approximation 真正省掉的是 future outcomes 的積分；也因此可能漏掉 modes 或造成 reward over-optimization。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-gradient-free-steering">
+現在 target 已經很清楚：我們想抽 $p_R\propto p_{\mathrm{data}}e^{\lambda R}$。若 reward 可微，常見做法是以 denoised estimate 近似 $\nabla\log h_t$；但 black-box simulation、human preference、硬性檢查與離散指標根本沒有可用 gradient。<Ref to="dma-gradient-free-steering"/> 會從最直接的 Best-of-$N$ 出發，看看多個候選與 particles 如何把「只會打分」的 reward 用進 sampling。
+</Bridge>
+
+## 參考文獻
+
+1. Bansal, A. et al. [*Universal Guidance for Diffusion Models.*](https://arxiv.org/abs/2302.07121) 2023.（對 denoised prediction 使用任意 differentiable guidance。）
+2. Geyfman, D. et al. [*Calibrated Test-Time Guidance for Bayesian Inference.*](https://proceedings.mlr.press/v306/geyfman26a.html) ICML 2026.（常見 guidance 與 calibrated posterior sampling 的差異。）
+3. Dandapanthula, S., Boffi, N. M. [*Are We Really Tilting? The Mechanics of Reward Guidance in Flow and Diffusion Models.*](https://arxiv.org/abs/2606.02884) 2026.（有限 particle plug-in 對 mode selection 與 reward hacking 的分析。）
+4. Ouyang, L. et al. [*Training Language Models to Follow Instructions with Human Feedback.*](https://arxiv.org/abs/2203.02155) NeurIPS 2022.（KL-regularized RLHF 的常見形式。）

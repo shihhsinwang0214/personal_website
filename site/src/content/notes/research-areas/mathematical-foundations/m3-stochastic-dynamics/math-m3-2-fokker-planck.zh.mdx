@@ -11,7 +11,7 @@ title: "一千片葉子在亂流裡：Fokker–Planck 方程式"
 category: "courses"
 group: "M3 · Stochastic Dynamics"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-09
 summary: "一千片葉子在有亂流的河裡，它們的分佈怎麼演化？drift 把質量搬走（continuity equation 那一項），噪聲把質量攤平（一個二階導數項），合起來就是 Fokker–Planck 方程式 ∂ₜp = −∇·(fp) + (g²/2)Δp。這一篇教一個比推導更常用的技巧：把猜到的 p_t 代進去驗證——用純 Brownian motion 的 N(0,t) 示範一次。"
 demos: []
 references:
@@ -41,7 +41,7 @@ import UsedBy from '../../../components/UsedBy.astro';
 <Objectives>
 - **寫出 Fokker–Planck 方程式 $\partial_tp=-\nabla\cdot(fp)+\tfrac{g^2}{2}\Delta p$。** 用「drift 搬質量、噪聲攤平質量」說出兩項各從哪來。
 - **掌握「代入驗證」的技巧：把一個猜到的 $p_t$ 代進方程式兩邊、確認相等。** 在純 Brownian motion 上做一次，驗證 $p_t=\mathcal N(0,t)$。
-- **對「一群粒子在有噪聲的系統裡分佈怎麼演化」這類情境，判斷用 Fokker–Planck 是否恰當、說出它依賴的假設（每步噪聲零均值、variance 有限、高階矩不太大；$g$ 不依賴 $x$）。** 用直方圖對照 PDE 的解驗證與破壞它。
+- **分清 Brownian SDE、有限步模擬與 diffusion limit。** 說出本篇 $g=g(t)$、各方向相同強度的假設，以及代入驗證還需要檢查的初始條件。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -52,7 +52,7 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 現在兩件事合起來：一千片葉子，從橋下一小塊水面出發，河裡既有主流也有亂流。一分鐘後，這一千片葉子的分佈是什麼樣子？
 
-先用直覺回答，並寫下你有多確定。多數人會說「整團被主流帶到下游，同時被亂流攤開、變寬變扁」。這個描述是對的。但它沒有回答：**變寬的速度**是多少？主流不均勻（有地方快有地方慢）時，「搬」與「攤」會怎麼互相影響？以及——能不能像 continuity equation 那樣，寫下一條分佈自己滿足的方程式，不用模擬一千片葉子就算出答案？
+主流會搬運葉子，噪聲又讓相同起點的葉子散開。像兩塊相鄰地磚：若左邊的人比較多，即使每個人左右隨機走，從左邊走過來的人也會比較多。**這種隨機移動，會在 density 的記帳式裡多出哪一項？** 我們延續「流進減流出」，但要先算噪聲造成的淨流量。
 
 <Question id="Q1">
 翻成數學。「一千片葉子的分佈」是什麼物件？把 continuity equation 的「進 − 出」記帳法套到有亂流的河上，多出了什麼？
@@ -111,7 +111,7 @@ p=\frac{1}{\sqrt{2\pi t}}e^{-x^2/2t},\qquad
 \partial_tp=\Big(-\frac{1}{2t}+\frac{x^2}{2t^2}\Big)p .
 $$
 
-右邊 $\tfrac12\partial_{xx}p=\big(-\tfrac{1}{2t}+\tfrac{x^2}{2t^2}\big)p=\partial_tp$。✓ 兩邊逐項相等，$\mathcal N(0,t)$ 確實是解。這個技巧會反覆用到：不推導、只驗證。
+右邊 $\tfrac12\partial_{xx}p=\big(-\tfrac{1}{2t}+\tfrac{x^2}{2t^2}\big)p=\partial_tp$，因此在 $t>0$ 滿足 PDE。還要檢查起點：$t\to0$ 時這個 Gaussian 集中到原點，對應初始 distribution $\delta_0$。只符合 PDE 而沒符合初始、邊界條件，不能說它就是我們要的解。
 
 <Details summary="有 drift 的驗證：f = c 常數、g 常數，p_t = N(ct, g²t)">
 記 m = ct、s = g²t，p = (2πs)^(−1/2) exp(−(x−m)²/(2s))。
@@ -125,11 +125,11 @@ $$
 
 ## 直覺對了，多了三個數字
 
-起點問題的答案：分佈的中心被 $f$ 帶著走，寬度的 variance 以 $g^2$ 的速率**線性**增加（標準差按 $g\sqrt t$ 長），總質量守恆。直覺的「搬過去同時攤開」完全正確；它補不上的是攤開的速率 $g^2/2$、以及「攤開」的精確意思——密度的 Laplacian 為正的地方上升、為負的地方下降，所以高峰被削、低谷被填，**多峰的分佈會被抹成單峰**。
+固定 drift、固定 $g$ 的特例，中心平移、variance 按 $g^2t$ 增加。一般 drift 也會壓縮或拉開人群，不能照搬這個寬度公式；一維下有 $\frac{d}{dt}\mathrm{Var}(x_t)=2\mathrm{Cov}(x_t,f(x_t,t))+g(t)^2$。Diffusion 項在局部削峰填谷，但和 drift 合起來後，distribution 仍可能維持多個峰。
 
 主流不均勻時兩項會互動：收攏的 drift（$\partial_xf<0$）把分佈壓窄，噪聲把它攤寬，最後可能達到平衡——下一篇（<Ref to="math-langevin"/>）就是這件事。
 
-依賴的假設：**每一步的噪聲零均值、variance 有限，而且更高階的矩不會太大**（Taylor 展開裡 $\mathbb E[\varepsilon^3]$ 以上的項才會消失得夠快。Gaussian 只是最常見的例子，不是必要條件——下面的 quiz c 會問這件事；真正會壞的是重尾噪聲，偶爾一跳很遠、$\mathbb E[\varepsilon^2]$ 無限，二階項就不夠描述），以及 **$g$ 不依賴 $x$**（否則二階項變成 $\tfrac12\partial_{xx}(g^2p)$，$g$ 要進到微分裡面，見 <Ref to="math-sde"/> 展開框的 Itô 討論）。
+這裡先處理 Brownian SDE，$g=g(t)$ 是不依賴位置的 scalar，Brownian motion 的各方向獨立且強度相同。若 $g=g(x,t)$，一維的 Itô 版本要改成 $\frac12\partial_{xx}(g^2p)$，不能把 $g^2$ 移出微分。另一方面，iid 的非 Gaussian 小步在適當的 diffusion limit 下也能得到同一條 PDE，但那是極限的結果，不表示有限步增量已經是 Brownian noise。
 
 ## 直方圖對上 PDE，再換一種噪聲
 
@@ -147,7 +147,7 @@ print(np.abs(hist - p_theory).max())          # 小，且隨葉子數增加而�
 # 違反假設：把 standard_normal 換成 standard_cauchy，直方圖尾巴變厚、方差不收斂
 ```
 
-直方圖與 Fokker–Planck 的解 $\mathcal N(cT,g^2T)$ 重合。把噪聲換成 Cauchy（重尾），直方圖的尾巴遠比 Gaussian 厚、中央反而更尖，而且加更多葉子也不會收斂到任何 Gaussian——「攤平」不再由二階導數描述。
+直方圖可以與 $\mathcal N(cT,g^2T)$ 對照。把噪聲換成 Cauchy 後，不能沿用相同的推導；在 $\sqrt h$ 尺度下反覆累加 Cauchy，也不會得到固定尺度的 Brownian 極限。要建立另一種隨機模型，必須重新選擇縮放與對應的演化方程。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/mathematical-foundations/m3-stochastic-dynamics/m3-2-1.html" class="demo-frame" title="Fokker–Planck：粒子直方圖與密度方程" style="height: 880px; width: 100%; border: none;"></iframe>
 
@@ -188,7 +188,7 @@ Gaussian 不是「永遠」是解，只有 variance 等於 $g^2t$（加常數）
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-langevin">
-本篇把 SDE 的分佈演化寫成 Fokker–Planck 方程式——drift 搬、噪聲攤——並學會用「代入驗證」確認一個候選解。搬與攤如果方向相反：drift 一直把葉子往某處拉、噪聲一直把它們攤開，久了會停在一個平衡。接著把河換成山谷，問「很久以後大家在哪」。
+現在可以描述搬運與 diffusion 同時發生時的 density 變化。若 drift 持續往低處拉，噪聲又持續讓人散開，能不能找到一個不再改變的 distribution？下一篇把河換成山谷，先找平衡，再分清「平衡存在」和「真的走到平衡」。
 </Bridge>
 
 ## 參考文獻

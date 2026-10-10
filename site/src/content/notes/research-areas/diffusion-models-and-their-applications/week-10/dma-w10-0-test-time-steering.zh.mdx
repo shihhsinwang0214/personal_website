@@ -1,0 +1,207 @@
+---
+slug: "dma-w10-0-test-time-steering"
+label: "dma-test-time-steering"
+prereqs:
+  - dma-tweedie-and-score
+  - dma-reverse-process
+  - math-bayes-posterior
+lang: "zh"
+title: "模型已經訓練好，現在才知道想要什麼，還來得及嗎？"
+category: "courses"
+group: "Unit 7 · Test-time Guidance"
+status: "available"
+updated: 2026-10-09
+summary: "生成模型學到的是整體 data distribution，但使用者常在 sampling 時才提出類別、文字、觀測或 reward。這篇先把 test-time steering 的問題說清楚：保留 pretrained model，用額外訊號改變取樣時的方向，而不是把模型重新訓練一次。"
+demos: []
+references:
+  - label: "Dhariwal & Nichol, Diffusion Models Beat GANs on Image Synthesis (NeurIPS 2021)"
+    href: "https://arxiv.org/abs/2105.05233"
+  - label: "Ho & Salimans, Classifier-Free Diffusion Guidance (2022)"
+    href: "https://arxiv.org/abs/2207.12598"
+  - label: "Singhal et al., A General Framework for Inference-time Scaling and Steering of Diffusion Models (ICML 2025)"
+    href: "https://proceedings.mlr.press/v267/singhal25b.html"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import VizPlan from '../../../components/VizPlan.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# 模型已經訓練好，現在才知道想要什麼，還來得及嗎？
+
+<Objectives>
+- **說出 test-time steering 要改的是什麼。** 保留 pretrained generative model 的參數，只在 sampling 時加入條件、觀測或 reward，改變樣本走向。
+- **分清 conditioning、fine-tuning 與 test-time steering。** 判斷需求是在 training 前已知、需要更新參數，還是只在這一次生成時出現。
+- **從可用訊號判斷後續方法。** 區分能提供 gradient 的 classifier／reward，以及只能替完整樣本打分的 black-box reward。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## 模型學會了資料，但不知道這一次我們需要怎樣的資料
+
+前幾個單元都在探討同一類問題：怎麼學到一個 data distribution，再把 noise 或一筆給定的資料，逐步轉換成這個 distribution 裡的樣本。
+
+但真正使用模型時，要求常常是在**模型訓練完之後**才出現的。使用者可能想要「一隻戴紅帽的狗」、修復一張模糊照片、生成穩定性更高的蛋白質，或要求機器人的路線不能撞到新放置的障礙物。原本訓練好的模型知道「合理的資料大概長什麼樣子」，卻不知道這一次任務中，應該要偏向哪一個可能。
+
+想像一個已經學完整座城市道路的導航系統。出發時你才說：「我要去有充電站的路線，而且避開塞車。」我們不會為了這一次要求重畫整張地圖；比較自然的做法是保留道路資訊，**在每一個路口用新的要求改變選擇**。
+
+這裡的道路資訊就是 pretrained model，新的要求可能是一個 condition $y$、一筆 observation，或一個替完整樣本打分的 reward $R(x_0)$。我們要問的是：
+
+<Ask>
+不重新訓練 generative model，<br />
+能不能只在 sampling 時把樣本帶向這一次想要的區域？
+</Ask>
+
+這一類做法通常稱為 **test-time guidance** 或 **test-time steering**。本單元統一使用 steering 來表示整個問題；guidance 則保留給「在每一步額外加上一個方向」的具體做法。
+
+## 先分清楚：什麼時候才算 test-time？
+
+這幾種方法都能讓生成結果符合要求，但它們改動的東西不一樣。先把符號立起來：$x_0$ 是一筆乾淨資料，$y$ 是我們給定的 condition，例如類別或文字；$\theta$ 則是 generative model 的參數。
+
+### Condition 從 training 時就存在
+
+如果 training data 從一開始就附有 $y$，我們可以直接學一個 conditional distribution
+
+$$
+p_\theta(x_0\mid y).
+$$
+
+它表示：**給定 condition $y$ 之後，模型認為資料 $x_0$ 出現的機率；若 $x_0$ 是連續資料，更精確地說是 probability density。** 例如給定 $y=$「戴紅帽的狗」，符合這段描述的圖片應該得到較高的 density。
+
+在 diffusion model 裡，實作方式就是把 $y$ 也交給 noise predictor，再沿用 U1 的 denoising regression：
+
+$$
+\mathcal L_{\mathrm{cond}}(\theta)
+=\mathbb E_{x_0,y,t,\epsilon}
+\left[
+\left\|\epsilon-\epsilon_\theta(x_t,t,y)\right\|^2
+\right].
+$$
+
+其中，$x_t$ 是 $x_0$ 在 noise level $t$ 的 noisy version，$\epsilon$ 是實際加入的 noise，而 $\epsilon_\theta(x_t,t,y)$ 是網路根據 noisy data、時間與 condition 預測的 noise。expectation 同時平均 training pairs $(x_0,y)$、$t$ 與 $\epsilon$。和 U1 的差別只是網路現在也看到 $y$；因此 condition 會參與 training，並改變最後學到的參數 $\theta$。這就是 **conditional training**。
+
+### 模型訓練完後，再更新參數
+
+如果 pretrained model 已經存在，之後才拿到新的偏好資料 $\mathcal D_{\mathrm{pref}}$，我們也可以定義一個 alignment loss，再繼續更新參數：
+
+$$
+\theta
+\leftarrow
+\theta-\eta\nabla_\theta
+\mathcal L_{\mathrm{align}}
+\bigl(\theta;\mathcal D_{\mathrm{pref}}\bigr).
+$$
+
+$\eta$ 是 learning rate；$\mathcal L_{\mathrm{align}}$ 則衡量模型輸出和新偏好之間的差距，不同方法會用不同定義。這是 **fine-tuning** 或 alignment：新的要求透過 gradient update 被寫進 $\theta$，因此每換一組偏好或 reward，都可能需要重新準備資料並訓練。
+
+### 參數不動，只改這一次 sampling
+
+test-time steering 的限制更明確：模型已經訓練完，而且我們固定 $\theta$。以 score-based sampler 為例，它不更新 $s_\theta$ 的參數，而是在 sampling 時暫時改用
+
+$$
+\widetilde s_t(x_t)
+=s_\theta(x_t,t)+g_t(x_t),
+\qquad
+\theta\ \text{fixed}.
+$$
+
+第一項 $s_\theta(x_t,t)$ 是 U1 已經學到的 base score；$g_t(x_t)$ 則是這次的 condition、observation 或 reward 額外提供的方向。Sampler 只在這次生成中跟隨 $\widetilde s_t$，完成後 $\theta$ 完全沒有改變。因此同一個 model 今天可以偏向紅色，明天符合一筆量測，後天再換成另一個 reward；新增的計算都發生在 sampling 時。
+
+<Remark label="符號" summary="U7 回到 U1 的 diffusion 時間方向">
+本單元要直接修改 <Ref to="dma-tweedie-and-score"/> 的 score，因此沿用 U1 的符號：$x_0$ 是乾淨資料，$x_t$ 是 forward process 在 noise level $t$ 的 noisy state，$t$ 越大噪聲越多；sampling 從大的 $t$ 往 $0$ 走。
+
+邊際 density 仍寫成 $p_t(x_t)$，score 寫成
+
+$$
+s_t(x_t)=\nabla_{x_t}\log p_t(x_t),
+\qquad
+s_\theta(x_t,t)=-\frac{\epsilon_\theta(x_t,t)}{\sigma_t}.
+$$
+
+$v_t$ 繼續專門表示 U2–U3 的 velocity field，不拿來表示 guidance；資料或系統真正演化的時間則會在 <Ref to="dma-guidance-applications"/> 改用 $k$，避免和 diffusion time $t$ 混在一起。
+</Remark>
+
+## 要改方向，手上得先有某種訊號
+
+導航要改路，至少要知道「哪條路更符合要求」。在生成裡，這個訊號有幾種常見形式。
+
+**condition 的機率。** 若有一個 classifier 能對 noisy state 評估 $p_t(y\mid x_t)$，它的 gradient 會告訴我們往哪裡移動能讓 $y$ 更可能。<Ref to="dma-classifier-guidance"/> 會從 Bayes rule 把這個方向推導出來。
+
+**模型自己對 condition 的反應。** 若同一個 diffusion model 同時會做 conditional 與 unconditional prediction，兩個輸出的差就能取代外部 classifier。這會長成 <Ref to="dma-classifier-free-guidance"/> 的 classifier-free guidance。
+
+**完整樣本的 reward。** 有些要求只能在 $x_0$ 完成後打分，例如人類偏好、一次昂貴的物理模擬，或「有沒有通過安全檢查」這種 yes／no 結果。這時 $R$ 可能沒有 gradient，甚至每算一次都很貴；我們就得比較多個候選，或讓一群 particles 在途中淘汰與複製。
+
+<VizPlan id="u7-0-steering-map" title="同一個 base model，三種 test-time 訊號" type="static">
+- 檔名：`w10-0-test-time-steering.png`；放在本節之後。
+- 左側畫同一片道路地圖與同一個 pretrained sampler；右側分成三條路：noisy classifier 的 gradient、conditional／unconditional outputs 的差、只會替完成樣本打分的 black-box reward。
+- 中文標註：`base model：哪些路像資料`、`condition gradient：現在往哪裡偏`、`model difference：condition 改了哪一段`、`reward：走完才知道分數`。
+- 觀察句：相同的生成模型不必重新訓練；可用訊號不同，sampling 時能採取的動作也不同。
+- 風格：延續課程深色底、青綠路徑與橘色目標，不畫裝飾性箭頭。
+</VizPlan>
+
+<Question id="Q1">
+既然模型已經會生成資料，最直接的做法是不是：**一次生成很多個樣本，最後只留下分數最高的那一個？** 這樣還需要改 sampling 過程嗎？
+
+<Answer>
+這個方法完全可行，通常叫 **Best-of-$N$**：抽 $N$ 個獨立樣本，再取 reward 最高者。它不需要 gradient，也不需要知道模型內部怎麼運作，因此會是 <Ref to="dma-gradient-free-steering"/> 的第一個 baseline。
+
+麻煩出現在目標很少見時。若一次 base sampling 命中要求的機率只有 $p$，$N$ 次至少命中一次的機率是
+
+$$
+1-(1-p)^N.
+$$
+
+當 $p$ 很小，想讓成功率明顯提高，$N$ 大概要和 $1/p$ 同一個量級。前面那些差一點就成功的樣本也全部被丟掉，reward 沒有幫它們在途中修正方向。
+
+所以「最後再挑」是一個重要的起點，但不是所有問題都划算。後面的方法會問：**能不能在生成途中就使用訊號，讓計算量真的改變樣本分布，而不只增加最後可挑的張數？**
+</Answer>
+</Question>
+
+## 消化一下
+
+<QuizBlock id="w10-0-a">
+下列哪個情況最符合本單元的 test-time steering？
+<Option>蒐集新的 labeled dataset，重新訓練 conditional diffusion model。</Option>
+<Option correct>固定 pretrained model 的參數，在每次 sampling 時使用這一次才給定的 reward 改變樣本走向。</Option>
+<Option>把 U-Net 換成 Transformer，再從頭訓練。</Option>
+<Explanation>
+test-time 指的是需求在使用時進來，而 pretrained model 的參數不更新。可以增加 classifier、reward evaluation 或 particles；改的是 sampling 規則與 test-time compute。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w10-0-b">
+為什麼「reward 越高」不能單獨代表 steering 越好？
+<Option>因為 reward 一定沒有 gradient。</Option>
+<Option>因為 pretrained model 的 likelihood 永遠不能估計。</Option>
+<Option correct>因為樣本可能離 data distribution 越來越遠，或全部集中到少數高分區域；還要一起看 data fidelity 與 diversity。</Option>
+<Explanation>
+steering 的目的不是產出 reward model 最喜歡、但不像資料的奇怪輸入。<Ref to="dma-reward-tilting"/> 會把 reward 與貼近 base distribution 的要求寫進同一個 objective。
+</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w10-0-c">
+哪一種訊號最難直接變成「現在往哪裡走」？
+<Option>能對 $x_t$ 微分的 $\log p_t(y\mid x_t)$。</Option>
+<Option>conditional 與 unconditional score 的差。</Option>
+<Option correct>只能在完整樣本產生後回傳一個分數的 black-box reward。</Option>
+<Explanation>
+前兩者直接提供局部方向；black-box reward 只告訴我們結果好不好，通常要靠候選樣本、particles、resampling 或 source-space search 才能使用。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-classifier-guidance">
+我們已經把問題縮成一句話：**保留 base model，只在 sampling 時加入新的方向。** 最容易算的情況，是手上剛好有一個能看 noisy state、又能提供 gradient 的 classifier。那支 gradient 為什麼可以和原本的 score 直接相加？<Ref to="dma-classifier-guidance"/> 從 Bayes rule 開始算。
+</Bridge>
+
+## 參考文獻
+
+1. Dhariwal, P., Nichol, A. [*Diffusion Models Beat GANs on Image Synthesis.*](https://arxiv.org/abs/2105.05233) NeurIPS 2021.（Classifier guidance。）
+2. Ho, J., Salimans, T. [*Classifier-Free Diffusion Guidance.*](https://arxiv.org/abs/2207.12598) 2022.（不依賴外部 classifier 的 guidance。）
+3. Singhal, R. et al. [*A General Framework for Inference-time Scaling and Steering of Diffusion Models.*](https://proceedings.mlr.press/v267/singhal25b.html) ICML 2025.（任意 reward 與 particle-based steering。）

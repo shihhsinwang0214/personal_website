@@ -8,7 +8,7 @@ title: "進去就出不來：Absorbing State 與吸收時間"
 category: "courses"
 group: "M4 · Markov Chains"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-09
 summary: "單人遊戲每回合有一成機率結束，平均玩十回合——這個「平均」怎麼來、為什麼中位數只有七回合、為什麼玩了二十回合後剩下的期望仍是十；absorbing state 讓 stationary distribution 變得無趣，有趣的量換成吸收時間，用 first-step analysis 一行解出。"
 demos: []
 references:
@@ -33,7 +33,7 @@ import UsedBy from '../../../components/UsedBy.astro';
 # 進去就出不來：Absorbing State 與吸收時間
 
 <Objectives>
-- **認出一條 chain 裡的 absorbing state（$P(x,x)=1$ 的格子）。** 說出它讓 stationary distribution 變得平凡、讓「吸收時間」成為真正要算的量。
+- **認出 absorbing state：$P(x,x)=1$。** 分清「有一個不能離開的狀態」與「從所有起點最後都會到達它」。
 - **用 first-step analysis 寫出期望吸收時間的方程式，手算「每回合結束機率 $q$」的例子得到 $1/q$。** 說出它的分佈是 geometric、中位數與期望為何不同。
 - **對一個生活情境（遊戲回合、顧客流失、零件故障）判斷「平均還要多久」這類問題的答案是否可信、說出它依賴的假設（每回合機率不變、結束後不復活）。** 用模擬驗證。
 </Objectives>
@@ -44,13 +44,13 @@ import UsedBy from '../../../components/UsedBy.astro';
 
 一款單人手機遊戲，每一回合結束時系統擲一顆十面骰：擲到 0 遊戲結束，否則進入下一回合。結束了就是結束了——沒有復活、沒有續命，要玩得重開一局。
 
-請先用直覺回答，並寫下你有多確定：
+這次只知道「最後會結束」還不夠。我們想知道：
 
 1. 一局遊戲**平均**玩幾回合？
 2. 你已經玩了二十回合還沒結束。接下來平均還能再玩幾回合？
 3. 「一半的玩家在第幾回合之前就結束了」——這個數字跟第一題一樣嗎？
 
-第一題幾乎所有人都說十，而且很有把握。第二題就開始分裂：有人說「已經二十回合了，應該快結束了，大概再兩三回合」；有人說「還是十」。第三題多數人下意識覺得跟第一題差不多。這一篇要做的是：把「十」的來源說清楚，然後看它**沒有**告訴你的事。
+如果每回合都重新擲相同的骰子，已經玩多久，應該不會改變下一回合的機率。但**平均玩幾回合，要怎麼由這個一步的規則算出來？** 而「一半的人已經結束」又不是同一個問題。先把結束時間當成隨機變數，才看得出這幾種摘要的差別。
 
 <Question id="Q1">
 用上一篇的語言，這個遊戲是一條什麼樣的 Markov chain？狀態是什麼？我們要算的量「平均玩幾回合」在數學上是哪一個隨機變數的什麼？
@@ -63,7 +63,7 @@ P=\begin{pmatrix}P(\mathrm A,\mathrm A)&P(\mathrm A,\mathrm E)\\P(\mathrm E,\mat
 =\begin{pmatrix}1-q&q\\0&1\end{pmatrix},\qquad q=0.1 .
 $$
 
-第二列 $(0,1)$ 寫的就是「結束了就出不來」。狀態 $\mathrm E$ 這種 $P(x,x)=1$ 的格子叫 **absorbing state**（吸收態）；其他格子叫 transient。
+第二列 $(0,1)$ 表示「結束了就出不來」，這種 $P(x,x)=1$ 的狀態叫 **absorbing state**（吸收態）。在本例 $0<q\le1$ 下，$\mathrm A$ 最後幾乎必然離開，所以是 transient；一般 chain 的其他狀態則不一定都是 transient。
 
 我們要算的量是一個隨機變數：**首次到達 $\mathrm E$ 的時刻** $\tau=\min\{n\ge1:X_n=\mathrm E\}$，也就是玩到第幾回合結束。「平均玩幾回合」是 $\mathbb E[\tau\mid X_0=\mathrm A]$；第三題問的是 $\tau$ 的中位數；第二題問的是 conditional expectation $\mathbb E[\tau-20\mid \tau>20]$。三個問題問的是**同一個隨機變數的三個不同摘要**——這是它們答案可以不同的原因。
 </Answer>
@@ -109,7 +109,7 @@ $$
 
 ### 中位數與變異數
 
-中位數解 $(1-q)^n=\tfrac12$：$n=\ln\tfrac12/\ln0.9\approx6.6$，所以一半的玩家在第 7 回合前就結束了。變異數是 $(1-q)/q^2=90$，標準差約 $9.5$——幾乎跟期望一樣大。**「平均十回合」這句話幾乎沒有告訴你任何一局會玩多久**；它只告訴你很多局加起來的總回合數。第三題的直覺（中位數≈期望）錯在把一個右偏、長尾的分佈當成對稱的。
+先找滿足 $\Pr(\tau\le n)\ge1/2$ 的最小整數。由 $(1-q)^n\le1/2$ 得 $n\ge\ln(1/2)/\ln0.9\approx6.6$，故中位數是 7：至少一半的人在**第 7 回合結束以前或當回合**結束。Variance 是 90，標準差約 9.5；少數很長的局把 mean 拉到 10，所以 mean 不等於 median，也不是每一局的回合配額。
 
 <Details summary="多個 transient 狀態：fundamental matrix 與兩關遊戲的手算">
 把 $P$ 依「transient / absorbing」分塊寫成 $P=\begin{pmatrix}Q&R\\0&I\end{pmatrix}$。$Q^n(x,y)$ 是「第 $n$ 步還在 transient 狀態 $y$」的機率，所以從 $x$ 出發在 $y$ 停留的期望總步數是 $\sum_{n\ge0}Q^n(x,y)=(I-Q)^{-1}(x,y)$。矩陣 $N=(I-Q)^{-1}$ 叫 fundamental matrix，期望吸收時間是 $m=N\mathbb 1$——這就是把 first-step analysis 的方程組 $m=\mathbb 1+Qm$ 解出來。$I-Q$ 可逆的條件是每個 transient 狀態都到得了某個 absorbing state。
@@ -176,14 +176,14 @@ Geometric 分佈是 memoryless：$\Pr(\tau=31\mid\tau>30)=q$，跟第一回合�
 <Option>「已結束」仍是 absorbing state，只是吸收得比較慢。</Option>
 <Option correct>「已結束」不再是 absorbing state；chain 變成 irreducible，長期在「已結束」的比例是 $0.1/(0.1+0.3)=0.25$，而「平均玩幾回合」要改問成「每段連續遊玩的平均長度」。</Option>
 <Explanation>
-Absorbing state 的定義是 $P(x,x)=1$，有 30% 會離開就不是了，「吸收得比較慢」不成立——它根本不吸收。既然沒有 absorbing state，「吸收時間」這個量就沒有定義，$1/(0.1\times0.7)$ 沒有對應的意義。取而代之的是上一篇的工具：流量平衡 $\pi_\mathrm A\cdot0.1=\pi_\mathrm E\cdot0.3$ 給 $\pi_\mathrm E=0.25$；每段連續遊玩的長度仍是 geometric、平均 10 回合。
+有 30% 機率離開的「已結束」不是 absorbing state，因此不能再用永久吸收的模型。不過第一次到達「已結束」的 hitting time 仍有定義，期望仍是 10 回合。長期比例則用流量平衡算出 $\pi_\mathrm E=0.25$；hitting 與 absorbing 要分清楚。
 </Explanation>
 </QuizBlock>
 
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-ctmc">
-這一篇認出「進去就出不來」的格子，看到它讓長期比例變得平凡、讓「多久被吸收」成為主角，並用 first-step analysis 一行解出期望。到目前為止時間都是一回合一回合走的。接著處理「隨時都可能發生」的事——電話隨時進來、隨時結束——那時 transition matrix 要換成另一個物件。
+First-step analysis 把等待時間拆成「先花一回合，再面對剩下的問題」。但電話不等下一回合才響；若狀態隨時都可能改變，我們要怎麼寫一步的規則？下一篇把每回合的機率換成每單位時間的 rate。
 </Bridge>
 
 ## 參考文獻

@@ -1,0 +1,145 @@
+---
+slug: "gdl-g3-4-set-attention"
+label: "gdl-set-attention"
+lang: "zh"
+title: "名單重排後，attention 會跟著怎麼變？"
+category: "courses"
+group: "G4 · Attention and Transformers"
+status: "available"
+updated: "2026-10-10"
+summary: "逐項追蹤 queries、keys、softmax 分母與 values 的共同重排，證明 self-attention 的排列等變性，並分開全局 readout。"
+prereqs: ["gdl-attention-problem"]
+demos: ["notes/research_areas/invariance-and-equivariance/attention-workbench.html"]
+references:
+  - label: "Vaswani 等人（2017），Attention Is All You Need"
+    href: "https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf"
+  - label: "Lee 等人（2019），Set Transformer"
+    href: "https://proceedings.mlr.press/v97/lee19d.html"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 名單重排後，attention 會跟著怎麼變？
+
+<Objectives>
+
+- **推導 $H'=PH$ 後每個量怎麼變。** 得到 $Q'=PQ$、$S'=PSP^\top$ 與 $Y'=PY$。
+- **說明 softmax 為何不破壞證明。** 重排 keys 不改分母，重排 queries 搬動整列。
+- **分開逐點輸出與全局答案。** Equivariant features 還需要 invariant readout 才得到集合答案。
+
+</Objectives>
+
+<Prereq items={["gdl-attention-problem"]} />
+
+## 算得出權重，還要確認它沒有讀取編號
+
+在 <Ref to="gdl-attention-problem" />，我們先要求權重表跟著詢問者與被參考者重排，再用共享的比較與正規化構造 attention。現在把選好的 Q／K／V 公式逐項代入：**這些運算是否真的保留了我們一開始提出的要求？**
+
+我們不只看最後的輸出，也要追蹤中間的分數與 softmax 分母，確認每個 index 仍對應同一個點。
+
+想像圖書館重新排了書架。若書的索引與內容一起搬動，同一個問題應找到同樣的內容，只是它出現在新的位置。
+
+## 先追蹤三份 features
+
+沿用 $H'=PH$。因為 projection 作用在 feature 維度，而 $P$ 作用在 rows，
+
+$$
+Q'=PHW_Q=PQ,\qquad K'=PK,\qquad V'=PV.
+$$
+
+接著看分數表：
+
+$$
+S'=\frac{Q'(K')^\top}{\sqrt{d_k}}
+=\frac{PQK^\top P^\top}{\sqrt{d_k}}
+=PSP^\top.
+$$
+
+左邊的 $P$ 搬動詢問者，右邊的 $P^\top$ 搬動被參考者。兩邊都要換，才還是同一份「誰參考誰」的關係。
+
+## Softmax 的分母會不會改？
+
+令重排後第 $i$ 列來自原本第 $\pi(i)$ 列，也就是 $(PH)_i=h_{\pi(i)}$。固定詢問者後，
+
+$$
+A'_{ij}
+=\frac{\exp(S_{\pi(i),\pi(j)})}
+{\sum_{\ell=1}^n\exp(S_{\pi(i),\pi(\ell)})}.
+$$
+
+$\pi(\ell)$ 只是把全部 keys 各走過一次，分母因此等於
+$\sum_{r=1}^n\exp(S_{\pi(i),r})$。所以 $A'_{ij}=A_{\pi(i),\pi(j)}$，寫成矩陣就是
+
+$$
+A'=PAP^\top.
+$$
+
+最後把 values 搬動的結果代入：
+
+$$
+Y'=A'V'=PAP^\top PV=PAV=PY,
+$$
+
+其中 $P^\top P=I$。**這層 self-attention 的逐點輸出是 permutation-equivariant，不是所有點共用一個 invariant 答案。**
+
+## 如果任務只要整群點一個答案呢？
+
+像 <Ref to="gdl-deep-sets">G3.1</Ref> 一樣接對稱 pooling。例如
+
+$$
+z(H)=\sum_i y_i,\qquad z(PH)=\sum_i y_{\pi(i)}=z(H).
+$$
+
+再用 $\psi(z)$ 分類，就得到 permutation-invariant output。Lee 等人 [2] 的 Set Transformer 也把 equivariant encoder 與 invariant 的 attention pooling 分開設計；這裡的 sum 是最簡單可直接驗證的 readout。
+
+<Remark summary="用一個固定 query 讀集合，也能得到 invariant 摘要">
+
+令固定 query $q$ 比較全部 keys，得到一列權重 $a$。重排資料時 $K'=PK$、$V'=PV$，query 不動，因此 $a'=aP^\top$，輸出 $a'V'=aV$。注意這個 query 是讀取者，不是資料集合裡一個需要被一起重排的點。這與讓所有資料點各自當 query 的 self-attention 是不同的 output action。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g3-4.svg" alt="重排 queries 與 keys 後，分數變成 PSPᵀ，輸出則跟著點變成 PY。" loading="lazy" />
+<figcaption>重排 queries 與 keys 後，分數變成 PSPᵀ，輸出則跟著點變成 PY。</figcaption>
+</figure>
+
+<Question>
+
+重排後 heatmap 的數字位置改了，是否代表 attention 沒有保留 symmetry？
+
+<Answer>
+
+不代表。我們預期它變成 $PAP^\top$，不是原封不動的 $A$。先把詢問者與被參考者的編號對齊，再比較同一對點的權重。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+按「重排名單」。Heatmap 的兩個軸都會改順序，但下方的輸出比較會按照點的身分對齊。Defect 量的是 $Y(PH)$ 與 $PY(H)$ 的差，不是直接比較不同點。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/attention-workbench.html?chapter=2" class="demo-frame" title="名單重排後，attention 會跟著怎麼變？：attention 計算與重排" style="height: 840px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="S 的哪個軸對應 query？" options={[{"text":"Rows。","correct":true,"explain":"每列固定一個詢問者，columns 列出 keys。"},{"text":"Columns。","explain":"Columns 是被比較的 keys。"}]} />
+<Quiz q="重排 keys 為什麼不改 softmax 分母？" options={[{"text":"因為所有分數都相同。","explain":"分數不必相同；加總順序改變不影響和。"},{"text":"同一批 exponentials 只被換了加總順序。","correct":true,"explain":"每個 key 仍恰好出現一次。"}]} />
+<Quiz q="Y'=PY 能直接推出 Y'=Y 嗎？" options={[{"text":"不能，逐點 feature 跟各自的點搬動。","correct":true,"explain":"全局不變性要另外指定 readout。"},{"text":"能，兩個式子一樣。","explain":"輸出 action 不同。"}]} />
+
+<Bridge to="gdl-transformer-block">
+
+一層 attention 已經符合排列要求。可是一次加權平均還不是完整模型：**能不能讓不同的參考方式一起運作，再處理讀到的內容，疊成更深的網路？**
+
+</Bridge>
+
+## 參考文獻
+
+1. [Vaswani 等人（2017），Attention Is All You Need](https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf)
+2. [Lee 等人（2019），Set Transformer](https://proceedings.mlr.press/v97/lee19d.html)

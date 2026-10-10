@@ -2,8 +2,8 @@
 slug: "sets-and-point-clouds-permutation-invariance"
 lang: "en"
 title: "What If a Map Is a Set of Points?"
-category: "research-areas"
-group: "Invariance and Equivariance"
+category: "courses"
+group: "G3 · Sets and Permutations"
 status: "missing"
 updated: 2026-06-23
 summary: "English translation in progress; content-agent task."

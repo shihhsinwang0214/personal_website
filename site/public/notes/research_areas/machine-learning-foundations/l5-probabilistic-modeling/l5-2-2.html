@@ -45,9 +45,9 @@
 </head>
 <body>
 <div class="card">
-  <p class="goal">學習目標：p(x) ＝ Π p(xᵢ | x&lt;ᵢ) 是<b>恆等式</b>，對任何一個變數排列都精確成立——所以「自迴歸模型有順序偏見」這句話，錯的不是鏈式法則，是<b>條件機率的模型class</b>。這裡把兩件事分開量：<b>容量夠的時候換順序完全沒差</b>；<b>容量不夠的時候，同一批資料換個順序就差一個 nat 以上</b>。右邊是另一件事：生成要走幾步。</p>
-  <canvas id="bars" style="aspect-ratio:5/2" aria-label="所有順序的測試 NLL（條件表在訓練集上估、在另一份 5000 筆的測試集上算；每根一個排列，由小到大排好）；橫線＝真模型在同一份測試集上的 NLL，也就是理論下限"></canvas>
-  <p class="cap">所有順序的測試 NLL（條件表在訓練集上估、在另一份 5000 筆的測試集上算；每根一個排列，由小到大排好）；橫線＝真模型在同一份測試集上的 NLL，也就是理論下限</p>
+  <p class="goal">學習目標：chain rule 對不同順序都成立，但有限資料與受限的 conditional model 不保證學到同一個分布。比較上下文長度與生成順序，觀察測試 NLL 的差異；另一張圖則比較逐位置生成需要的輪數。</p>
+  <canvas id="bars" style="aspect-ratio:5/2" aria-label="不同順序的測試 NLL；條件表在訓練集估計，橫線是真模型在同一份測試集的參考分數"></canvas>
+  <p class="cap">不同順序的測試 NLL；條件表在訓練集估計，橫線是真模型在同一份測試集的參考分數，不是有限樣本分數的下界。</p>
   <canvas id="cost" style="aspect-ratio:5/2" aria-label="可切換：(a) 順序的分布（兩種容量疊在一起）　(b) 取樣要走幾步：自迴歸 vs 一次到位"></canvas>
   <p class="cap">可切換：(a) 順序的分布（兩種容量疊在一起）　(b) 取樣要走幾步：自迴歸 vs 一次到位</p>
   <div class="controls">
@@ -61,9 +61,9 @@
       <label for="n">訓練樣本 n</label><input id="n" type="range" min="200" max="2400" step="200" value="1200" />
       <button id="re" class="ghost">🎲 重抽</button>
     </div>
-    <div class="stats"><span>理論下限（真模型在測試集上的 NLL） = <b id="v0">—</b></span> <span>最好的順序 = <b id="v1">—</b></span> <span>最差的順序 = <b id="v2">—</b></span> <span>最差 − 最好 = <b id="v3">—</b></span> <span>容量夠的時候：最差 − 最好 = <b id="v4">—</b></span> <span>自迴歸取樣要走幾步 = <b id="v5">—</b></span></div>
+    <div class="stats"><span>真模型的測試 NLL（參考） = <b id="v0">—</b></span> <span>最好的順序 = <b id="v1">—</b></span> <span>最差的順序 = <b id="v2">—</b></span> <span>最差 − 最好 = <b id="v3">—</b></span> <span>看全部前綴：最差 − 最好 = <b id="v4">—</b></span> <span>自迴歸取樣要走幾步 = <b id="v5">—</b></span></div>
   </div>
-  <p class="observe">觀察：把「條件模型的容量」切到<b>「看全部」</b>，120 根長條<b>塌成同一個高度</b>——最差減最好只剩 <b>4.2e-3 nats</b>，那是有限樣本的抖動，不是順序造成的。這就是「鏈式法則是恆等式」的全部意思。切回<b>「只看前 1 個」</b>：同一個分布、同一批資料，最差減最好變成 <b>1.08 nats</b>（理論下限本身才 1.79）。而這個玩具裡的相依關係是「x1 綁 x5、x2 綁 x4」，<b>贏的那個順序一定是把每一對排在一起的那種</b>，輸的那個把它們全部拆開——按「重抽」換一組資料，贏家的排列會變，但那個性質不變。順序決定的不是能不能寫成連乘，而是<b>哪幾條相依關係會被丟掉</b>。把耦合強度調到 0（變數互相獨立），差距掉回 <b>3.9e-3</b>——沒有相依關係可以丟，順序就不重要了。切到 (b)：自迴歸取樣的步數<b>等於 d，和模型大小無關</b>，那是這個分解方式本身的代價。</p>
+  <p class="observe">觀察：先比較「看全部」與較短上下文的分數散佈，再改變相依強度與資料量。短上下文可能因順序而省略不同依賴；完整前綴也仍有有限樣本估計與 smoothing 的影響，分數不必完全相同。真模型只在 population expected NLL 上給出 entropy 下界，不保證每份有限測試集都排第一。取樣成本圖量的是逐位置生成輪數，不是實際執行時間。</p>
 </div>
 
 <script src="../_demo-common.js"></script>
@@ -162,7 +162,7 @@
     var p = trueDist(d, stg, seed * 31 + 7), H = entropy(p);
     var trB = toBits(draws(p, n, seed * 17 + 3), d);
     var teRaw = draws(p, 5000, seed * 17 + 9001), teB = toBits(teRaw, d), PM = perms(d);
-    /* 這份測試集上的理論下限：用真模型算出來的 NLL（不是母體的 H(p)，差別是有限樣本） */
+    /* 真模型在同一份有限測試集上的 NLL：參考分數，不是所有模型分數的下界。 */
     var floor = 0, q;
     for (q = 0; q < teRaw.length; q++) floor -= Math.log(Math.max(p[teRaw[q]], 1e-300));
     floor /= teRaw.length;
@@ -211,7 +211,7 @@
         fmtx: function (v) { return v.toFixed(3); }, pad: { l: 0.05, b: 0.2 },
         xlab: '測試 NLL（nats／筆）' });
       MLF.ref(ctx, ax, { x: S.floor, color: MLF.rgb(pal.a, 0.8), dash: [4, 4] });
-      MLF.label(ctx, ax.X(S.floor), ax.box.t + 11, '理論下限', MLF.rgb(pal.a, 0.95), 'center');
+      MLF.label(ctx, ax.X(S.floor), ax.box.t + 11, '真模型參考', MLF.rgb(pal.a, 0.95), 'center');
       var r = MLF.rng(9), i;
       for (i = 0; i < A.length; i++) MLF.dot(ctx, ax, A[i], 0.60 + 0.28 * r(), MLF.rgb(pal.d, 0.75), 3.2);
       for (i = 0; i < B.length; i++) MLF.dot(ctx, ax, B[i], 0.12 + 0.28 * r(), MLF.rgb(pal.c, 0.75), 3.2);

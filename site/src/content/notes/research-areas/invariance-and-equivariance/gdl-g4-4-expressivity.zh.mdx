@@ -1,0 +1,133 @@
+---
+slug: "gdl-g4-4-expressivity"
+label: "gdl-graph-expressivity"
+lang: "zh"
+title: "每個路口看到的都一樣，模型分得出兩張圖嗎？"
+category: "courses"
+group: "G5 · Graphs and Message Passing"
+status: "available"
+updated: "2026-10-09"
+summary: "以六邊形與兩個三角形逐輪證明 message passing 的不可辨識例子，介紹 1-WL 的作用與限制。"
+prereqs: ["gdl-aggregation-gin"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Xu、Hu、Leskovec 與 Jegelka（2019），How Powerful are Graph Neural Networks?"
+    href: "https://arxiv.org/abs/1810.00826"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 每個路口看到的都一樣，模型分得出兩張圖嗎？
+
+<Objectives>
+
+- **逐輪算出不可辨識例子。** 在相同初始 feature 下比較 C6 與兩個三角形。
+- **說出 1-WL 的更新規則。** 解釋顏色代表可辨認的 neighborhood type。
+- **分清對稱與表達能力。** 指出不依 node 編號不等於能辨認所有 graph 結構。
+
+</Objectives>
+
+<Prereq items={["gdl-aggregation-gin"]} />
+
+## 所有路口都說同一句話，怎麼知道道路繞成哪個形狀？
+
+前面增加了 aggregation 的資訊量，但還有一個問題：模型每次只問附近，兩張 graph 的每個路口如果都收到相同訊息，會不會永遠分不開？
+
+考慮六個 nodes。第一張連成一個六邊形 $C_6$，第二張連成兩個互不相連的三角形。第一張 connected，第二張不是；它們當然不是相同 graph。
+
+但每個 node 都有兩個鄰居。先讓所有初始 features 相同，$h_i^0=c_0$，沒有額外 node ID、座標或 edge 差異。
+
+## 第一輪看到什麼？
+
+任意 node 都看到自己的 $c_0$，和兩個 features 為 $c_0$ 的鄰居。對共享 message passing，每條 edge 的 message 都是
+
+$$
+m_{ij}^0=\phi(c_0,c_0)=m_0.
+$$
+
+Sum aggregation 是 $2m_0$；mean 是 $m_0$；max 也是相同向量。因此任意共享 update 都得到同一個 $c_1$。
+
+兩張 graph 的所有 nodes 都沒有被分開。這不是某組參數剛好不好，而是**送進函數的內容完全相同**。
+
+## 第二輪、第三輪，會出現新資訊嗎？
+
+假設第 $\ell$ 輪所有 nodes 都是 $c_\ell$。每個 node 仍收到兩份相同訊息，所以第 $\ell+1$ 輪也是同一個 $c_{\ell+1}$。
+
+這是 induction：初始相同，每輪相同，所以任意深度都相同。兩張 graph 又同樣有六個 nodes，sum readout 都是 $6c_\ell$，mean、max 也相同。
+
+因此標準這類 MPNN 無法用這個 input 區分「一個六邊形」和「兩個三角形」。更多 layer 擴大了理論 receptive field，卻沒有製造可區分的內容。
+
+## 1-WL 在做什麼？
+
+**Weisfeiler–Lehman test 的一階版本（1-WL）** 用顏色表示目前可以辨認的 node type。每輪把「自己的顏色」與「鄰居顏色的 multiset」組合，為不同組合分配新顏色：
+
+$$
+c_i^{\ell+1}
+=\operatorname{hash}\left(c_i^\ell,\ 
+\{\!\{c_j^\ell:j\in\mathcal N(i)\}\!\}\right).
+$$
+
+這裡 hash 是理想的唯一編碼：不同組合給不同顏色，不是實作中可能碰撞的短 hash。Double braces 表示保留重複次數的 multiset。
+
+對兩張例子，每個 node 每輪都得到相同組合，所以 1-WL 也分不開。Xu 等人 [1] 將一般 neighborhood aggregation 的辨識能力與 1-WL 連結；GIN 的理想 injective updates 可以達到它，但沒有超過它的全部限制。
+
+## 不能分開，要加什麼？
+
+可以加入更豐富的結構資訊、幾何座標，或使用更高階、非標準的 graph architecture。但每一個選擇都要重新問：資訊是否真的來自任務？在重編號下如何變？
+
+隨意加入唯一 row ID 很容易打破例子的相同輸入，卻也把本來不該影響答案的編號放進模型。Structural encoding 則應該依 graph 內容一致地生成與變換，不能只是換個名稱的 row ID。
+
+**Permutation equivariance 只排除不合理的編號依賴，沒有保證足以辨認所有內容差異。** 下一篇會把這個不可辨識例子寫成測試，讓我們能指出失敗來自架構，還是訓練。
+
+<Remark summary="有了額外 features，這個反例的條件可能不再成立">
+
+若兩張 graph 的初始 node features 不同，或 edge attributes 明確提供不同資訊，induction 的第一步就可能失敗。不能只看到圖形相似，就把所有帶豐富輸入的模型也納入同一個不可能結論。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g4-4.svg" alt="C6 與兩個三角形都有六個相同 feature、degree 2 的 nodes；逐輪都收到相同訊息，因此相同 readout 分不開。" loading="lazy" />
+<figcaption>C6 與兩個三角形都有六個相同 feature、degree 2 的 nodes；逐輪都收到相同訊息，因此相同 readout 分不開。</figcaption>
+</figure>
+
+<Question>
+
+把這個例子的 GIN 加到一百層，就一定可以看出 connectedness 嗎？
+
+<Answer>
+
+在上述相同 features、共享局部更新與對稱 readout 下不行。每輪所有 nodes 都得到同一份輸入，induction 不因層數增加而失效。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+在六邊形與兩個三角形之間切換，再增加訊息輪數。每個 node 都從相同 feature 出發、收到兩份相同訊息，因此 readout gap 始終為零。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=4&chapter=4" class="demo-frame" title="每個路口看到的都一樣，模型分得出兩張圖嗎？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="兩張 graph 分不開的必要例子條件是什麼？" options={[{"text":"任何帶座標或全局資訊的模型都分不開。","explain":"額外資訊可能讓它們的輸入不同。"},{"text":"初始 features 相同，且只使用上述共享鄰居更新。","correct":true,"explain":"額外資訊可能讓它們的輸入不同。"}]} />
+
+<Quiz q="1-WL 的顏色在描述什麼？" options={[{"text":"當前能辨認的 neighborhood type。","correct":true,"explain":"顏色是比較自己與鄰居 type 的編碼。"},{"text":"地圖上真實的塗漆顏色。","explain":"顏色是比較自己與鄰居 type 的編碼。"}]} />
+
+<Quiz q="符合 permutation equivariance 能保證什麼？" options={[{"text":"能辨認任意兩張不同 graph。","explain":"一致性與內容辨識是兩個不同性質。"},{"text":"重編號不改變對應答案。","correct":true,"explain":"一致性與內容辨識是兩個不同性質。"}]} />
+
+<Bridge to="gdl-graph-lab">
+
+我們既證明了 graph 的重編一致性，也找到了無法靠更多訓練消除的例子。下一篇把兩者放進同一份測試，再準備把真正的幾何位置加入 graph。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Xu、Hu、Leskovec 與 Jegelka（2019），How Powerful are Graph Neural Networks?](https://arxiv.org/abs/1810.00826)

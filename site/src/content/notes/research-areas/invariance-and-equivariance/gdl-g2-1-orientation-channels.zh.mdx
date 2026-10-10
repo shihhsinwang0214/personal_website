@@ -1,0 +1,144 @@
+---
+slug: "gdl-g2-1-orientation-channels"
+label: "gdl-orientation-channels"
+lang: "zh"
+title: "把同一個偵測器轉四次，夠不夠？"
+category: "courses"
+group: "G2 · Rotations and Feature Types"
+status: "available"
+updated: "2026-10-09"
+summary: "用旋轉過的共享 kernel 建立 lifting layer，推導旋轉會同時搬動位置與 cyclic-shift 方向索引。"
+prereqs: ["gdl-rotation-problem"]
+demos: ["notes/research_areas/invariance-and-equivariance/symmetry-workbench.html"]
+references:
+  - label: "Cohen 與 Welling（2016），Group Equivariant Convolutional Networks"
+    href: "https://arxiv.org/abs/1602.07576"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 把同一個偵測器轉四次，夠不夠？
+
+<Objectives>
+
+- **寫出四個共享方向 kernel。** 說明旋轉 kernel 與旋轉輸入的位置對應。
+- **推導 lifting 的變換規則。** 得到位置旋轉與方向 channel 的 cyclic shift。
+- **分清共享參數與計算量。** 四個方向重用參數，仍需要計算四組響應。
+
+</Objectives>
+
+<Prereq items={["gdl-rotation-problem"]} />
+
+## 同一把尺，怎麼轉成四個方向？
+
+上一篇已經知道：模型不只要偵測道路在哪裡，也要把「哪個方向」一起記住。現在先學一個 kernel $k$，其他三個不另外學，直接從它旋轉而來。
+
+令 $R_r$ 是旋轉 $r\times90^\circ$ 的矩陣，$r=0,1,2,3$。在方向 $r$ 上使用
+
+$$
+k_r(v)=k(R_r^{-1}v).
+$$
+
+這裡新位置 $v$ 的權重來自原 kernel 的 $R_r^{-1}v$；和搬動影像時的 inverse action 是同一個機制。將每個 kernel 放到同一個輸入上，
+
+$$
+h_x(u,r)=\sum_v k(R_r^{-1}v)x(u+v).
+$$
+
+$h_x(u,r)$ 告訴我們：在位置 $u$，方向 $r$ 的偵測器看到多少訊號。把原本只有位置的影像，提升成「位置加方向」的 feature，這一層稱為 **lifting layer**。
+
+## 轉一次輸入，四個 channel 會怎麼變？
+
+假設把輸入轉 $q\times90^\circ$，$x'(u)=x(R_q^{-1}u)$。我們希望找出 $h_{x'}$ 和 $h_x$ 的關係，而不是隻說「應該跟著轉」。
+
+代入 definition：
+
+$$
+h_{x'}(u,r)
+=\sum_v k(R_r^{-1}v)x(R_q^{-1}u+R_q^{-1}v).
+$$
+
+令 $w=R_q^{-1}v$，也就是 $v=R_qw$。四個平面旋轉可用角度相加，所以 $R_r^{-1}R_q=R_{r-q}^{-1}$：
+
+$$
+\begin{aligned}
+h_{x'}(u,r)
+&=\sum_w k(R_{r-q}^{-1}w)x(R_q^{-1}u+w)\\
+&=h_x(R_q^{-1}u,r-q).
+\end{aligned}
+$$
+
+方向索引以 modulo $4$ 計算，例如 $r-q=-1$ 代表方向 $3$。這一式就是 feature 的 action：
+
+$$
+[T(q)h](u,r)=h(R_q^{-1}u,r-q).
+$$
+
+**位置轉過去，方向索引也移過去。** 原本方向 $r_0$ 的強響應，在新圖會出現在 $r_0+q$。這和看到一條道路從水平變垂直，是同一件事。
+
+## 為什麼它不必靠訓練學會？
+
+推導裡沒有用到 $k$ 的特殊數值。Kernel 可以還是隨機初始化，只要其他方向真的是它的旋轉版本，兩條路就一致。
+
+這與「四個 channel 分別學，最後碰巧長得相似」不同。共享約束直接縮小允許的參數集合，使得每一個合法 kernel 都符合 action。
+
+但少學四套參數，不等於只算一次。輸出仍有四個方向，記憶體與計算量都可能增加。要比較效率，至少分開報告參數量、feature 大小與實際時間；不能只看其中一項就說成本沒有變。
+
+## 接下來，不能把方向當成普通 channel 忽略
+
+第一層的方向索引已經有幾何意義。假設下一層對方向 $0$ 用一組特殊權重，對方向 $1$ 完全不用同樣規則，那麼一旋轉，運算就會改變。
+
+所以 lifting 不是整個網路的終點。它給了新的 input space，也帶出新的問題：**下一層如何同時沿位置與方向共享？**
+
+<Remark summary="方向 channel 的順序是模型 action 的一部分">
+
+上述方向採逆時針角度增加，並固定 $r-q$ 的 inverse-index 規則。程式若把 clockwise 當成正向也可以，但 kernel、輸入旋轉與 channel shift 都要同步改；不能只把某一處的負號換掉。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/g2-1.svg" alt="四個方向共用一個 kernel；輸入旋轉 q 後，原方向 r 的響應搬到 r+q，位置也一起旋轉。" loading="lazy" />
+<figcaption>四個方向共用一個 kernel；輸入旋轉 q 後，原方向 r 的響應搬到 r+q，位置也一起旋轉。</figcaption>
+</figure>
+
+<Question>
+
+為什麼 channel action 裡是 r−q，而強響應卻從 r0 搬到 r0+q？
+
+<Answer>
+
+新 channel r 要讀原 channel r−q。要讀到原來的 r0，就要令 r−q=r0，所以新位置是 r=r0+q；兩種說法描述同一個搬動。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+切換四個旋轉角度，觀察 channel 的響應強度如何循環搬動。輸入位置與方向 index 必須同時按 action 變換。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/symmetry-workbench.html?unit=2&chapter=1" class="demo-frame" title="把同一個偵測器轉四次，夠不夠？：計算與比較" style="height: 800px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="Lifting 新增哪個索引？" options={[{"text":"方向索引，讓位置上的偵測保留朝向。","correct":true,"explain":"它是中間 feature 的幾何座標，不是最終類別。"},{"text":"資料的分類 label。","explain":"它是中間 feature 的幾何座標，不是最終類別。"}]} />
+
+<Quiz q="四個方向的 kernel 從哪裡來？" options={[{"text":"四個毫無關係的獨立 kernel。","explain":"共享關係讓旋轉 action 對所有參數成立。"},{"text":"同一個可訓練 kernel 的旋轉。","correct":true,"explain":"共享關係讓旋轉 action 對所有參數成立。"}]} />
+
+<Quiz q="參數共享是否代表零額外運算？" options={[{"text":"不代表，四個方向仍需要響應與記憶體。","correct":true,"explain":"參數數量與計算量是不同的量。"},{"text":"代表，feature 大小完全不變。","explain":"參數數量與計算量是不同的量。"}]} />
+
+<Bridge to="gdl-group-convolution">
+
+我們造出了能一起轉動的位置與方向 feature。下一篇把每一個「位置加方向」都當成 group element，推導下一層的共享公式。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Cohen 與 Welling（2016），Group Equivariant Convolutional Networks](https://arxiv.org/abs/1602.07576)

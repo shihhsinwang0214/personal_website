@@ -8,7 +8,7 @@ title: "閘門的進出：Divergence 與通量"
 category: "courses"
 group: "M0 · Calculus 工具箱"
 status: "available"
-updated: 2026-09-21
+updated: 2026-10-09
 summary: "看不到站內，只有每個閘門的進出人數，能判斷站內人數增減嗎？把「穿過邊界的淨流量」寫成 flux，把它縮到一個小格子裡就是 divergence；Gauss 定理說「邊界上算」與「內部逐點算」一定相等——條件是沒有漏掉的門。"
 demos: []
 references:
@@ -46,9 +46,9 @@ import Ref from '../../../components/Ref.astro';
 
 問題：**現在站內的人是在變多還是變少？每分鐘變多少？**
 
-直覺的答案幾乎是反射：把所有閘門的「進」加起來，減掉所有「出」，正的就是變多。寫下你有多確定。
+最直接的方法是把所有「進」加起來，再減掉所有「出」。但這個方法有一個前提：我們得把能進出的地方都算到。若列車帶走的人沒有被記錄，只看閘門就可能判斷錯。
 
-大多數人會非常確定。這一次直覺是對的——但請試著回答兩個追問：這個算法**依賴什麼**才成立？如果有一天讀數告訴你「每分鐘淨進 40 人」，而站務員回報月台其實空了，**哪裡出了問題**？能回答這兩題，才算真的懂了這個算法。
+那麼，**怎麼把「穿過邊界的量」寫下來，再把它縮到一個小區域，判斷局部的增減？**
 
 <Question id="Q1">
 把情境翻成數學：這裡的「區域」是什麼？「邊界」是什麼？我們手上量到的是哪種量？我們想知道的又是哪種量？
@@ -68,7 +68,7 @@ import Ref from '../../../components/Ref.astro';
 
 ## 一個灑水器和一個排水口
 
-暫時放下閘門，看一張只有箭頭的圖。地面上每一點畫一支小箭頭，表示那裡的人（或水）往哪流、流多快。
+先看一張箭頭圖。不過，我們要計算的是人數，不只是速度：同樣走得很快的地方，人多與人少時，每秒通過的量不同。以下把「密度乘上速度」記成流量場 $j=\rho v$，其中 $\rho$ 是人數密度、$v$ 是速度；箭頭的長度表示通過的量，而不只是走多快。
 
 在**灑水器**四周，箭頭一律向外指：任何一個圈住灑水器的小圈，流出去的比流進來的多——這裡是一個**源**。在**排水口**四周，箭頭一律向內：圈住它的任何小圈都是淨流入——這裡是一個**匯**。在一條平直的走廊裡，箭頭全部同向、等長：一個小圈左邊進多少、右邊就出多少，淨流量是零。
 
@@ -80,10 +80,10 @@ import Ref from '../../../components/Ref.astro';
 
 ## 把小圈寫成數學
 
-**流量場與 flux。** 記 $v(x,y)$ 為流量場：在 $(x,y)$ 這一點，每單位長度的邊界、每單位時間穿過的人數，方向是人流的方向。對區域 $\Omega$，邊界上每一小段長 $ds$、向外的單位法向量 $n$，穿過它向外的人數是 $v\cdot n\,ds$（只有垂直於邊界的分量會穿過）。整條邊界加起來：
+**流量場與 flux。** 在二維裡，$\rho$ 的單位是人數／面積，$v$ 是距離／時間，因此 $j=\rho v$ 是人數／長度／時間。邊界的一小段長 $ds$，向外的單位法向量是 $n$，每單位時間淨流出的人數就是 $j\cdot n\,ds$：只有垂直於邊界的分量會穿過。整條邊界加起來：
 
 $$
-\Phi(\Omega)=\oint_{\partial\Omega}v\cdot n\,ds ,
+\Phi(\Omega)=\oint_{\partial\Omega}j\cdot n\,ds ,
 $$
 
 叫 $\Omega$ 的 **flux**（通量）——向外為正。**守恆**這句話寫成式子就是
@@ -94,25 +94,32 @@ $$
 
 裡面的總量增加多少，就是邊界上淨流進多少。這一行沒有任何近似，但它有一個前提：$N$ 的變化**只能**來自穿過邊界，內部沒有源與匯。
 
-**Divergence。** 現在把 $\Omega$ 縮成一個以 $(x,y)$ 為中心、邊長 $\Delta x\times\Delta y$ 的小長方形。四條邊的 flux：右邊流出 $v_x(x+\tfrac{\Delta x}2,y)\Delta y$，左邊流入 $v_x(x-\tfrac{\Delta x}2,y)\Delta y$，兩者相減約是 $\dfrac{\partial v_x}{\partial x}\Delta x\Delta y$；上下同理給 $\dfrac{\partial v_y}{\partial y}\Delta x\Delta y$。除以面積、取極限：
+**Divergence。** 把區域縮成以 $(x,y)$ 為中心的小長方形。先只算水平方向：右邊的向右流量減去左邊的向右流量，是
 
 $$
-\nabla\!\cdot v\;=\;\frac{\partial v_x}{\partial x}+\frac{\partial v_y}{\partial y}
+\left[j_x\!\left(x+\frac{\Delta x}{2},y\right)
+-j_x\!\left(x-\frac{\Delta x}{2},y\right)\right]\Delta y.
+$$
+
+除以面積 $\Delta x\Delta y$，括號裡就是對 $x$ 的差商。上下兩邊同樣得到對 $y$ 的差商；兩個方向加起來，再取極限：
+
+$$
+\nabla\!\cdot j\;=\;\frac{\partial j_x}{\partial x}+\frac{\partial j_y}{\partial y}
 \;=\;\lim_{|\Omega|\to0}\frac{\Phi(\Omega)}{|\Omega|}.
 $$
 
-**divergence 就是每單位面積的淨流出。** 符號 $\nabla\cdot$ 是刻意的：把 <Ref to="math-gradient"/> 的 $\nabla=(\partial_x,\partial_y)$ 與 $v$ 做內積，形式上就是這個和。
+**Divergence 把每一個方向的淨流出變化率加總起來。** 對 $j$ 做 divergence，得到每單位面積的人數淨流出；對 $v$ 做 divergence，則描述速度場的局部擴張。算站內密度變化時，我們需要前者。
 
-**Gauss 定理（二維）。** 把 $\Omega$ 切成很多小格子。每個小格子的 flux 約是 $(\nabla\cdot v)\times$面積。把所有格子加起來時，**每一條內部的格線被相鄰兩格各算一次、方向相反，剛好抵消**，只剩最外圈的邊界。所以
+**Gauss 定理（二維）。** 把 $\Omega$ 切成很多小格子。每個小格子的 flux 約是 $(\nabla\cdot j)\times$面積。把所有格子加起來時，**每一條內部格線被相鄰兩格各算一次、方向相反，剛好抵消**，只剩最外圈的邊界。所以
 
 $$
-\oint_{\partial\Omega}v\cdot n\,ds\;=\;\int_\Omega\nabla\!\cdot v\;dA .
+\oint_{\partial\Omega}j\cdot n\,ds\;=\;\int_\Omega\nabla\!\cdot j\;dA .
 $$
 
-左邊只看邊界，右邊只看內部，兩者永遠相等。這就是「內部格線抵消」這一句話的正式版本。
+對足夠平滑的流量場與邊界，左邊只看邊界、右邊逐點算內部，得到相同的量。這就是「內部格線抵消」的連續版本。
 
 <Details summary="抵消為什麼是精確的、而不是近似（離散版本一行就看得出來）">
-在一個 $n\times n$ 的格網上，把每條格線上的流量記成數字 $F$。「格子 $(i,j)$ 的淨流出」定義為它四條邊的 $F$ 帶正負號相加。把所有格子的淨流出相加，每條**內部**格線出現兩次：對左邊那格是流出（$+F$），對右邊那格是流入（$-F$），和為零。剩下的只有最外圈——這是一個 telescoping sum，沒有任何近似。連續版本的 Gauss 定理就是這個離散事實取極限，divergence 的定義正好讓「每格淨流出 $\approx(\nabla\cdot v)\,\Delta x\Delta y$」在極限下成為等式。
+在格網上，每條內部邊界的同一個流量 $F$，對一格是流出 $+F$，對鄰格就是流入 $-F$。全部格子相加，內部項抵消，只剩外側邊界。這個離散抵消是精確的；在足夠平滑的條件下，取極限得到每格淨流出由 $(\nabla\cdot j)\Delta x\Delta y$ 描述的連續版本。
 </Details>
 
 ## 直覺對了，但要說出它靠什麼
@@ -121,7 +128,7 @@ $$
 
 **它依賴兩個假設。** 第一，**守恆**：人不會在站內出現或消失——這在捷運站幾乎一定成立。第二，**閘門就是全部的邊界**：所有能穿過 $\partial\Omega$ 的地方都有計數器。這一條才是會出事的地方。站務員的員工門、緊急出口、還有**月台邊的列車門**——列車到站，一車人進了站內；列車開走，一車人離開。如果你的 $\Omega$ 是「整座站含月台」，列車門就是邊界的一部分，而閘門計數器沒有算它。「每分鐘淨進 40 人，月台卻空了」正是這種情形：40 人從閘門進來，一列車載走了更多人，而那條邊界你沒量。
 
-**Divergence 多給了什麼。** 閘門版只回答「整站」的增減。若你有站內各處的人流方向與速度（例如手機定位的匿名統計），$\nabla\cdot v$ 能**逐點**告訴你哪裡在累積（$\nabla\cdot v<0$，淨流入）、哪裡在疏散（$\nabla\cdot v>0$）；而 Gauss 定理保證：把整站的 $\nabla\cdot v$ 積分起來，一定等於閘門加列車門的總 flux——兩種算法可以互相對帳。對不上，就表示有一道門沒被算進去。
+**Divergence 多給了什麼。** 閘門版只回答整站的增減；知道各處的 density 與 velocity 後，$\nabla\cdot j=\nabla\cdot(\rho v)$ 才能逐點判斷密度如何變化。在沒有內部來源時，淨流出為正，這裡的密度就下降。Gauss 定理讓局部計算與邊界計數對照；對不上時，需要檢查漏算的通道、量測誤差或模型假設，不一定只有一種原因。
 
 ## 實際算一次
 
@@ -148,12 +155,12 @@ for leak in (0.0, 0.5):                            # 0.5 = 暗門每步帶走的
 ## 檢查理解
 
 <QuizBlock id="m0-1-a">
-你有一張夜市的人流圖：每個位置有一支箭頭表示人往哪走、走多快。你想知道**哪裡正在越來越擠**。該看哪個量？
+你知道夜市各處的人數密度 $\rho$ 與速度 $v$。沒有內部來源時，要判斷**哪裡正在越來越擠**，該看哪個量？
 <Option>人流速度最大的地方。</Option>
 <Option>人數密度的 gradient 最大的地方。</Option>
-<Option correct>人流場 divergence 最負的地方——那裡淨流入最多。</Option>
+<Option correct>$\nabla\cdot(\rho v)$ 最負的地方——那裡每單位面積的淨流入最多。</Option>
 <Explanation>
-速度大只是「經過得快」，一條穿流的走廊速度可以很大但不累積。密度的 gradient 告訴你「往哪邊人變多」，是一個方向，不是變化率。「正在變擠」是總量隨時間的變化，等於淨流入，也就是 $-\nabla\cdot v$；divergence 最負的地方累積最快。
+走得快不等於流過的人多；密度的 gradient 也不回答時間上的增減。真正的流量場是 $\rho v$，密度的時間變化是 $-\nabla\cdot(\rho v)$，不能只看 $\nabla\cdot v$。
 </Explanation>
 </QuizBlock>
 
@@ -168,19 +175,19 @@ $dN/dt=-\Phi(\Omega)$ 是精確的守恆式，唯一能讓「邊界對帳」與�
 </QuizBlock>
 
 <QuizBlock id="m0-1-c">
-若一個流量場在某區域內處處 $\nabla\cdot v=0$，可以推出：
+若一個平滑流量場在某區域內處處 $\nabla\cdot j=0$，可以推出：
 <Option>該區域內沒有人流動。</Option>
 <Option>該區域內每一點的流速都相同。</Option>
 <Option correct>該區域內**任何**一個子區域的淨流出都是零——進多少就出多少。</Option>
 <Explanation>
-$\nabla\cdot v=0$ 不代表 $v=0$：走廊裡等速穿流的 divergence 就是零。也不代表流速處處相同——一個逆時針繞圈的渦流，速度方向處處不同，divergence 仍為零。由 Gauss 定理，任何子區域的 flux 等於內部 divergence 的積分，等於零；這種場叫 divergence-free（或 incompressible）。
+$\nabla\cdot j=0$ 不表示 $j=0$，也不表示箭頭處處相同；均勻穿流或合適的旋轉場都可能滿足它。Gauss 定理讓任意子區域的淨 flux 等於內部 divergence 的積分，因此為零。若是**速度場**滿足 $\nabla\cdot v=0$，才稱為局部不膨脹的 incompressible field；這和一般密度下的 $\nabla\cdot(\rho v)=0$ 不完全相同。
 </Explanation>
 </QuizBlock>
 
 <UsedBy slug={frontmatter.slug} />
 
 <Bridge to="math-taylor">
-本篇把「閘門進減出」翻成 $dN/dt=-\Phi(\Omega)$，把 flux 縮到一格得到 divergence，並用「內部格線抵消」看到 Gauss 定理是精確的——前提是邊界沒有漏掉的門。把這個守恆關係寫成一條隨時間演化的方程式，是 <Ref to="math-continuity-equation"/> 的事。接著先回到另一個日常經驗：導航每隔一段時間才更新一次，中間你假設車在直走——這個假設會差多少？
+現在我們能把流入、流出寫成 flux，也能用 divergence 判斷局部的淨流出；要追人數，記得用密度乘上速度。這會在 <Ref to="math-continuity-equation"/> 變成密度的演化方程。接下來先回到位置的預測：只知道當下的速度，沿這個方向走一段時間，會偏離真實路徑多少？
 </Bridge>
 
 ## 參考文獻

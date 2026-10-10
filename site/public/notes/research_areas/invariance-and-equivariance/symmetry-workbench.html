@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,">
+<title>GDL：用資料檢查兩條計算路</title>
+<script src="./_demo-common.js"></script><script src="./symmetry-math.js"></script>
+<style>
+canvas{aspect-ratio:16/8}.metric span{overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.controls{margin:0 0 12px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+.formula{font:13px ui-monospace,monospace;line-height:1.6;white-space:pre-wrap;padding:10px;border-left:3px solid #b68b47}
+@media(max-width:480px){canvas{aspect-ratio:4/3}.metrics{grid-template-columns:1fr 1fr}.card{padding:10px}.formula{font-size:11px}}
+</style>
+</head>
+<body>
+<main class="card">
+<p class="goal" id="goal"></p>
+<div class="controls" id="controls"></div>
+<canvas id="cv" width="760" height="380" aria-label="原資料與變換後資料的計算比較"></canvas>
+<div class="metrics" id="metrics" aria-live="polite"></div>
+<p class="formula" id="formula"></p>
+<p class="observe" id="observe"></p>
+</main>
+<script>
+(function(){
+  "use strict";
+  const math=GDLSymmetry, url=new URL(location.href);
+  const unit=Math.min(5,Math.max(1,Number(url.searchParams.get("unit"))||1));
+  const chapter=Number(url.searchParams.get("chapter"))||0;
+  const cv=document.getElementById("cv"),dpi=NDFlow.hiDPICanvas(cv),ctx=dpi.ctx;
+  let pal=NDFlow.palette(),order=[0,1,2,3,4],gOrder=[0,1,2,3];
+  const points=[[-.8,.1],[-.3,-.6],[.15,.7],[.8,-.2],[.3,.1]];
+  const tetra=[[-.7,-.5,0],[.9,-.4,0],[-.2,.8,0],[0,.1,1]];
+  const control=document.getElementById("controls");
+  const specs={
+    1:['同一個訊號，用共享差分 kernel 計算。Input action 固定是 circular shift，再檢查 boundary 與 stride 是否相容。',
+       '<div class="row"><label for="shift">平移格數</label><input id="shift" type="range" min="-12" max="12" step="1" value="3"><output id="shiftOut"></output><label for="boundary">Boundary</label><select id="boundary"><option value="circular">Circular</option><option value="zero">Zero padding</option></select><label for="stride">Stride</label><select id="stride"><option>1</option><option>2</option><option>4</option></select></div>'],
+    2:['同一個 kernel 旋轉成四個方向。每個響應都由 9×9 影像算出；不是預設的分類成績。',
+       '<div class="row"><label for="q">旋轉</label><select id="q"><option value="0">0°</option><option value="1" selected>90°</option><option value="2">180°</option><option value="3">270°</option></select><label for="mode">觀察</label><select id="mode"><option value="lift">四方向 lifting</option><option value="group">方向 group correlation</option><option value="vector">Vector activation</option></select></div>'],
+    3:['重排只改資料列，不移動點。改 aggregation，看看保留的數量與幾何摘要是否不同。',
+       '<div class="row"><button id="shuffle">重排資料列</button><label for="pool">Aggregation</label><select id="pool"><option value="sum">Sum</option><option value="mean">Mean</option><option value="max">Max</option><option value="attention">Attention</option></select><label><input id="duplicate" type="checkbox">整組重複一次</label></div>'],
+    4:['每一輪真的依 adjacency 更新訊息。重編時同時更新 features 與 edges；比較兩張 degree 2 的圖。',
+       '<div class="row"><label for="graph">Graph</label><select id="graph"><option value="road">路網</option><option value="cycle">六邊形 C6</option><option value="triangles">兩個三角形</option></select><label for="rounds">訊息輪數</label><input id="rounds" type="range" min="0" max="6" step="1" value="1"><output id="roundOut"></output><select id="agg" aria-label="訊息聚合"><option value="gcn">GCN-style normalization</option><option value="sum">Sum</option><option value="mean">Mean</option></select><button id="relabel">重編 nodes</button></div>'],
+    5:['解析 pair energy E=½Σᵢⱼ d²（i<j），force 由負 gradient 算出。點有固定 A–D 身份，不把 row 順序當作手性。',
+       '<div class="row"><label for="angle">旋轉角度</label><input id="angle" type="range" min="-180" max="180" value="45"><output id="angleOut"></output><label for="move">平移</label><input id="move" type="range" min="-1" max="1" step=".05" value=".3"><label><input id="mirror" type="checkbox">鏡射 x</label><label><input id="bad" type="checkbox">故意不旋轉向量</label></div>']
+  };
+  document.getElementById("goal").textContent=specs[unit][0];control.innerHTML=specs[unit][1];
+  const $=id=>document.getElementById(id),val=id=>Number($(id).value);
+  const fmt=v=>Math.abs(v)<1e-12?"0":v.toExponential(2);
+  const vector=a=>"["+a.map(v=>v.toFixed(3)).join(", ")+"]";
+  function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+  function metrics(items){$("metrics").replaceChildren();items.forEach(([name,value])=>{
+    const el=document.createElement("div");el.className="metric";const strong=document.createElement("strong"),span=document.createElement("span");
+    strong.textContent=name;span.textContent=value;el.append(strong,span);$("metrics").append(el);
+  });}
+  function label(text,x,y,color){ctx.fillStyle=color||pal.ink;ctx.font="12px system-ui";ctx.fillText(text,x,y);}
+  function line(values,box,color,min=-1,max=1){
+    ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();
+    values.forEach((v,i)=>{const x=box.x+box.w*i/Math.max(1,values.length-1),y=box.y+box.h*(max-v)/(max-min);
+      if(i)ctx.lineTo(x,y);else ctx.moveTo(x,y);});ctx.stroke();
+  }
+  function image(data,n,x,y,side){
+    const step=side/n,max=Math.max(.01,...data.map(Math.abs));
+    data.forEach((v,i)=>{ctx.fillStyle=v>=0?pal.blue:pal.red;ctx.globalAlpha=.08+.85*Math.abs(v)/max;
+      ctx.fillRect(x+(i%n)*step,y+Math.floor(i/n)*step,step-1,step-1);});ctx.globalAlpha=1;
+  }
+  function drawPoints(pts,values,box,edges,rows,arrows){
+    const scale=Math.min(box.w,box.h)*.3,cx=box.x+box.w/2,cy=box.y+box.h/2;
+    if(edges){ctx.strokeStyle=pal.border;ctx.lineWidth=3;edges.forEach(([i,j])=>{
+      ctx.beginPath();ctx.moveTo(cx+pts[i][0]*scale,cy-pts[i][1]*scale);ctx.lineTo(cx+pts[j][0]*scale,cy-pts[j][1]*scale);ctx.stroke();});}
+    pts.forEach((p,i)=>{
+      const x=cx+p[0]*scale,y=cy-p[1]*scale;ctx.fillStyle=[pal.blue,pal.red,pal.green,pal.purple,pal.accent][i%5];
+      ctx.globalAlpha=.75;ctx.beginPath();ctx.arc(x,y,8,0,2*Math.PI);ctx.fill();ctx.globalAlpha=1;
+      const row=rows?rows.indexOf(i):i;
+      label(String.fromCharCode(65+i)+(rows?" / row "+(row+1):""),x+10,y-8);
+      if(values)label(values[i].toFixed(2),x+10,y+13,pal.muted);
+      if(arrows)NDFlow.arrow(ctx,x,y,x+arrows[i][0]*scale*.15,y-arrows[i][1]*scale*.15,pal.ink);
+    });
+  }
+  function render(){
+    pal=NDFlow.palette();document.body.dataset.dark=pal.dark?"1":"0";const {w,h}=dpi.resize();
+    ctx.fillStyle=pal.bg;ctx.fillRect(0,0,w,h);
+    if(unit===1){
+      const r=math.translation(val("shift"),val("stride"),$("boundary").value);$("shiftOut").textContent=$("shift").value;
+      label("原訊號（藍）／平移後（橘）",12,22);
+      line(r.x,{x:15,y:38,w:w-30,h:h*.29},pal.blue,0,1.3);line(r.movedX,{x:15,y:38,w:w-30,h:h*.29},pal.red,0,1.3);
+      label(w<480?"先移再算（藍）／先算再移（橘）":"先平移再算（藍）／先算再平移（橘）",12,h*.52);
+      line(r.actual,{x:15,y:h*.56,w:w-30,h:h*.31},pal.blue,-.45,.45);line(r.expected,{x:15,y:h*.56,w:w-30,h:h*.31},pal.red,-.45,.45);
+      metrics([["Absolute max defect",fmt(r.defect)],["全局 ReLU mean：原 / 新",r.pools.map(v=>v.toFixed(4)).join(" / ")]]);
+      $("formula").textContent="y[u] = −½x[u−1] + ½x[u+1]\ninput shift = "+val("shift")+", output shift = "+Math.round(val("shift")/val("stride"));
+      $("observe").textContent=r.compatible?"Stride 相容。Circular boundary 時兩條路應重合；zero padding 邊界可能不同。":
+        "這個移動不與 stride 相容；橘線只是嘗試用最近的整格 output shift，不是合法的精確 action。";
+    }else if(unit===2){
+      const q=val("q"),r=math.rotation(q),mode=$("mode").value;
+      if(mode==="vector"){
+        const v=math.reluVector(q);drawPoints([[0,0]],null,{x:0,y:0,w:w/2,h},null,null,[v.actual]);
+        drawPoints([[0,0]],null,{x:w/2,y:0,w:w/2,h},null,null,[v.expected]);
+        label("ReLU(Rv)",12,25);label("R ReLU(v)",w/2+12,25);
+        metrics([["Component ReLU defect",fmt(v.reluDefect)],["Norm gating defect",fmt(v.gateDefect)]]);
+        $("formula").textContent="v = [1,−1]; gate(v) = tanh(‖v‖) v";
+        $("observe").textContent="兩支箭頭分別由兩條計算路得到。Norm gating 的比例只由不變的長度決定。";
+      }else{
+        const side=Math.min(w*.34,h*.55),x1=w*.12,x2=w*.6;
+        image(r.x,r.n,x1,38,side);image(r.moved,r.n,x2,38,side);
+        label("原影像",x1,25);label("旋轉 "+q*90+"°",x2,25);
+        const values=(mode==="group"?r.grouped:r.actual).map(a=>math.sum(a.map(v=>v*v)));
+        const max=Math.max(.01,...values),by=h*.91,bh=h*.21;
+        values.forEach((v,i)=>{const bx=18+i*(w-36)/4;ctx.fillStyle=[pal.blue,pal.red,pal.green,pal.purple][i];
+          ctx.fillRect(bx,by-v/max*bh,(w-60)/4,v/max*bh);label(i*90+"°："+v.toFixed(2),bx,by+17);});
+        metrics([["共享四方向 defect",fmt(mode==="group"?r.groupDefect:r.liftDefect)],["只旋轉普通 channel 0 的 defect",fmt(r.ordinaryDefect)]]);
+        $("formula").textContent="h'(u,r) = h(R_q⁻¹u, r−q), r modulo 4\n強度 = 每個方向 response 的平方和";
+        $("observe").textContent="方向強度按 cyclic shift 改變；四個 channel 的總和不變。矩陣值由影像與 kernel 實際計算。";
+      }
+    }else if(unit===3){
+      const mode=$("pool").value,original=points.map(p=>p.slice()),current=order.map(i=>points[i]);
+      const data=$("duplicate").checked?current.concat(current):current;
+      const compact=w<480;
+      drawPoints(points,null,compact?{x:0,y:4,w,h:h*.58}:{x:0,y:20,w:w*.63,h:h-30},null,order);
+      order.forEach((i,row)=>label("row "+(row+1)+" = "+String.fromCharCode(65+i)+" "+vector(points[i]),compact?12:w*.62,compact?h*.65+row*17:45+row*38));
+      if(mode==="attention"){
+        const out=math.attention(points),moved=math.attention(data),expected=order.map(i=>out[i]);
+        if($("duplicate").checked)expected.push(...expected.slice());
+        metrics([["逐點 attention defect",fmt(math.error(moved.flat(),expected.flat()))],["A 點的加權參考",vector(out[0])]]);
+        $("formula").textContent="A = row_softmax(XXᵀ/√2), Y = AX";
+      }else{
+        const before=math.setOutput(original,mode),after=math.setOutput(data,mode);
+        metrics([["重排 defect（不含重複）",fmt(math.error(math.setOutput(current,mode),before))],["目前全局摘要",vector(after)]]);
+        $("formula").textContent="φ(x,y) = [1, x, y, x²+y²]\n"+mode+"ᵢ φ(xᵢ)";
+      }
+      $("observe").textContent="重排只改 row；整組重複會改 sum 與點數，mean/max 不變。Attention 是逐點輸出，不是全局摘要。";
+    }else if(unit===4){
+      const kind=$("graph").value,g=math.graph(kind),a=math.adjacency(g),rounds=val("rounds"),mode=$("agg").value;
+      if(gOrder.length!==g.points.length)gOrder=g.points.map((_,i)=>i);
+      const base=math.messages(a,g.values,rounds,mode);
+      const newA=gOrder.map(i=>gOrder.map(j=>a[i][j])),newX=gOrder.map(i=>g.values[i]);
+      const actual=math.messages(newA,newX,rounds,mode),expected=gOrder.map(i=>base[i]);
+      const compact=w<480;
+      drawPoints(g.points,base,compact?{x:0,y:4,w,h:h*.65}:{x:0,y:20,w:w*.65,h:h-30},g.edges,gOrder);
+      gOrder.forEach((i,row)=>label("row "+(row+1)+" = "+String.fromCharCode(65+i)+"："+base[i].toFixed(3),compact?12+(row%2)*w*.5:w*.66,compact?h*.73+Math.floor(row/2)*19:38+row*32));
+      const c=math.graph("cycle"),t=math.graph("triangles");
+      const gap=Math.abs(math.sum(math.messages(math.adjacency(c),c.values,rounds,mode))-math.sum(math.messages(math.adjacency(t),t.values,rounds,mode)));
+      metrics([["Node relabeling defect",fmt(math.error(actual,expected))],["C6 / 兩三角形 readout gap",fmt(gap)]]);
+      $("roundOut").textContent=rounds;$("formula").textContent="hᵢ⁺ = tanh(0.6 hᵢ + 0.4 aggregateⱼ hⱼ)\nGraph readout = Σᵢ hᵢ";
+      $("observe").textContent="這是解析共享更新，不是已訓練 GCN。兩個 degree 2 例子在相同初始 features 下，每輪都相同。";
+    }else{
+      const r=math.geometry(tetra,val("angle")*Math.PI/180,val("move"),$("mirror").checked);
+      const arrows=$("bad").checked?r.base.forces:r.actual.forces;
+      drawPoints(tetra,null,{x:0,y:20,w:w/2,h:h-30},[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]],null,r.base.forces);
+      drawPoints(r.moved,null,{x:w/2,y:20,w:w/2,h:h-30},[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]],null,arrows);
+      label("原構型（XY 投影）",12,24);label("變換後（XY 投影）",w/2+12,24);
+      metrics([["Energy / distance defect",fmt(r.energyDefect)+" / "+fmt(r.distanceDefect)],
+        ["Force defect",fmt(math.error(arrows.flat(),r.expected.flat()))],
+        ["Signed volume：原 / 新",r.base.volume.toFixed(3)+" / "+r.actual.volume.toFixed(3)],
+        ["Total force",vector(r.actual.forces[0].map((_,k)=>math.sum(r.actual.forces.map(v=>v[k]))))]]);
+      $("angleOut").textContent=val("angle")+"°";$("formula").textContent="E = ½Σᵢ<ⱼ‖xᵢ−xⱼ‖²; Fᵢ = −Σⱼ≠ᵢ(xᵢ−xⱼ)\n位置：Qx+b；力：QF；signed volume：det(Q) V";
+      $("observe").textContent="D 點有非零 z，畫面只投影 XY；volume 用完整三維座標計算。Mirror 保留距離與 energy，但翻轉 orientation。";
+    }
+    window.gdlTestState={unit,chapter,metrics:[...$("metrics").querySelectorAll("span")].map(x=>x.textContent)};
+  }
+  control.querySelectorAll("input,select").forEach(el=>el.addEventListener("input",render));
+  if($("shuffle"))$("shuffle").onclick=()=>{shuffle(order);render();};
+  if($("relabel"))$("relabel").onclick=()=>{shuffle(gOrder);render();};
+  if(unit===1&&chapter===4)$("stride").value="2";
+  if(unit===2&&chapter===2)$("mode").value="group";
+  if(unit===2&&chapter===3)$("mode").value="vector";
+  if(unit===3&&chapter===4)$("pool").value="attention";
+  if(unit===4&&chapter===4)$("graph").value="cycle";
+  if(unit===5&&chapter===4)$("mirror").checked=true;
+  window.addEventListener("resize",render);NDFlow.onThemeChange(render);render();
+})();
+</script>
+</body></html>

@@ -1,0 +1,147 @@
+---
+slug: "gdl-g4-3-transformer-block"
+label: "gdl-transformer-block"
+lang: "zh"
+title: "一層 attention，怎麼接成 Transformer？"
+category: "courses"
+group: "G4 · Attention and Transformers"
+status: "available"
+updated: "2026-10-10"
+summary: "從一次資訊讀取的限制構造 multi-head、逐點 FFN、residual 與 LayerNorm，逐項檢查 Transformer block 的排列規則。"
+prereqs: ["gdl-set-attention"]
+demos: ["notes/research_areas/invariance-and-equivariance/attention-workbench.html"]
+references:
+  - label: "Vaswani 等人（2017），Attention Is All You Need"
+    href: "https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf"
+---
+
+import Objectives from '../../components/Objectives.astro';
+import Prereq from '../../components/Prereq.astro';
+import Question from '../../components/Question.astro';
+import Answer from '../../components/Answer.astro';
+import Remark from '../../components/Remark.astro';
+import Bridge from '../../components/Bridge.astro';
+import Ref from '../../components/Ref.astro';
+import Quiz from '../../components/Quiz.astro';
+
+# 一層 attention，怎麼接成 Transformer？
+
+<Objectives>
+
+- **寫出 multi-head 與完整 encoder block。** 分開「參考其他點」與「處理自己的 feature」。
+- **逐項檢查排列 action。** 說明 concatenation、shared FFN、residual 與 row-wise LayerNorm 為何保留 $F(PH)=PF(H)$。
+- **分清設計選擇與對稱限制。** Symmetry 不要求一定多 head 或使用 LayerNorm；選了這些操作後，仍須共享逐點規則，並分開訓練與 dropout 的影響。
+
+</Objectives>
+
+<Prereq items={["gdl-set-attention"]} />
+
+## 一次詢問，夠不夠？
+
+上一篇證明了一層 attention 能依內容讀取資訊，同時跟著名單重排。但它只產生一份加權摘要。回到旅行群組：安排一趟行程時，我們可能同時想知道交通、吃飯與時間，混成一份平均未必足夠。
+
+一個自然的做法是讓**幾組不同的問題各自讀一次，再把得到的內容接起來**。這就是 Vaswani 等人 [1] 使用的 multi-head attention。
+
+## 不同 head，用不同的比較方式
+
+第 $r$ 個 head 有自己的 $W_Q^{(r)},W_K^{(r)},W_V^{(r)}$：
+
+$$
+Y^{(r)}=\operatorname{Attn}
+(HW_Q^{(r)},HW_K^{(r)},HW_V^{(r)}).
+$$
+
+它們在相同的點上產生不同 features，沿 feature 維度接起來，再做共享 projection：
+
+$$
+\operatorname{MHA}(H)
+=[Y^{(1)},\ldots,Y^{(m)}]W_O.
+$$
+
+各 head 重排後都是 $PY^{(r)}$；concatenation 沒有混動 rows，$W_O$ 也只作用在 feature 維度。因此
+$\operatorname{MHA}(PH)=P\operatorname{MHA}(H)$。
+
+多份摘要是我們為了表示不同互動而加入的選擇，排列要求沒有規定 head 數量。各 head 也沒有被指定成「交通 head」或「餐廳 head」；這只是生活例子的對應，不是訓練保證。
+
+## 讀完資訊，還要處理它
+
+Attention 處理點與點之間的互動。讀完後，每個點還要把這些資訊轉成自己的新 feature。我們先選逐點處理：如果同一份 feature 換到另一列，處理規則不能因此改變，所以各 row 使用同一個函數。
+
+選 MLP 來實現這個函數，就可以寫成：
+
+$$
+\operatorname{FFN}(h_i)
+=\operatorname{ReLU}(h_iW_1+b_1)W_2+b_2.
+$$
+
+這是 **position-wise feed-forward network**：position-wise 指各 row 分別計算，不是每個 row 有不同參數。重排不改 $\operatorname{FFN}$ 的規則，所以
+$\operatorname{FFN}(PH)=P\operatorname{FFN}(H)$。
+
+## 接成 block，對稱還在嗎？
+
+如果想保留原 feature，再加入新讀到的資訊，可以用 residual 相加。兩份 feature 必須有相同的維度與 action，才能沿用 <Ref to="gdl-composition-pooling" /> 的相加規則。
+
+若再選 normalization 調整 feature 的尺度，也不能讓它依列號使用不同算法。這裡用 **LayerNorm**：在同一 row 的 channels 中算平均與 variance，各 row 共用 affine parameters。因此 $\operatorname{LN}(PH)=P\operatorname{LN}(H)$。
+
+Symmetry 並沒有要求一定使用 residual 或 LayerNorm；我們選了這些操作，再檢查它們是否保留相同 action。採用 Vaswani 等人 [1] 的 post-norm 寫法，先忽略 dropout，block 就是
+
+$$
+U=\operatorname{LN}(H+\operatorname{MHA}(H)),
+\qquad
+F(H)=\operatorname{LN}(U+\operatorname{FFN}(U)).
+$$
+
+先檢查第一段：
+
+$$
+U'=\operatorname{LN}(PH+P\operatorname{MHA}(H))
+=P\operatorname{LN}(H+\operatorname{MHA}(H))=PU.
+$$
+
+同樣代入第二段，就得到 $F(PH)=PF(H)$。這是 <Ref to="gdl-composition-pooling">G1.3</Ref> 的 layer composition：每個操作遵守同一個 action，疊起來也遵守。
+
+**Attention 負責讀其他點，FFN 負責處理每個點讀到的內容；residual 與 normalization 把這兩種操作接成可堆疊的 Transformer block。** 這裡先建立 encoder 的核心，不假設任務一定是文字生成。
+
+<Remark summary="Training 時的 dropout 要怎麼比較？">
+
+兩次 forward 若各自抽不同的 dropout mask，逐次輸出通常不會精確對齊。驗證 deterministic identity 時應用 eval mode；若要比較有 dropout 的兩次運算，須讓隨機 mask 也一起重排。獨立抽樣的 dropout 可以保留分布層級的 symmetry，但不是每次 realization 都相等。
+
+</Remark>
+
+<figure>
+<img src="/personal_website/notes/research_areas/invariance-and-equivariance/figures/attention-3.svg" alt="Multi-head attention 讀取其他點，shared FFN 處理每個點；residual 與 row-wise LayerNorm 保留排列規則。" loading="lazy" />
+<figcaption>Multi-head attention 讀取其他點，shared FFN 處理每個點；residual 與 row-wise LayerNorm 保留排列規則。</figcaption>
+</figure>
+
+<Question>
+
+把 FFN 改成「第一列用一組參數、第二列用另一組」，前面的證明還能用嗎？
+
+<Answer>
+
+不能。原證明使用各 row 相同的規則；同一個點換到另一列就換了模型，一般不再有 $\operatorname{FFN}(PH)=P\operatorname{FFN}(H)$。
+
+</Answer>
+</Question>
+
+## 動手看一次
+
+先比較一層 attention 的重排；完整 block 的程式測試在 <Ref to="gdl-set-lab" />。每加一個操作，都用相同的 output action 檢查，不把一層的保證直接當成整個模型的保證。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/invariance-and-equivariance/attention-workbench.html?chapter=3" class="demo-frame" title="一層 attention，怎麼接成 Transformer？：attention 計算與重排" style="height: 840px; width: 100%; border: none;"></iframe>
+
+## 快速回顧一下
+
+<Quiz q="Multi-head 在哪個維度 concatenate？" options={[{"text":"Feature 維度。","correct":true,"explain":"同一個點的多份 features 接在一起，rows 仍對應原來的點。"},{"text":"把不同點變成同一列。","explain":"那不是這裡的 multi-head 組合。"}]} />
+<Quiz q="Position-wise FFN 指什麼？" options={[{"text":"每個位置有獨立參數。","explain":"此處是每列分別使用同一組 MLP。"},{"text":"各 row 分別計算，參數共享。","correct":true,"explain":"共享規則才保留一般排列保證。"}]} />
+<Quiz q="這裡的 LayerNorm 沿哪裡計算？" options={[{"text":"同一 row 的 feature channels。","correct":true,"explain":"不是把 token 序號寫進統計量。"},{"text":"替每個 row 固定一個不同答案。","explain":"所有 rows 使用相同的計算規則。"}]} />
+
+<Bridge to="gdl-order-and-position">
+
+我們現在能把整份名單放進 Transformer，輸出仍跟著資料重排。可是**文字的先後往往有意義，為什麼要忽略它？** 下一篇先分清我們到底換了什麼，再決定要加入哪些資訊。
+
+</Bridge>
+
+## 參考文獻
+
+1. [Vaswani 等人（2017），Attention Is All You Need](https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf)

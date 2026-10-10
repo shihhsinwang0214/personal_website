@@ -31,7 +31,7 @@ export interface MainQuest {
 }
 
 const questMeta: { id: string; noteGroups: string[] }[] = [
-  { id: 'geometric', noteGroups: ['Invariance and Equivariance'] },
+  { id: 'geometric', noteGroups: ['G1 · Symmetry and Translation', 'G2 · Rotations and Feature Types', 'G3 · Sets and Permutations', 'G4 · Attention and Transformers', 'G5 · Graphs and Message Passing', 'G6 · Euclidean Geometry'] },
   { id: 'generative', noteGroups: ['From Noise to Data', 'Diffusion & Flow Models', 'Flow Matching'] },
   { id: 'ai-for-science', noteGroups: [] },
 ];
