@@ -270,7 +270,6 @@ const groupOrder = [
   // Courses — Diffusion Models and Their Applications
   'Unit 1 · Diffusion Models',
   'Unit 2 · Flow Matching',
-  '作業 · Unit 1–2',
   'Unit 3 · 減少 ODE 的離散化誤差',
   'Unit 4 · Discrete Diffusion',
   'Unit 5 · Consistency Models',
@@ -673,15 +672,6 @@ export const courses: CourseDef[] = [
         description: {
           zh: '從 reference paths 出發，講解 velocity regression 的理論及直觀解釋，介紹 continuity equation 及其直覺含意，並以 DDIM 作為 Flow Matching 與 diffusion model 的橋樑，再推廣到 stochastic interpolants，以及共享相同 marginals 的 ODE／SDE sampler family。',
           en: 'Start from reference paths and explain velocity regression through both theory and intuition. Introduce the continuity equation and its intuitive meaning, use DDIM to bridge Flow Matching and diffusion models, then generalize to stochastic interpolants and a family of ODE/SDE samplers that share the same marginals.',
-        },
-      },
-      {
-        group: '作業 · Unit 1–2',
-        label: 'dma-week-homework-u1-u2',
-        constellation: { anchor: [400, 170], stars: [[0, 0, 3.0], [46, 30, 3.4], [88, 4, 2.8]], edges: [[0, 1], [1, 2]] },
-        description: {
-          zh: 'Unit 1–2 的作業：把 diffusion 與 flow matching 的推導與實作自己走一遍。',
-          en: 'Homework for Units 1–2: work through the diffusion and flow-matching derivations and implementations yourself.',
         },
       },
       {
