@@ -11,7 +11,7 @@ title: "實作：同一個 base distribution，能被 guidance 帶到哪裡？"
 category: "courses"
 group: "Unit 7 · Test-time Guidance"
 status: "available"
-updated: 2026-10-09
+updated: 2026-10-11
 summary: "在有 analytic score 與 exact tilted density 的 2D Gaussian mixture 上，驗證 classifier gradient 等於 conditional 與 unconditional score 的差；再比較 CFG、Best-of-N 與 gradient-free tempering SMC 的 reward、data fidelity、diversity 與計算成本。"
 demos: []
 references:
@@ -29,7 +29,6 @@ import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 
@@ -57,7 +56,7 @@ p_{\mathrm{data}}(x)
 \mu_j\in\{(-2,-2),(-2,2),(2,-2),(2,2)\},
 $$
 
-並取 $\sigma=0.45$。把上方兩個 modes 定成 condition $y=1$，下方兩個 modes 定成 $y=0$。
+並取 $\sigma=0.45$。把上方兩個 modes 定成 condition $c=1$，下方兩個 modes 定成 $c=0$。
 
 對每個 $x$，先算未 normalization 的 component densities $\rho_j(x)$ 與 responsibilities：
 
@@ -93,21 +92,21 @@ def mixture_score(x, mask=None):
     return (resp[..., None] * (mus[None] - x[:, None]) / SIGMA**2).sum(1)
 ```
 
-`mixture_score(x)` 是 unconditional score；`mixture_score(x, TOP)` 是 $y=1$ 的 conditional score。兩者都在同一組 $x$ 上評估，才有辦法比較方向。
+`mixture_score(x)` 是 unconditional score；`mixture_score(x, TOP)` 是 $c=1$ 的 conditional score。兩者都在同一組 $x$ 上評估，才有辦法比較方向。
 
 ## 步驟 1：親手驗證 classifier gradient 就是兩個 score 的差
 
 Condition probability 可以直接由 mixture components 算：
 
 $$
-p(y=1\mid x)
+p(c=1\mid x)
 =\frac{\sum_{j:\,\mu_{j,2}=2}\rho_j(x)}{\sum_{j=1}^4\rho_j(x)}.
 $$
 
-用 autograd 對 $\log p(y=1\mid x)$ 求 gradient，再和
+用 autograd 對 $\log p(c=1\mid x)$ 求 gradient，再和
 
 $$
-s(x\mid y=1)-s(x)
+s(x\mid c=1)-s(x)
 $$
 
 逐點比較。在 $[-4,4]^2$ 的 regular grid 上畫兩個 vector fields，並回報 maximum absolute error。浮點誤差之外，兩者應該一致；這一步是在數值上檢查 <Ref to="dma-classifier-free-guidance"/> 的 Bayes identity，不是在比較兩個近似 network。
@@ -126,7 +125,7 @@ $$
 
 $$
 \widetilde s_w(x)
-=s(x)+w\big[s(x\mid y=1)-s(x)\big].
+=s(x)+w\big[s(x\mid c=1)-s(x)\big].
 $$
 
 從同一批 initial particles 出發，固定 $h$、burn-in 與總步數，只換 $w\in\{0,1,3\}$。畫三張 scatter plots，並報告：
@@ -212,13 +211,9 @@ Best-of-$N$ 用 $N$ 次 reward evaluations，SMC 卻在每個 temperature、每�
 
 再把 empirical histogram 和步驟 3 的 exact $p_R$ 比較。Best-of-$N$ 的輸出 distribution 通常不等於 $p_R$；tempering SMC 在 particles、temperatures 與 MCMC mixing 都增加時，才應該逐漸靠近 grid ground truth。若 reward 高但 base log-density 暴跌，或 samples 全部變成同一個點，就不能只用「alignment 變好」收掉結果。
 
-<VizPlan id="u7-6-guidance-lab" title="同一個 toy 上的四種 sampling distributions" type="static">
-- 檔名：`w10-6-guidance-lab.png`；放在步驟 5 之後。
-- 兩排四欄：base、CFG $w=1$、CFG $w=3$、reward tilt ground truth；第二排比較 Best-of-$N$ 與 SMC，旁邊附 reward／base log-density／coverage 三個小表。
-- 中文標註：`正確 conditional`、`刻意銳化`、`只挑終點最高分`、`逐步重加權 particles`。
-- 觀察句：reward 上升不必然代表更接近指定的 tilted distribution；還要看 base fidelity、coverage 與 budget。
-- 風格：沿用 U2–U3 demo 的點雲配色；所有 panels 使用相同座標範圍與點數。
-</VizPlan>
+![Gaussian mixture 上的 CFG、reward tilt、Best-of-N 與 SMC 概念對照及評測項目](./imgs/w10-6-guidance-lab.png)
+
+*圖：target 與 sampling 機制的概念示意，並非實驗結果。較大的 CFG 權重不保證每個 mode 都變窄；實際的 reward、base fidelity、coverage 與 budget 需由 lab 量測。*
 
 ## 作業
 
@@ -240,7 +235,7 @@ Best-of-$N$ 用 $N$ 次 reward evaluations，SMC 卻在每個 temperature、每�
 </QuizBlock>
 
 <QuizBlock id="w10-6-b">
-為什麼 $w=3$ 的 samples 不能拿來當 $p(x\mid y=1)$ 的 ground truth？
+為什麼 $w=3$ 的 samples 不能拿來當 $p(x\mid c=1)$ 的 ground truth？
 <Option>因為 $w=3$ 需要三個 classifiers。</Option>
 <Option correct>因為本篇 convention 下 $w=1$ 才是 conditional score；$w=3$ 已經對 condition 做額外 power reweighting。</Option>
 <Option>因為 Langevin 只能使用整數 $w$。</Option>
