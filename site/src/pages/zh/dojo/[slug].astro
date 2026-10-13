@@ -1,0 +1,15 @@
+---
+import { getCollection } from 'astro:content';
+import DojoView from '../../../components/dojo/DojoView.astro';
+import { isPublishedDojo } from '../../../lib/dojo';
+
+export async function getStaticPaths() {
+  const all = await getCollection('dojo');
+  return all
+    .filter((e) => e.data.lang === 'zh' && isPublishedDojo(e))
+    .map((entry) => ({ params: { slug: entry.data.slug }, props: { entry, all } }));
+}
+const { entry, all } = Astro.props;
+---
+
+<DojoView entry={entry} all={all} lang="zh" />

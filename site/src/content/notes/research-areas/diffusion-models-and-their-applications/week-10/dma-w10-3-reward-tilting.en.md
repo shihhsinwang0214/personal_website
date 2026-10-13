@@ -2,7 +2,7 @@
 slug: "dma-w10-3-reward-tilting"
 label: "dma-reward-tilting"
 prereqs:
-  - dma-classifier-free-guidance
+  - dma-classifier-guidance
   - math-kl
   - math-bayes-posterior
 lang: "en"

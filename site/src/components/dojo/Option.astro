@@ -1,0 +1,28 @@
+---
+/**
+ * Option.astro — one branch inside <Choose>.
+ *
+ *   correct   the option the walk continues from
+ *   reply     one line shown under the question when this option is picked
+ *             (for the correct one: the confirmation; for a wrong one: the nudge)
+ *   why       the explanation of this option, shown inline under it. Readers are
+ *             encouraged to open every option's `why` after answering, so write
+ *             one for each wrong option (and optionally for the correct one too).
+ *   goto      a detour node (<Say detour back="…">) for an explanation too long
+ *             for `why` — math, a figure, several paragraphs. Opening it from an
+ *             answered question comes back to the question afterwards.
+ *
+ * `why` / `reply` are plain strings (no KaTeX); use `goto` when math is needed.
+ */
+interface Props { correct?: boolean; goto?: string; reply?: string; why?: string }
+const { correct = false, goto, reply, why } = Astro.props;
+---
+
+<div class="dojo-opt-wrap">
+  <button type="button" class="dojo-opt" data-correct={correct ? 'true' : 'false'} data-goto={goto} data-reply={reply} data-why={why}>
+    <span class="dojo-mark" aria-hidden="true"></span>
+    <span class="dojo-opt-text"><slot /></span>
+    {(why || goto) && <span class="dojo-opt-more" aria-hidden="true"></span>}
+  </button>
+  {why && <p class="dojo-why">{why}</p>}
+</div>

@@ -2,7 +2,7 @@
 slug: "dma-w10-3-reward-tilting"
 label: "dma-reward-tilting"
 prereqs:
-  - dma-classifier-free-guidance
+  - dma-classifier-guidance
   - math-kl
   - math-bayes-posterior
 lang: "zh"
@@ -10,8 +10,8 @@ title: "既要像資料，又要 reward 高：我們真正想抽哪個 distribut
 category: "courses"
 group: "Unit 7 · Test-time Guidance"
 status: "available"
-updated: 2026-10-12
-summary: "同時考慮 reward、data likelihood 與保留多種答案的需求，會得到 p_R(x_0)∝p_data(x_0)e^{λR(x_0)}。但 noisy state 上需要先對所有可能的乾淨結果平均 reward 權重；常見 plug-in guidance 正是在近似這個 posterior average。"
+updated: 2026-10-13
+summary: "同時考慮 reward、log density 與保留多種答案的需求，會得到 p_R(x_0)∝p_data(x_0)e^{λR(x_0)}。但 noisy state 上需要先對所有可能的乾淨結果平均 reward 權重；常見 plug-in guidance 正是在近似這個 posterior average。"
 demos: []
 references:
   - label: "Bansal et al., Universal Guidance for Diffusion Models (2023)"
@@ -38,7 +38,7 @@ import Ref from '../../../components/Ref.astro';
 # 既要像資料，又要 reward 高：我們真正想抽哪個 distribution？
 
 <Objectives>
-- **從「reward 高又像資料」推出 tilted distribution。** 將 entropy 與 data likelihood 一起考慮，推得 $p_R(x_0)\propto p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}$。
+- **從「reward 高又像資料」推出 tilted distribution。** 將 entropy 與 log density 一起考慮，推得 $p_R(x_0)\propto p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}$。
 - **寫出 noisy state 上真正需要的 guidance。** 從所有可能的乾淨結果出發，推導 $p_t^R(x_t)=p_t(x_t)h_t(x_t)/Z_R$，說明 $h_t$ 平均什麼、條件固定什麼。
 - **分清 exact tilt 與常見 plug-in approximation。** 說出對 $R(\hat x_0)$ 求 gradient 為什麼不等於精確的 $\nabla\log h_t$，以及 approximation 可能造成的偏差。
 </Objectives>
@@ -47,16 +47,64 @@ import Ref from '../../../components/Ref.astro';
 
 ## 一個高分樣本，還是一個高分 distribution？
 
-在 <Ref to="dma-classifier-free-guidance"/> 中，我們用模型「有 condition」與「沒有 condition」的兩個回答，調整生成方向。但假如模型訓練完後，我們才拿到一個美感評分程式，它只能看完成的圖片並打分，模型並沒有對應的 conditional prediction，該怎麼辦？
+在 <Ref to="dma-classifier-guidance"/> 中，我們用外部 classifier 的判斷，或模型「有 condition」與「沒有 condition」的兩個回答，調整生成方向。但假如模型訓練完後，我們才拿到一個美感評分程式，它只能看完成的圖片並打分，既沒有對應的 noisy classifier，也沒有 conditional prediction，該怎麼辦？
 
-把這個分數記成 $R(x_0)$，稱為 **reward**：輸入是乾淨資料，輸出是一個數，越大代表越符合這次的要求。它不一定是機率，也不一定能微分；這裡先問清楚它應該如何改變我們想抽的 distribution，再決定 sampling 怎麼做。
+我們把這個打出的分數記成 $R(x_0)$，稱為 **reward**：輸入是乾淨資料，而輸出是一個數字，數字越大代表越符合這次的要求。它不一定要是個機率，也不一定能微分。
 
-我們希望 reward 越高越好，但又不能只顧 reward。若產生出一張 reward model 給滿分、在人眼看來卻完全不像資料的影像，steering 並沒有成功。用機率的語言說，我們同時在乎
+我們首先要釐清的是：**它應該如何改變我們想抽的 distribution？** 這才能幫助我們決定 sampling 可以怎麼做。
 
-- $R(x_0)$：這個樣本有多符合這次目標；
-- $\log p_{\mathrm{data}}(x_0)$：這個樣本在原本 data distribution 下有多合理。
+我們一方面希望 reward 越高越好，但又不能只顧 reward。若產生出一張 reward model 給滿分、在人眼看來卻完全不像資料的影像，這就不是一個好的 steering。這裡把「生成結果仍像原本的資料、保有合理的特徵與結構」這個要求稱為 **data fidelity**。如果用數學的語言說，我們同時在乎
 
-其中 $p_{\mathrm{data}}$ 是原本乾淨資料的 density，log 不改變它的大小排序；$\lambda>0$ 控制 reward 在兩個要求中的影響。如果只想找**一個點**，可以最大化 $\lambda R(x_0)+\log p_{\mathrm{data}}(x_0)$。但我們希望每次生成仍能得到不同的合理答案，所以要決定的是新的 sampling distribution，先把它記成 $\widetilde p$。
+- reward function $R(x_0)$：這個樣本有多符合這次的要求；
+- log density $\log p_{\mathrm{data}}(x_0)$：值越大，表示原本資料在這個樣本附近越密集。
+
+<Remark label="補充" summary="為什麼使用 log density，而不直接用 density？">
+回想 <Ref to="ml-maximum-likelihood"/> 中的 maximum likelihood。若乾淨樣本 $x_0^{(1)},\ldots,x_0^{(n)}$ 獨立取自 $p_{\mathrm{data}}$，模型是 $p_\theta$，整批資料的 likelihood 與取 log 後的分數分別是
+
+$$
+\begin{aligned}
+L(\theta)&=\prod_{i=1}^n p_\theta(x_0^{(i)}),\\
+\log L(\theta)&=\sum_{i=1}^n\log p_\theta(x_0^{(i)}).
+\end{aligned}
+$$
+
+**log 把乘法變成加法，而且不改變最大 likelihood 的解。** 因為 log 嚴格遞增，$\arg\max_\theta L(\theta)=\arg\max_\theta\log L(\theta)$。實作時直接累加 log density，也能避免先算出很小的乘積而造成數值下溢，微分則變成逐筆加總。
+
+再除以樣本數，就從整批 likelihood 變成每筆資料的平均表現：
+
+$$
+\begin{aligned}
+\frac1n\log L(\theta)
+&=\frac1n\sum_{i=1}^n\log p_\theta(x_0^{(i)})\\
+&\approx\mathbb E_{x_0\sim p_{\mathrm{data}}}[\log p_\theta(x_0)].
+\end{aligned}
+$$
+
+這個 expectation 固定真實資料的分布，平均它們在模型下的 log density；若 log density 可積分，隨著獨立樣本數增加，左邊的平均會逼近右邊。它還有一個統計上的意義：在相關期望有限時，展開 KL 的定義可得
+
+$$
+\begin{aligned}
+&\mathbb E_{p_{\mathrm{data}}}[\log p_\theta(x_0)]\\
+&\quad=\mathbb E_{p_{\mathrm{data}}}[\log p_{\mathrm{data}}(x_0)]\\
+&\qquad-D_{\mathrm{KL}}(p_{\mathrm{data}}\|p_\theta).
+\end{aligned}
+$$
+
+第一項與 $\theta$ 無關，所以最大化 expected log-likelihood，等於讓模型最小化這個 KL。
+
+但 **log 的單調性不能直接穿過期望值**：$\mathbb E[\log p_\theta(x_0)]$ 與 $\mathbb E[p_\theta(x_0)]$ 是不同目標。例如真實資料只有 $A,B$，比例是 $0.9:0.1$，模型給它們的機率是 $q,1-q$：
+
+| 目標（對真實資料取平均） | 最佳 $q$ |
+| --- | --- |
+| 平均 probability <br /> $0.9q+0.1(1-q)$ | $1$ |
+| 平均 log probability <br /> $0.9\log q+0.1\log(1-q)$ | $0.9$ |
+
+前者只希望 $q$ 越大越好；後者在模型還原真實比例、KL 為零時最大。**真實會出現、卻被模型分配極低機率的事件，會受到 log 很強的懲罰。**
+
+這裡的 MLE 固定資料分布、調整模型 $p_\theta$；正文則固定 $p_{\mathrm{data}}$，選擇新的抽樣分布。兩個問題使用同一個 log density 分數，但最佳化的對象不同。
+</Remark>
+
+用 $\lambda>0$ 控制 reward 在兩個要求中的影響。如果只想找**一個點**，可以最大化 $\lambda R(x_0)+\log p_{\mathrm{data}}(x_0)$。但我們希望每次生成仍能得到不同的合理答案，所以要決定的應該是一個新的 distribution，用它的 density 同時反映 reward 與 data fidelity。我們用 $\widetilde p$ 來表示這個 distribution。
 
 <Ask>
 要讓整個 distribution 同時偏向高 reward、<br />
@@ -65,20 +113,26 @@ import Ref from '../../../components/Ref.astro';
 
 ## 把 data fidelity、reward 與 diversity 放進同一個 objective
 
-最自然的嘗試，是對 $\widetilde p$ 抽出的樣本最大化
+最自然的嘗試，是比較不同 distributions 生成的結果，哪一個平均表現最好。想像我們反覆從 $\widetilde p$ 生成圖片，替每張計算 $\lambda R(x_0)+\log p_{\mathrm{data}}(x_0)$，再把分數取平均。換一個 distribution，各種結果出現的頻率就會不同，平均分數也會跟著改變。
+
+所以，**我們要找的是讓整批平均分數最高的 $\widetilde p$，而不是某一個最高分的樣本：**
 
 $$
+\max_{\widetilde p}\;
 \mathbb E_{x_0\sim \widetilde p}
 \big[\lambda R(x_0)+\log p_{\mathrm{data}}(x_0)\big].
 $$
 
-Expectation 是對新 distribution 抽出的 $x_0$ 取平均：我們希望平均 reward 高，平均 data log-likelihood 也高。但這樣就會保留多種答案嗎？
+這裡 $R$、$p_{\mathrm{data}}$ 與 $\lambda$ 都先固定，改變的是 $\widetilde p$。Expectation 是對它抽出的 $x_0$ 取平均：我們希望平均 reward 高，平均 log density 也高。但這樣就會保留多種答案嗎？
 
 先把相簿簡化成兩張都合理的照片 $A$、$B$：原本各以 $1/2$ 機率出現，reward 分別是 $0$、$1$。若新的抽樣方法以機率 $q$ 選 $B$，剛才的 objective 就是
 
 $$
-(1-q)(0+\log\tfrac12)+q(\lambda+\log\tfrac12)
-=-\log2+\lambda q.
+\begin{aligned}
+&(1-q)(0+\log\tfrac12)\\
+&\quad+q(\lambda+\log\tfrac12)\\
+&=-\log2+\lambda q.
+\end{aligned}
 $$
 
 只要 $\lambda>0$，它就希望 $q$ 越大越好，最後每次都回傳 $B$。**兩張照片原本都合理，但這個 objective 沒有要求保留另一個答案。**
@@ -130,14 +184,14 @@ p_R(x_0)=\frac{1}{Z_R}p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}
 }.
 $$
 
-它讓高 reward 的區域在**原本的權重上**被放大，而不是只挑 reward 最大的點。這個做法稱為 **exponential tilting** 或 **reward tilting**。
+我們把原本的 data density $p_{\mathrm{data}}(x_0)$ 乘上 reward 決定的係數 $e^{\lambda R(x_0)}$，再除以 $Z_R$，得到新的 density $p_R(x_0)$。**Reward 越高，乘上的係數就越大；但新的相對權重仍由 $p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}$ 共同決定，而不是只挑 reward 最大的點。** 這個做法稱為 **exponential tilting** 或 **reward tilting**。
 
 回到剛才兩張照片的例子，tilting 後的相對權重成為 $1:e^\lambda$，所以 $B$ 被抽中的機率是 $e^\lambda/(1+e^\lambda)$。它更常出現，但有限的 $\lambda$ 沒有把 $A$ 完全刪掉。連續資料做的是同一件事，只是對整片 density 重新加權。
 
 這裡的 $p_{\mathrm{data}}$ 是理想的 base distribution。實作時，我們只能使用 pretrained model 學到的 $p_\theta$ 或它的 score；因此 steering 能逼近的是以 learned model 為 base 的 tilted distribution，原本的 model error 並不會因此消失。
 
 <Question id="Q1">
-既然我們在乎的就是 reward 與 likelihood，**把 entropy $H(\widetilde p)$ 拿掉，直接最大化兩個 expectation，不是更單純嗎？**
+既然我們在乎的就是 reward 與 log density，**把 entropy $H(\widetilde p)$ 拿掉，直接最大化兩個 expectation，不是更單純嗎？**
 
 <Answer>
 拿掉 entropy 後，objective 對 $\widetilde p$ 是 linear 的。令 $F(x_0)=\lambda R(x_0)+\log p_{\mathrm{data}}(x_0)$，則
@@ -153,34 +207,151 @@ $$
 </Question>
 
 <Remark label="補充" summary="同一個 tilted distribution，在論文裡還有哪些常見寫法？">
-上面的 objective 常以幾種等價或相近的形式出現。
+先把正文的 objective 展成三項。固定 reward、base distribution 與 $\lambda>0$，我們要在不同的 $\widetilde p$ 之間最大化
+
+$$
+\begin{aligned}
+\max_{\widetilde p}\quad
+&\lambda\mathbb E_{\widetilde p}[R(x_0)]\\
+&+\mathbb E_{\widetilde p}[\log p_{\mathrm{data}}(x_0)]\\
+&+H(\widetilde p).
+\end{aligned}
+$$
+
+下面的比較沿用正文的條件：相關期望與 entropy 有限，且 $0<Z_R<\infty$。我們逐一看，它們如何回到這三項。
 
 **KL-regularized reward maximization：**
 
+這個寫法把「原本的 log density」與「新 distribution 的 entropy」合成一個 KL 項。把 KL 的定義展開，就看得到：
+
 $$
-\max_{\widetilde p}\;
+\begin{aligned}
+&D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}})\\
+&\quad=\mathbb E_{\widetilde p}\left[
+\log\frac{\widetilde p(x_0)}{p_{\mathrm{data}}(x_0)}
+\right]\\
+&\quad=-H(\widetilde p)\\
+&\qquad-\mathbb E_{\widetilde p}[\log p_{\mathrm{data}}(x_0)].
+\end{aligned}
+$$
+
+因此，正文後兩項就是 $-D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}})$。再把整個 objective 除以正的常數 $\lambda$，不會改變最佳的 $\widetilde p$，就得到
+
+$$
+\begin{aligned}
+\max_{\widetilde p}\quad
+&\mathbb E_{\widetilde p}[R(x_0)]\\
+&-\frac1\lambda D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}}).
+\end{aligned}
+$$
+
+所以它不是另外一個目標：**正文的「log density + entropy」，正好就是限制新 distribution 偏離 base 的 KL penalty。** $\lambda$ 越大，這個寫法中的 KL 懲罰係數 $1/\lambda$ 越小，相對上更重視 reward。
+
+**Constrained formulation：**
+
+另一個問法是：先指定「最多能偏離 base 多少」，再在這個範圍內提高 reward。用 $\delta\ge0$ 表示可接受的 KL 上限：
+
+$$
+\begin{aligned}
+\max_{\widetilde p}\quad
+&\mathbb E_{\widetilde p}[R(x_0)]\\
+\text{條件：}\quad
+&D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}})\le\delta.
+\end{aligned}
+$$
+
+要把限制放進 objective，可以用 $1/\lambda$ 作為 **Lagrange multiplier**，也就是限制的懲罰係數，扣掉 $\frac1\lambda(D_{\mathrm{KL}}-\delta)$。展開後是
+
+$$
+\begin{aligned}
+&\mathbb E_{\widetilde p}[R(x_0)]\\
+&\quad-\frac1\lambda D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}})\\
+&\quad+\frac\delta\lambda.
+\end{aligned}
+$$
+
+對固定的 $\lambda,\delta$，最後一項不隨 $\widetilde p$ 改變，拿掉它就回到前一種 objective。但 **$\delta$ 與 $\lambda$ 必須匹配，不能任意指定後就說兩個問題相同**。
+
+一個具體的對應是取 $\delta=D_{\mathrm{KL}}(p_R\|p_{\mathrm{data}})$。因為 $p_R$ 已是 KL-regularized objective 的最佳解，對任何符合 KL 上限的 $\widetilde p$，都有
+
+$$
+\begin{aligned}
 \mathbb E_{\widetilde p}[R(x_0)]
--\frac{1}{\lambda}D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}}).
+&\le\mathbb E_{p_R}[R(x_0)]\\
+&\quad+\frac1\lambda\bigl(
+D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}})-\delta
+\bigr)\\
+&\le\mathbb E_{p_R}[R(x_0)].
+\end{aligned}
 $$
 
-因為 $\mathbb E_{\widetilde p}[\log p_{\mathrm{data}}]+H(\widetilde p)=-D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}})$，上式乘上正的常數 $\lambda$，就回到正文的 objective。KL 項限制新 distribution 偏離 base 的程度。
+第一個不等式是把前一種 objective 的最佳性移項；第二個用到 $D_{\mathrm{KL}}\le\delta$。所以在這個對應下，$p_R$ 也讓 constrained problem 的 reward 最大。這是懲罰強度與偏離上限之間的關係，不是任意 constraint 都自動得到同一個 $p_R$。
 
-**Constrained formulation：** 最大化 $\mathbb E_{\widetilde p}[R]$，同時要求 $D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}})\le\delta$。在適當的 regularity 與 Lagrange multiplier 下，它會得到同一族 tilted distributions。
+**Bayesian posterior：**
 
-**Bayesian posterior：** 若 $R(x_0)=\log p(y\mid x_0)$ 且 $\lambda=1$，則
+假如手上只有一張模糊照片 $y$，候選的清楚照片是 $x_0$，我們還希望它經過量測後能符合 $y$。此時 $p(y\mid x_0)$ 描述這個候選對觀測的支持程度；選它的 log-likelihood 當 reward，並令 $\lambda=1$：
 
 $$
-p_R(x_0)=p(x_0\mid y)\propto p_{\mathrm{data}}(x_0)p(y\mid x_0).
+R(x_0)=\log p(y\mid x_0).
 $$
 
-這裡沿用本單元的符號約定：$y$ 是 measurement process 產生的 observation；類別或文字 condition 仍寫成 $c$。這時 reward 是 observation 的 **log-likelihood**，steering 變成 posterior sampling。
+現在把這個選擇代進正文的 tilted density，而不是另外假設一個 posterior：
 
-**RLHF：** 把 $x_0$ 換成 response、$p_{\mathrm{data}}$ 換成 reference policy，常見目標是 $\mathbb E_{\widetilde p}[R]-\beta D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{ref}})$ [4]。符號不同，結構仍是「提高 reward，同時限制偏離 base model」。
+$$
+\begin{aligned}
+p_R(x_0)
+&\propto p_{\mathrm{data}}(x_0)e^{R(x_0)}\\
+&=p_{\mathrm{data}}(x_0)p(y\mid x_0)\\
+&\propto p(x_0\mid y).
+\end{aligned}
+$$
+
+第二行用 $e^{\log p(y\mid x_0)}=p(y\mid x_0)$，第三行就是 Bayes rule：**base distribution 在這裡是 prior，reward 的指數變成 measurement likelihood。** 正文的 normalization 也變成
+
+$$
+\begin{aligned}
+Z_R
+&=\int p_{\mathrm{data}}(x_0)p(y\mid x_0)\,\mathrm dx_0\\
+&=p(y).
+\end{aligned}
+$$
+
+因此在 $0<p(y)<\infty$ 時，正規化後恰好是 $p_R(x_0)=p(x_0\mid y)$，也就是 posterior sampling。這個解釋使用指定的量測模型；$y$ 是 observation，一般的類別或文字 condition 仍寫成 $c$。
+
+**RLHF：**
+
+把情境換成語言模型。RLHF（Reinforcement Learning from Human Feedback）用人類偏好提供 reward 訊號；固定一個 prompt 後，$x_0$ 是 response，$p_{\mathrm{ref}}$ 是固定的 reference model 產生回答的 distribution。這種產生回答的分布也稱為 **policy**，我們要調整的 policy 仍記成 $\widetilde p$；下面省略固定 prompt 的條件。
+
+Ouyang 等人 [4] 的目標包含提高 reward、同時限制偏離 reference policy 的部分。以我們的符號寫成
+
+$$
+\begin{aligned}
+\max_{\widetilde p}\quad
+&\mathbb E_{\widetilde p}[R(x_0)]\\
+&-\beta D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{ref}}),
+\qquad\beta>0.
+\end{aligned}
+$$
+
+用前面展開的 KL 定義，再把整個 objective 除以 $\beta$，就得到
+
+$$
+\begin{aligned}
+\max_{\widetilde p}\quad
+&\frac1\beta\mathbb E_{\widetilde p}[R(x_0)]\\
+&+\mathbb E_{\widetilde p}[\log p_{\mathrm{ref}}(x_0)]\\
+&+H(\widetilde p).
+\end{aligned}
+$$
+
+逐項和最上面的正文 formulation 比較：**base 換成 $p_{\mathrm{ref}}$，reward 係數換成 $\lambda=1/\beta$，entropy 項沒有變。** 因此在理想的分布最佳化下，最佳 policy 同樣滿足 $\widetilde p(x_0)\propto p_{\mathrm{ref}}(x_0)e^{R(x_0)/\beta}$。
+
+這裡只比較 reward 與 KL 的部分；原論文的 PPO-ptx 還加入預訓練資料項。實際 RLHF 會訓練 policy 的參數，本單元則固定 pretrained model、在 sampling 時 steering；**共同的是 objective 的結構，不是訓練與取樣的流程**。
 </Remark>
 
 ## 若 reward 可以微分，直接把 gradient 加上去嗎？
 
-在乾淨資料端，tilted density 的 score 很容易寫：
+在乾淨資料 $x_0$ 端（$t=0$），tilted distribution $p_R$ 的 score functions 可以寫成：
 
 $$
 \nabla_{x_0}\log p_R(x_0)
@@ -188,7 +359,7 @@ $$
 +\lambda\nabla_{x_0}R(x_0).
 $$
 
-這裡 $\nabla_{x_0}R$ 指向「稍微改動乾淨樣本，reward 上升最快」的方向，微分時 reward 與模型都保持固定。它可以加到乾淨資料的 score；例如在乾淨空間用 score 建立抽樣 dynamics 時，這就是要用的方向。Classifier guidance 在 $\lambda=1$ 時，也可看成選 $R(x_0)=\log p(c\mid x_0)$ 的特例。
+這裡 $\nabla_{x_0}R$ 指向「稍微改動乾淨樣本，reward 上升最快」的方向。它可以加到乾淨資料的 score；例如在乾淨空間用 score 建立抽樣 dynamics 時，這就是要用的方向。Classifier guidance 在 $\lambda=1$ 時，也可看成選 $R(x_0)=\log p(c\mid x_0)$ 的特例。
 
 但 diffusion sampling 大部分時間拿到的是 noisy $x_t$，reward 卻通常定義在 clean sample $x_0$。回想 U7.1 那張尚未畫完的草稿：同一個模糊輪廓，可能完成為不同的品種、動作與場景；它們最後的 reward 也不同。**要判斷這張草稿值不值得保留，就得一起考慮這些可能結果，而不是假裝它已經是一張完成的圖片。**
 
@@ -203,30 +374,49 @@ $$
 $$
 p_t^R(x_t)
 =\frac{1}{Z_R}\int q(x_t\mid x_0)
-p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}\,\mathrm dx_0.
+p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}\,\mathrm dx_0.\tag{1}
 $$
 
-要把它和 base density $p_t$ 接起來，先在積分裡乘除 $p_t(x_t)$。被積分的前兩項除以它，Bayes rule 就給出
+接下來，我們希望把目標 density $p_t^R$ 和原本的 base density $p_t$ 接起來。Pretrained model 已經在近似 $p_t$ 的 score；我們想看看，能不能利用模型學到的東西，再結合 reward，算出 $p_t^R$ 的 score。
+
+我們可以先在積分裡乘除 $p_t(x_t)$。被積分的前兩項 $q(x_t\mid x_0)p_{\mathrm{data}}(x_0)$ 除以它，Bayes rule 就給出
 
 $$
 \frac{q(x_t\mid x_0)p_{\mathrm{data}}(x_0)}{p_t(x_t)}
 =p(x_0\mid x_t).
 $$
 
-這是**固定目前的 $x_t$ 後，原本可能是哪一張乾淨資料的 posterior density**。因此我們平均的不是所有資料，而是這些相容的可能來源：
+$p(x_0\mid x_t)$ 的意思是：**看到目前的 noisy state $x_t$ 後，原本可能來自哪些乾淨資料 $x_0$，以及各個來源有多可能。** 這是對乾淨來源的 conditional density，也叫 **posterior density**。
+
+有了它，如果想估計目前這個 $x_t$ 的 reward，最自然的方法就是考慮所有可能的乾淨來源 $x_0$，把它們的 $R(x_0)$ 按照 $p(x_0\mid x_t)$ 加權取平均：
+
+$$
+\mathbb E[R(x_0)\mid x_t]
+=\int R(x_0)p(x_0\mid x_t)\,\mathrm dx_0.
+$$
+
+不過，我們現在要算的是 tilted density $p_t^R$，它用 $e^{\lambda R(x_0)}$，而不是 $R(x_0)$ 來重新加權。因此，回到剛才的積分，同樣的 posterior 平均要作用在這個係數上：
 
 $$
 h_t(x_t):=\int e^{\lambda R(x_0)}p(x_0\mid x_t)\,\mathrm dx_0
 =\mathbb E\!\left[e^{\lambda R(x_0)}\mid x_t\right].
 $$
 
-把這個平均記成 $h_t$ 後，剛才的式子就是
+回到前面得到的 $p_t^R$ 積分式（1）：
 
 $$
-p_t^R(x_t)=\frac{p_t(x_t)h_t(x_t)}{Z_R}.
+p_t^R(x_t)
+=\frac{1}{Z_R}\int q(x_t\mid x_0)
+p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}\,\mathrm dx_0.
 $$
 
-$h_t$ 大，表示目前這個 noisy state 相容的乾淨結果，在 reward 加權後整體較有份量。注意，這裡平均的是 **$e^{\lambda R(x_0)}$ 這個權重，不是 reward $R(x_0)$ 本身**。現在像 U7.1 一樣取 log、對 $x_t$ 微分；$Z_R$ 不隨 $x_t$ 改變，所以
+利用 Bayes rule，再把不隨 $x_0$ 改變的 $p_t(x_t)$ 提到積分外，就能接上 $h_t$ 的定義：
+
+$$
+p_t^R(x_t)=\frac{p_t(x_t)}{Z_R}\int e^{\lambda R(x_0)}p(x_0\mid x_t)\,\mathrm dx_0=\frac{p_t(x_t)h_t(x_t)}{Z_R}.
+$$
+
+$h_t$ 大，表示目前這個 noisy state 相容的乾淨結果，在 reward 加權後整體較有份量。**先平均 reward，再取 exponential，一般不等於直接平均 $e^{\lambda R(x_0)}$。** 現在像 U7.1 一樣取 log、對 $x_t$ 微分；$Z_R$ 不隨 $x_t$ 改變，所以
 
 $$
 \boxed{
@@ -342,4 +532,4 @@ $Z_R$ 原本就會在 score 中消失。plug-in approximation 真正省掉的是
 1. Bansal, A. et al. [*Universal Guidance for Diffusion Models.*](https://arxiv.org/abs/2302.07121) 2023.（對 denoised prediction 使用任意 differentiable guidance。）
 2. Geyfman, D. et al. [*Calibrated Test-Time Guidance for Bayesian Inference.*](https://proceedings.mlr.press/v306/geyfman26a.html) ICML 2026.（常見 guidance 與 calibrated posterior sampling 的差異。）
 3. Dandapanthula, S., Boffi, N. M. [*Are We Really Tilting? The Mechanics of Reward Guidance in Flow and Diffusion Models.*](https://arxiv.org/abs/2606.02884) 2026.（有限 particle plug-in 對 mode selection 與 reward hacking 的分析。）
-4. Ouyang, L. et al. [*Training Language Models to Follow Instructions with Human Feedback.*](https://arxiv.org/abs/2203.02155) NeurIPS 2022.（KL-regularized RLHF 的常見形式。）
+4. Ouyang, L. et al. [*Training Language Models to Follow Instructions with Human Feedback.*](https://arxiv.org/abs/2203.02155) NeurIPS 2022, §3.5, Eq. (2).（RLHF 的 reward 與 KL 部分；PPO-ptx 另包含預訓練資料項。）

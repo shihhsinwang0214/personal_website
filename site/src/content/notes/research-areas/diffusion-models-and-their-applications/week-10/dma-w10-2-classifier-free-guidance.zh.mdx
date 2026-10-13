@@ -42,25 +42,59 @@ import Ref from '../../../components/Ref.astro';
 
 ## 外部 classifier 給的方向，模型自己有沒有？
 
-在 <Ref to="dma-classifier-guidance"/> 中，我們想生成指定類別 $c$，於是讓 classifier 提供「往哪裡改動 noisy image $x_t$，能讓它更可能來自 $c$」的方向。Bayes rule 告訴我們：
+在 <Ref to="dma-classifier-guidance"/> 中，我們想讓 pretrained model 生成指定類別 $c$ 的圖片。模型原本估計的是 base score $s_t(x_t)=\nabla_{x_t}\log p_t(x_t)$，於是我們突發奇想找來一個 classifier，提供「往哪裡改動 noisy image $x_t$，能讓它更可能來自 $c$」的額外方向 $\nabla_{x_t}\log p_t(c\mid x_t)$。理想情況下，Bayes rule 告訴我們：
 
 $$
 \nabla_{x_t}\log p_t(x_t\mid c)
 =s_t(x_t)+\nabla_{x_t}\log p_t(c\mid x_t).
 $$
 
-但取得這支方向需要額外訓練 noisy classifier，生成途中也要對它求 gradient。若 generative model 已經根據 $c$ 學會怎麼生成，condition 的影響其實也在它的回答裡。
+但取得這支方向需要額外訓練 noisy classifier，生成途中也要對它求 gradient。那我們可不可以**不仰賴 classifier，只靠模型自己本身，就取得這支引導方向？**
+
+這次，我們考慮一個已經做過 <Ref to="dma-test-time-steering"/> 中 **conditional training** 的 pretrained model，估計的目標是 conditional score $\nabla_{x_t}\log p_t(x_t\mid c)$。它用 $(x_0,c)$ 配對訓練，預測 $x_t$ 中的 noise 時，網路也會收到 $c$；所以模型**原本就能接收類別或文字的 condition**。
 
 想像上一章那張草圖，一次請人照著「柯基」這個要求修改，另一次不指定類別。比較兩次修改方向，也許就能看出「柯基」這個要求額外改變了什麼。**如果模型能回答有 condition 與沒有 condition 的兩種情況，我們能不能用兩個答案的差，取代 classifier？**
 
 <Ask>
 conditional 與 unconditional prediction 的差，<br />
-會不會就是 classifier 原本要提供的方向？
+能不能替代 classifier 原本要提供的方向？
 </Ask>
 
-## 把 Bayes identity 反過來讀
+## 把 Bayes 給的式子反過來讀
 
-把 conditional score 記成 $s_t(x_t\mid c)=\nabla_{x_t}\log p_t(x_t\mid c)$，unconditional score 仍是 $s_t(x_t)=\nabla_{x_t}\log p_t(x_t)$。上一個 identity 移項後得到
+我們先把 <Ref to="dma-classifier-guidance"/> 使用過的 Bayes 關係重新寫出來：
+
+$$
+p_t(x_t\mid c)
+=\frac{p_t(x_t)\,p_t(c\mid x_t)}{p(c)}.
+$$
+
+左邊是指定類別 $c$ 後，noisy images 如何分布；右邊先看所有 noisy images 的 density，再乘上目前圖片來自 $c$ 的機率。$p(c)$ 是資料中這個類別的比例，並不隨 $x_t$ 改變。
+
+像 U7.1 一樣，先取 log，把乘法與除法拆開：
+
+$$
+\begin{aligned}
+\log p_t(x_t\mid c)
+&=\log p_t(x_t)\\
+&\quad+\log p_t(c\mid x_t)\\
+&\quad-\log p(c).
+\end{aligned}
+$$
+
+我們想取得的是 classifier 原本提供的 $\nabla_{x_t}\log p_t(c\mid x_t)$。因此固定 $t$ 與 $c$，對兩邊的 $x_t$ 微分；最後一項與 $x_t$ 無關，gradient 為零，剩下
+
+$$
+\begin{aligned}
+\nabla_{x_t}\log p_t(x_t\mid c)
+&=\nabla_{x_t}\log p_t(x_t)\\
+&\quad+\nabla_{x_t}\log p_t(c\mid x_t).
+\end{aligned}
+$$
+
+回想 <Ref to="dma-tweedie-and-score"/> 的定義，score 就是 density 的 log-gradient。不指定類別的 **unconditional score** 是 $s_t(x_t)=\nabla_{x_t}\log p_t(x_t)$；指定 $c$ 後的 **conditional score** 則是 $s_t(x_t\mid c)=\nabla_{x_t}\log p_t(x_t\mid c)$。
+
+剛才的式子說，conditional score 已經包含「原本資料的方向」與「類別額外提供的方向」。**想單獨拿到額外方向，就把原本的 unconditional score 扣掉：**
 
 $$
 \boxed{
@@ -69,7 +103,7 @@ $$
 }.
 $$
 
-這裡相減的是**同一張 $x_t$、同一個時間 $t$** 上的兩支 score：一支考慮 $c$，另一支不考慮 $c$。在理想估計下，它們的差正好等於上一篇的 classifier gradient；不必真的訓練 classifier 才能算它。
+這裡相減的是**同一張 $x_t$、同一個時間 $t$** 上的兩支 score：一支考慮 $c$，另一支不考慮 $c$。兩支 score 都精確時，它們的差就是 classifier gradient；實作時則用兩支 score 估計的差近似它。所以，如果模型能提供這兩種回答，就不必再額外訓練 classifier 來取得這支方向。
 
 ## 同一個模型怎麼學會兩種回答？
 

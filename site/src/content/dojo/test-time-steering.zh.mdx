@@ -1,0 +1,117 @@
+---
+slug: "test-time-steering"
+lang: "zh"
+title: "模型訓練好了，使用者才說要戴紅帽的狗"
+note: "dma-test-time-steering"
+summary: "模型已經會畫狗，使用者今天才提出紅帽的要求。你會讓它重新學，還是請一個幫手參與這次生成？先看看幾種做法各自改了什麼。"
+status: "available"
+updated: 2026-10-13
+minutes: 10
+progressVersion: "4"
+series: "dma-guidance"
+order: 0
+---
+import Say from '../../components/dojo/Say.astro';
+import Explore from '../../components/dojo/Explore.astro';
+import Choose from '../../components/dojo/Choose.astro';
+import Option from '../../components/dojo/Option.astro';
+import Judge from '../../components/dojo/Judge.astro';
+import Reveal from '../../components/dojo/Reveal.astro';
+import Sort from '../../components/dojo/Sort.astro';
+import Card from '../../components/dojo/Card.astro';
+import Figure from '../../components/dojo/Figure.astro';
+import Ref from '../../components/notes/Ref.astro';
+import requestScene from './imgs/steering-new-request.png';
+import obstacleScene from './imgs/steering-new-obstacle.png';
+
+<Say id="scene" label="收到一個新要求" next="看看有哪些做法">
+假設我們花了兩週，訓練好一個會生成狗照片的 diffusion model。它能畫出不同毛色、姿勢與背景的狗，偶爾也會畫出戴帽子的狗。使用者看了看結果，這時才說：**「這一次，我想要一隻戴紅帽的狗。」**
+
+<Figure src={requestScene} eager alt="左邊是已訓練模型生成的不同狗照片，右邊是使用時才收到的紅帽狗要求；右圖是要求示意，不是已生成的答案。">
+左邊是模型原本能生成的結果，右邊是使用者這次想要的樣子。模型可能畫出紅帽狗，但這次的要求還沒有交給它。
+</Figure>
+
+手上這個模型沒有接收文字或類別的輸入，不能直接把「戴紅帽」當成 prompt。**如果是你，會先試什麼做法，讓紅帽狗更常出現？**
+</Say>
+
+<Explore id="e-methods" label="先試哪一條？" next="比較它們改了什麼" done="三種做法都能嘗試，但要求進入的時間與參數是否改變不同。現在把它們放在一起看。">
+下面三條路都可能有用。你可以選擇先看哪一條；讀完後回來，把另外兩條也比較一下。
+<Option goto="p-conditional">收集圖片與描述，讓模型學會根據文字生成。</Option>
+<Option goto="p-finetune">挑出喜歡的紅帽狗照片，讓原本的模型繼續學。</Option>
+<Option goto="p-steering">找一個會判斷紅帽的幫手，讓它參與這次生成或挑選。</Option>
+</Explore>
+
+<Say id="p-conditional" detour back="e-methods" label="讓模型學會使用描述" next="回來比較其他做法">
+這條路先準備圖片和描述，例如「這張是一隻戴紅帽的狗」，讓模型練習看到描述時該怎麼生成。把乾淨圖片記成 $x_0$、描述記成 condition $c$；訓練時將圖片加噪成 $x_t$，網路看 $x_t$、noise level 與 $c$，練習預測加入的 noise。描述是輸入的一部分，預測誤差則用來更新模型參數。
+
+這稱為 **conditional training**。學到的分布寫成 $p_\theta(x_0\mid c)$：給定描述 $c$，模型的圖片如何分布；$\theta$ 是學到的參數，連續圖片的 $p_\theta$ 表示 density。
+
+已經學會文字輸入的模型，也可能組合出沒見過的描述，**不需要每換一句 prompt 就重訓**。不過手上這個模型還沒有文字輸入；要走這條路，就得先讓它學會使用描述。這樣改的是模型本身。
+</Say>
+
+<Say id="p-finetune" detour back="e-methods" label="用喜歡的結果繼續學" next="回來比較其他做法">
+我們也可以先生成一批狗照片，挑出符合紅帽要求的結果，再讓原本的模型繼續學。這稱為 **fine-tuning**；挑出的照片是新的偏好資料。
+
+最直接的做法，是沿用 U1 的 denoising regression：從這批照片抽一張 $x_0$，加入 noise $\epsilon$ 得到 $x_t$，再比較模型預測的 noise 與 $\epsilon$。我們仍然降低這個預測誤差，只是拿來學習的圖片換了；更新的仍是原本模型的參數 $\theta$。
+
+這條路把「希望紅帽狗更常出現」寫進模型。即使下次生成時不再提供挑選程式，使用的也已經是更新後的模型。先記住：**這次的要求透過訓練影響了 $\theta$。**
+</Say>
+
+<Say id="p-steering" detour back="e-methods" label="讓幫手參與這次生成" next="回來比較其他做法">
+假設我們另外找到一個程式，會判斷圖片裡有沒有紅帽。它不必替原本模型畫狗，可以只提供這次的判斷：圖片完成後，幫我們挑出符合要求的結果；如果它也看得懂生成途中的圖片，就可能用來提供途中修改的線索。
+
+這次多了一些生成或評估計算，但原本生成模型的參數可以保留。明天換成圍巾的要求，也可以換這次使用的判斷程式，不必因此覆寫生成模型。
+
+這類做法稱為 **test-time steering**。幫手可能另有準備與訓練成本；我們這裡保留的，是已訓練好的生成模型參數。
+</Say>
+
+<Reveal id="boundary" label="正在改變的是誰？" next="帶著這個區別做選擇">
+現在把幾種做法放在一起看。前兩條路都讓模型學習：一條在訓練時加入描述，一條拿新的偏好資料繼續訓練。第三條則保留模型，把要求用在這次生成或挑選。
+
+可是生成圖片時，模型明明一直在把 noise 改成圖片，為什麼還能說「參數沒變」？因為模型裡學到的參數 $\theta$，和生成途中正在改變的圖片 $x_t$，是不同的東西。**我們可以改變這次如何生成 $x_t$，同時保留 $\theta$。**
+</Reveal>
+
+<Choose id="c-boundary" label="這次想保留原本的模型">
+使用者希望今天試紅帽、明天試圍巾，而且**原本生成模型的參數保持不變**。剛才看過的做法裡，哪一個符合這次的限制？
+<Option why="讓模型學會使用描述，會透過訓練改變參數。它能處理描述，但這次想保留的是原本那套參數。">用圖片與描述的配對，訓練模型接收文字。</Option>
+<Option why="換成偏好圖片繼續學，仍會更新原本模型。要求加入得比較晚，不表示參數沒有改變。">用挑出的紅帽圖片，繼續做 denoising regression。</Option>
+<Option correct reply="這樣要求影響的是這次生成與挑選。模型仍用原本的參數，幫手提供我們另外需要的判斷。" why="多做評估或調整 sampler，不一定要更新生成模型的參數。這是本次固定參數的做法。">使用幫手的判斷，調整生成或最後回傳的圖片。</Option>
+</Choose>
+
+<Judge id="j-helper" answer={true} label="多一個幫手，原本的模型仍保留嗎？" yes="仍符合" no="不符合"
+  replyYes="成立。我們請幫手提供這次的評分，但沒有更新原本生成模型的參數；仍符合這次的 test-time steering 限制。"
+  replyNo="先看被更新的是誰。多用一個網路會增加計算，但只請它提供判斷，不會因此更新原本的生成模型。">
+我們已經準備好一個判斷紅帽的網路，生成時固定兩個網路的參數，只用它的評分來挑選結果。**這仍符合保留生成模型參數的 test-time steering 嗎？**
+</Judge>
+
+<Sort id="s-methods" label="把幾種做法放在一起看"
+  columns={["Conditional training", "Fine-tuning", "Test-time steering"]}
+  rows={["這次要求在哪個階段加入？", "有沒有為此更新生成模型參數？"]}
+  rowReplies={["Fine-tuning 和 steering 都可能在模型訓練完後才收到要求。看來光比較時間還不夠，接著要看參數有沒有更新。", "前兩條路把要求用來學習，第三條把要求用在這次生成或挑選。現在可以分清楚模型參數和生成計算了。"]}
+  done="要求加入得晚，不一定得重新訓練。要分清幾種方法，得一起看它何時加入，以及是否更新生成模型參數。"
+  intro="先按要求加入的時間整理一列，再比較參數。卡片描述的是實際做的動作，你覺得它屬於哪條路？">
+<Card col={0} row={0} context="Conditional training · 要求加入的階段" hint="圖片和描述在原本訓練時就一起出現，模型在這個階段學會使用描述。">訓練時，把圖片和描述一起交給網路。</Card>
+<Card col={1} row={0} context="Fine-tuning · 要求加入的階段" hint="先有訓練好的模型，之後才用新取得的偏好資料繼續學。">模型已存在，再挑出偏好圖片讓它繼續學。</Card>
+<Card col={2} row={0} context="Test-time steering · 要求加入的階段" hint="這次的判斷用在生成或挑選，沒有拿來重新訓練原本模型。">生成或挑選時，請幫手提供這次的判斷。</Card>
+<Card col={0} row={1} context="Conditional training · 是否更新參數" hint="模型在訓練時學會根據描述預測，這會影響學到的參數。">會，根據有描述的訓練例子更新參數。</Card>
+<Card col={1} row={1} context="Fine-tuning · 是否更新參數" hint="沿用原本的預測誤差繼續訓練，更新的還是原本模型。">會，用新的偏好資料更新原本參數。</Card>
+<Card col={2} row={1} context="Test-time steering · 是否更新參數" hint="修改生成計算和修改模型參數是不同的動作。">不會，保留原本參數，調整這次生成或挑選。</Card>
+</Sort>
+
+<Judge id="j-obstacle" answer={false} label="換一個任務試試看" yes="會加入" no="不會加入"
+  replyYes="步數增加，會把原本的生成計算做得更細，但沒有提供箱子的位置。每一步仍只有原本收到的資訊。"
+  replyNo="沒錯。得先提供新的場景、障礙物位置或碰撞評分，模型才有機會據此調整結果；增加步數本身沒有加入新資訊。">
+<Figure src={obstacleScene} alt="兩張倉庫圖保持相同起點、終點與藍色路線；右圖新增紅色障礙物，舊路線仍穿過它。">
+藍線是機器人在倉庫裡走的路線；diffusion 在生成這整條路線，兩種時間要分開。
+</Figure>
+
+路線模型訓練好時，走道還是空的；今天多了一個箱子，原本的路線會撞上它。我們**沒有提供新場景，也沒有碰撞評分**，只把 sampling 步數加倍。這個操作會把箱子的位置當成新資訊，加入生成計算嗎？
+</Judge>
+
+<Say id="bridge" label="想在途中提醒，還需要什麼？" next="接著看看未完成的圖片">
+回到紅帽狗：新要求仍然來得及加入，但得先讓它進入這次的計算。我們可以保留 $\theta$，請幫手提供判斷；光是把原本的生成做得更久，沒有告訴模型這次要什麼。
+
+如果不想等圖片完成才挑選，而是想邊生成、邊提醒，幫手現在看得到的還是 noisy image。**誰能判斷這張未完成的圖，再提供修改的線索？**
+
+想把三種做法與相應的 training loss 連著讀，可以回到 <Ref to="dma-test-time-steering" mode="full"/>。
+</Say>

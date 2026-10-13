@@ -1,0 +1,323 @@
+---
+slug: "reward-tilting"
+lang: "zh"
+title: "兩張都合理，我們要更常抽到哪一張？"
+note: "dma-reward-tilting"
+summary: "使用者比較喜歡其中一張柯基照片，卻也想看到不同結果。我們怎麼決定新的出現比例？圖片還沒完成時，又要把哪些可能性一起考慮？"
+status: "available"
+updated: 2026-10-13
+minutes: 20
+progressVersion: "2"
+series: "dma-guidance"
+order: 2
+---
+import Say from '../../components/dojo/Say.astro';
+import Choose from '../../components/dojo/Choose.astro';
+import Option from '../../components/dojo/Option.astro';
+import Judge from '../../components/dojo/Judge.astro';
+import Think from '../../components/dojo/Think.astro';
+import Reveal from '../../components/dojo/Reveal.astro';
+import Figure from '../../components/dojo/Figure.astro';
+import Ref from '../../components/notes/Ref.astro';
+import photos from './imgs/reward-two-photos.png';
+import sources from './imgs/reward-possible-sources.png';
+
+<Say id="scene" label="使用者還有一個偏好" next="先想希望怎麼回傳">
+使用者看了幾張雪山上的柯基，說：「這些都沒畫錯，但我比較喜歡這種光線和構圖。可以多給我幾張不同的結果嗎？」他交給我們一個美感程式，輸入完成圖片，就會得到一個分數。
+
+把完成的乾淨圖片記成 $x_0$，分數記成 reward $R(x_0)$；越高，越符合這次的評分標準。這次沒有能看 noisy image 的 classifier，模型也沒學過這個新的偏好。**先不急著改 sampler，我們希望這個分數怎麼影響回傳的結果？**
+</Say>
+
+<Choose id="c-return" label="每次都回傳最喜歡的那一張？">
+使用者希望喜歡的結果更常出現，也希望保留不同的合理答案。哪個做法比較符合這兩個要求？
+<Option why="這能找到高分結果，但每次同一張，沒有表達希望看到不同答案的需求。">每次都回傳分數最高的同一張圖片。</Option>
+<Option correct reply="我們要決定的是各種結果出現的比例。接著試試看，讓平均分數最高，能不能表達這個想法。" why="提高喜歡結果的出現頻率，仍保留其他可能性，是在選一個新的抽樣分布。">讓喜歡的圖片更常出現，也保留其他合理圖片的機會。</Option>
+<Option why="維持原本比例能保留變化，但這次新取得的評分還沒有影響結果。">仍照原本比例回傳，完全不使用這次評分。</Option>
+</Choose>
+
+<Think id="t-average" label="只讓平均分數最高，夠嗎？">
+<Figure src={photos} alt="兩張都合理的雪山柯基照片 A、B，原本各以二分之一機率出現；例子指定 A 的 reward 為 0，B 為 1。">
+兩張都合理，只是光線和姿勢不同。這裡假設程式比較喜歡 B；機率與評分是例子給定的數字，不是模型實測。
+</Figure>
+
+先把可能結果簡化成 $A,B$，原本各以 $1/2$ 機率出現，reward 分別是 $0$、$1$。把正在選擇的新 distribution 記成 $\widetilde p$，它決定之後各種結果出現的比例。
+
+我們想讓 reward 高，也想保留原本資料的影響，於是替每張算 $\lambda R(x_0)+\log p_{\mathrm{data}}(x_0)$。其中 $\lambda>0$ 決定 reward 的影響，$p_{\mathrm{data}}$ 是原本的 base distribution。這裡只有兩個離散結果，兩張原本的機率都是 $1/2$；連續圖片才使用 density。
+
+想像反覆從 $\widetilde p$ 抽圖片，把這個分數取平均。**只要求平均最高，會留下兩張，還是每次都選 $B$？** 先猜一個結果，再想想為什麼。
+</Think>
+
+<Reveal id="collapse" label="把兩種結果的貢獻加起來" next="看看目標漏了哪件事">
+兩張的 log base probability 都是 $\log(1/2)=-\log2$，只有 reward 不同。選 $A$ 的機率是 $\widetilde p(A)$，選 $B$ 的是 $\widetilde p(B)$，兩者加起來為 $1$，所以平均分數是
+
+$$
+\begin{aligned}
+&\widetilde p(A)(-\log2)\\
+&+\widetilde p(B)(\lambda-\log2)\\
+&=-\log2+\lambda\widetilde p(B).
+\end{aligned}
+$$
+
+只要 $\lambda>0$，把更多機率給 $B$，平均就更高，最後每次都回傳 $B$。兩張原本都合理，但**這個平均分數沒有要求保留另一個答案**。
+</Reveal>
+
+<Choose id="c-missing" label="少掉的是哪個要求？">
+剛才同時算了 reward 和 log base probability，最後仍只選 $B$。要表達一開始的完整需求，目標還缺哪件事？
+<Option correct reply="我們需要一個量，描述機率是不是全擠在同一個答案。接著把這個要求放回目標裡。" why="原本的目標只比較每張的分數，再取平均，沒有衡量整個分布是否過度集中。">不要把所有機會都集中在同一張圖片。</Option>
+<Option why="Reward 已經出現在目標中。增加它的影響，在這個例子只會更偏向 B，沒有補上保留其他答案的需求。">再把 reward 的影響放大。</Option>
+<Option why="兩張的 base probability 已經放進計算，而且相同。缺口是目標沒有衡量新分布的集中程度。">把同樣的 log base probability 再加一次。</Option>
+</Choose>
+
+<Say id="entropy" label="怎麼描述不要過度集中？" next="試著把三項合起來">
+我們可以用 entropy 描述分布有多不集中，定義為 $H(\widetilde p)=-\mathbb E_{\widetilde p}[\log\widetilde p(x_0)]$。在剛才的兩張照片裡，每次都選 $B$ 時是 $0$，各占一半時則是 $\log2$。把它加到目標，不集中在單一答案也能有貢獻：
+
+$$
+\begin{aligned}
+&\max_{\widetilde p}\ \big\{\\
+&\quad\lambda\mathbb E_{\widetilde p}[R(x_0)]\\
+&+\mathbb E_{\widetilde p}[\log p_{\mathrm{data}}(x_0)]\\
+&+H(\widetilde p)\big\}.
+\end{aligned}
+$$
+
+這裡的 expectation 都平均新 $\widetilde p$ 抽出的 $x_0$。評分程式、base 與 $\lambda$ 固定；我們改的是各種結果出現的比例。
+</Say>
+
+<Think id="t-combine" label="能寫成一個 log 比值嗎？">
+把 entropy 展開，三項對同一個 $\widetilde p$ 平均，目標值就成了
+
+$$
+\begin{aligned}
+&\mathbb E_{\widetilde p}\big[\lambda R(x_0)\\
+&\quad+\log p_{\mathrm{data}}(x_0)\\
+&\quad-\log\widetilde p(x_0)\big].
+\end{aligned}
+$$
+
+用 $\lambda R=\log e^{\lambda R}$，再想想 log 裡的乘法與除法。**你會怎麼把裡面的三項寫成一個 log 比值？** 可以先只寫分子和分母。
+</Think>
+
+<Reveal id="weighted" label="分子給了一個線索" next="先檢查它是不是機率">
+相加的兩個 log 放在分子，相減的放在分母，得到
+
+$$
+\mathbb E_{\widetilde p}\!\left[
+\log\!\frac{p_{\mathrm{data}}(x_0)\!e^{\lambda R(x_0)}}{\widetilde p(x_0)}
+\right].
+$$
+
+看看分子：原本的權重被乘上 $e^{\lambda R(x_0)}$，reward 高的結果會得到較大的倍率。這像是我們想做的重新加權，但乘完後，它已經是機率了嗎？
+</Reveal>
+
+<Choose id="c-normalize" label="權重可以大於 1 嗎？">
+仍用原本各占 $1/2$、reward 為 $0$、$1$ 的兩張照片。取 $\lambda=\log3$，倍率就是 $1$、$3$，乘完得到 $A$ 的權重 $1/2$、$B$ 的權重 $3/2$。你會怎麼解讀？
+<Option correct reply="它們表示相對權重，總量還不是 1。除以同一個總量，就能保留比例、得到新的機率。" why="相對權重可以大於 1，機率不可以；正規化把所有權重的總量調回 1。">先保留這個比例，再除以權重的總量。</Option>
+<Option why="B 的數值已超過 1，而且兩張相加是 2，不能直接當成機率。">直接把 $3/2$ 當成抽到 $B$ 的機率。</Option>
+<Option why="超過 1 的是相對權重，不代表倍率不能用。要補的是正規化，不必把權重截掉。">把超過 $1$ 的權重截成 $1$ 即可。</Option>
+</Choose>
+
+<Reveal id="target" label="把總量調回 1" next="檢查這個候選是不是最佳解">
+把權重的總和或積分記成 $Z_R$，再除掉它，定義候選 distribution：
+
+$$
+\begin{gathered}
+p_R(x_0)\\
+=\frac{p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}}{Z_R}.
+\end{gathered}
+$$
+
+對兩張照片，$Z_R$ 是權重的總和；對連續圖片，則對所有 $x_0$ 積分。假設 $0<Z_R<\infty$ 且相關期望有定義，這才是一個可用的 distribution。現在還差一步：確認這個候選真的讓剛才的目標最大。
+</Reveal>
+
+<Choose id="c-optimum" label="目標值裡，哪一項能改變？">
+用 $p_{\mathrm{data}}e^{\lambda R}=Z_Rp_R$ 代回剛才的 log 比值。拆出不隨 $\widetilde p$ 改變的 $\log Z_R$，剩下的是對 $\widetilde p$ 平均 $\log(p_R/\widetilde p)$，即負的 KL：
+
+$$
+\begin{gathered}
+\mathbb E_{\widetilde p}\left[
+\log\frac{Z_Rp_R(x_0)}{\widetilde p(x_0)}
+\right]\\
+=\log Z_R-D_{\mathrm{KL}}\!(\widetilde p\|p_R).
+\end{gathered}
+$$
+
+KL 衡量這兩個分布的差異，非負，兩者相同時為零。**固定 base、reward 與 $\lambda$，怎麼選 $\widetilde p$，才能讓目標最大？**
+<Option correct reply="這時 KL 是零，目標達到固定的 log Z_R。於是剛才的候選 p_R 就是最佳解，這個重新加權稱為 reward tilting。" why="目標扣掉一個非負量，當它為零時最大。改變的是新分布，不是固定的評分程式或 base。">選 $\widetilde p=p_R$，讓 KL 為零。</Option>
+<Option why="KL 在目標中被減掉。越大，目標值反而越小。">讓兩個分布的 KL 越大越好。</Option>
+<Option why="這次固定 base、reward 與強度，Z_R 已由它們決定，不隨正在選的新分布改變。">只調整 $\widetilde p$，把 $Z_R$ 放大。</Option>
+</Choose>
+
+<Choose id="c-weights" label="回到兩張照片，算一次比例">
+兩個未正規化權重是 $1/2$ 與 $3/2$，總量是 $2$。**除掉總量後，$A,B$ 會以什麼機率出現？**
+<Option correct reply="B 會更常出現，但 A 仍有機會。這個目標描述的是新的出現比例，還得有方法真的抽出這個比例。" why="兩張各自除以同一個總量 2，得到四分之一與四分之三。">$A$ 是 $1/4$，$B$ 是 $3/4$。</Option>
+<Option why="A 的權重仍是正的。重新加權沒有把它刪掉，也沒有改成只取最大分數。">每次都回傳 $B$。</Option>
+<Option why="Reward 倍率不同，已經改變原本相等的權重。正規化保留新比例，不會把它們改回相同。">仍各占 $1/2$。</Option>
+</Choose>
+
+<Say id="base" label="原本資料的影響還在嗎？" next="看看圖片還沒完成的情況">
+這個比例同時使用 base 和 reward。若原本兩張不一樣常出現，得把各自的原本權重一起乘進去，不能只比較 reward 誰高。倍率差得很大時，也可能大幅放大原本 density 很低的區域；有 base 不等於每張結果都合理的保證。
+
+這裡用理想的 $p_{\mathrm{data}}$ 說明目標。實際生成使用學到的模型，原本的 model error 也仍得考慮。接著回到途中提醒：評分程式只會看完成圖片，眼前卻還是 noisy image。
+</Say>
+
+<Choose id="c-noisy" label="同一張模糊圖片，可能來自哪裡？">
+<Figure src={sources} alt="同一張模糊的 noisy image，對應兩個可能乾淨來源 A、B；例子給定 base posterior 機率各為二分之一，reward 分別是 0、1。虛線是可能來源，不是生成軌跡。">
+現在固定同一張 $x_t$。看過它之後，A、B 各有一半可能，是另外給定的條件；不能只由前面 base 各半推出。
+</Figure>
+
+這張 $x_t$ 原本可能來自 $A$，也可能來自 $B$，兩個乾淨來源的 reward 不同。要把完成圖片的新權重帶到這裡，**你會先做什麼？**
+<Option goto="d-noisy-reward">把 $x_t$ 當成完成圖片，直接算 $R(x_t)$。</Option>
+<Option correct reply="目前還不知道是哪個乾淨來源，就得把這些可能性一起考慮。接著用原本的加噪過程，把它們的貢獻接起來。" why="每個可能來源都有自己的機率和 reward 權重，不能在還不確定時只選定其中一個。">考慮它相容的乾淨來源，和各自的 reward 權重。</Option>
+<Option why="原本模型提供 base 的資訊，但新取得的評分程式沒有自動進入計算。途中忽略它，不會因此得到新的目標分布。">先忽略 reward，原本模型自然會知道這次偏好。</Option>
+</Choose>
+
+<Say id="d-noisy-reward" detour back="c-noisy" label="程式收到的還是原本那種輸入嗎？" next="回來看看可能來源">
+美感程式原本看的是完成照片的構圖與光線，現在卻收到模糊的噪聲。即使它輸出一個數字，也沒有保證是在衡量我們原本的要求。$R$ 定義在乾淨的 $x_0$，不表示也能直接判斷 $x_t$。
+
+同一個模糊輪廓可能來自不同的照片，reward 也可能不同。要把乾淨端的目標接到途中，就得處理這些可能來源。
+</Say>
+
+<Reveal id="forward" label="先走我們知道怎麼做的方向" next="把積分裡的來源反過來看">
+想知道新 $p_R$ 對應哪群 noisy images，可以先從它抽乾淨圖片，再用原本 forward process 加噪。沿用 conditional density $q(x_t\mid x_0)$，它描述給定乾淨來源後，加噪的圖片如何分布。將所有來源的貢獻加起來：
+
+$$
+\begin{aligned}
+&p_t^R(x_t)\\
+&=\int q(x_t\mid x_0)\\
+&\qquad\cdot p_R(x_0)\,\mathrm dx_0.
+\end{aligned}
+$$
+
+這裡積分的是可能的乾淨來源 $x_0$，眼前的 $x_t$ 固定。把 $p_R$ 代入後，下一步就能把這些來源改寫成「看過目前圖片後的可能性」。
+</Reveal>
+
+<Choose id="c-fixed" label="哪一項可以提出積分？">
+代入 $p_R$ 後，積分裡有 $q(x_t\mid x_0)p_{\mathrm{data}}(x_0)$。它們形成 base 的 joint density，Bayes 讓我們反過來寫：
+
+$$
+\begin{gathered}
+q(x_t\mid x_0)p_{\mathrm{data}}(x_0)\\
+=p_t(x_t)p(x_0\mid x_t).
+\end{gathered}
+$$
+
+**固定眼前的 $x_t$，對所有來源 $x_0$ 積分時，哪一項可以提出來？**
+<Option correct reply="眼前的圖片固定，所以這一項不隨積分中的來源改變。剩下的部分，正好是按來源機率加權的平均。" why="積分變數是乾淨來源；base 在固定 noisy image 上的 density 不依賴這個來源變數。">$p_t(x_t)$。</Option>
+<Option why="不同乾淨來源有不同的可能性。這個 posterior 正是用來給來源加權的，不能整個提出積分。">$p(x_0\mid x_t)$。</Option>
+<Option why="A、B 的 reward 倍率就不同。它依賴我們正在積分的乾淨來源。">$e^{\lambda R(x_0)}$。</Option>
+</Choose>
+
+<Reveal id="posterior" label="剩下的是哪些來源的平均？" next="用圖中的數字算一次">
+提出 $p_t(x_t)$ 後，剩下的平均權重記成 $h_t(x_t)$：
+
+$$
+\begin{gathered}
+h_t(x_t)\\
+:=\mathbb E\!\left[e^{\lambda R(x_0)}\mid x_t\right],\\[4pt]
+p_t^R(x_t)=\frac{p_t(x_t)h_t(x_t)}{Z_R}.
+\end{gathered}
+$$
+
+這個 expectation 可以讀成：「已經看到這張 $x_t$，它原本可能是哪張乾淨照片？先替每個來源算 reward 倍率，再按可能性加權平均。」用的是 **base 的 posterior $p(x_0\mid x_t)$**，不是已經被 reward 改過的 posterior，也不是所有資料的平均。
+</Reveal>
+
+<Choose id="c-average" label="平均的是 reward，還是倍率？">
+圖中兩個來源在 base posterior 下各有一半可能，reward 是 $0$、$1$。仍取 $\lambda=\log3$，倍率是 $1$、$3$。**這張 $x_t$ 的 $h_t$ 應該怎麼算？**
+<Option correct reply="每個來源先算倍率，再依 posterior 機率加權，一半乘 1 加上一半乘 3，得到 2。" why="h_t 定義為 reward 倍率的條件平均，保留兩個來源的貢獻。">$\tfrac12\cdot1+\tfrac12\cdot3=2$。</Option>
+<Option goto="d-best-source">只看最高分來源，取 $3$。</Option>
+<Option goto="d-average-order">先平均 reward 得到 $1/2$，再算倍率 $\sqrt3$。</Option>
+</Choose>
+
+<Say id="d-best-source" detour back="c-average" label="喜歡 B，就一定來自 B 嗎？" next="把兩個來源一起考慮">
+程式比較喜歡 $B$，但這張 $x_t$ 不一定來自 $B$。目前 base posterior 仍說兩個來源各有一半可能，直接取最大倍率，就拿掉了另一個來源的貢獻。
+
+要算的是所有可能來源的平均權重，不是最好的一種可能有多高分。
+</Say>
+
+<Say id="d-average-order" detour back="c-average" label="平均與 exponential 能交換嗎？" next="回到平均的對象">
+先平均 reward，得到 $1/2$，再算 exponential 倍率，確實會得到 $\sqrt3$。但先算兩個倍率，再平均，得到的是 $2$。
+
+Exponential 是非線性的，這兩個順序不一定相同。這次 $h_t$ 的定義先算各個來源的倍率，再用 posterior 平均；要保留這個順序。
+</Say>
+
+<Think id="t-plugin" label="用一張去噪估計代替呢？">
+可能的照片很多，這個 posterior average 通常很難算。Denoiser 比較容易提供一張乾淨圖片估計，記成 $\hat x_0(x_t,t)$；理想上，它是給定 $x_t$ 後的 posterior mean $\mathbb E[x_0\mid x_t]$。
+
+於是我們想省事一點，只把這張估計交給評分程式，用 $e^{\lambda R(\hat x_0)}$ 代替 $h_t$。**一張平均估計，會保留所有可能來源的平均權重嗎？** 可以從剛才平均與非線性操作的順序想起。
+</Think>
+
+<Reveal id="plugin" label="把兩種順序算出來比較" next="看看怎麼得到途中的方向">
+把高維圖片暫時換成一個數字：$A$ 是 $x_0=0$、$B$ 是 $x_0=1$，看過 $x_t$ 後仍各有一半可能。令 $R(x_0)=x_0$、$\lambda=\log3$，兩個來源的 reward 與倍率就和剛才相同。
+
+先平均資料，得到 $\hat x_0=1/2$；再計算它的倍率：
+
+$$
+e^{\lambda R(\hat x_0)}
+=e^{(\log3)/2}=\sqrt3.
+$$
+
+先替每個來源算倍率再平均，剛才得到的是 $h_t=2$。即使這個 reward 是 linear function，外面的 exponential 也使兩種順序不同。真實圖片的 reward 通常還是 nonlinear 的，更不能預設相同。
+
+只用一張 denoised prediction 代替所有來源的平均，稱為 **plug-in approximation**。它沒有保留來源的不確定性，省掉的不是只有正規化常數。
+</Reveal>
+
+<Think id="t-direction" label="有了權重，方向怎麼來？">
+現在得到的關係是 $p_t^R=p_th_t/Z_R$。沿用 U7.1 的做法，先取 log，再對目前圖片 $x_t$ 求 gradient。
+
+$Z_R$ 不隨圖片改變，base 那一項給出原本的 score。**這次額外的方向應該來自哪一項？** 先試著寫出新目標的 score。
+</Think>
+
+<Reveal id="direction" label="對 posterior 平均權重求導" next="再檢查 plug-in 改了哪一步">
+逐項微分後得到
+
+$$
+\begin{gathered}
+\nabla_{x_t}\log p_t^R(x_t)\\
+=s_t(x_t)\\
++\nabla_{x_t}\log h_t(x_t).
+\end{gathered}
+$$
+
+額外方向來自 $h_t$ 的 log-gradient：改動目前圖片時，它相容來源的平均權重如何變化。真正的 $h_t$ 很難算，所以常見做法還會把它換成剛才的 plug-in。
+</Reveal>
+
+<Choose id="c-chain" label="現在對哪個輸入求導？">
+假設 reward 和去噪估計都可以微分。現在用 $R(\hat x_0(x_t,t))$ 取得修改線索，但兩個網路的參數保持固定。**哪個計算會提供目前圖片的方向？**
+<Option correct reply="改動目前圖片，去噪估計會變，reward 再跟著變。要沿這整段依賴對圖片輸入求導，生成模型的參數仍固定。" why="Input gradient 可以穿過固定的網路。參數不更新，不表示輸出對輸入的導數是零。">沿著 $x_t\to\hat x_0\to R$，對 $x_t$ 求導。</Option>
+<Option why="那會改變生成模型本身，沒有保留這次固定參數的限制。">對生成模型參數 $\theta$ 求導並更新。</Option>
+<Option why="如果固定去噪估計，不讓它隨目前圖片改變，就省掉了這段輸入依賴。還需要去噪估計對目前圖片的導數。">把 $\hat x_0$ 當常數，只對 reward 的輸入求導即可。</Option>
+</Choose>
+
+<Reveal id="guidance" label="這一步是近似" next="用結果檢查我們能說什麼">
+因為 plug-in 的 log 是 $\lambda R(\hat x_0)$，我們把額外方向近似成
+
+$$
+\begin{gathered}
+\nabla_{x_t}\log h_t(x_t)\\
+\approx\lambda\nabla_{x_t}R(\hat x_0(x_t,t)).
+\end{gathered}
+$$
+
+剛才的例子已經顯示兩種權重不同，所以不能把這個近似直接當成 exact tilt。即使取得精確 score，真正抽樣也要配合目標的起始 noisy distribution 與 reverse dynamics；模型估計、有限 noise 與有限步 sampler 的近似仍需要檢查。
+</Reveal>
+
+<Judge id="j-target" answer={false} label="分數提高，比例也抽對了嗎？" yes="已經證明" no="還沒證明"
+  replyYes="每次都選 B，平均 reward 比四分之一 A、四分之三 B 還高，但比例不同。只看平均 reward，分不出是不是 p_R。"
+  replyNo="可以說這個評分指標提高了，還不能因此說抽到了 p_R。要檢查的是整個出現比例，合理性與多樣性也得另外看。">
+我們用 plug-in guidance 生成一批圖片，平均 reward 比以前高。**只靠這個數字，就能證明 sampler 抽到剛才定義的 $p_R$ 嗎？**
+</Judge>
+
+<Choose id="c-transfer" label="最後換個原本比例試試看">
+原本 $A,B$ 的機率現在改成 $3/4$、$1/4$，reward 仍是 $0$、$1$，$\lambda=\log3$，倍率仍是 $1$、$3$。**重新加權後，哪個比例才符合我們的目標？**
+<Option correct reply="兩個權重都變成四分之三，正規化後各占一半。Reward 的倍率和原本資料的比例，都參與了這個結果。" why="A 原本比 B 常見三倍，B 的 reward 倍率又是 A 的三倍，乘起來得到相等的權重。">各占 $1/2$。</Option>
+<Option why="這是忘了乘原本機率、只看 1:3 倍率時的答案。現在的 base 比例已經不同了。">$A$ 是 $1/4$，$B$ 是 $3/4$。</Option>
+<Option why="這保留了原本比例，卻沒有把 B 的三倍倍率算進去。">$A$ 是 $3/4$，$B$ 是 $1/4$。</Option>
+</Choose>
+
+<Say id="bridge" label="如果程式只肯給分數呢？" next="回技能書連著讀">
+回到兩張都合理的照片，我們想讓喜歡的結果更常出現，也保留其他答案與 base 的影響。Reward tilting 定義了新的比例；生成途中則得把相容的乾淨來源一起考慮。用一張去噪估計代替這個平均，可以比較容易計算，但要記得它是近似。
+
+那如果程式只肯回傳分數，不能對輸入微分，剛才的方向就不能直接算。**能不能先生成幾張候選，只靠比較分數，改變最後回傳的比例？** 這個問題留到 <Ref to="dma-gradient-free-steering"/>，再一起看候選數量與計算成本。
+
+本篇的目標、posterior average 和 plug-in 推導，可以在 <Ref to="dma-reward-tilting" mode="full"/> 連著讀。
+</Say>

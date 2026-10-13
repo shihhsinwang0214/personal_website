@@ -1,0 +1,201 @@
+---
+/**
+ * DojoIndex.astro — the dojo landing, drawn as a quest board (the default
+ * theme): every script is a sheet pinned under its skill manual's sign; notes
+ * of the same unit that have no script yet hang beside them as faded
+ * "尚未貼出" notes, so the board is honest about what exists.
+ *
+ * Status stamps (進行中 / 走完了) come from this browser's localStorage only
+ * (`slam:dojo:<slug>`, written by Dialogue.astro) — never a score, never sent.
+ */
+import { getCollection } from 'astro:content';
+import type { Lang } from '../../lib/notes';
+import { isPublishedNote, noteHref } from '../../lib/notes';
+import { resolveNoteRef } from '../../lib/noteRefs';
+import { withBase } from '../../lib/url';
+import { defaultDojoTheme, dojoRoute, dojoTagline, dojoTitle, skillManualLabel, type DojoEntry } from '../../lib/dojo';
+
+interface Props { entries: DojoEntry[]; lang: Lang }
+const { entries, lang } = Astro.props;
+
+const allNotes = await getCollection('notes');
+const resolved = await Promise.all(entries.map(async (e) => ({ e, note: await resolveNoteRef(e.data.note, lang) })));
+const groups = new Map<string, typeof resolved>();
+for (const r of resolved) {
+  const g = r.note?.group ?? (lang === 'zh' ? '其他' : 'Other');
+  if (!groups.has(g)) groups.set(g, []);
+  groups.get(g)!.push(r);
+}
+// Notes of the same unit without a script: shown as not-yet-pinned notes.
+const scripted = new Set(resolved.map((r) => r.note?.slug).filter(Boolean));
+const planned = new Map<string, { title: string; code: string; href: string }[]>();
+for (const [g] of groups) {
+  const items = allNotes
+    .filter((n) => n.data.group === g && n.data.lang === lang && n.data.status !== 'missing' && isPublishedNote(n) && !scripted.has(n.data.slug))
+    .slice(0, 4);
+  const withCode = await Promise.all(items.map(async (n) => {
+    const ref = await resolveNoteRef(n.data.label ?? n.data.slug, lang);
+    return { title: ref?.shortTitle ?? n.data.title, code: ref?.code ?? '', href: withBase(noteHref(n)) };
+  }));
+  planned.set(g, withCode);
+}
+const groupHref = (items: typeof resolved) => items[0]?.note?.href;
+
+const t = lang === 'zh'
+  ? {
+      intro: '如果是你，遇到這個情境會先怎麼做？這裡每一篇都從一個問題開始。你可以先猜一個做法、比較幾種選擇，再跟著問題把理由和公式推下去；想法卡住時，就把漏掉的條件拿回來，一起再想一次。',
+      manual: '回技能書連著讀 →', start: '從情境開始 →', resume: '接著想 →', again: '再想一次', progress: '閱讀中', done: '讀過了', notYet: '互動版準備中', rulesTitle: '怎麼一起讀',
+      rules: ['還沒讀過筆記，也可以從這裡開始。', '先想再看整理；其他選項的理由，也可以回頭比較。', '表格可以拖，也可以點卡片再點格子；鍵盤可用 Enter 或空白鍵。', '我們只會記錄你用這個瀏覽器讀到哪裡，不會把你寫的文字存下來或是上傳', '想一口氣讀完或回頭查公式，可以沿著連結回技能書。'],
+      empty: '第一個問題正在準備中。', minutes: (m: number) => `約 ${m} 分鐘`, lang: (l: Lang) => (l === 'zh' ? '' : 'EN'),
+    }
+  : {
+      intro: 'What would you try in this situation? Each lesson begins with a question. Make a guess, compare possible approaches, then work through the reasoning and equations. When an idea gets stuck, bring the missing condition back and try the next step together.',
+      manual: 'Read the note continuously →', start: 'Start with the situation →', resume: 'Continue thinking →', again: 'Think it through again', progress: 'Reading', done: 'Read through', notYet: 'Interactive version in preparation', rulesTitle: 'How to read together',
+      rules: ['You can start here before reading the note.', 'Think before opening the explanation. You can revisit other options too.', 'Drag cards, or select a card and then a cell. Enter and Space work with the keyboard.', 'Only your reading position stays in this browser. Your written thoughts are not saved or uploaded.', 'Follow the links to the note for continuous reading or to look up equations.'],
+      empty: 'The first question is in preparation.', minutes: (m: number) => `~${m} min`, lang: (l: Lang) => (l === 'en' ? '' : '中文'),
+    };
+---
+
+<section class="dojo-index" data-dojo-theme={defaultDojoTheme} data-i18n={JSON.stringify({ start: t.start, resume: t.resume, again: t.again, progress: t.progress, done: t.done })}>
+  <header class="dojo-index-head">
+    <div class="dojo-index-paper">
+      <h1>{dojoTitle[lang]}</h1>
+      <p class="dojo-index-tagline">{dojoTagline[lang]}</p>
+      <p class="dojo-index-intro">{t.intro}</p>
+    </div>
+  </header>
+
+  {entries.length === 0 && <p class="dojo-empty">{t.empty}</p>}
+
+  {
+    [...groups.entries()].map(([group, items]) => (
+      <section class="dojo-group">
+        <div class="dojo-group-head">
+          <span class="dojo-sign"><span class="dojo-sign-mono">{skillManualLabel[lang]}</span><span class="dojo-group-name">{group}</span></span>
+          {groupHref(items) && <a class="dojo-sign dojo-sign-link" href={groupHref(items)}>{t.manual}</a>}
+        </div>
+        <ul class="dojo-cards">
+          {items.map(({ e, note }, i) => (
+            <li class="dojo-card-item" data-dojo-card data-slug={e.data.slug} data-version={e.data.progressVersion} style={`--tilt: ${(i % 3 === 0 ? -1.2 : i % 3 === 1 ? 1.4 : -0.6)}deg`}>
+              <span class="dojo-card-stamp" data-stamp hidden></span>
+              <a class="dojo-card-link" href={withBase(dojoRoute(e.data.slug, e.data.lang))}>
+                <p class="dojo-card-meta">
+                  {note?.code && <span class="note-code-chip">{note.code}</span>}
+                  {e.data.minutes && <span>{t.minutes(e.data.minutes)}</span>}
+                  {t.lang(e.data.lang) && <span class="dojo-card-lang">{t.lang(e.data.lang)}</span>}
+                </p>
+                <h3>{e.data.title}</h3>
+                <p class="dojo-card-summary">{e.data.summary}</p>
+                <span class="dojo-btn dojo-card-cta" data-cta>{t.start}</span>
+              </a>
+              {note?.href && <a class="dojo-card-note" href={note.href}>{skillManualLabel[lang]}: {note.shortTitle}</a>}
+            </li>
+          ))}
+          {(planned.get(group) ?? []).map((n, i) => (
+            <li class="dojo-card-item is-planned" style={`--tilt: ${(i % 2 === 0 ? 1.6 : -0.9)}deg`}>
+              <span class="dojo-card-stamp is-grey">{t.notYet}</span>
+              <div class="dojo-card-link">
+                <p class="dojo-card-meta">{n.code && <span class="note-code-chip">{n.code}</span>}</p>
+                <h3>{n.title}</h3>
+                <a class="dojo-card-note" href={n.href}>{skillManualLabel[lang]} →</a>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ))
+  }
+
+  <aside class="dojo-rules" style="--tilt: -1.4deg">
+    <h2>{t.rulesTitle}</h2>
+    <ul>{t.rules.map((r) => <li>{r}</li>)}</ul>
+  </aside>
+</section>
+
+<style is:global>
+  .dojo-index { max-width: 1000px; margin: 0 auto; display: grid; gap: 34px; padding: 36px 32px 56px; }
+  .dojo-index-head { display: grid; gap: 14px; }
+  .dojo-index-paper { display: grid; gap: 10px; }
+  .dojo-index-paper h1 { margin: 0; font-size: clamp(1.8rem, 4vw, 2.6rem); }
+  .dojo-index-tagline { margin: 0; font-weight: 600; font-size: 1.05rem; line-height: 1.6; }
+  .dojo-index-intro { margin: 0; color: var(--text-muted); line-height: 1.8; max-width: 64ch; }
+  .dojo-sign-mono { font-family: var(--font-mono); font-size: .72rem; font-weight: 700; letter-spacing: .1em; }
+  .dojo-group { display: grid; gap: 22px; }
+  .dojo-group-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+  .dojo-group-name { font-weight: 700; }
+  .dojo-sign-link { text-decoration: none; font-family: var(--font-mono); font-size: .72rem; letter-spacing: .06em; }
+  .dojo-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 28px 24px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); align-items: start; }
+  .dojo-card-item { position: relative; display: grid; gap: 8px; }
+  .dojo-card-link { position: relative; display: grid; gap: 8px; padding: 22px 22px 20px; color: inherit; text-decoration: none; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); transition: box-shadow .15s ease, transform .15s ease; }
+  a.dojo-card-link:hover { box-shadow: var(--shadow-md); }
+  .dojo-card-link:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: 2px; }
+  .dojo-card-meta { margin: 0; display: flex; gap: 10px; align-items: center; font-size: .8rem; color: var(--text-muted); min-height: 1.2em; }
+  .dojo-card-lang { font-family: var(--font-mono); }
+  .dojo-card-link h3 { margin: 0; font-size: 1.08rem; line-height: 1.45; }
+  .dojo-card-summary { margin: 0; font-size: .92rem; color: var(--text-muted); line-height: 1.65; }
+  .dojo-card-cta { margin-top: 6px; justify-self: start; }
+  .dojo-card-note { font-size: .85rem; padding-left: 4px; }
+  .dojo-card-stamp { position: absolute; z-index: 1; right: 14px; top: 14px; padding: 4px 8px; font-family: var(--font-mono); font-size: .68rem; font-weight: 700; letter-spacing: .14em; color: var(--accent); border: 2px solid var(--accent); border-radius: 6px; transform: rotate(8deg); opacity: .85; pointer-events: none; }
+  .dojo-card-stamp.is-done { color: #2f9e6b; border-color: #2f9e6b; }
+  .dojo-card-stamp.is-grey { color: var(--text-muted); border-color: var(--text-muted); }
+  .dojo-card-item.is-planned .dojo-card-link { opacity: .8; }
+  .dojo-card-item.is-planned h3 { color: var(--text-muted); font-size: 1rem; }
+  .dojo-rules { padding: 18px 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); max-width: 420px; }
+  .dojo-rules h2 { margin: 0 0 8px; font-size: 1rem; }
+  .dojo-rules ul { margin: 0; padding-left: 1.2em; line-height: 1.8; color: var(--text-muted); font-size: .95rem; }
+  .dojo-empty { color: var(--text-muted); }
+
+  /* ---- board theme for the index ---- */
+  .dojo-index[data-dojo-theme="board"] {
+    border-radius: 24px; background-color: var(--bd-board);
+    background-image: repeating-linear-gradient(90deg, var(--bd-grain) 0 2px, transparent 2px 46px), linear-gradient(180deg, rgba(255,255,255,.18), rgba(0,0,0,.06));
+    box-shadow: inset 0 0 0 10px var(--bd-frame), inset 0 0 0 12px rgba(0,0,0,.08);
+  }
+  .dojo-index[data-dojo-theme="board"] .dojo-index-paper { position: relative; padding: 26px 30px 24px; border: 1px solid var(--border); border-radius: 4px; background: var(--bd-paper); box-shadow: var(--bd-shadow); max-width: 800px; }
+  .dojo-index[data-dojo-theme="board"] .dojo-index-paper::before, .dojo-index[data-dojo-theme="board"] .dojo-index-paper::after,
+  .dojo-index[data-dojo-theme="board"] .dojo-card-link::before, .dojo-index[data-dojo-theme="board"] .dojo-rules::before {
+    content: ""; position: absolute; top: -9px; width: 18px; height: 18px; border-radius: 50%; background: var(--bd-pin); box-shadow: 0 2px 4px rgba(0,0,0,.3), inset -2px -2px 0 rgba(0,0,0,.25); pointer-events: none;
+  }
+  .dojo-index[data-dojo-theme="board"] .dojo-index-paper::before { left: 22px; }
+  .dojo-index[data-dojo-theme="board"] .dojo-index-paper::after { right: 22px; }
+  .dojo-index[data-dojo-theme="board"] .dojo-card-link { border-radius: 6px; background: var(--bd-paper); box-shadow: var(--bd-shadow); transform: rotate(var(--tilt, 0deg)); }
+  .dojo-index[data-dojo-theme="board"] .dojo-card-link::before { left: 50%; margin-left: -9px; }
+  .dojo-index[data-dojo-theme="board"] a.dojo-card-link:hover { transform: rotate(0deg) translateY(-2px); }
+  .dojo-index[data-dojo-theme="board"] .dojo-card-item.is-planned .dojo-card-link { background: var(--bd-note); border-style: dashed; }
+  .dojo-index[data-dojo-theme="board"] .dojo-card-item.is-planned .dojo-card-link::before { background: var(--bd-pin-grey); }
+  .dojo-index[data-dojo-theme="board"] .dojo-card-note { color: var(--bd-sign-text); font-size: .8rem; }
+  .dojo-index[data-dojo-theme="board"] .dojo-rules { position: relative; background: var(--bd-card); background-image: repeating-linear-gradient(0deg, transparent 0 27px, var(--bd-line) 27px 28px); background-position: 0 20px; border-radius: 6px; box-shadow: var(--bd-shadow); transform: rotate(var(--tilt, 0deg)); color: var(--text); }
+  .dojo-index[data-dojo-theme="board"] .dojo-rules::before { left: 50%; margin-left: -9px; }
+  .dojo-index[data-dojo-theme="board"] .dojo-rules ul { color: var(--text); }
+  @media (max-width: 640px) {
+    .dojo-index { padding: 22px 14px 40px; gap: 28px; }
+    .dojo-index[data-dojo-theme="board"] { border-radius: 14px; box-shadow: inset 0 0 0 6px var(--bd-frame), inset 0 0 0 8px rgba(0,0,0,.08); }
+    .dojo-index[data-dojo-theme="board"] .dojo-index-paper { padding: 22px 18px 18px; }
+    .dojo-index[data-dojo-theme="board"] .dojo-card-link { transform: none; }
+  }
+</style>
+
+<script>
+  // Stamps from this browser's own progress. Nothing is counted or scored:
+  // a card is either untouched, in progress, or walked to the end.
+  function readProgress(slug: string, version: string): { step: number; total?: number } | null {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`slam:dojo:${slug}`) || 'null');
+      if (!saved) return null;
+      if (typeof saved === 'number') return version === '1' ? { step: saved } : null;
+      return saved.version === version && Number.isInteger(saved.step) && saved.step > 0 ? { step: saved.step, total: saved.total } : null;
+    } catch { return null; }
+  }
+  document.querySelectorAll<HTMLElement>('.dojo-index').forEach((index) => {
+    const t = JSON.parse(index.dataset.i18n || '{}');
+    index.querySelectorAll<HTMLElement>('[data-dojo-card]').forEach((card) => {
+      const p = readProgress(card.dataset.slug || '', card.dataset.version || '1');
+      if (!p) return;
+      const done = !!p.total && p.step >= p.total;
+      const stamp = card.querySelector<HTMLElement>('[data-stamp]');
+      const cta = card.querySelector<HTMLElement>('[data-cta]');
+      if (stamp) { stamp.textContent = done ? t.done : t.progress; stamp.classList.toggle('is-done', done); stamp.hidden = false; }
+      if (cta) cta.textContent = done ? t.again : t.resume;
+    });
+  });
+</script>

@@ -1,0 +1,30 @@
+---
+/**
+ * Sort.astro — a comparison table the reader fills by dragging. Columns are the
+ * table's column headers; each <Card col={i}> is one cell that belongs under
+ * column i. Cards are shuffled into a pool; the reader drags (or taps card then
+ * column) until every card sits in its column. Wrong placements bounce back
+ * with a nudge — nothing is counted.
+ *
+ *   <Sort id="s1" columns={["Conditional training","Fine-tuning","Test-time steering"]}
+ *         rows={["需求何時進入？","是否更新 $\\theta$？","生成時怎麼做？"]}>
+ *   <Card col={0} row={0}>原本的 training 就有 $(x_0,c)$</Card>
+ *   …
+ *   </Sort>
+ *
+ * `rows` is optional; with it each column shows one slot per row (a real table),
+ * without it a column is a single bucket.
+ */
+interface Props { id: string; columns: string[]; rows?: string[]; rowReplies?: string[]; done?: string; label?: string; intro?: string }
+const { id, columns, rows, rowReplies = [], done, label = '把卡片放回表格', intro } = Astro.props;
+---
+
+<div class="dojo-node dojo-sort" data-node data-kind="sort" id={id} data-columns={JSON.stringify(columns)} data-rows={rows ? JSON.stringify(rows) : undefined} data-row-replies={JSON.stringify(rowReplies)} data-done={done}>
+  <span class="dojo-tag">{label}</span>
+  {intro && <div class="dojo-body"><p>{intro}</p></div>}
+  <p class="dojo-sort-question" data-sort-question hidden></p>
+  <div class="dojo-sort-table" role="group" aria-label={label}></div>
+  <div class="dojo-sort-pool" role="group" aria-label="待放置的卡片"><slot /></div>
+  <p class="dojo-feedback" role="status" aria-live="polite"></p>
+  <noscript><div class="dojo-body">{rowReplies.map((reply) => <p>{reply}</p>)}{done && <p>{done}</p>}</div></noscript>
+</div>

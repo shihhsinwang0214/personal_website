@@ -6,11 +6,11 @@ prereqs:
   - dma-tweedie-and-score
   - math-bayes-posterior
 lang: "en"
-title: "How Can a Classifier Change a Diffusion Model's Direction?"
+title: "How Can We Obtain Guidance for This Request without Retraining?"
 category: "courses"
 group: "Unit 7 · Test-time Guidance"
 status: "missing"
-updated: 2026-10-09
+updated: 2026-10-12
 summary: "English translation in progress; content-agent task."
 demos: []
 references: []

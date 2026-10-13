@@ -1,0 +1,755 @@
+---
+/**
+ * Dialogue.astro — wraps one dojo script and runs it one node at a time.
+ *
+ * Contract with the node components (Say / Explore / Choose / Judge / Think / Reveal / Sort):
+ *   [data-node][data-kind]        one beat of the dialogue, in document order
+ *   [data-detour="true"]          skipped by the main line; reached only via goto
+ *   [data-back="id"]              after a detour's 「繼續」, return to this node
+ *   [data-goto="id"]              after 「繼續」, jump here instead of the next node
+ *   [data-next="label"]           label for this node's continue button
+ *
+ * Interaction rules (decided 2026-10-13):
+ *   - Choose: after the correct pick the walk may continue, but every other
+ *     option stays open — tapping one shows its `why` inline or opens its
+ *     detour, and the detour comes back to the question. Readers are nudged
+ *     to look at the options they did not pick.
+ *   - Judge: same — after answering, the other side can still be tapped to
+ *     read its reply.
+ *   - Sort with rows: a finished row stays on screen until the reader presses
+ *     「下一列」; the next row never pops up by itself.
+ *   - Themes only change CSS: the page wrapper carries data-dojo-theme
+ *     (board / plates / scroll); the runner is theme-agnostic.
+ *
+ * With JS off, every node is visible — the script still reads as a short document.
+ * Progress ("furthest main-line step reached", plus the total) lives in
+ * localStorage under `slam:dojo:<slug>` and is never sent anywhere; nothing
+ * about right or wrong is kept.
+ */
+import type { Lang } from '../../lib/notes';
+
+interface Props {
+  slug: string;
+  lang?: Lang;
+  /** Where the reader goes when they finish (the source note). */
+  noteHref?: string;
+  noteTitle?: string;
+  progressVersion?: string;
+  nextHref?: string;
+  nextTitle?: string;
+}
+const { slug, lang = 'zh', noteHref, noteTitle, progressVersion = '1', nextHref, nextTitle } = Astro.props;
+const t = lang === 'zh'
+  ? { next: '繼續', resume: '上次讀到第 {n} 段。', resumeBtn: '接著讀', restart: '從頭開始', done: '這個問題先推到這裡。', toNote: '回技能書連著讀 →', again: '再想一次', praise: ['這個理由成立。'], retry: ['再看看這個做法需要哪些條件。'], sortDone: '整理好了，再把幾種做法放在一起看。', pick: '點一張卡片，再點它要放的格子；也可以直接拖過去。', others: '也可以展開其他選項，比較它們的理由。', otherSide: '另一個判斷的理由也可以展開比較。', rowDone: '這一列整理好了，接著比較下一個問題。', nextRow: '接著比較下一列', stampOk: '對照過了', stampJudge: '對照過了', stampThink: '想過了', stampSort: '整理好了', stampExplore: '比較過了', stampLive: '正在想', exploreStart: '先選一條，讀完再回來比較其他做法。', exploreMore: '把這條路先記下來，再看看其他做法會改動哪裡。', exploreDone: '幾種做法都看過了，現在一起比較。' }
+  : { next: 'Continue', resume: 'You last read section {n}.', resumeBtn: 'Continue reading', restart: 'Start over', done: 'We have worked through this question.', toNote: 'Read the note continuously →', again: 'Think it through again', praise: ['That reasoning holds.'], retry: ['Check the conditions this approach needs.'], sortDone: 'Now compare the approaches together.', pick: 'Select a card, then its cell — or drag it.', others: 'You can also open the other options and compare their reasoning.', otherSide: 'You can also compare the reasoning for the other answer.', rowDone: 'That row is in place. Compare the next question.', nextRow: 'Compare the next row', stampOk: 'Reviewed', stampJudge: 'Reviewed', stampThink: 'Considered', stampSort: 'Organized', stampExplore: 'Compared', stampLive: 'Thinking', exploreStart: 'Pick an approach, read it, then return to compare the others.', exploreMore: 'Keep this approach in mind and see what the others change.', exploreDone: 'Now compare the approaches you have read.' };
+---
+
+<section class="dojo" data-dojo data-slug={slug} data-progress-version={progressVersion} data-i18n={JSON.stringify(t)}>
+  <div class="dojo-resume" data-resume hidden>
+    <span data-resume-text></span>
+    <button type="button" class="dojo-btn" data-resume-go>{t.resumeBtn}</button>
+    <button type="button" class="dojo-btn dojo-btn-ghost" data-resume-reset>{t.restart}</button>
+  </div>
+  <div class="dojo-flow"><slot /></div>
+  <footer class="dojo-end" data-end hidden>
+    <p class="dojo-end-title">{t.done}</p>
+    {nextHref && <a class="dojo-btn" data-next-dojo href={nextHref}>{lang === 'zh' ? '接著試下一個問題 →' : 'Try the next question →'}{nextTitle && <span class="dojo-end-note"> {nextTitle}</span>}</a>}
+    {noteHref && <a class:list={['dojo-btn', { 'dojo-btn-ghost': !!nextHref }]} href={noteHref}>{t.toNote}{noteTitle && <span class="dojo-end-note"> {noteTitle}</span>}</a>}
+    <button type="button" class="dojo-btn dojo-btn-ghost" data-restart>{t.again}</button>
+  </footer>
+</section>
+
+<style is:global>
+  .dojo { max-width: 720px; margin: 0 auto; }
+  .dojo [hidden] { display: none !important; }
+  .dojo:not(.is-live) .dojo-end[hidden] { display: flex !important; }
+  .dojo:not(.is-live) [data-restart] { display: none; }
+  .dojo.is-live .dojo-node { display: none; }
+  .dojo.is-live .dojo-node.is-shown { display: block; animation: dojo-in .32s var(--ease-out, ease) both; }
+  @keyframes dojo-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .dojo.is-live .dojo-node.is-shown { animation: none; } }
+
+  .dojo-node {
+    margin: 0 0 18px; padding: 18px 20px; scroll-margin-top: 96px;
+    border: 1px solid var(--border); border-radius: var(--radius, 12px); background: var(--surface);
+  }
+  .dojo-node.is-done { border-color: var(--border); }
+  .dojo-node:focus { outline: none; }
+  .dojo-say { background: transparent; border-color: transparent; padding: 6px 4px; }
+  .dojo-say[data-detour] { border-color: var(--border); border-style: dashed; background: var(--surface); padding: 18px 20px; }
+  .dojo-choose, .dojo-judge, .dojo-think { border-left: 4px solid var(--accent); background: var(--box-ml-bg, var(--surface-2)); }
+  .dojo-reveal { border-left: 4px solid var(--accent); background: var(--box-math-bg, var(--surface-2)); }
+  .dojo-sort { border-left: 4px solid var(--accent); }
+
+  .dojo-tag {
+    display: inline-block; margin-bottom: 10px; padding: 2px 9px;
+    font-size: .72rem; font-weight: 700; letter-spacing: .03em;
+    color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 999px;
+  }
+  .dojo-body { line-height: 1.8; }
+  .dojo-body .katex { white-space: nowrap; }
+  .dojo-body .katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
+  .dojo-body > p:first-child { margin-top: 0; }
+  .dojo-body > p:last-child { margin-bottom: 0; }
+  .dojo-choose-body > p { font-weight: 400; margin: 0 0 12px; }
+  .dojo-choose-body .dojo-opt-wrap + .dojo-opt-wrap { margin-top: 8px; }
+  .dojo-opt-wrap { display: block; }
+  .dojo-opt-more { flex: none; margin-left: auto; margin-top: 7px; width: 8px; height: 8px; border-right: 2px solid var(--text-muted); border-bottom: 2px solid var(--text-muted); transform: rotate(45deg); opacity: .55; transition: transform .15s ease; }
+  .dojo-opt[aria-expanded="true"] .dojo-opt-more { transform: rotate(225deg); margin-top: 11px; }
+  .dojo-opt.is-seen:not(.is-correct):not(.is-wrong) { border-style: dashed; }
+  .dojo-why { margin: 6px 0 2px 28px; padding: 8px 12px; font-size: .92rem; line-height: 1.7; color: var(--text); border-left: 3px solid var(--border); }
+  .dojo.is-live .dojo-why:not(.is-open) { display: none; }
+  .dojo:not(.is-live) .dojo-why::before { content: "→ "; color: var(--text-muted); }
+
+  .dojo-opt {
+    display: flex; align-items: flex-start; gap: 10px; width: 100%;
+    text-align: left; cursor: pointer; font: inherit; color: inherit; font-weight: 400; line-height: 1.5;
+    padding: 11px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .dojo-opt:hover:not(:disabled) { border-color: var(--accent); }
+  .dojo-opt:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: 2px; }
+  .dojo-opt:disabled { cursor: default; }
+  .dojo-opt-text p { margin: 0; display: inline; }
+  .dojo-mark { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 2px; border-radius: 50%; border: 2px solid var(--text-muted); }
+  .dojo-opt.is-correct { border-color: #2f9e6b; background: color-mix(in srgb, #2f9e6b 12%, var(--surface)); }
+  .dojo-opt.is-correct .dojo-mark { border-color: #2f9e6b; background: #2f9e6b; }
+  .dojo-opt.is-wrong { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+  .dojo-opt.is-wrong .dojo-mark { border-color: var(--accent); }
+  .dojo-judge-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .dojo-feedback { margin: 12px 0 0; min-height: 1.2em; font-weight: 600; line-height: 1.6; }
+  .dojo-feedback:empty { display: none; }
+  .dojo-feedback.ok { color: #2f9e6b; }
+  .dojo-feedback.no { color: var(--text); }
+  .dojo-think-hint { margin: 8px 0 0; font-size: .8rem; line-height: 1.6; color: var(--text-muted); }
+
+  .dojo-think-box {
+    display: block; width: 100%; margin-top: 12px; padding: 10px 12px; box-sizing: border-box;
+    font: inherit; line-height: 1.6; color: var(--text); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 10px; resize: vertical;
+  }
+  .dojo-think-box:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: 1px; }
+
+  .dojo-actions { display: flex; gap: 10px; margin-top: 14px; }
+  .dojo-btn {
+    display: inline-block; padding: 8px 16px; cursor: pointer; font: inherit; font-size: .9rem; font-weight: 600; text-decoration: none;
+    color: #fff; background: var(--accent); border: 1px solid var(--accent); border-radius: 999px;
+    transition: background .15s ease, color .15s ease;
+  }
+  .dojo-btn:hover { background: var(--accent-hover, var(--accent)); }
+  .dojo-btn:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: 2px; }
+  .dojo-btn-ghost { color: var(--accent); background: transparent; }
+  .dojo-btn-ghost:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .dojo-end-note { font-weight: 400; opacity: .9; }
+
+  .dojo-resume, .dojo-end {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 18px; padding: 14px 18px;
+    border: 1px solid var(--border); border-radius: var(--radius, 12px); background: var(--surface-2);
+  }
+  .dojo-end { margin-top: 10px; }
+  .dojo-resume[hidden], .dojo-end[hidden] { display: none; }
+  .dojo-end-title { margin: 0; font-weight: 600; flex-basis: 100%; }
+
+  /* ---- Sort ---- */
+  .dojo-sort-table { display: grid; gap: 8px; margin: 12px 0; }
+  .dojo-sort-question { margin: 16px 0 6px; font-weight: 600; }
+  .dojo-card-context { display: block; color: var(--text-muted); font-size: .8rem; margin-bottom: 5px; }
+  .dojo.is-live .dojo-card-context { display: none; }
+  .dojo-sort-col { display: grid; gap: 6px; align-content: start; min-width: 0; }
+  .dojo-sort-head { font-weight: 700; font-size: .9rem; line-height: 1.4; min-height: 2.8em; padding: 6px 8px; border-bottom: 2px solid var(--border); }
+  .dojo-sort-rowhead { font-size: .8rem; color: var(--text-muted); padding: 2px 4px 0; }
+  .dojo-sort:not(.is-complete) .dojo-sort-rowhead { display: none; }
+  .dojo-slot {
+    min-height: 54px; padding: 4px; border: 1.5px dashed var(--border); border-radius: 10px; background: var(--surface-2);
+    font-size: .8rem; color: var(--text-muted); cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .dojo-slot.is-over, .dojo-slot.is-target { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface-2)); }
+  .dojo-slot.is-filled { border-style: solid; }
+  .dojo-slot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .dojo-slot.is-filled { cursor: default; }
+  .dojo-sort-pool { display: flex; flex-wrap: wrap; gap: 8px; min-height: 48px; padding: 8px; border-radius: 10px; background: var(--surface-2); }
+  .dojo-sort-pool:empty { display: none; }
+  .dojo-card {
+    color: var(--text);
+    padding: 8px 12px; font-size: .92rem; line-height: 1.5; cursor: grab; user-select: none;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-sm);
+    transition: border-color .15s ease, transform .15s ease;
+  }
+  .dojo-card p { margin: 0; display: inline; }
+  .dojo-card:hover { border-color: var(--accent); }
+  .dojo-card:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: 2px; }
+  .dojo-card.is-picked { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-md); }
+  .dojo-card.is-locked { cursor: default; border-color: #2f9e6b; background: color-mix(in srgb, #2f9e6b 10%, var(--surface)); }
+  @media (max-width: 640px) {
+    .dojo-sort.is-complete .dojo-sort-table { grid-template-columns: 1fr !important; }
+    .dojo-sort-head { font-size: .78rem; padding: 6px 3px; overflow-wrap: anywhere; }
+    .dojo-slot { min-height: 64px; }
+    .dojo-slot .dojo-card { font-size: .8rem; padding: 6px; }
+    .dojo-judge-btns { grid-template-columns: 1fr; }
+  }
+
+  /* =====================================================================
+     Themes. Only CSS; the runner and the node contract do not change.
+     The page wrapper (DojoView) carries data-dojo-theme.
+     ===================================================================== */
+  .dojo-node { position: relative; }
+  .dojo-node.is-answered::after, .dojo-node[data-stamp-live].is-shown:not(.is-answered):not(.is-done)::after { display: none; }
+
+  /* ---------- board (任務告示板) — the default ---------- */
+  [data-dojo-theme="board"] .dojo { max-width: 800px; }
+  [data-dojo-theme="board"] .dojo-node { margin: 0 0 26px; scroll-margin-top: 110px; }
+  /* lesson sheets: two pins, flat white paper */
+  [data-dojo-theme="board"] .dojo-say:not([data-detour]), [data-dojo-theme="board"] .dojo-reveal {
+    padding: 28px 30px 26px; border: 1px solid var(--border); border-radius: 4px; background: var(--bd-paper); box-shadow: var(--bd-shadow);
+  }
+  [data-dojo-theme="board"] .dojo-reveal { border-left: 5px solid var(--accent); background: var(--bd-paper); }
+  [data-dojo-theme="board"] .dojo-say:not([data-detour])::before, [data-dojo-theme="board"] .dojo-say:not([data-detour])::after,
+  [data-dojo-theme="board"] .dojo-reveal::before, [data-dojo-theme="board"] .dojo-reveal::after {
+    content: ""; position: absolute; top: -9px; width: 18px; height: 18px; border-radius: 50%; background: var(--bd-pin);
+    box-shadow: 0 2px 4px rgba(0,0,0,.3), inset -2px -2px 0 rgba(0,0,0,.25); pointer-events: none;
+  }
+  [data-dojo-theme="board"] .dojo-say:not([data-detour])::before, [data-dojo-theme="board"] .dojo-reveal::before { left: 22px; }
+  [data-dojo-theme="board"] .dojo-say:not([data-detour])::after, [data-dojo-theme="board"] .dojo-reveal::after { right: 22px; }
+  [data-dojo-theme="board"] .dojo-say > .dojo-tag, [data-dojo-theme="board"] .dojo-reveal > .dojo-tag {
+    display: block; margin: 0 0 .5em; padding: 0; background: none; border-radius: 0;
+    font-size: 1.18rem; font-weight: 700; letter-spacing: 0; line-height: 1.4; color: var(--text);
+  }
+  [data-dojo-theme="board"] .dojo-say:not([data-detour]) > .dojo-tag::before, [data-dojo-theme="board"] .dojo-reveal > .dojo-tag::before {
+    content: ""; display: inline-block; width: 8px; height: 8px; margin: 0 10px 2px 0; border-radius: 50%; background: var(--accent);
+  }
+  /* prompt cards: lined index card, one pin, a little askew */
+  [data-dojo-theme="board"] .dojo-choose, [data-dojo-theme="board"] .dojo-judge, [data-dojo-theme="board"] .dojo-think, [data-dojo-theme="board"] .dojo-sort {
+    margin-left: 30px; margin-right: 30px; padding: 26px 26px 20px; border: 1px solid var(--border); border-left: 1px solid var(--border); border-radius: 6px;
+    background: var(--bd-card); background-image: repeating-linear-gradient(0deg, transparent 0 27px, var(--bd-line) 27px 28px); background-position: 0 22px;
+    box-shadow: var(--bd-shadow); transform: rotate(.5deg);
+  }
+  [data-dojo-theme="board"] .dojo-judge, [data-dojo-theme="board"] .dojo-sort { transform: rotate(-.4deg); }
+  [data-dojo-theme="board"] .dojo-sort { margin-left: 0; margin-right: 0; background-image: none; background: var(--bd-paper); transform: none; }
+  [data-dojo-theme="board"] .dojo-choose::before, [data-dojo-theme="board"] .dojo-judge::before, [data-dojo-theme="board"] .dojo-think::before, [data-dojo-theme="board"] .dojo-sort::before {
+    content: ""; position: absolute; top: -9px; left: 50%; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%; background: var(--bd-pin);
+    box-shadow: 0 2px 4px rgba(0,0,0,.3), inset -2px -2px 0 rgba(0,0,0,.25); pointer-events: none;
+  }
+  [data-dojo-theme="board"] .dojo-sort::before { background: var(--bd-pin-red); }
+  [data-dojo-theme="board"] .dojo-sort.is-answered::before { background: var(--bd-pin); }
+  /* detour: a torn note, dashed, grey pin */
+  [data-dojo-theme="board"] .dojo-say[data-detour] {
+    margin-left: 60px; margin-right: 0; padding: 20px 22px 18px; border: 1px dashed var(--border); border-radius: 4px; background: var(--bd-note); box-shadow: var(--bd-shadow); transform: rotate(-.8deg);
+  }
+  [data-dojo-theme="board"] .dojo-say[data-detour]::before { content: ""; position: absolute; top: -9px; left: 50%; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%; background: var(--bd-pin-grey); box-shadow: 0 2px 4px rgba(0,0,0,.3), inset -2px -2px 0 rgba(0,0,0,.25); }
+  [data-dojo-theme="board"] .dojo-say[data-detour]::after { display: none; }
+  [data-dojo-theme="board"] .dojo-say[data-detour] > .dojo-tag { display: inline-block; margin: 0 0 10px; padding: 2px 9px; font-size: .72rem; font-weight: 700; letter-spacing: .03em; line-height: 1.6; color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 16%, transparent); border-radius: 999px; }
+  [data-dojo-theme="board"] .dojo-say[data-detour] > .dojo-tag::before { display: none; }
+  /* stamps */
+  [data-dojo-theme="board"] .dojo-node.is-answered::after,
+  [data-dojo-theme="board"] .dojo-node[data-stamp-live].is-shown:not(.is-answered):not(.is-done)::after {
+    display: block; content: attr(data-stamp); position: absolute; right: 16px; top: 16px; padding: 4px 8px;
+    font-family: var(--font-mono); font-size: .68rem; font-weight: 700; letter-spacing: .14em; line-height: 1.2;
+    color: var(--bd-ok); border: 2px solid var(--bd-ok); border-radius: 6px; transform: rotate(7deg); opacity: .85; pointer-events: none;
+  }
+  [data-dojo-theme="board"] .dojo-node[data-stamp-live].is-shown:not(.is-answered):not(.is-done)::after { content: attr(data-stamp-live); color: var(--accent); border-color: var(--accent); }
+  [data-dojo-theme="board"] .dojo-say.is-answered::after, [data-dojo-theme="board"] .dojo-reveal.is-answered::after { display: none; }
+  [data-dojo-theme="board"] .dojo-opt { background: var(--bd-paper); }
+  /* sort: slips with a pin dot */
+  [data-dojo-theme="board"] .dojo-slot { border-color: color-mix(in srgb, var(--bd-frame) 80%, var(--text)); background: color-mix(in srgb, var(--bd-card) 70%, transparent); border-radius: 6px; }
+  [data-dojo-theme="board"] .dojo-card { position: relative; border-radius: 4px; box-shadow: 0 3px 8px rgba(28,40,51,.14); }
+  [data-dojo-theme="board"] .dojo-card::before { content: ""; position: absolute; top: -5px; left: 50%; width: 9px; height: 9px; margin-left: -4px; border-radius: 50%; background: var(--bd-pin-red); }
+  [data-dojo-theme="board"] .dojo-card.is-locked::before { background: var(--bd-ok); }
+  [data-dojo-theme="board"] .dojo-sort-pool { padding-top: 14px; background: color-mix(in srgb, var(--bd-sign) 80%, transparent); }
+  /* resume / end: small signs */
+  [data-dojo-theme="board"] .dojo-resume, [data-dojo-theme="board"] .dojo-end { background: var(--bd-sign); color: var(--bd-sign-text); border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,.15); }
+  @media (max-width: 640px) {
+    [data-dojo-theme="board"] .dojo-choose, [data-dojo-theme="board"] .dojo-judge, [data-dojo-theme="board"] .dojo-think { margin-left: 6px; margin-right: 6px; padding: 22px 18px 18px; }
+    [data-dojo-theme="board"] .dojo.is-live :is(.dojo-choose, .dojo-judge, .dojo-think, .dojo-sort) > .dojo-tag { max-width: calc(100% - 74px); box-sizing: border-box; }
+    [data-dojo-theme="board"] .dojo-say[data-detour] { margin-left: 18px; }
+    [data-dojo-theme="board"] .dojo-say:not([data-detour]), [data-dojo-theme="board"] .dojo-reveal { padding: 24px 18px 22px; }
+  }
+
+  /* ---------- plates (道場掛牌) ---------- */
+  [data-dojo-theme="plates"] .dojo { max-width: 840px; }
+  [data-dojo-theme="plates"] .dojo-node { margin: 0 0 38px; }
+  [data-dojo-theme="plates"] .dojo-say:not([data-detour]), [data-dojo-theme="plates"] .dojo-reveal {
+    padding: 28px 34px 26px; border: 1px solid var(--border); border-radius: 0; background: var(--pl-paper); box-shadow: 0 12px 26px rgba(60,35,10,.18);
+  }
+  [data-dojo-theme="plates"] .dojo-say:not([data-detour])::before, [data-dojo-theme="plates"] .dojo-say:not([data-detour])::after, [data-dojo-theme="plates"] .dojo-reveal::before, [data-dojo-theme="plates"] .dojo-reveal::after {
+    content: ""; position: absolute; left: -6px; right: -6px; height: 10px; border-radius: 5px; background: linear-gradient(90deg, #3a3533, #1c1a19 50%, #3a3533);
+  }
+  [data-dojo-theme="plates"] .dojo-say:not([data-detour])::before, [data-dojo-theme="plates"] .dojo-reveal::before { top: -6px; }
+  [data-dojo-theme="plates"] .dojo-say:not([data-detour])::after, [data-dojo-theme="plates"] .dojo-reveal::after { bottom: -6px; }
+  [data-dojo-theme="plates"] .dojo-reveal { border-left: 5px solid var(--accent); }
+  [data-dojo-theme="plates"] .dojo-say > .dojo-tag, [data-dojo-theme="plates"] .dojo-reveal > .dojo-tag { display: block; margin: 0 0 .5em; padding: 0; background: none; font-size: 1.18rem; font-weight: 700; color: var(--text); letter-spacing: 0; }
+  [data-dojo-theme="plates"] .dojo-choose, [data-dojo-theme="plates"] .dojo-judge, [data-dojo-theme="plates"] .dojo-think, [data-dojo-theme="plates"] .dojo-sort {
+    margin-left: 40px; margin-right: 40px; padding: 24px 26px 20px; color: var(--pl-ink); border: 2px solid var(--pl-wood-dark); border-left-width: 2px; border-radius: 8px;
+    background-image: repeating-linear-gradient(0deg, rgba(80,45,15,.07) 0 2px, transparent 2px 11px), linear-gradient(180deg, color-mix(in srgb, var(--pl-wood) 85%, #fff), var(--pl-wood) 60%, color-mix(in srgb, var(--pl-wood) 85%, #000));
+    box-shadow: 0 12px 22px rgba(60,35,10,.28), inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  [data-dojo-theme="plates"] .dojo-sort { margin-left: 0; margin-right: 0; }
+  [data-dojo-theme="plates"] .dojo-choose > .dojo-tag, [data-dojo-theme="plates"] .dojo-judge > .dojo-tag, [data-dojo-theme="plates"] .dojo-think > .dojo-tag, [data-dojo-theme="plates"] .dojo-sort > .dojo-tag {
+    font-family: var(--font-mono); letter-spacing: .14em; color: var(--pl-ink); background: none; border: 1.5px solid rgba(60,35,10,.45); border-radius: 4px;
+  }
+  [data-dojo-theme="plates"] .dojo-opt { color: var(--pl-ink); background: color-mix(in srgb, var(--pl-wood-pale) 70%, #fff); border-color: rgba(60,35,10,.4); border-radius: 8px; }
+  [data-dojo-theme="plates"] .dojo-say[data-detour] { margin-left: 80px; padding: 20px 22px 18px; color: var(--pl-ink); border: 2px dashed var(--pl-wood-dark); border-radius: 8px; background: var(--pl-wood-pale); box-shadow: 0 8px 16px rgba(60,35,10,.18); }
+  [data-dojo-theme="plates"] .dojo-node.is-answered::after, [data-dojo-theme="plates"] .dojo-node[data-stamp-live].is-shown:not(.is-answered):not(.is-done)::after {
+    display: block; content: attr(data-stamp); position: absolute; right: 16px; top: 14px; font-family: var(--font-mono); font-size: .68rem; font-weight: 700; letter-spacing: .14em; color: var(--pl-ink); border: 1.5px solid rgba(60,35,10,.45); border-radius: 4px; padding: 3px 7px; pointer-events: none;
+  }
+  [data-dojo-theme="plates"] .dojo-node[data-stamp-live].is-shown:not(.is-answered):not(.is-done)::after { content: attr(data-stamp-live); color: var(--pl-tassel); border-color: var(--pl-tassel); }
+  [data-dojo-theme="plates"] .dojo-say.is-answered::after, [data-dojo-theme="plates"] .dojo-reveal.is-answered::after { display: none; }
+  [data-dojo-theme="plates"] .dojo-slot { border: 2px solid rgba(60,35,10,.35); background: rgba(60,35,10,.12); box-shadow: inset 0 3px 6px rgba(0,0,0,.18); color: var(--pl-ink); }
+  [data-dojo-theme="plates"] .dojo-card { color: var(--pl-ink); background: var(--pl-wood-pale); border: 1.5px solid var(--pl-wood-dark); border-radius: 5px; }
+  [data-dojo-theme="plates"] .dojo-sort-pool { background: rgba(255,255,255,.35); }
+
+  /* ---------- scroll (秘笈卷軸) ---------- */
+  [data-dojo-theme="scroll"] .dojo { max-width: 760px; font-family: "Noto Serif TC", "PingFang TC", serif; color: var(--sc-ink); }
+  [data-dojo-theme="scroll"] .dojo-node { margin: 0 0 30px; }
+  [data-dojo-theme="scroll"] .dojo-say:not([data-detour]), [data-dojo-theme="scroll"] .dojo-reveal { padding: 0; border: 0; background: transparent; }
+  [data-dojo-theme="scroll"] .dojo-say > .dojo-tag, [data-dojo-theme="scroll"] .dojo-reveal > .dojo-tag { display: block; margin: 0 0 .6em; padding: 0; background: none; font-size: 1.3rem; font-weight: 700; color: var(--sc-ink); letter-spacing: 0; }
+  [data-dojo-theme="scroll"] .dojo-say:not([data-detour]) > .dojo-tag::before, [data-dojo-theme="scroll"] .dojo-reveal > .dojo-tag::before { content: "◆"; font-size: .7em; color: var(--sc-red); margin-right: 10px; vertical-align: 2px; }
+  [data-dojo-theme="scroll"] .dojo-choose, [data-dojo-theme="scroll"] .dojo-judge, [data-dojo-theme="scroll"] .dojo-think, [data-dojo-theme="scroll"] .dojo-sort {
+    padding: 20px 22px 18px; border: 1.5px solid var(--sc-rule); border-left-width: 1.5px; border-radius: 0; outline: 1px solid var(--sc-rule); outline-offset: 3px; background: rgba(255,255,255,.35); color: var(--sc-ink);
+  }
+  :root[data-theme=dark] [data-dojo-theme="scroll"] .dojo-choose, :root[data-theme=dark] [data-dojo-theme="scroll"] .dojo-judge, :root[data-theme=dark] [data-dojo-theme="scroll"] .dojo-think, :root[data-theme=dark] [data-dojo-theme="scroll"] .dojo-sort { background: rgba(255,255,255,.05); }
+  [data-dojo-theme="scroll"] .dojo-choose > .dojo-tag, [data-dojo-theme="scroll"] .dojo-judge > .dojo-tag, [data-dojo-theme="scroll"] .dojo-think > .dojo-tag, [data-dojo-theme="scroll"] .dojo-sort > .dojo-tag { background: none; padding: 0; font-size: .78rem; letter-spacing: .2em; color: var(--sc-rule); }
+  [data-dojo-theme="scroll"] .dojo-opt { color: var(--sc-ink); background: rgba(255,255,255,.5); border: 1px solid color-mix(in srgb, var(--sc-rule) 55%, transparent); border-radius: 0; }
+  :root[data-theme=dark] [data-dojo-theme="scroll"] .dojo-opt { background: rgba(255,255,255,.06); }
+  [data-dojo-theme="scroll"] .dojo-say[data-detour] { padding: 14px 16px; border: 0; border-left: 3px solid var(--sc-red); border-radius: 0; background: color-mix(in srgb, var(--sc-red) 7%, transparent); color: var(--sc-ink); font-size: .95rem; }
+  [data-dojo-theme="scroll"] .dojo-say[data-detour] > .dojo-tag { background: none; padding: 0; font-size: .78rem; letter-spacing: .2em; color: var(--sc-red); }
+  [data-dojo-theme="scroll"] .dojo-node.is-answered::after, [data-dojo-theme="scroll"] .dojo-node[data-stamp-live].is-shown:not(.is-answered):not(.is-done)::after {
+    display: flex; align-items: center; justify-content: center; content: attr(data-stamp); position: absolute; right: 14px; top: 12px; width: 40px; height: 40px; padding: 2px; box-sizing: border-box;
+    font-size: .72rem; font-weight: 900; line-height: 1.1; letter-spacing: .05em; text-align: center; color: var(--sc-green); border: 2.5px solid var(--sc-green); border-radius: 6px; transform: rotate(-6deg); opacity: .9; pointer-events: none;
+  }
+  [data-dojo-theme="scroll"] .dojo-node[data-stamp-live].is-shown:not(.is-answered):not(.is-done)::after { content: attr(data-stamp-live); color: var(--sc-red); border-color: var(--sc-red); }
+  [data-dojo-theme="scroll"] .dojo-say.is-answered::after, [data-dojo-theme="scroll"] .dojo-reveal.is-answered::after { display: none; }
+  [data-dojo-theme="scroll"] .dojo-slot { border: 1px solid var(--sc-rule); border-radius: 0; background: transparent; color: var(--sc-rule); }
+  [data-dojo-theme="scroll"] .dojo-card { color: var(--sc-ink); background: #fff8e6; border: 1px solid #c9a35a; border-radius: 0; box-shadow: 2px 3px 0 rgba(74,53,32,.25); }
+  :root[data-theme=dark] [data-dojo-theme="scroll"] .dojo-card { background: #3a3326; }
+  [data-dojo-theme="scroll"] .dojo-sort-pool { background: transparent; border: 1px dashed var(--sc-rule); border-radius: 0; }
+  [data-dojo-theme="scroll"] .dojo-sort-head { border-bottom-color: var(--sc-rule); }
+</style>
+
+<script>
+  type Node = HTMLElement;
+  type I18n = Record<string, any>;
+
+  const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+
+  function storageKey(slug: string) { return `slam:dojo:${slug}`; }
+  function readStep(slug: string, version: string): number {
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey(slug)) || 'null');
+      const step = typeof saved === 'number' && version === '1' ? saved : saved?.version === version ? saved.step : 0;
+      return Number.isInteger(step) && step > 0 ? step : 0;
+    } catch { return 0; }
+  }
+  function clearStep(slug: string) { try { localStorage.removeItem(storageKey(slug)); } catch {} }
+
+  function shuffle<T>(arr: T[]): T[] { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
+
+  function runDojo(root: HTMLElement) {
+    if (root.dataset.bound) return;
+    root.dataset.bound = 'true';
+    const slug = root.dataset.slug ?? '';
+    const version = root.dataset.progressVersion ?? '1';
+    let total = 0;
+    const writeStep = (_slug: string, step: number) => { try { localStorage.setItem(storageKey(slug), JSON.stringify({ version, step, total })); } catch {} };
+    const motion = () => matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' as const : 'smooth' as const;
+    const t: I18n = JSON.parse(root.dataset.i18n ?? '{}');
+    const nodes = Array.from(root.querySelectorAll<Node>('[data-node]'));
+    const main = nodes.filter((n) => n.dataset.detour !== 'true');
+    total = main.length;
+    const byId = new Map<string, Node>();
+    nodes.forEach((n) => { if (n.id) byId.set(n.id, n); });
+    const end = root.querySelector<HTMLElement>('[data-end]')!;
+    const resume = root.querySelector<HTMLElement>('[data-resume]')!;
+
+    root.classList.add('is-live');
+
+    // ---- continue buttons ----
+    function actions(node: Node, label: string, onNext: () => void) {
+      let box = node.querySelector<HTMLElement>(':scope > .dojo-actions');
+      if (!box) { box = document.createElement('div'); box.className = 'dojo-actions'; node.appendChild(box); }
+      box.innerHTML = '';
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'dojo-btn'; btn.textContent = label;
+      btn.addEventListener('click', () => { box!.remove(); onNext(); });
+      box.appendChild(btn);
+      return btn;
+    }
+
+    function finish(node: Node) {
+      node.classList.add('is-done');
+      // Options that carry an explanation stay tappable after the walk moves on.
+      node.querySelectorAll<HTMLButtonElement>('button.dojo-opt').forEach((b) => { if (!explorable(b)) b.disabled = true; });
+      const ta = node.querySelector<HTMLTextAreaElement>('textarea'); if (ta) ta.readOnly = true;
+      if (node.dataset.kind === 'think') stamp(node, t.stampThink);
+    }
+    function explorable(b: HTMLButtonElement) {
+      if (b.classList.contains('is-correct')) return !!b.dataset.why;
+      return !!(b.dataset.why || (b.dataset.goto && byId.has(b.dataset.goto)) || b.dataset.replyOther);
+    }
+    function stamp(node: Node, text: string) { node.dataset.stamp = text; node.classList.add('is-answered'); }
+
+    function reveal(node: Node, scroll = true) {
+      node.classList.add('is-shown');
+      if (node === main[0]) scroll = false;
+      if (scroll) requestAnimationFrame(() => { node.tabIndex = -1; node.focus({ preventScroll: true }); node.scrollIntoView({ behavior: motion(), block: 'start' }); });
+    }
+
+    // ---- main line ----
+    function advanceFrom(node: Node) {
+      finish(node);
+      const goto = node.dataset.goto;
+      if (goto && byId.has(goto)) { show(byId.get(goto)!); return; }
+      if (node.dataset.detour === 'true') {
+        const back = node.dataset.back;
+        if (back && byId.has(back)) { node.classList.remove('is-shown'); reopen(byId.get(back)!); return; }
+      }
+      let i = main.indexOf(node);
+      if (i < 0) {
+        // A detour with no `back`: continue after the last main-line node before it.
+        const at = nodes.indexOf(node);
+        i = -1;
+        for (let k = at - 1; k >= 0; k--) { const m = main.indexOf(nodes[k]); if (m >= 0) { i = m; break; } }
+      }
+      const next = main[i + 1];
+      if (next) { writeStep(slug, i + 1); show(next); }
+      else { writeStep(slug, main.length); end.hidden = false; end.tabIndex = -1; end.focus({ preventScroll: true }); end.scrollIntoView({ behavior: motion(), block: 'start' }); }
+    }
+
+    function reopen(node: Node) {
+      if (node.dataset.kind === 'explore') {
+        const path = node.dataset.activePath;
+        node.querySelectorAll<HTMLButtonElement>('.dojo-opt').forEach((b) => {
+          b.disabled = false;
+          if (path && b.dataset.goto === path) b.classList.add('is-seen');
+        });
+        delete node.dataset.activePath;
+        updateExplore(node);
+        node.tabIndex = -1; node.focus({ preventScroll: true });
+        node.scrollIntoView({ behavior: motion(), block: 'start' });
+        return;
+      }
+      // Back from a detour. An unanswered question is live again; an answered one
+      // keeps its 「繼續」 and its options stay open for looking around.
+      const answered = node.classList.contains('is-answered');
+      node.classList.remove('is-done');
+      node.querySelectorAll<HTMLButtonElement>('button.dojo-opt').forEach((b) => { b.disabled = answered ? !explorable(b) : false; });
+      node.tabIndex = -1; node.focus({ preventScroll: true });
+      node.scrollIntoView({ behavior: motion(), block: 'start' });
+    }
+
+    function show(node: Node) {
+      const kind = node.dataset.kind;
+      if (kind === 'explore' || kind === 'choose' || kind === 'judge' || kind === 'think' || kind === 'sort') node.dataset.stampLive = t.stampLive;
+      reveal(node);
+      if (kind === 'explore') bindExplore(node);
+      else if (kind === 'choose') bindChoose(node);
+      else if (kind === 'judge') bindJudge(node);
+      else if (kind === 'sort') bindSort(node);
+      else actions(node, node.dataset.next || t.next, () => advanceFrom(node));
+    }
+
+    // Explore has no correct option. A route counts as read only on return.
+    function updateExplore(node: Node) {
+      const opts = Array.from(node.querySelectorAll<HTMLButtonElement>('.dojo-opt'));
+      const complete = opts.length > 0 && opts.every((b) => b.classList.contains('is-seen'));
+      const fb = node.querySelector<HTMLElement>('.dojo-feedback')!;
+      fb.className = 'dojo-feedback';
+      fb.textContent = complete ? (node.dataset.done || t.exploreDone) : opts.some((b) => b.classList.contains('is-seen')) ? t.exploreMore : t.exploreStart;
+      if (complete) {
+        stamp(node, t.stampExplore);
+        if (!node.classList.contains('is-done')) actions(node, node.dataset.next || t.next, () => advanceFrom(node));
+      }
+    }
+    function bindExplore(node: Node, completed = false) {
+      if (node.dataset.bound) return;
+      node.dataset.bound = 'true';
+      const opts = Array.from(node.querySelectorAll<HTMLButtonElement>('.dojo-opt'));
+      opts.forEach((btn) => {
+        if (completed) btn.classList.add('is-seen');
+        btn.addEventListener('click', () => {
+          const path = btn.dataset.goto;
+          if (!path || !byId.has(path)) return;
+          node.dataset.activePath = path;
+          opts.forEach((b) => (b.disabled = true));
+          show(byId.get(path)!);
+        });
+      });
+      updateExplore(node);
+    }
+
+    // ---- choose ----
+    // One correct option moves the walk on; every option with a `why` or a
+    // detour can be opened before or after answering, and is nudged after.
+    function bindChoose(node: Node) {
+      if (node.dataset.bound) return;
+      node.dataset.bound = 'true';
+      const wraps = Array.from(node.querySelectorAll<HTMLElement>('.dojo-opt-wrap'));
+      if (node.dataset.shuffle !== 'false' && wraps.length > 1) {
+        const parent = wraps[0].parentElement!;
+        shuffle(wraps.slice()).forEach((w) => parent.appendChild(w));
+      }
+      const opts = Array.from(node.querySelectorAll<HTMLButtonElement>('.dojo-opt'));
+      const fb = node.querySelector<HTMLElement>('.dojo-feedback')!;
+      const hasOthers = () => opts.some((b) => !b.classList.contains('is-correct') && explorable(b));
+      function openWhy(btn: HTMLButtonElement) {
+        const why = btn.parentElement?.querySelector<HTMLElement>('.dojo-why');
+        if (!why) return false;
+        const open = why.classList.toggle('is-open');
+        btn.classList.toggle('is-seen', open || btn.classList.contains('is-seen'));
+        btn.setAttribute('aria-expanded', String(open));
+        return true;
+      }
+      function openDetour(btn: HTMLButtonElement) {
+        const goto = btn.dataset.goto;
+        if (!goto || !byId.has(goto)) return false;
+        btn.classList.add('is-seen');
+        if (!node.classList.contains('is-answered')) { opts.forEach((b) => (b.disabled = true)); node.classList.add('is-done'); }
+        show(byId.get(goto)!);
+        return true;
+      }
+      opts.forEach((btn) => btn.addEventListener('click', () => {
+        const answered = node.classList.contains('is-answered');
+        const ok = btn.dataset.correct === 'true';
+        if (answered) {
+          // Looking around after answering: explanations only, state unchanged.
+          if (!openWhy(btn)) openDetour(btn);
+          return;
+        }
+        if (ok) {
+          btn.classList.add('is-correct'); btn.disabled = !btn.dataset.why;
+          stamp(node, t.stampOk);
+          fb.textContent = (btn.dataset.reply || pick(t.praise)) + (hasOthers() ? ' ' + t.others : '');
+          fb.className = 'dojo-feedback ok';
+          opts.forEach((b) => { if (!b.classList.contains('is-correct') && !explorable(b)) b.disabled = true; });
+          actions(node, node.dataset.next || t.next, () => advanceFrom(node));
+        } else {
+          btn.classList.add('is-wrong');
+          if (openDetour(btn)) { fb.textContent = ''; fb.className = 'dojo-feedback'; return; }
+          if (openWhy(btn)) { fb.textContent = btn.dataset.reply || ''; fb.className = 'dojo-feedback no'; return; }
+          fb.textContent = btn.dataset.reply || pick(t.retry); fb.className = 'dojo-feedback no';
+          btn.disabled = true;
+        }
+      }));
+    }
+
+    // ---- judge ----
+    // Yes / no on one statement; after answering, the other side still opens its reply.
+    function bindJudge(node: Node) {
+      if (node.dataset.bound) return;
+      node.dataset.bound = 'true';
+      const btns = Array.from(node.querySelectorAll<HTMLButtonElement>('.dojo-judge-btn'));
+      const fb = node.querySelector<HTMLElement>('.dojo-feedback')!;
+      const replyOf = (btn: HTMLButtonElement) => btn.dataset.value === 'true' ? node.dataset.replyYes : node.dataset.replyNo;
+      btns.forEach((btn) => { if (replyOf(btn)) btn.dataset.replyOther = 'true'; });
+      btns.forEach((btn) => btn.addEventListener('click', () => {
+        const answered = node.classList.contains('is-answered');
+        const ok = btn.dataset.value === node.dataset.answer;
+        const reply = replyOf(btn);
+        if (answered) {
+          let why = btn.parentElement?.querySelector<HTMLElement>(`.dojo-why[data-for="${btn.dataset.value}"]`);
+          if (!why) {
+            why = document.createElement('p'); why.className = 'dojo-why'; why.dataset.for = btn.dataset.value || ''; why.textContent = reply || '';
+            btn.parentElement?.appendChild(why);
+          }
+          const open = why.classList.toggle('is-open');
+          btn.classList.toggle('is-seen', open || btn.classList.contains('is-seen'));
+          btn.setAttribute('aria-expanded', String(open));
+          return;
+        }
+        btn.classList.add(ok ? 'is-correct' : 'is-wrong');
+        fb.textContent = reply || pick(ok ? t.praise : t.retry); fb.className = 'dojo-feedback ' + (ok ? 'ok' : 'no');
+        if (ok) {
+          btn.disabled = true;
+          stamp(node, t.stampJudge);
+          const other = btns.find((b) => b !== btn);
+          if (other && replyOf(other) && !other.classList.contains('is-wrong')) fb.textContent += ' ' + t.otherSide;
+          actions(node, node.dataset.next || t.next, () => advanceFrom(node));
+        }
+      }));
+    }
+
+    // ---- sort (drag the table back together) ----
+    function bindSort(node: Node, completed = false) {
+      if (node.dataset.bound) return;
+      node.dataset.bound = 'true';
+      const columns: string[] = JSON.parse(node.dataset.columns || '[]');
+      const rows: string[] = JSON.parse(node.dataset.rows || '[]');
+      const rowReplies: string[] = JSON.parse(node.dataset.rowReplies || '[]');
+      const table = node.querySelector<HTMLElement>('.dojo-sort-table')!;
+      const pool = node.querySelector<HTMLElement>('.dojo-sort-pool')!;
+      const fb = node.querySelector<HTMLElement>('.dojo-feedback')!;
+      const question = node.querySelector<HTMLElement>('[data-sort-question]')!;
+      const cards = Array.from(node.querySelectorAll<HTMLElement>('.dojo-card'));
+      const slots: HTMLElement[] = [];
+      const rowHeads: HTMLElement[] = [];
+      let activeRow = 0;
+      let picked: HTMLElement | null = null;
+      let allDone = completed;
+      const isZh = document.documentElement.lang.startsWith('zh');
+      const words = isZh
+        ? { place: '放置卡片', selected: '卡片已選取，接著選它要放的格子；按 Escape 可以取消。', nextRow: '接著想：', retry: '再比較一下這張卡片描述的做法。' }
+        : { place: 'Place card', selected: 'Card selected. Choose its cell; press Escape to cancel.', nextRow: 'Next: ', retry: 'Compare what this card describes.' };
+      table.style.gridTemplateColumns = `repeat(${columns.length}, minmax(0, 1fr))`;
+      table.replaceChildren();
+      shuffle(cards.slice()).forEach((c) => pool.appendChild(c));
+      columns.forEach((name, ci) => {
+        const col = document.createElement('div'); col.className = 'dojo-sort-col';
+        const head = document.createElement('div'); head.className = 'dojo-sort-head'; head.textContent = name; col.appendChild(head);
+        for (let ri = 0; ri < Math.max(1, rows.length); ri++) {
+          if (rows.length) {
+            const rh = document.createElement('div'); rh.className = 'dojo-sort-rowhead'; rh.textContent = rows[ri]; rh.dataset.row = String(ri);
+            rowHeads.push(rh); col.appendChild(rh);
+          }
+          const slot = document.createElement('div'); slot.className = 'dojo-slot'; slot.dataset.col = String(ci);
+          if (rows.length) slot.dataset.row = String(ri);
+          slot.tabIndex = 0; slot.setAttribute('role', 'button');
+          slot.setAttribute('aria-label', `${name}${rows[ri] ? `，${rows[ri]}` : ''}，${words.place}`);
+          slot.textContent = words.place;
+          slots.push(slot); col.appendChild(slot);
+        }
+        table.appendChild(col);
+      });
+
+      function clearPick() {
+        cards.forEach((c) => { c.classList.remove('is-picked'); if (!c.classList.contains('is-locked')) c.setAttribute('aria-pressed', 'false'); });
+        picked = null;
+        slots.forEach((s) => s.classList.remove('is-target', 'is-over'));
+      }
+      function displayRow() {
+        node.classList.toggle('is-complete', allDone);
+        cards.forEach((c) => { c.hidden = !allDone && rows.length > 0 && c.dataset.row !== String(activeRow); });
+        [...slots, ...rowHeads].forEach((s) => { s.hidden = !allDone && rows.length > 0 && s.dataset.row !== String(activeRow); });
+        question.hidden = allDone || rows.length === 0;
+        question.textContent = rows[activeRow] || '';
+      }
+      function lock(card: HTMLElement, slot: HTMLElement) {
+        if (!slot.classList.contains('is-filled')) slot.replaceChildren();
+        slot.appendChild(card); slot.classList.add('is-filled');
+        card.classList.add('is-locked'); card.draggable = false; card.tabIndex = -1;
+        card.removeAttribute('role'); card.removeAttribute('aria-pressed');
+        // A bucket without rows may receive several cards and stays focusable.
+        if (rows.length) { slot.tabIndex = -1; slot.setAttribute('aria-disabled', 'true'); }
+      }
+      function place(card: HTMLElement, slot: HTMLElement) {
+        if (allDone || slot.hidden || card.classList.contains('is-locked')) return;
+        const ok = slot.dataset.col === card.dataset.col && (!rows.length || slot.dataset.row === card.dataset.row);
+        if (!ok || (rows.length && slot.classList.contains('is-filled'))) {
+          fb.textContent = card.dataset.hint || words.retry; fb.className = 'dojo-feedback no';
+          clearPick(); card.focus({ preventScroll: true }); return;
+        }
+        clearPick(); lock(card, slot);
+        const rowLeft = cards.some((c) => !c.classList.contains('is-locked') && (!rows.length || c.dataset.row === String(activeRow)));
+        if (!rowLeft) {
+          allDone = cards.every((c) => c.classList.contains('is-locked'));
+          if (allDone) {
+            displayRow();
+            stamp(node, t.stampSort);
+            fb.textContent = node.dataset.done || rowReplies[activeRow] || t.sortDone; fb.className = 'dojo-feedback ok';
+            const btn = actions(node, node.dataset.next || t.next, () => advanceFrom(node)); btn.focus({ preventScroll: true }); return;
+          }
+          // A finished row stays until the reader asks for the next one.
+          fb.textContent = rowReplies[activeRow] || t.rowDone; fb.className = 'dojo-feedback ok';
+          const btn = actions(node, t.nextRow, () => {
+            activeRow++;
+            displayRow();
+            fb.textContent = words.nextRow + rows[activeRow]; fb.className = 'dojo-feedback';
+            const nextCard = cards.find((c) => !c.hidden && !c.classList.contains('is-locked'));
+            nextCard?.focus({ preventScroll: true });
+          });
+          btn.focus({ preventScroll: true });
+          return;
+        } else { fb.textContent = t.pick; fb.className = 'dojo-feedback'; }
+        const nextCard = cards.find((c) => !c.hidden && !c.classList.contains('is-locked'));
+        nextCard?.focus({ preventScroll: true });
+      }
+      cards.forEach((card, index) => {
+        card.tabIndex = 0; card.draggable = true; card.setAttribute('role', 'button'); card.setAttribute('aria-pressed', 'false');
+        const choose = () => {
+          if (allDone || card.classList.contains('is-locked')) return;
+          const deselect = picked === card; clearPick();
+          if (deselect) { fb.textContent = t.pick; return; }
+          picked = card; card.classList.add('is-picked'); card.setAttribute('aria-pressed', 'true');
+          const targets = slots.filter((s) => !s.hidden && (!s.classList.contains('is-filled') || !rows.length));
+          targets.forEach((s) => s.classList.add('is-target'));
+          fb.textContent = words.selected; fb.className = 'dojo-feedback';
+          targets[0]?.focus({ preventScroll: true });
+        };
+        card.addEventListener('click', choose);
+        card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(); } });
+        card.addEventListener('dragstart', (e) => {
+          if (allDone || card.classList.contains('is-locked')) { e.preventDefault(); return; }
+          clearPick(); picked = card; card.classList.add('is-picked'); card.setAttribute('aria-pressed', 'true');
+          e.dataTransfer?.setData('text/plain', String(index));
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+        });
+        card.addEventListener('dragend', clearPick);
+      });
+      slots.forEach((slot) => {
+        slot.addEventListener('dragover', (e) => { if (!allDone && (!slot.classList.contains('is-filled') || !rows.length)) { e.preventDefault(); slot.classList.add('is-over'); } });
+        slot.addEventListener('dragleave', () => slot.classList.remove('is-over'));
+        slot.addEventListener('drop', (e) => { e.preventDefault(); if (picked) place(picked, slot); });
+        slot.addEventListener('click', () => { if (picked) place(picked, slot); });
+        slot.addEventListener('keydown', (e) => {
+          if ((e.key === 'Enter' || e.key === ' ') && picked) { e.preventDefault(); place(picked, slot); }
+        });
+      });
+      node.addEventListener('keydown', (e) => { if (e.key === 'Escape' && picked) { const card = picked; clearPick(); fb.textContent = t.pick; card.focus(); } });
+      if (completed) {
+        cards.forEach((c) => { const slot = slots.find((s) => s.dataset.col === c.dataset.col && (!rows.length || s.dataset.row === c.dataset.row)); if (slot) lock(c, slot); });
+        fb.textContent = node.dataset.done || t.sortDone; fb.className = 'dojo-feedback ok';
+      } else { fb.textContent = t.pick; fb.className = 'dojo-feedback'; }
+      displayRow();
+    }
+    // ---- fast-forward for resume ----
+    function fastForward(upto: number) {
+      main[0]?.querySelector(':scope > .dojo-actions')?.remove();
+      for (let i = 0; i < upto && i < main.length; i++) {
+        const n = main[i];
+        n.classList.add('is-shown', 'is-done');
+        const kind = n.dataset.kind;
+        if (kind === 'explore') {
+          bindExplore(n, true);
+        } else if (kind === 'choose' || kind === 'judge') {
+          n.querySelectorAll<HTMLButtonElement>('.dojo-opt').forEach((b) => {
+            const ok = kind === 'choose' ? b.dataset.correct === 'true' : b.dataset.value === n.dataset.answer;
+            if (ok) b.classList.add('is-correct');
+          });
+          stamp(n, kind === 'choose' ? t.stampOk : t.stampJudge);
+          // Bind so the other options can still be opened, then mark it answered.
+          if (kind === 'choose') bindChoose(n); else bindJudge(n);
+          n.querySelectorAll<HTMLButtonElement>('.dojo-opt').forEach((b) => { b.disabled = !explorable(b); });
+        } else if (kind === 'sort') {
+          bindSort(n, true);
+          stamp(n, t.stampSort);
+        } else if (kind === 'think') {
+          const ta = n.querySelector<HTMLTextAreaElement>('textarea'); if (ta) ta.readOnly = true;
+          stamp(n, t.stampThink);
+        }
+      }
+      if (upto >= main.length) { end.hidden = false; end.tabIndex = -1; end.focus({ preventScroll: true }); end.scrollIntoView({ behavior: motion(), block: 'start' }); return; }
+      show(main[upto]);
+    }
+
+    function restart() {
+      clearStep(slug);
+      location.reload();
+    }
+    root.querySelector('[data-restart]')?.addEventListener('click', restart);
+    root.querySelector('[data-resume-reset]')?.addEventListener('click', restart);
+
+    const saved = Math.min(readStep(slug, version), main.length);
+    if (saved > 0 && main.length > 1) {
+      resume.hidden = false;
+      resume.querySelector('[data-resume-text]')!.textContent = String(t.resume).replace('{n}', String(Math.min(saved, main.length) + (saved >= main.length ? 0 : 1)));
+      resume.querySelector('[data-resume-go]')?.addEventListener('click', () => { resume.hidden = true; fastForward(saved); });
+      // The first node is always visible so the page never looks empty.
+      reveal(main[0], false);
+      if (main[0].dataset.kind === 'explore' || main[0].dataset.kind === 'choose' || main[0].dataset.kind === 'judge' || main[0].dataset.kind === 'sort') show(main[0]);
+      else actions(main[0], main[0].dataset.next || t.next, () => { resume.hidden = true; clearStep(slug); advanceFrom(main[0]); });
+    } else if (main.length) {
+      show(main[0]);
+    }
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-dojo]').forEach(runDojo);
+</script>

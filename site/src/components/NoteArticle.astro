@@ -1,5 +1,6 @@
 ---
-import { render } from 'astro:content';
+import { getCollection, render } from 'astro:content';
+import { dojoForNote, dojoRoute, dojoTitle } from '../lib/dojo';
 import Base from '../layouts/Base.astro';
 import type { Lang, NoteEntry } from '../lib/notes';
 import {
@@ -31,6 +32,7 @@ interface Props {
 }
 
 const { entry, allNotes, lang } = Astro.props;
+const dojoScript = dojoForNote(await getCollection('dojo'), entry.data.label, entry.data.slug, lang);
 const { Content, headings } = await render(entry);
 const { previous, next } = siblingNotes(allNotes, entry);
 // Position codes ("W3.3") are derived from the note's group + order, never typed into
@@ -173,6 +175,16 @@ const articleJsonLd = {
           <span>{formatNoteDate(entry.data.updated, lang)}</span>
         </p>
         <h1>{displayTitle}</h1>
+        {
+          dojoScript && (
+            <p class="note-dojo-banner">
+              <span class="note-dojo-label">{dojoTitle[lang]}</span>
+              <a href={withBase(dojoRoute(dojoScript.data.slug, dojoScript.data.lang))}>
+                {lang === 'zh' ? `第一次學這個單元？從${dojoTitle[lang]}開始：先想、先選，內容再一段段浮現 →` : `Learning this unit for the first time? Start in ${dojoTitle[lang]}: think and choose first, the text surfaces as you go →`}
+              </a>
+            </p>
+          )
+        }
         {
           entry.data.status !== 'available' && (
             <div class="note-header-actions">

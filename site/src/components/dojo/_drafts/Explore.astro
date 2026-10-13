@@ -1,0 +1,26 @@
+---
+/**
+ * Explore.astro — a fork where every option is a real path, not a quiz.
+ * Each <Option goto="p-x"> opens the <Path id="p-x"> that follows; when the
+ * path ends the reader is back here to pick the next one. Only after every
+ * path has been walked (or `min` of them) does the walk continue. The reader
+ * chooses the order; the content is the same.
+ *
+ *   <Explore id="x1" label="先走哪一條？">
+ *   三條路都能讓結果符合要求。你想先看哪一條？
+ *   <Option goto="p-cond">重新訓練一個 conditional model</Option>
+ *   <Option goto="p-ft">拿偏好資料繼續訓練</Option>
+ *   <Option goto="p-steer">模型不動，只改這一次的 sampling</Option>
+ *   </Explore>
+ *   <Path id="p-cond" title="Conditional training">…nodes…</Path>
+ *   …
+ */
+interface Props { id: string; label?: string; min?: number; done?: string }
+const { id, label = '先走哪一條？', min, done = '三條都走過了。' } = Astro.props;
+---
+
+<div class="dojo-node dojo-explore" data-node data-kind="explore" id={id} data-min={min !== undefined ? String(min) : undefined} data-done={done}>
+  <span class="dojo-tag">{label}</span>
+  <div class="dojo-body dojo-choose-body"><slot /></div>
+  <p class="dojo-feedback" role="status" aria-live="polite"></p>
+</div>

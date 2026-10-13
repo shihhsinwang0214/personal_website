@@ -243,6 +243,7 @@ export const mergedNoteAliases: Record<string, string> = {
   'dma-w6-2-masked-diffusion': 'dma-w6-1-d3pm',
   'dma-w7-0-why-continuous-time': 'dma-w6-4-absorbing-vs-uniform',
   'dma-w7-5-applications': 'dma-w7-4-discrete-flow-matching',
+  'dma-w10-2-classifier-free-guidance': 'dma-w10-1-classifier-guidance',
 };
 const archivedNoteSlugs = new Set([
   'flow-matching-flow-ode', 'flow-matching-training',

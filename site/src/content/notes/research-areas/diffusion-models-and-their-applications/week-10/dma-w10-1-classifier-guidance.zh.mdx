@@ -6,16 +6,18 @@ prereqs:
   - dma-tweedie-and-score
   - math-bayes-posterior
 lang: "zh"
-title: "只有一個 classifier，怎麼改變 diffusion 的生成方向？"
+title: "不重新訓練，怎麼取得這次要求的引導方向？"
 category: "courses"
 group: "Unit 7 · Test-time Guidance"
 status: "available"
 updated: 2026-10-12
-summary: "這次想畫的是雪山上滑雪板的柯基，模型卻可能畫錯品種、場景或動作，能不能在生成途中就提醒它？從畫草稿時參考朋友的判斷出發，先用柯基這個類別示範如何把 classifier 的機率變成修改方向，再用 Bayes rule 檢查它為什麼能和原本的 score 相加。"
+summary: "從雪山上滑雪板的柯基出發，用 Bayes rule 找出 condition 額外提供的方向，再對照 classifier guidance 與 CFG。已能 conditional generation 後，guidance 調整的是品質與多樣性的取捨；由 conditional prediction 出發解釋強度，換成 noise prediction，最後比較兩種方法的訓練與 sampling 成本。"
 demos: []
 references:
   - label: "Dhariwal & Nichol, Diffusion Models Beat GANs on Image Synthesis (NeurIPS 2021)"
     href: "https://arxiv.org/abs/2105.05233"
+  - label: "Ho & Salimans, Classifier-Free Diffusion Guidance (2022)"
+    href: "https://arxiv.org/abs/2207.12598"
   - label: "Kawar, Ganz & Elad, Enhancing Diffusion-Based Image Synthesis with Robust Classifier Guidance (2022)"
     href: "https://arxiv.org/abs/2208.08664"
 ---
@@ -31,12 +33,12 @@ import Explanation from '../../../components/Explanation.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 
-# 只有一個 classifier，怎麼改變 diffusion 的生成方向？
+# 不重新訓練，怎麼取得這次要求的引導方向？
 
 <Objectives>
-- **從 Bayes rule 推出 conditional score。** 寫出 $\nabla_{x_t}\log p_t(x_t\mid c)=s_t(x_t)+\nabla_{x_t}\log p_t(c\mid x_t)$，並逐項說明兩支方向的角色。
-- **把 classifier gradient 換成 DDPM 的 noise prediction。** 由 $s_\theta=-\epsilon_\theta/\sigma_t$ 推出 guided noise predictor 的符號與縮放。
-- **說出 classifier 的訊號從哪裡來。** 寫出 noisy classifier 的 training loss，分清對樣本求 gradient 與更新模型參數，並解釋 $w=1$ 與 $w>1$ 的差別。
+- **從 Bayes rule 找出 condition 額外提供的方向。** 分清 $p_t(x_t\mid c)$ 與 $p_t(c\mid x_t)$，推出 conditional score 與 base score 的關係。
+- **寫出取得這支方向的兩種做法。** 對照 noisy classifier 的 input gradient 與 conditional／unconditional prediction 的差，說明 conditioning dropout 建立了什麼前提。
+- **把 guidance 放進原 sampler，並說出它改了什麼。** 推出兩種 guided noise prediction，分清 $w=1$ 與 $w>1$，以及改動樣本與更新參數。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -62,66 +64,102 @@ import Ref from '../../../components/Ref.astro';
 
 *圖：草稿還沒畫完，品種、動作或場景都可能畫錯。朋友在畫的途中提醒，畫圖的人再繼續修改。*
 
-## 只有「像不像柯基」的判斷，怎麼變成修改方向？
+## 我們想生成的，是哪一群照片？
 
-完整的要求包含品種、場景與動作，我們先從其中一項開始：**牠是不是柯基？** 我們可以找一個看圖片、判斷狗的品種的模型：給它一張圖，它就估計裡面是柯基、哈士奇或其他品種的機率。這種用來判斷輸入屬於哪個類別的模型，稱為**分類器（classifier）**。它不需要會畫圖，只需要提供判斷；不過，只判斷品種，也不保證場景與動作都畫對。
+完整的要求包含品種、場景與動作，我們先從其中一項開始：**牠是不是柯基？** 令 $c=$「柯基」。我們想生成的是合理資料中、有柯基的那一群照片，而不只是讓某個評分模型給高分。想像先從相簿挑出所有有柯基的照片；其中仍有各種背景、姿勢與外觀。這一群乾淨照片的 distribution，就是 $p_0(x_0\mid c)$：固定 $c$，看照片 $x_0$ 如何分布。
 
-不過生成途中拿到的是 noisy image $x_t$，不是已經完成的乾淨圖片 $x_0$。這裡沿用 U1 的時間方向：$t$ 越大噪聲越多，sampling 從大的 $t$ 往 $0$ 走。
+不過生成途中拿到的是 noisy image $x_t$，不是已經完成的乾淨圖片 $x_0$。這裡沿用 U1 的時間方向：$t$ 越大噪聲越多，sampling 從大的 $t$ 往 $0$ 走。若把剛才那群柯基照片都按照 forward process 加噪到時間 $t$，它們形成的 distribution 就是 $p_t(x_t\mid c)$。
 
-令 $c=$「柯基」。我們希望 classifier 去估計 $p_t(c\mid x_t)$，也就是「看到目前這張帶噪聲的圖 $x_t$，它原本來自有柯基（類別 $c$）的圖片的機率」。但這還只是個數值，沒有告訴我們該改哪裡。
+$p_t(x_t\mid c)$ 越大，表示帶有柯基的照片被加噪後，在 $x_t$ 附近越密集。若去噪時也維持「柯基」這個條件，我們的目標就是讓這群 noisy images 回到有柯基的照片。依照 <Ref to="dma-tweedie-and-score"/>，對應的方向是它的 **conditional score**：
 
-那就看看：**稍微改動 $x_t$，哪個方向能讓這個機率上升？** 因為 log 不改變機率高低的順序，我們可以考慮使用 $\nabla_{x_t}\log p_t(c\mid x_t)$。在小小的改動幅度下，它指出 $\log p_t(c\mid x_t)$ 上升最快的方向；就像朋友指出目前的輪廓往哪裡改，會更像柯基。微分的對象是目前圖片 $x_t$，不是模型參數。
+$$
+s_t(x_t\mid c)=\nabla_{x_t}\log p_t(x_t\mid c).
+$$
 
-這跟我們在 diffusion model 裡學的 score function 有類似的感覺，只是 <Ref to="dma-tweedie-and-score"/> 的 $s_t(x_t)=\nabla_{x_t}\log p_t(x_t)$ 指向的是**所有資料加噪後，density $p_t(x_t)$ 上升最快的方向**，並不特別指定柯基。
+它指向指定 $c$ 後，noisy data 的 density 在當下位置上升最快的方向。原本的 **unconditional score** $s_t(x_t)=\nabla_{x_t}\log p_t(x_t)$ 則看所有資料，並不特別指定柯基。**指定「柯基」後，原本的方向到底多了什麼？**
 
-相反地說，只顧 classifier 的評分和它指的方向 $\nabla_{x_t}\log p_t(c\mid x_t)$，也不代表最後就是一張合理的圖片，所以我們還得顧慮到比較有可能出現合理資料的方向。那麼現在有一支方向來自原本的資料 $\nabla_{x_t}\log p_t(x_t)$，另一支來自「這次要柯基」的要求 $\nabla_{x_t}\log p_t(c\mid x_t)$。**把兩支方向相加，真的就對應到有柯基的合理照片的 distribution 嗎？**
+## 把這次要求提供的方向找出來
 
-## 這樣改方向，真的會得到指定類別的 distribution 嗎？
-
-我們想生成的是**合理資料中，有柯基的那一群照片**，而不只是讓 classifier 對某張圖給高分。想像先從相簿挑出所有有柯基的照片；其中仍有各種背景、姿勢與外觀。這一群乾淨照片的 distribution，就是 $p_0(x_0\mid c)$：固定 $c=$「柯基」，看照片 $x_0$ 如何分布。
-
-不過生成途中拿到的是 $x_t$，不是乾淨照片。若把剛才那群柯基照片都按照 U1 的 forward process 加噪到時間 $t$，它們形成的 distribution 就是 $p_t(x_t\mid c)$。**它描述的是：已知原本的照片有柯基，帶噪聲的圖片會如何分布？** $p_t(x_t\mid c)$ 越大，表示帶有柯基的照片被加噪後，在 $x_t$ 附近越密集。那麼，若去噪時也維持「柯基」這個條件，我們的目標就是讓附近的 noisy images 回到有柯基的照片。
-
-$p_t(x_t\mid c)$ 和 classifier 的 $p_t(c\mid x_t)$ 不同：前者**固定「柯基」，想看帶噪聲的圖片怎麼分布**；後者**固定目前帶噪聲的圖片，判斷它有多可能來自有柯基的照片**。
-
-要確認剛才相加的兩個方向到底能不能得到我們想要的，我們可以看看它們跟 $p_t(x_t\mid c)$ 有什麼關係。沒錯！又是使用 Bayes rule 的時候：
+要比較這兩支方向，我們可以先看看它們對應的 densities 有什麼關係。沒錯！又是使用 Bayes rule 的時候：
 
 $$
 p_t(x_t\mid c)
 =\frac{p_t(x_t)\,p_t(c\mid x_t)}{p(c)}.
 $$
 
-右邊先保留原本的 density $p_t(x_t)$，再乘上它來自 $c$ 的機率。分母 $p(c)$ 是資料中這個類別的比例，讓相乘後的 density 積分為 $1$；它不隨圖片 $x_t$ 改變。
+右邊先保留所有 noisy images 的 density $p_t(x_t)$，再乘上 $p_t(c\mid x_t)$——也就是「看到目前這張帶噪聲的圖 $x_t$，它原本來自有柯基（類別 $c$）的圖片的機率」。分母 $p(c)$ 是資料中這個類別的比例，讓相乘後的 density 積分為 $1$；它不隨圖片 $x_t$ 改變。
+
+$p_t(x_t\mid c)$ 和 $p_t(c\mid x_t)$ 不同：前者**固定「柯基」，想看帶噪聲的圖片怎麼分布**；後者**固定目前帶噪聲的圖片，判斷它有多可能來自有柯基的照片**。
 
 先取 log，把乘法拆成加法：
 
 $$
+\begin{aligned}
 \log p_t(x_t\mid c)
-=\log p_t(x_t)+\log p_t(c\mid x_t)-\log p(c).
+&=\log p_t(x_t)\\
+&\quad+\log p_t(c\mid x_t)\\
+&\quad-\log p(c).
+\end{aligned}
 $$
 
-接著對 $x_t$ 微分。最後一項是常數，因此 gradient 為零：
+接著固定 $t$ 與 $c$，對 $x_t$ 微分。最後一項是常數（與 $x_t$ 無關），因此 gradient 為零：
 
 $$
 \boxed{
-\nabla_{x_t}\log p_t(x_t\mid c)
+s_t(x_t\mid c)
 =s_t(x_t)+\nabla_{x_t}\log p_t(c\mid x_t)
 }.
 $$
 
-第一項保留原本資料 density 的方向，第二項增加指定類別的影響。**它們可以相加，不只是因為都是向量，而是因為 Bayes rule 中的乘法，取 log 後變成了加法。** 把這支 conditional score 放進 U1 的 reverse dynamics，才對應從 noise 回到指定類別的資料。
+第一項保留原本資料 density 的方向，第二項增加指定類別的影響。**它們可以相加，不只是因為都是向量，而是因為 Bayes rule 中的乘法，取 log 後變成了加法。**
+
+那第二項怎麼讀呢？因為 log 不改變機率高低的順序，$\nabla_{x_t}\log p_t(c\mid x_t)$ 指出：在小小的改動幅度下，往哪裡改動目前圖片，能讓它來自柯基的 log-probability 上升得最快。就像朋友指出目前的輪廓往哪裡改，會更像柯基。**微分的對象是目前圖片 $x_t$，不是模型參數。**
+
+把這支 conditional score 放進 U1 的 reverse dynamics，才對應從 noise 回到指定類別的資料。現在問題變得更具體了：
+
+<Ask>
+這支 condition 額外提供的方向，<br />
+我們能從哪裡取得？
+</Ask>
 
 <Remark label="補充" summary="有了 conditional score，就一定抽到正確的 conditional distribution 嗎？">
-剛才的 identity 說的是**每個位置的方向**。若要讓整個 reverse process 精確回到 $p_0(x_0\mid c)$，還需要從相應的 $p_T(x_T\mid c)$ 出發，使用精確的 conditional score，並精確解出對應的 reverse dynamics。
+想像只拿相簿裡的柯基照片，按照 U1 的 forward process 一路加噪到 $T$。最後那群 noisy images 的分布，就是 $p_T(x_T\mid c)$。若要把這串分布的變化原樣倒走，**不只每一步的方向要對，還要從這個加噪後的分布出發**；換了起始分布，就不能直接套用「會回到原本 $p_0(x_0\mid c)$」的結果。
 
-U1 把 noise 加到幾乎看不出類別時，才用同一個 Gaussian 近似各類別的起點。有限的 noise level、模型估計與有限步 sampling 都可能帶來誤差；Bayes identity 本身並沒有消除這些誤差。
+那為什麼實作時可以從 $\mathcal N(0,I)$ 開始？回想 U1 的式子：
+
+$$
+x_T=\sqrt{\bar\alpha_T}\,x_0+\sqrt{1-\bar\alpha_T}\,\epsilon,
+\qquad \epsilon\sim\mathcal N(0,I).
+$$
+
+當 $\bar\alpha_T$ 很小，照片那一項幾乎消失，noise 的係數則接近 $1$。不管原本是柯基還是其他照片，加噪後的分布都接近同一個 standard Gaussian，我們才用它近似 $p_T(x_T\mid c)$。但只要照片那一項還沒完全消失，兩者就未必相同；這是**起始分布的近似誤差**。
+
+起點之外，網路估計的 score 可能偏離理想方向；即使方向估得準，有限步 sampler 仍只在選定的幾個時刻計算它，再近似中間怎麼移動，可能漏掉途中方向的變化。
+
+所以 Bayes rule 確認的是**兩支精確方向相加，就是所需的 conditional score**；它沒有讓起始分布、網路估計與 sampling 的近似自動變成精確。
 </Remark>
 
-## 生成途中還是噪聲，classifier 看得懂嗎？
+## 手上有一個能判斷品種的模型呢？
 
-剛才的推導需要 $p_t(c\mid x_t)$，但一般只看過乾淨圖片的 classifier，遇到接近純 noise 的 $x_t$ 時，未必能給出可靠的答案，更不用說可靠的 gradient。就像朋友若只會辨認完成的畫，卻看不懂草稿，也幫不上生成途中的修改。我們需要讓 classifier 看過不同程度的 noisy images。
+假設 generative model 原本不接收 $c$，只能估計所有資料的 base score。於是我們突發奇想找來一個看圖片、判斷狗的品種的模型：給它一張圖，它就估計裡面是柯基、哈士奇或其他品種的機率。這種用來判斷輸入屬於哪個類別的模型，稱為**分類器（classifier）**。它不需要會畫圖，只需要提供判斷；不過，只判斷品種，也不保證場景與動作都畫對。
 
-Dhariwal 與 Nichol [1] 因此從有類別標籤的 training pair $(x_0,c)$ 出發，像 U1 一樣抽 $t$ 與 Gaussian noise $\epsilon$，算出 $x_t$，再訓練
+我們希望 classifier 去估計剛才的 $p_t(c\mid x_t)$。因為途中還是 noisy image，一般只看過乾淨圖片的 classifier 未必看得懂；就像朋友若只會辨認完成的畫，卻看不懂草稿，也幫不上生成途中的修改。因此，它必須學過不同 noise levels 下的判斷，輸入也包含時間 $t$。
+
+把這個 classifier 記成 $p_\phi(c\mid x_t,t)$，$\phi$ 是它的參數；generative model 的 $s_\theta(x_t,t)$ 則估計 base score。照剛才的 Bayes 等式，生成時可以組合成
+
+$$
+\widetilde s_\theta(x_t,t,c)
+=s_\theta(x_t,t)+\nabla_{x_t}\log p_\phi(c\mid x_t,t).
+$$
+
+這就是 Dhariwal 與 Nichol [1] 使用的 **classifier guidance**：固定兩個模型，把 classifier 對目前圖片的 gradient 交給 sampler。兩個估計都精確時，這支合成方向就是 conditional score。
+
+![同一個 noisy state 上，base score 與 classifier gradient 相加得到 conditional score](./imgs/w10-1-classifier-guidance.png)
+
+*圖：在同一個 $(x_t,t)$，base score 加上 classifier 的 log-probability gradient。兩者精確時，合成方向就是 conditional score；箭頭與等高線為示意。*
+
+<Remark label="補充" summary="Noisy classifier 怎麼訓練？">
+Dhariwal 與 Nichol [1] 從有類別標籤的 training pair $(x_0,c)$ 出發，像 U1 一樣抽 $t$ 與 Gaussian noise $\epsilon$，算出 $x_t$，再訓練
 
 $$
 L_{\mathrm{cls}}(\phi)
@@ -129,75 +167,276 @@ L_{\mathrm{cls}}(\phi)
 \left[-\log p_\phi(c\mid x_t,t)\right].
 $$
 
-$p_\phi(c\mid x_t,t)$ 是 classifier 對正確類別給的機率，$\phi$ 是它的參數。機率越高，負 log 就越小；這個 loss 讓它學不同 noise levels 下的類別機率。高 noise 時資訊不足，答案也可以是不確定的機率，不是要求每張圖都猜中。Expectation 平均資料 pair、抽到的時間與加入的 noise，並不更新 generative model 的參數 $\theta$。
+$p_\phi(c\mid x_t,t)$ 是 classifier 對正確類別給的機率。機率越高，負 log 就越小；這個 loss 讓它學不同 noise levels 下的類別機率。高 noise 時資訊不足，答案也可以是不確定的機率，不是要求每張圖都猜中。Expectation 平均資料 pair、抽到的時間與加入的 noise；製造其中的 $x_t$ 只需沿用 diffusion 的 forward process，不仰賴 generative model。
+</Remark>
 
-有了這支 classifier，生成時就固定兩個模型：用 $s_\theta$ 估計 base score，再加上 classifier 提供的方向。但如果生成結果雖然有柯基，品種特徵卻還不夠明顯，我們也可能想把「更像柯基」的提醒加強一些。於是用 $w\ge0$ 控制這支額外方向的強度。Dhariwal 與 Nichol [1] 將這個做法稱為 **classifier guidance**：
+<Remark label="補充" summary="Sampling 時對 classifier 反向傳播，不就又是在訓練模型嗎？">
+反向傳播是計算微分的方法，不一定要更新參數。訓練 classifier 時，我們算 $\nabla_\phi L_{\mathrm{cls}}$ 並更新 $\phi$；sampling 時則固定 $\phi$ 與 $\theta$，只算 $\nabla_{x_t}\log p_\phi(c\mid x_t,t)$，把結果交給 sampler 改動 $x_t$。
+
+就像朋友的判斷方式沒有改變，我們改的是他正在看的草稿。**要看的是微分對象與實際更新的量，不是有沒有做反向傳播。**
+</Remark>
+
+<Remark label="補充" summary="把 log-probability 學得準，一階導數也會準嗎？">
+沿用 <Ref to="dma-what-are-we-learning"/> 的地形畫面，把這裡的 log-probability 當成高度：**兩片地形的高度接近，不代表坡度也接近。** 在地面鋪上一層很小、卻很密的波紋，高度可能只差一點點，坡度卻差很多。同樣地，即使 $\log p_\phi(c\mid x_t,t)$ 接近真正的 $\log p_t(c\mid x_t)$，對 $x_t$ 微分後的 gradient 仍不一定接近；而 classifier guidance 真正拿來改動圖片的，正是這個一階導數。
+
+這也回到 <Ref to="dma-what-are-we-learning"/> 的目標：我們要的是像原本資料的圖片，而不只是讓另一個模型給高分。Kawar、Ganz 與 Elad [3] 因此研究 classifier 的 **robustness**——圖片受到小幅擾動時，分類判斷是否仍穩定——以及這類 classifier 能否提供更符合人眼理解的 guidance；分類準確率高，本身並沒有保證這件事。
+</Remark>
+
+## 沒有 classifier，能不能只靠模型自己？
+
+這次，我們考慮一個已經做過 <Ref to="dma-test-time-steering"/> 中 **conditional training** 的 pretrained model，估計的目標是 conditional score $\nabla_{x_t}\log p_t(x_t\mid c)$。它用 $(x_0,c)$ 配對訓練，預測 $x_t$ 中的 noise 時，網路也會收到 $c$；所以模型**原本就能接收類別或文字的 condition**。
+
+它已經能 conditional generation，為什麼還要找額外方向？我們這次想進一步控制的是：**能不能在 sampling 時，少一些結果的多樣性，換取更高的單張樣本品質？** 這是 Ho 與 Salimans 的原論文 [2] 想保留的品質／多樣性取捨，不是讓模型第一次知道 condition。
+
+那我們可不可以**不仰賴 classifier，只靠模型自己本身，就取得能加強 condition 的方向？** 把同一張草稿交給模型，一次指定柯基，另一次不指定類別；比較兩次修改方向，也許就能看出這個要求額外改變了什麼。
+
+<Ask>
+conditional 與 unconditional prediction 的差，<br />
+能不能替代 classifier 原本要提供的方向？
+</Ask>
+
+我們想找的，是**指定「柯基」之後，模型多做了哪些修改**，而不是它在有 condition 時給出的整個修改方向。回想剛才從 Bayes rule 得到的關係：
 
 $$
+s_t(x_t\mid c)
+=s_t(x_t)+\nabla_{x_t}\log p_t(c\mid x_t).
+$$
+
+左邊的 conditional score $s_t(x_t\mid c)$，是考慮「這張圖要有柯基」後的方向。右邊第一項 $s_t(x_t)$ 是不指定類別時，讓圖片更像原本資料的 base score；第二項才是「這次要柯基」額外提供的方向。也就是說，**conditional score 裡已經包含 base score，不是整支方向都只來自「柯基」這個要求。**
+
+所以，若想單獨拿到 condition 增加的那一部分，我們就可以在等式兩邊都減去 $s_t(x_t)$。右邊的 base score 抵消後，只留下：
+
+$$
+\nabla_{x_t}\log p_t(c\mid x_t)
+=s_t(x_t\mid c)-s_t(x_t).
+$$
+
+回到草稿的例子：先問「如果這張圖要畫柯基，現在該怎麼改？」，再問「如果沒有指定品種，現在該怎麼改？」。把前者減去後者，就是我們想取出的、因為指定柯基而增加的修改。**「不指定類別」不是要求沒有柯基，而是仍考慮所有類別的資料。**
+
+這裡比較的是**同一張 $x_t$、同一個時間 $t$** 上的兩個答案，不是兩張生成完的圖片，也不是不同生成階段的方向。兩支 score 都精確時，它們的差就等於 classifier 原本要提供的 gradient；實作時，網路給的是兩支 score 的估計，因此用它們的差來近似這個方向，不必真的訓練 classifier。
+
+不過，剛才的等式告訴我們的是：**如果有這兩個答案，就能這樣相減。** 它還沒有保證手上的模型會回答兩種情況。假如 training 時每次都把 $c$ 交給網路，它學過的是「看到 $x_t$、$t$ 和 $c$ 時該怎麼預測」；現在突然拿掉 $c$，就換成了訓練時未必見過的輸入。
+
+那麼，**要怎麼讓同一個模型，也學會「不指定類別」時的回答？**
+
+## 同一個模型怎麼學會兩種回答？
+
+Ho 與 Salimans [2] 在 training 時偶爾把 $c$ 換成空 condition $\varnothing$，也就是明確告訴模型「這一次不提供類別或 prompt」。這個做法稱為 **conditioning dropout**。把實際送進網路的 condition 記成 $\widetilde c$：有時保留 $c$，有時換成 $\varnothing$。沿用 U1 的 denoising regression，就能寫成
+
+$$
+L_{\mathrm{drop}}(\theta)
+=\mathbb E_{(x_0,c),t,\epsilon,\widetilde c}
+\left[\left\|\epsilon_\theta(x_t,t,\widetilde c)-\epsilon\right\|^2\right].
+$$
+
+每次仍從 training pair $(x_0,c)$ 抽資料，抽 $t$ 與 noise $\epsilon$ 算出 $x_t$；label 仍是加入的 $\epsilon$，多出的隨機動作只有「要不要把 $c$ 給模型」。保留 $c$ 時，它學這個 condition 下的 noise prediction；以與資料無關的機率拿掉 $c$ 時，它對所有類別的資料學 unconditional prediction。
+
+訓練完後，同一個模型能提供 $\epsilon_\theta(x_t,t,c)$ 與 $\epsilon_\theta(x_t,t,\varnothing)$，再用 <Ref to="dma-tweedie-and-score"/> 的換算得到 conditional score $s_\theta(x_t,t,c)$ 與 unconditional score $s_\theta(x_t,t,\varnothing)$。因此，剛才的額外方向可以用
+
+$$
+s_\theta(x_t,t,c)-s_\theta(x_t,t,\varnothing)
+$$
+
+來估計。**參數是同一套，但 sampling 時仍需要兩種輸入的模型計算，才取得這兩個答案。** 這是後面做法的前提：模型在 training 時就已經學過兩種回答，不是現在才拿掉 $c$，或重新訓練它。
+
+## 已經能 conditional generation，為什麼還要 guidance？
+
+現在我們拿到 condition 增加的方向了，接著就可以回到剛才的品質／多樣性問題。如果只想按照 $p_0(x_0\mid c)$ 抽樣，理想的 conditional model 已經足夠；**guidance 不是 conditional generation 必須多補的一項，而是讓我們選擇另一種 sampling 行為。**
+
+想像模型已經會根據「柯基」生成各種照片。但如果這次我們願意少一些變化，希望生成結果的品質更高、品種特徵更容易辨識，能不能不重新訓練，只在 sampling 時調整這個取捨？Ho 與 Salimans [2] 的原論文以 class-conditional ImageNet 模型為例，追求的正是這種控制；並不是因為模型原本不會接收 condition。
+
+我們可以先保留模型原本的 conditional prediction，再沿著剛才找到的差值，多加一段修改。沿用本篇的 convention：$w=1$ 是原本的 conditional prediction，因此**額外加強的幅度是 $w-1$**：
+
+$$
+\begin{aligned}
 \widetilde s_\theta(x_t,t,c)
-=s_\theta(x_t,t)
-+w\,\nabla_{x_t}\log p_\phi(c\mid x_t,t).
+&=s_\theta(x_t,t,c)\\
+&\quad+(w-1)\big[s_\theta(x_t,t,c)-s_\theta(x_t,t,\varnothing)\big].
+\end{aligned}
 $$
 
-其中 $w$ 控制 classifier 方向的強度。$w=0$ 不使用它；兩個模型精確且 $w=1$ 時，回到剛才的 conditional score；$w>1$ 則刻意放大類別訊號，不代表估得更準。原論文 [1] 觀察到這能交換 sample fidelity 與 diversity；Kawar、Ganz 與 Elad [2] 也研究 classifier 的 robustness，因為分類正確不代表 gradient 一定是有意義的影像改動。
+$w=1$ 時，第二項消失，我們就照原本的 conditional model 生成；$w>1$ 時，才繼續沿著「指定 $c$ 後多出的方向」加強。這就是 Ho 與 Salimans [2] 提出的 **classifier-free guidance**（CFG）：不用外部 classifier，而是用模型自己的兩種回答完成這個調整。
 
-![同一個 noisy state 上，base score 與 classifier gradient 相加得到 conditional score](./imgs/w10-1-classifier-guidance.png)
+為了和前面從 unconditional score 出發的寫法對照，我們把括號展開。Conditional score 的係數是 $1+(w-1)=w$，unconditional score 的係數則是 $-(w-1)=1-w$。重新合併後，就得到常見的形式：
 
-*圖：在同一個 $(x_t,t)$，base score 加上 classifier 的 log-probability gradient。兩者精確且 $w=1$ 時，合成方向就是 conditional score；箭頭與等高線為示意。*
+$$
+\begin{aligned}
+\widetilde s_\theta(x_t,t,c)
+&=s_\theta(x_t,t,\varnothing)\\
+&\quad+w\big[s_\theta(x_t,t,c)-s_\theta(x_t,t,\varnothing)\big].
+\end{aligned}
+$$
 
-## DDPM 手上是 $\epsilon_\theta$，要怎麼加入這支方向？
+它先保留 unconditional prediction，再把 condition 造成的差異乘上 $w$。若這支差異改由外部 classifier 估計，就回到前面介紹的 classifier guidance：
 
-U1 的網路通常輸出 $\epsilon_\theta(x_t,t)$，估計實際加入的 noise，而不是直接輸出 score。令 $\sigma_t=\sqrt{1-\bar\alpha_t}$ 表示該時刻的 noise amplitude，<Ref to="dma-tweedie-and-score"/> 給出的換算是
+$$
+\begin{aligned}
+\widetilde s_\theta(x_t,t,c)
+&=s_\theta(x_t,t)\\
+&\quad+w\nabla_{x_t}\log p_\phi(c\mid x_t,t).
+\end{aligned}
+$$
+
+$w=0$ 忽略 condition；$w=1$ 對應原本的 conditional prediction；$w>1$ 則刻意加強 condition。兩種方法用的是同一個 Bayes 關係，差在用什麼來估計這支方向。**Classifier-free 拿掉的是外部 classifier，不是 training 時的 condition。**
+
+![同一個網路的 conditional 與 unconditional prediction，以及 CFG 的差值外推](./imgs/w10-2-classifier-free-guidance.png)
+
+*圖：同一套 $\theta$ 對相同 noisy state 回答兩次，CFG 再沿兩個 prediction 的差值外推。右圖是 prediction space，不是生成軌跡。*
+
+<Question id="Q1">
+如果 $w=1$ 已經對應 conditional score，**把 $w$ 調大，是不是代表 condition 估得更準？**
+
+<Answer>
+不是。$w=1$ 對應理想的 conditional score；$w>1$ 則刻意讓 condition 對 sampling 的影響比 training distribution 裡更強，不是在修正成更精確的估計。
+
+Dhariwal 與 Nichol [1]、Ho 與 Salimans [2] 的實驗都討論了生成品質與 diversity 的取捨：提醒變強，可能讓結果更集中在符合要求的樣本，也可能失去其他合理答案。差值中的估計誤差也會被放大；過大的 guidance 還可能造成過度飽和或不自然的紋理。**$w$ 是 sampling 時的選擇，不是模型準確率的刻度。**
+</Answer>
+</Question>
+
+<Remark label="補充" summary="$w>1$ 對應的是哪一個 density？">
+若每個 $t$ 的 score 估計都精確，
+
+$$
+\begin{aligned}
+\widetilde s_t(x_t,c)
+&=s_t(x_t)+w\nabla_{x_t}\log p_t(c\mid x_t)\\
+&=\nabla_{x_t}\log\big[p_t(x_t)p_t(c\mid x_t)^w\big]\\
+&=\nabla_{x_t}\log\big[p_t(x_t)^{1-w}p_t(x_t\mid c)^w\big].
+\end{aligned}
+$$
+
+最後一行用了 Bayes rule；兩個括號中的量只差一個與 $x_t$ 無關的 factor，所以 log-gradient 相同。$w>1$ 在**固定的 $t$** 上對類別機率做 power reweighting；但這一族重新加權的 densities 未必滿足原 forward process 的演化方程，不能只靠這個 identity 宣稱 sampler 的終點一定是 $p_{\mathrm{data}}(x_0)p(c\mid x_0)^w$ 的正規化版本。
+</Remark>
+
+## 網路輸出的是 noise，怎麼放進原本 sampler？
+
+U1 的網路通常輸出 $\epsilon_\theta$，而不是直接輸出 score。令 $\sigma_t=\sqrt{1-\bar\alpha_t}$ 表示該時刻的 noise amplitude，<Ref to="dma-tweedie-and-score"/> 給出的換算是
 
 $$
 s_\theta(x_t,t)=-\frac{\epsilon_\theta(x_t,t)}{\sigma_t}.
 $$
 
-把 guided score 也寫成 $-\widetilde\epsilon_\theta/\sigma_t$：
+Conditional 與 unconditional prediction 都使用同一個 $\sigma_t$。我們只要把剛才的 guided score 寫成 $-\widetilde\epsilon_\theta/\sigma_t$，就能把兩種做法換成原 sampler 使用的 noise prediction。
+
+對 **classifier guidance**，先代入：
 
 $$
+\begin{aligned}
 -\frac{\widetilde\epsilon_\theta(x_t,t,c)}{\sigma_t}
-=-\frac{\epsilon_\theta(x_t,t)}{\sigma_t}
-+w\,\nabla_{x_t}\log p_\phi(c\mid x_t,t).
+&=-\frac{\epsilon_\theta(x_t,t)}{\sigma_t}\\
+&\quad+w\nabla_{x_t}\log p_\phi(c\mid x_t,t).
+\end{aligned}
 $$
 
-兩邊乘上 $-\sigma_t$，得到實作時可以直接放進原 sampler 的形式：
+兩邊乘上 $-\sigma_t$，得到
+
+$$
+\begin{aligned}
+\widetilde\epsilon_\theta(x_t,t,c)
+&=\epsilon_\theta(x_t,t)\\
+&\quad-w\sigma_t\nabla_{x_t}\log p_\phi(c\mid x_t,t).
+\end{aligned}
+$$
+
+classifier gradient 在 score 空間是相加；換到 noise prediction 空間後，就變成從 $\epsilon_\theta$ 減掉它。負號與縮放都來自這個換算，不是另一個 sampling 假設。
+
+對 **CFG**，三支 score 都有相同的 $-1/\sigma_t$ factor，代入後可寫成
+
+$$
+\begin{aligned}
+-\frac{\widetilde\epsilon_\theta}{\sigma_t}
+&=-\frac{\epsilon_\theta(x_t,t,\varnothing)}{\sigma_t}\\
+&\quad-\frac{w}{\sigma_t}
+\big[\epsilon_\theta(x_t,t,c)-\epsilon_\theta(x_t,t,\varnothing)\big].
+\end{aligned}
+$$
+
+同樣乘上 $-\sigma_t$，這次相同的 factor 全部消去：
 
 $$
 \boxed{
+\begin{aligned}
 \widetilde\epsilon_\theta(x_t,t,c)
-=\epsilon_\theta(x_t,t)
--w\sigma_t\nabla_{x_t}\log p_\phi(c\mid x_t,t)
-}.
+&=\epsilon_\theta(x_t,t,\varnothing)\\
+&\quad+w\big[\epsilon_\theta(x_t,t,c)-\epsilon_\theta(x_t,t,\varnothing)\big].
+\end{aligned}
+}
 $$
 
-負號沒有反過來：$\epsilon_\theta$ 和 score 本來就差一個負號。classifier gradient 在 score 空間是相加；換到 noise prediction 空間後，就變成從 $\epsilon_\theta$ 減掉它。
+生成時把對應的 $\widetilde\epsilon_\theta$ 放進原本 sampler 就好。整個 sampling 過程中，generative model 的 $\theta$，以及外部 classifier 若存在時的 $\phi$，都不需要更新。
 
-<Remark label="補充" summary="$w>1$ 對應的是哪一個 density？">
-若暫時把每個 $t$ 的兩個估計都視為精確，
+<Remark label="補充" summary="原 CFG 論文的 guidance strength 和這裡差了 $1$">
+本篇使用 $w=0$ 是 unconditional、$w=1$ 是 conditional 的 convention。Ho 與 Salimans [2] 則把「超出 conditional 的強度」記成 $w_{\mathrm{paper}}$，其 noise prediction 寫成
 
 $$
-s_t(x_t)+w\nabla_{x_t}\log p_t(c\mid x_t)
-=\nabla_{x_t}\log\Big[p_t(x_t)p_t(c\mid x_t)^w\Big].
+\begin{aligned}
+\widetilde\epsilon_\theta
+&=(1+w_{\mathrm{paper}})\epsilon_\theta(x_t,t,c)\\
+&\quad-w_{\mathrm{paper}}\epsilon_\theta(x_t,t,\varnothing).
+\end{aligned}
 $$
 
-$w=1$ 回到標準 conditional score；$w>1$ 則在**固定的 $t$** 上對類別機率做 power reweighting。這說明方向如何改變，但這一族重新加權的 densities 未必滿足原 forward process 的演化方程；即使模型精確，也不能只靠這個 identity 宣稱終點一定是 $p_{\mathrm{data}}(x_0)p(c\mid x_0)^w$ 的正規化版本。
+兩者是同一個組合，只是本篇的 $w=1+w_{\mathrm{paper}}$。閱讀其他論文或程式時，要對照公式，而不是只比較 guidance scale 的數字。
+
+Classifier guidance 也可以加在已經 conditional training 的 model 上，如 Dhariwal 與 Nichol [1] 的實驗。這時原本就有 conditional score，classifier 提供的是額外加強，因此「不額外加強」的係數從 $0$ 起算；不能直接套用本篇從 unconditional score 出發、$w=1$ 才得到 conditional score 的說法。
 </Remark>
 
-<Question id="Q1">
-Sampling 時要對 classifier 做反向傳播，**這不就又是在訓練模型，違反 test-time steering 不改參數的限制嗎？**
+<Remark label="補充" summary="Negative prompt 改變的是哪個比較基準？">
+實作上還可以把空 condition 換成一個 **negative prompt** $c^-$，例如希望避免的「模糊」。同一個模型分別看正向 prompt $c$ 與 $c^-$，再做
 
-<Answer>
-反向傳播是計算微分的方法，不一定要更新參數。訓練 classifier 時，我們算 $\nabla_\phi L_{\mathrm{cls}}$ 並更新 $\phi$；sampling 時則固定 $\phi$ 與 $\theta$，只算 $\nabla_{x_t}\log p_\phi(c\mid x_t,t)$，把結果交給 sampler 改動 $x_t$。
+$$
+\begin{aligned}
+\widetilde\epsilon_\theta
+&=\epsilon_\theta(x_t,t,c^-)\\
+&\quad+w\big[\epsilon_\theta(x_t,t,c)-\epsilon_\theta(x_t,t,c^-)\big].
+\end{aligned}
+$$
 
-就像朋友的判斷方式沒有改變，我們改的是他正在看的草稿。**要看的是微分對象與實際更新的量，不是有沒有做反向傳播。**
-</Answer>
-</Question>
+這條式子從 $c^-$ 的 prediction 出發，沿著兩者的差往 $c$ 外推。它提供的是相對基準，不是保證某個物件絕不出現的禁止清單；也不再是剛才 conditional 減 unconditional 的 Bayes identity。
+</Remark>
+
+<Remark label="補充" summary="Flow Matching 也能學兩種回答嗎？">
+可以沿用 <Ref to="dma-flows-and-continuity"/> 的 regression：reference process 仍寫成 $I_t$，label 仍是 $\partial_t I_t$，只把網路收到的 condition 隨機換成 $\widetilde c$：
+
+$$
+L_{\mathrm{drop,FM}}(\theta)
+=\mathbb E\left[\left\|v_\theta(I_t,t,\widetilde c)-\partial_t I_t\right\|^2\right].
+$$
+
+Expectation 平均時間、reference path 的端點配對與 condition dropout。生成時同樣能組合
+
+$$
+\begin{aligned}
+\widetilde v_\theta(x,t,c)
+&=v_\theta(x,t,\varnothing)\\
+&\quad+w\big[v_\theta(x,t,c)-v_\theta(x,t,\varnothing)\big].
+\end{aligned}
+$$
+
+在 <Ref to="dma-linear-path"/> 那種 Gaussian 起點的 affine interpolation 下，velocity 與 score 有共同的轉換公式，可以對照上述推導；對任意 path，則不能直接把 velocity 的差叫作 classifier gradient。
+</Remark>
+
+## Classifier guidance 與 CFG，實際上差在哪裡？
+
+兩種方法都能在 sampling 時調整 condition 的影響。依照 Dhariwal 與 Nichol [1]、Ho 與 Salimans [2] 的做法，我們可以把差異整理成：
+
+| 項目 | Classifier guidance | CFG |
+| --- | --- | --- |
+| 額外模型 | 需訓練 noisy classifier，估計 $\log p_t(c\mid x_t)$。 | X |
+| Conditioning 訓練 | X | 需要 conditional training＋unconditional training（conditioning dropout）。 |
+| 每一步 sampling | $\begin{aligned}&s_\theta(x_t,t)\\&+w\nabla_{x_t}\log p_\phi(c\mid x_t,t)\end{aligned}$ | $\begin{aligned}&s_\theta(x_t,t,c)\\&+(w-1)\big[s_\theta(x_t,t,c)\\&\qquad-s_\theta(x_t,t,\varnothing)\big]\end{aligned}$ |
+| 用在模型沒看過的新 condition | 可以透過另外訓練或更換 noisy classifier。 | X |
+| 主要優點 | 生成與判斷可分開設計。 | 不需額外 classifier 或其 gradient。 |
+| 主要限制 | 額外訓練成本；classifier 估計的 $\log p_t(c\mid x_t)$ 準，不代表 gradient 也準。 | 訓練時要考慮兩種 prediction；差值誤差也可能放大。 |
+
+表中的 conditioning 訓練指 **generative model**；classifier 仍需有類別標籤的資料。這裡的新 condition 指模型沒有相應 conditional prediction 的要求，不是 text-to-image 模型沒見過的一句新 prompt。
+
+**不用 classifier，不代表 sampling 一定更快。** 一邊多算 classifier 的 gradient，另一邊多算一種 generative-model prediction；實際成本要看模型大小與實作。兩者加強 guidance 時，也都可能犧牲 diversity，不是強度越大就一定越好。
 
 ## 消化一下
 
 <QuizBlock id="w10-1-a">
-classifier guidance 的 Bayes 推導中，$-\log p(c)$ 為什麼消失？
+Bayes 推導中，$-\log p(c)$ 為什麼消失？
 <Option>因為 $p(c)=1$。</Option>
 <Option correct>因為我們對 $x_t$ 微分，而 $p(c)$ 不隨 $x_t$ 改變。</Option>
 <Option>因為 classifier 已經做過 softmax。</Option>
@@ -207,12 +446,12 @@ $p(c)$ 仍然負責 conditional density 的 normalization；只是 score 只看�
 </QuizBlock>
 
 <QuizBlock id="w10-1-b">
-若 score 與 classifier 都是精確的，哪個 $w$ 對應標準 conditional score $\nabla\log p_t(x_t\mid c)$？
-<Option>$w=0$。</Option>
-<Option correct>$w=1$。</Option>
-<Option>任何 $w>1$ 都更精確。</Option>
+在本篇的 convention 下，$w=1$ 時 CFG 的 noise prediction 等於什麼？
+<Option>unconditional prediction。</Option>
+<Option correct>conditional prediction $\epsilon_\theta(x_t,t,c)$。</Option>
+<Option>兩個 prediction 的平均。</Option>
 <Explanation>
-$w=0$ 是 unconditional score；$w=1$ 是 Bayes identity；$w>1$ 刻意放大 condition，改變了 sampling distribution。
+代入公式：$\epsilon_{\varnothing}+[\epsilon_c-\epsilon_{\varnothing}]=\epsilon_c$。$w>1$ 是刻意加強 condition，不是把估計變得更準。
 </Explanation>
 </QuizBlock>
 
@@ -226,13 +465,34 @@ $w=0$ 是 unconditional score；$w=1$ 是 Bayes identity；$w>1$ 刻意放大 co
 </Explanation>
 </QuizBlock>
 
-<Bridge to="dma-classifier-free-guidance">
-現在我們知道，不必讓另一個模型替我們畫圖，也能用它對「像不像柯基」的判斷來引導生成：理想情況下，classifier gradient 和原本的 score 相加，就是 Bayes rule 給出的 conditional score。但取得這個方向，需要額外訓練 noisy classifier，每一步還得對輸入求 gradient。
+<QuizBlock id="w10-1-d">
+conditioning dropout 在 training 時做了什麼？
+<Option>隨機刪掉 $x_t$ 的 pixels。</Option>
+<Option correct>把一部分 training examples 的 condition 換成 $\varnothing$，讓同一個網路同時學 conditional 與 unconditional prediction。</Option>
+<Option>隨機把 guidance strength 設成零。</Option>
+<Explanation>
+只有 conditional training，不自動表示模型學過 unconditional prediction。Dropout 建立兩種輸入情況，$w$ 則是在 sampling 時才使用。
+</Explanation>
+</QuizBlock>
 
-回想 <Ref to="dma-test-time-steering"/> 的 conditional training：若 generative model 已經會根據 $c$ 預測 noise，它的答案本來就含有類別資訊。**能不能只用 generative model 的回答，把這支額外方向找出來？** 下一篇 <Ref to="dma-classifier-free-guidance"/> 就從這個問題出發。
+<QuizBlock id="w10-1-e">
+CFG 拿掉了 classifier guidance 的哪個成本？
+<Option correct>不必另訓一個 time-dependent noisy classifier，也不必對它做 backpropagation。</Option>
+<Option>只需一次 diffusion-model forward pass。</Option>
+<Option>不再改變 sampling distribution。</Option>
+<Explanation>
+標準 CFG 每一步通常仍要算 conditional 與 unconditional 兩種 prediction。它拿掉的是外部 classifier，不是第二種模型計算，也不是 guidance 帶來的 reweighting。
+</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-reward-tilting">
+現在我們能從外部 classifier 的判斷，或模型自己的兩種回答，取得 condition 額外提供的方向，再在 sampling 時決定要多強地使用它。但這兩條路都需要相應的訊號：classifier 得看得懂這個要求，或模型在 training 時就已學過這類 condition。
+
+假如模型訓練完後，我們才拿到一個程式，能替每張完成的圖片打美感分數，卻沒有相應的 classifier 或 conditional prediction 呢？先把分數記成 $R(x_0)$：它越大，代表乾淨樣本越符合這次要求。**既要保留合理資料，又要讓高分結果更常出現，我們應該改成抽哪個 distribution？** 下一篇 <Ref to="dma-reward-tilting"/> 先把這個目標寫清楚。
 </Bridge>
 
 ## 參考文獻
 
-1. Dhariwal, P., Nichol, A. [*Diffusion Models Beat GANs on Image Synthesis.*](https://arxiv.org/abs/2105.05233) NeurIPS 2021.（Classifier guidance 的提出與 fidelity／diversity trade-off。）
-2. Kawar, B., Ganz, R., Elad, M. [*Enhancing Diffusion-Based Image Synthesis with Robust Classifier Guidance.*](https://arxiv.org/abs/2208.08664) 2022.（Classifier gradient 的 robustness。）
+1. Dhariwal, P., Nichol, A. [*Diffusion Models Beat GANs on Image Synthesis.*](https://arxiv.org/abs/2105.05233) NeurIPS 2021.（Classifier guidance 與 fidelity／diversity trade-off。）
+2. Ho, J., Salimans, T. [*Classifier-Free Diffusion Guidance.*](https://arxiv.org/abs/2207.12598) 2022.（CFG、conditioning dropout 與 quality／diversity trade-off。）
+3. Kawar, B., Ganz, R., Elad, M. [*Enhancing Diffusion-Based Image Synthesis with Robust Classifier Guidance.*](https://arxiv.org/abs/2208.08664) 2022.（Classifier gradient 的 robustness。）

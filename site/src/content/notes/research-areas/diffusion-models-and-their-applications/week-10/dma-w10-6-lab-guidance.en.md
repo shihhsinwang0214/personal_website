@@ -2,7 +2,7 @@
 slug: "dma-w10-6-lab-guidance"
 label: "dma-lab-guidance"
 prereqs:
-  - dma-classifier-free-guidance
+  - dma-classifier-guidance
   - dma-reward-tilting
   - dma-gradient-free-steering
   - math-langevin
