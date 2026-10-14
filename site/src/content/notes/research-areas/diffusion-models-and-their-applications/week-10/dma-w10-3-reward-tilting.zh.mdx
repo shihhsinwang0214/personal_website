@@ -18,12 +18,28 @@ references:
     href: "https://arxiv.org/abs/2302.07121"
   - label: "Geyfman et al., Calibrated Test-Time Guidance for Bayesian Inference (ICML 2026)"
     href: "https://proceedings.mlr.press/v306/geyfman26a.html"
-  - label: "Dandapanthula & Boffi, Are We Really Tilting? (2026)"
+  - label: "Dandapanthula & Boffi, Are We Really Tilting? (2026 preprint)"
     href: "https://arxiv.org/abs/2606.02884"
   - label: "Ouyang et al., Training Language Models to Follow Instructions with Human Feedback (NeurIPS 2022)"
     href: "https://arxiv.org/abs/2203.02155"
   - label: "Chung et al., Diffusion Posterior Sampling for General Noisy Inverse Problems (ICLR 2023; preprint 2022)"
     href: "https://arxiv.org/abs/2209.14687"
+  - label: "Song et al., Loss-Guided Diffusion Models for Plug-and-Play Controllable Generation (ICML 2023)"
+    href: "https://proceedings.mlr.press/v202/song23k.html"
+  - label: "Rissanen et al., Free Hunch (ICLR 2025)"
+    href: "https://proceedings.iclr.cc/paper_files/paper/2025/hash/e0bc6dbcbcc957b2aeadb20c39ba7f05-Abstract-Conference.html"
+  - label: "Moufad et al., Variational Diffusion Posterior Sampling with Midpoint Guidance (ICLR 2025)"
+    href: "https://proceedings.iclr.cc/paper_files/paper/2025/hash/ed524bb14de1b52c8522b977ded241d3-Abstract-Conference.html"
+  - label: "Wu et al., Practical and Asymptotically Exact Conditional Sampling in Diffusion Models (NeurIPS 2023)"
+    href: "https://proceedings.neurips.cc/paper_files/paper/2023/hash/63e8bc7bbf1cfea36d1d1b6538aecce5-Abstract.html"
+  - label: "Singhal et al., A General Framework for Inference-time Scaling and Steering of Diffusion Models (ICML 2025)"
+    href: "https://proceedings.mlr.press/v267/singhal25b.html"
+  - label: "Skreta et al., Feynman-Kac Correctors in Diffusion (ICML 2025)"
+    href: "https://proceedings.mlr.press/v267/skreta25a.html"
+  - label: "Wu et al., Principled Probabilistic Imaging using Diffusion Models as Plug-and-Play Priors (NeurIPS 2024)"
+    href: "https://proceedings.neurips.cc/paper_files/paper/2024/hash/d65c4ce22241138c1784ff753d4c746c-Abstract-Conference.html"
+  - label: "Wu et al., Reverse Diffusion Sequential Monte Carlo Samplers (NeurIPS 2025)"
+    href: "https://proceedings.neurips.cc/paper_files/paper/2025/hash/6490ab6ef8eb7116c6c1889795d21748-Abstract-Conference.html"
 ---
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
@@ -542,9 +558,78 @@ $$
 而用這個近似算出的 log-gradient，也不保證與 $\nabla_{x_t}\log h_t(x_t)$ 相同。近期有一些研究試圖處理這個差距，我們把它們整理成下面的補充，有興趣的讀者可以參考一下。
 
 <Remark label="補充" summary="近期研究如何處理實作 guidance 與精確 target 的差距？">
-Geyfman 等人 [2] 分析常見 guidance 的 posterior 偏差，提出在其理論條件下與目標 posterior 一致的替代估計。Dandapanthula 與 Boffi [3] 則在 Gaussian／mixture 的例子中，分開分析 mode selection 與 mode 內的過度最佳化，並研究 reward damping schedule。
+問題不是只有「guidance 強度怎麼調」。我們原本需要的是 $h_t(x_t)=\mathbb E[e^{\lambda R(x_0)}\mid x_t]$，但實作同時可能近似了 **posterior、這個平均，以及最後的取樣過程**。研究可以從不同的地方處理這些誤差。
 
-這些結果都要連同各自的假設閱讀：在可分析的例子中減少偏差，不代表任意 reward、模型與 sampler 都有相同保證。**Reward 上升，是評分變好；是否抽到指定 $p_R$，則是另一個要檢查的問題。**
+以下以 2024–2026 年的正式會議論文為主，並保留兩篇 2023 年的研究，幫助我們看清後續方法在改什麼。涉及 inverse problems 時，取 $\lambda R(x_0)=\log p(y\mid x_0)$，就回到前面講過的 Bayesian posterior；但只對某種 measurement likelihood 成立的結果，不能直接推廣成任意 reward 的保證。
+
+**（一）不要只評分平均圖片，改成平均多個可能結果的權重。**
+
+如果同一張模糊圖片可能來自不同的乾淨結果，只評分它們的平均，會漏掉這些可能性。Song 等人的 **Loss-Guided Diffusion／LGD-MC（ICML 2023）** [6] 改成先抽多個候選，再平均 $e^{\lambda R}$。用本篇的符號寫，就是
+
+$$
+\begin{aligned}
+x_0^{(i)}&\sim\hat p_{0\mid t}(\cdot\mid x_t),\\
+\hat h_t(x_t)&=\frac1K\sum_{i=1}^K e^{\lambda R(x_0^{(i)})}.
+\end{aligned}
+$$
+
+這裡的 $\hat p_{0\mid t}$ 是用來近似 $p(x_0\mid x_t)$ 的 distribution；LGD-MC 使用以 denoiser 預測為中心、帶有指定 variance 的 Gaussian，再對 $\log\hat h_t$ 微分。它在 toy mixtures、影像與動作生成中改善了 point estimate 的結果，但 **增加 $K$ 只會更準確地算出這個近似 distribution 下的平均**，不會自動把 $\hat p_{0\mid t}$ 變成真正的 posterior。原文的 total variation bound 控制的是平均權重的誤差，也不能直接當成 log-gradient 的誤差上界。
+
+Geyfman 等人的 **Calibrated Bayesian Guidance／CBG（ICML 2026）** [2] 更進一步：要求候選來自 $p(x_0\mid x_t)$，而不是只在平均圖片旁加 Gaussian noise。對可微的取樣過程，可以直接估計平均權重的 gradient；對不可微 reward，則用它作為權重，估計 tilted score。沿用本篇的 VP forward kernel，後一種估計寫成
+
+$$
+\begin{aligned}
+\omega_i&=e^{\lambda R(x_0^{(i)})},\\
+\bar x_{0,R}&=\frac{\sum_i\omega_i x_0^{(i)}}{\sum_i\omega_i},\\
+s_t^R(x_t)&\approx
+\frac{\sqrt{\bar\alpha_t}\,\bar x_{0,R}-x_t}{\sigma_t^2}.
+\end{aligned}
+$$
+
+也就是讓高 reward 的可能來源在平均時有較大的權重，再用 Tweedie 的關係換成 score；減掉 base score $s_t$，才是要加上的 guidance。**在 posterior 取樣正確、相關平均存在的條件下，$K\to\infty$ 時這個估計會趨近正確值**，但有限 $K$ 的比例估計一般仍有偏差。實作若用少步模型近似內層 posterior sampling，也會留下那一層誤差；代價則是每個外層 timestep 都要另外生成候選。
+
+**（二）如果仍要用 Gaussian 近似，能不能把 uncertainty 算得更好？**
+
+只保留 $\hat x_0$，等於沒有描述「可能的 $x_0$ 離這個平均有多遠」。Rissanen、Heinonen 與 Solin 的 **Free Hunch（ICLR 2025）** [7] 處理的是 posterior covariance $\Sigma_t=\operatorname{Cov}(x_0\mid x_t)$。例如 measurement 是 $y=Ax_0+\xi$、$\xi\sim\mathcal N(0,\tau^2I)$，把 posterior 近似成 Gaussian 後，積分會給出
+
+$$
+\begin{aligned}
+p(y\mid x_t)&\approx\mathcal N(y;A\hat x_0,C_t),\\
+C_t&=\tau^2I+A\Sigma_tA^\top.
+\end{aligned}
+$$
+
+$\tau^2I$ 是測量本身的 uncertainty，$A\Sigma_tA^\top$ 則是乾淨來源還不確定所增加的 uncertainty。Free Hunch 利用資料 covariance 初始化，再利用相鄰 denoiser evaluations 的變化做低秩更新，避免直接計算完整 score Hessian。它在 **linear inverse problems** 中分析 covariance 不準造成的 guidance 偏差，並改善重建結果；但補上 covariance 不等於還原多峰 posterior，論文也沒有給任意 reward 的 exact sampling 保證。
+
+另一個方向是不直接從 $x_t$ 猜到乾淨端。Moufad 等人的 **Midpoint Guidance／MGPS（ICLR 2025）** [8] 先引入噪聲較小的中間 state，將 reverse transition 拆成「先抽這個中間 state，再經 Gaussian bridge 回到下一步」。中間 state 更接近乾淨資料，likelihood 的近似可以較容易；但從目前 state 到它的 conditional 也更難算，因此方法用 Gaussian variational distribution、最小化一個 KL 上界來折衷。它在 linear／nonlinear inverse problems 中驗證效果，**仍是在取樣 surrogate posterior，而不是證明這些近似全都消失**。
+
+**（三）近似 guidance 可以留下，但能不能在取樣時修正它？**
+
+想像目前的導航只是幫我們提出「可能往哪裡走」；我們也可以同時記錄，每條被提出的路在真正 target 下應有多少權重。這類方法維持多條生成軌跡，稱為 **particles**，逐步更新權重並重抽，稱為 **sequential Monte Carlo（SMC）**。重抽是按權重抽選，不是只保留最高 reward 的一條路。
+
+Wu 等人的 **Twisted Diffusion Sampler／TDS（NeurIPS 2023）** [9] 就把近似 guidance 用來建立 proposal，再用包含「模型 transition／proposal」比例的 importance weights 修正。其定理要求最終的 twisting function 等於真實 likelihood、相關權重正且有界、twisting 的 log-gradient 有界，並讓 proposal variance 大於模型 transition variance 等條件。在這些條件下，**particles 數量增加時，對 pretrained diffusion model 的 conditional distribution 得到一致估計**。這不等於有限幾個 particles 已經精確，也不保證 pretrained model 本身就是 $p_{\mathrm{data}}$。
+
+Singhal 等人的 **Feynman–Kac steering（ICML 2025）** [10] 把這個想法推廣到一般 reward 與離散 diffusion。每步用一個 potential $G_t$ 更新路徑權重，設計時要求
+
+$$
+\prod_{t=0}^{T}G_t(x_{T:t})=e^{\lambda R(x_0)}.
+$$
+
+這裡的乘積指沿著 $T,T-1,\ldots,0$ 每步的 potential 全部相乘。如此一來，整條模型路徑最後被乘上的，正好是我們要的 reward 權重；若改了 proposal，也要保留相應的比例修正。**中間的 reward estimate 可以不精確，但最後的總權重不能任意改掉**。正確的權重與適當 SMC 條件給出對模型 tilted distribution 的一致近似；有限 particles 仍可能漏掉罕見 modes，或在重抽後只剩少數不同的路徑。
+
+Skreta 等人的 **Feynman–Kac Correctors／FKC（ICML 2025）** [11] 處理相關但不同的問題：就算把多個模型的 scores 混合成所設計的 density 的 score，照原本 reverse dynamics 走，也未必真的走過那組中間 distributions。他們從 Fokker–Planck equation 找出缺少的項，改用帶權重的 dynamics 與 SMC 修正，涵蓋 CFG、temperature annealing 與 product of experts。**這提醒我們，不只要檢查 score 公式，也要檢查它與所選 dynamics 是否一致。** 其加權表示在理想 scores／連續 dynamics 下成立；有限步、有限 particles 與 score 誤差仍要另算，且它設計的中間 path 不必就是本篇的 $p_t^R$。
+
+Wu 等人的 **Reverse Diffusion SMC／RDSMC（NeurIPS 2025）** [13] 也用 weights 修正近似 score 與離散化造成的 proposal 偏差，並在其條件下得到一致的 target estimates。差別是它的設定要求 **能評估未正規化的 target density**，不是只給一支 pretrained score model 加上 reward；我們這裡通常不能直接評估 $p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}$，所以不能不補這個條件就直接套用。
+
+**（四）也可以不估計 $\nabla\log h_t$，改成分開處理 likelihood 與 prior。**
+
+Zihui Wu 等人的 **PnP-DM（NeurIPS 2024）** [12] 引入輔助變數，交替進行兩個 sampling steps：一步讓結果符合 measurement likelihood；另一步使用 diffusion model 抽 Gaussian denoising posterior，而不是只回傳 denoiser mean。它使用 split Gibbs sampling，讓兩個原本纏在一起的要求分開處理。理論需要正確的條件取樣與相應假設；固定的 splitting parameter $\rho>0$ 對應的是擴充 target，相關條件下 $\rho\to0$ 才逼近原 posterior。實際的有限迭代、score 近似與 numerical solver 也各有誤差，不能把這套架構簡稱為「有限步 exact posterior sampling」。
+
+**延伸閱讀：為什麼 mode 選對了，仍可能不是 exact tilt？**
+
+Dandapanthula 與 Boffi 的 *Are We Really Tilting?* [3] 是 **2026 年 preprint**，不列入上面的正式會議論文。它分析的是用有限 conditional particles 估計 reward 平均的 guidance，不只本文的單一 posterior-mean 代入。在 Gaussian／mixture 的可分析例子中，它區分「是否走向正確 mode」與「mode 內是否過度偏移、過度縮窄」，並研究 reward damping schedule；特定 Gaussian 情況的修正，不能直接當成一般 reward 的通用解。
+
+所以讀這些結果時，要確認三件事：**它修正的是哪一層近似？保證是在增加 samples、減小步長，還是特殊模型的條件下成立？target 是真實資料的 $p_R$，還是 pretrained model 所定義的 tilted distribution？** Reward 上升，是評分變好；是否抽到指定的 distribution，則是另一個要檢查的問題。
 </Remark>
 
 ## 消化一下
@@ -580,15 +665,31 @@ $Z_R$ 原本就會在 score 中消失。plug-in approximation 真正省掉的是
 </QuizBlock>
 
 <Bridge to="dma-gradient-free-steering">
-現在我們知道要怎麼讓高 reward 的結果更常出現：在 base distribution 上乘以 $e^{\lambda R}$，而不是只追一個最高分點。在 noisy state 上，精確方向還要平均所有可能的乾淨結果；用單一去噪估計代替它，是實作上的近似。
+現在我們知道具體想 sampling 的 reward-tilted distribution 是
 
-但假如評分程式只能回答「這張圖幾分」，或機器人模擬器只能回報「有沒有碰撞」，根本不能告訴我們輸入稍微改動後分數怎麼變呢？**只靠比較候選的分數，也能讓高分結果更常被生成嗎？** 下一篇 <Ref to="dma-gradient-free-steering"/> 從多抽幾次、再挑選的做法開始。
+$$
+p_R(x_0)=\frac{1}{Z_R}p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}.
+$$
+
+我們要兼顧 reward $R(x_0)$ 與 data fidelity $p_{\mathrm{data}}(x_0)$，而不是只挑最高分的結果。我們也討論了如何使用 reward gradient，在生成途中做 guidance。
+
+但萬一 reward 是一個封閉的 API，只能回答「這張圖幾分」，或機器人模擬器只能回報「有沒有碰撞」，根本無法直接取得 reward gradient，告訴我們輸入稍微改動後分數怎麼變呢？又或者它是由某個 model 提供的代理分數（proxy），求 gradient 很貴，或估計出的方向不準確呢？
+
+下一篇 <Ref to="dma-gradient-free-steering"/>，我們會介紹如何**只計算、比較 reward $R(x_0)$，不依賴它的 gradient，來近似從這個 reward-tilted distribution 取樣。**
 </Bridge>
 
 ## 參考文獻
 
 1. Bansal, A. et al. [*Universal Guidance for Diffusion Models.*](https://arxiv.org/abs/2302.07121) 2023, §3.1, Eq. (6).（對 denoised prediction 使用可微 guidance，原文稱為 forward universal guidance，並引用更早的 DPS。）
-2. Geyfman, D. et al. [*Calibrated Test-Time Guidance for Bayesian Inference.*](https://proceedings.mlr.press/v306/geyfman26a.html) ICML 2026.（常見 guidance 與 calibrated posterior sampling 的差異。）
-3. Dandapanthula, S., Boffi, N. M. [*Are We Really Tilting? The Mechanics of Reward Guidance in Flow and Diffusion Models.*](https://arxiv.org/abs/2606.02884) 2026.（有限 particle plug-in 對 mode selection 與 reward hacking 的分析。）
+2. Geyfman, D. et al. [*Calibrated Test-Time Guidance for Bayesian Inference.*](https://proceedings.mlr.press/v306/geyfman26a.html) ICML 2026, §5, Eqs. (16), (20).（從 conditional samples 建立 gradient-based／gradient-free 一致估計；§5.3 討論內層取樣的成本與近似。）
+3. Dandapanthula, S., Boffi, N. M. [*Are We Really Tilting? The Mechanics of Reward Guidance in Flow and Diffusion Models.*](https://arxiv.org/abs/2606.02884) 2026, preprint.（有限 conditional particles 的 mode selection、mode 內偏差與 damping 分析；不標為已正式發表的會議論文。）
 4. Ouyang, L. et al. [*Training Language Models to Follow Instructions with Human Feedback.*](https://arxiv.org/abs/2203.02155) NeurIPS 2022, §3.5, Eq. (2).（RLHF 的 reward 與 KL 部分；PPO-ptx 另包含預訓練資料項。）
 5. Chung, H. et al. [*Diffusion Posterior Sampling for General Noisy Inverse Problems.*](https://arxiv.org/abs/2209.14687) ICLR 2023, §3.1.（Preprint 首次公開於 2022-09-29；使用 Tweedie 的 posterior mean 近似 measurement likelihood。）
+6. Song, J. et al. [*Loss-Guided Diffusion Models for Plug-and-Play Controllable Generation.*](https://proceedings.mlr.press/v202/song23k.html) ICML 2023, §4.3, Eq. (9), Proposition 4.1.（LGD-MC 使用近似 posterior 下的多候選平均；其平均權重 bound 不直接保證 gradient 正確。）
+7. Rissanen, S., Heinonen, M., Solin, A. [*Free Hunch: Denoiser Covariance Estimation for Diffusion Models Without Extra Costs.*](https://proceedings.iclr.cc/paper_files/paper/2025/hash/e0bc6dbcbcc957b2aeadb20c39ba7f05-Abstract-Conference.html) ICLR 2025, §§3.1–3.7.（利用資料 covariance 與 denoiser evaluations 更新 posterior covariance，應用於 linear inverse problems。）
+8. Moufad, B. et al. [*Variational Diffusion Posterior Sampling with Midpoint Guidance.*](https://proceedings.iclr.cc/paper_files/paper/2025/hash/ed524bb14de1b52c8522b977ded241d3-Abstract-Conference.html) ICLR 2025, §3, Lemma 3.1.（MGPS 的 midpoint decomposition、Gaussian variational approximation 與 surrogate posterior。）
+9. Wu, L. et al. [*Practical and Asymptotically Exact Conditional Sampling in Diffusion Models.*](https://proceedings.neurips.cc/paper_files/paper/2023/hash/63e8bc7bbf1cfea36d1d1b6538aecce5-Abstract.html) NeurIPS 2023, §3, Appendix A.5, Theorem 2.（TDS 保留近似 proposals，以 SMC weights 修正；一致性對應模型的 conditional distribution。）
+10. Singhal, R. et al. [*A General Framework for Inference-time Scaling and Steering of Diffusion Models.*](https://proceedings.mlr.press/v267/singhal25b.html) ICML 2025, §3.3, Eq. (5), Algorithm 1.（FK steering 的總 potential 條件、proposal correction 與 reward-tilted model distribution。）
+11. Skreta, M. et al. [*Feynman-Kac Correctors in Diffusion: Annealing, Guidance, and Product of Experts.*](https://proceedings.mlr.press/v267/skreta25a.html) ICML 2025, §§2.2–3.2.（從 target density 的 PDE 導出加權 dynamics，修正直接混合 scores 所缺少的項。）
+12. Wu, Z. et al. [*Principled Probabilistic Imaging using Diffusion Models as Plug-and-Play Priors.*](https://proceedings.neurips.cc/paper_files/paper/2024/hash/d65c4ce22241138c1784ff753d4c746c-Abstract-Conference.html) NeurIPS 2024, §§2–3, Theorem 3.1.（PnP-DM 的 split Gibbs formulation、Gaussian denoising posterior step，以及 splitting／score／取樣誤差的區別。）
+13. Wu, L. et al. [*Reverse Diffusion Sequential Monte Carlo Samplers.*](https://proceedings.neurips.cc/paper_files/paper/2025/hash/6490ab6ef8eb7116c6c1889795d21748-Abstract-Conference.html) NeurIPS 2025, §§2–3.（可評估未正規化 target density 的設定；與只有 pretrained score 的 reward guidance 不同。）

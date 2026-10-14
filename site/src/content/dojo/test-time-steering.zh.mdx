@@ -25,7 +25,7 @@ import Ref from '../../components/notes/Ref.astro';
 import requestScene from './imgs/steering-new-request.png';
 import obstacleScene from './imgs/steering-new-obstacle.png';
 
-<Say id="scene" label="收到一個新要求" next="先聽 Lumi 的提案">
+<Say partner="nori" pose="welcome" id="scene" label="收到一個新要求" next="先聽 Lumi 的提案">
 假設我們花了兩週，訓練好一個會生成狗照片的 diffusion model。它能畫出不同毛色、姿勢與背景的狗，偶爾也會畫出戴帽子的狗。使用者看了看結果，這時才說：**「這一次，我想要一隻戴紅帽的狗。」**
 
 <Figure src={requestScene} eager alt="左邊是已訓練模型生成的不同狗照片，右邊是使用時才收到的紅帽狗要求；右圖是要求示意，不是已生成的答案。">
@@ -37,7 +37,7 @@ import obstacleScene from './imgs/steering-new-obstacle.png';
 **如果是你，會先怎麼讓紅帽狗更常出現？** 先聽完三位夥伴的做法，再把方法與名字對上；閱讀完後會先收起提案，換你來比較。
 </Say>
 
-<Talk id="p-conditional" partner="lumi" study="methods" label="先讓模型學會看描述" next="再聽 Mugi 的提案">
+<Talk partner="lumi" pose="suggest" id="p-conditional" study="methods" label="先讓模型學會看描述" next="再聽 Mugi 的提案">
 > 「我們可以整理一批照片，每張都附上描述。像這張狗戴著紅帽，就把『戴紅帽的狗』和照片一起交給模型。讓它練習時就看描述，以後生成也能告訴它這次要什麼。」
 
 Lumi 想增加的是模型的輸入：除了圖片，還要能看一般的 condition，例如類別或文字 prompt，記成 $c$。把乾淨圖片記成 $x_0$，訓練資料便是一組組 $(x_0,c)$；模型學的是給定描述後，圖片如何分布：
@@ -51,7 +51,7 @@ $$
 **在 training 時就把 condition 交給模型，讓它學會依描述生成，稱為「條件訓練」（conditional training）。** 它不是每換一句 prompt 就重訓：已學會文字輸入的模型，也可能組合出沒見過的描述。不過我們手上原本的模型還沒有這個輸入，需要先準備這種能力。
 </Talk>
 
-<Talk id="p-finetune" partner="mugi" study="methods" label="用喜歡的圖片，讓原本模型繼續學" next="最後聽 Nori 的提案">
+<Talk partner="mugi" pose="suggest" id="p-finetune" study="methods" label="用喜歡的圖片，讓原本模型繼續學" next="最後聽 Nori 的提案">
 > 「我們已經有會畫狗的模型了，先讓它畫一批，再挑出喜歡的紅帽狗照片。拿這些照片繼續練習，會不會就更常畫出我們喜歡的樣子？」
 
 Mugi 想改的是拿來學習的資料：保留已有的模型，用新收集的偏好圖片繼續訓練。這稱為 **「微調」（fine-tuning）**。原本模型不接收描述，這條路也不必先替它增加文字輸入。
@@ -59,7 +59,7 @@ Mugi 想改的是拿來學習的資料：保留已有的模型，用新收集的
 要求雖然在原本模型訓練完後才出現，偏好仍會透過訓練被寫進 $\theta$。下次使用的是更新後的模型。至於原本的練習保留什麼、參數怎麼更新，等一下再一起把它寫出來。
 </Talk>
 
-<Talk id="p-steering" partner="nori" study="methods" label="保留模型，請幫手參與這次生成" next="分清楚參數與生成中的圖片">
+<Talk partner="nori" pose="suggest" id="p-steering" study="methods" label="保留模型，請幫手參與這次生成" next="分清楚參數與生成中的圖片">
 > 「原本會畫狗的模型先保留。這次想要紅帽，我們另外找一個會判斷紅帽的幫手。它可以幫忙挑結果；如果也看得懂未完成的圖片，就試著在途中提醒。」
 
 Nori 想讓這次要求影響生成或挑選的計算，同時保留生成模型的參數 $\theta$。這稱為 **「生成時引導」（test-time steering）**。幫手可能有自己的準備與訓練成本，但這次沒有因此覆寫原本生成模型。
@@ -67,7 +67,7 @@ Nori 想讓這次要求影響生成或挑選的計算，同時保留生成模型
 Steering 包含途中調整與最後挑選；在每一步額外加入方向的做法，也常稱為 guidance。今天用紅帽的判斷，明天可以換另一個任務的訊號，原本的 $\theta$ 都能保留。
 </Talk>
 
-<Say id="boundary" study="methods" label="模型沒變，圖片怎麼還在變？" next="收起提案，換你來對應">
+<Say partner="nori" pose="explain" id="boundary" study="methods" label="模型沒變，圖片怎麼還在變？" next="收起提案，換你來對應">
 三位夥伴的提案都能嘗試。Lumi 讓模型學會看描述，Mugi 拿偏好圖片繼續學，Nori 則請幫手參與這次的生成或挑選。
 
 可是模型明明一直把 noise 改成圖片，為什麼 Nori 還能說「參數沒變」？因為模型裡學到的參數 $\theta$，和生成途中正在改變的圖片 $x_t$，是不同的東西。**改動這次如何生成 $x_t$，不一定要更新 $\theta$。**
@@ -75,7 +75,7 @@ Steering 包含途中調整與最後挑選；在每一步額外加入方向的�
 接著先把提案收起來。想想每位夥伴實際做了什麼，再把剛才介紹的方法名稱放到他們的名字下；卡住時，也可以再聽一次。
 </Say>
 
-<Sort id="s-names" label="誰提出哪一種做法？"
+<Sort partner="nori" pose="question" id="s-names" label="誰提出哪一種做法？"
   columns={["Lumi", "Mugi", "Nori"]} columnPartners={["lumi", "mugi", "nori"]} review="methods"
   intro="先試著回想：誰在訓練時加入描述？誰拿新圖片繼續學？誰保留模型，讓幫手參與這一次生成？"
   done="方法名稱對上了：Lumi 是條件訓練，Mugi 是微調，Nori 是生成時引導。接著比較它們在哪個階段做了什麼。">
@@ -84,7 +84,7 @@ Steering 包含途中調整與最後挑選；在每一步額外加入方向的�
 <Card col={2} context="Nori · 生成時引導（test-time steering）" hint="Nori 保留原本模型，讓這次的判斷影響生成或最後回傳的結果。">生成時引導<br />Test-time steering</Card>
 </Sort>
 
-<Sort id="s-methods" label="把三個提案的動作放回來"
+<Sort partner="nori" pose="question" id="s-methods" label="把三個提案的動作放回來"
   columns={["Lumi", "Mugi", "Nori"]} columnPartners={["lumi", "mugi", "nori"]} review="methods"
   rows={["這次要求在哪個階段加入？", "有沒有為此更新生成模型參數？", "生成時用什麼？"]}
   rowReplies={["Mugi 和 Nori 都在模型已存在後才收到要求。光比較時間還不夠，接著看參數。", "Lumi 和 Mugi 都透過訓練改變 θ。Nori 保留 θ，但仍可以增加生成與評估的計算。", "學會文字輸入、把偏好寫進參數、這次另外請幫手，是三種不同的準備與使用方式。"]}
@@ -101,7 +101,7 @@ Steering 包含途中調整與最後挑選；在每一步額外加入方向的�
 <Card col={2} row={2} context="Nori · 生成時的操作" hint="Nori 的判斷要在這次計算中使用，才能影響這次回傳的結果。">用幫手的訊號調整 sampling 或挑選結果。</Card>
 </Sort>
 
-<Choose id="c-boundary" label="現在加上這次的限制">
+<Choose partner="nori" pose="question" id="c-boundary" label="現在加上這次的限制">
 使用者希望今天試紅帽、明天試圍巾，而且**原本生成模型的參數保持不變**。三位夥伴剛才的提案，哪一個符合這次限制？
 <Option why="Lumi 的方法讓 condition 參與訓練，會改變學到的參數。這次想保留的是原本那套 θ。">Lumi：用圖片與描述，訓練模型接收文字。</Option>
 <Option why="Mugi 雖然比較晚才拿到要求，仍用偏好資料更新了原本模型。">Mugi：用挑出的紅帽圖片，讓模型繼續學。</Option>
@@ -109,20 +109,20 @@ Steering 包含途中調整與最後挑選；在每一步額外加入方向的�
   why="多做評估或調整 sampler，不一定需要更新生成模型參數。">Nori：用幫手的判斷，調整生成或回傳的圖片。</Option>
 </Choose>
 
-<Judge id="j-helper" answer={true} label="多一個幫手，原本模型仍保留嗎？" yes="仍符合" no="不符合"
+<Judge partner="nori" pose="question" id="j-helper" answer={true} label="多一個幫手，原本模型仍保留嗎？" yes="仍符合" no="不符合"
   replyYes="成立。幫手可能另外訓練過，但這次沒有更新原本生成模型的 θ，仍符合生成時引導的限制。"
   replyNo="先看被更新的是誰。多用一個網路會增加計算，只請它提供判斷，不會因此更新原本生成模型。">
 Nori 找來一個已經會判斷紅帽的網路，生成時固定兩個網路的參數，只用它的評分挑選結果。**這仍符合保留生成模型參數的 test-time steering 嗎？**
 </Judge>
 
-<Choose id="c-label" label="多看描述，答案也要換嗎？">
+<Choose partner="lumi" pose="question" id="c-label" label="多看描述，答案也要換嗎？">
 Lumi 想沿用 U1 預測 noise 的練習。從一對圖片與描述抽出 $x_0,c$，選 noise level $t$，加入已知的 noise $\epsilon$ 得到 $x_t$。網路這次多看 $c$。**原本拿來對答案的量，應該保留哪一個？**
 <Option correct reply="新增的是網路可以看的描述，答案仍是實際加入的 noise。接著把這個練習寫成 loss。" why="沿用 noise prediction 的 regression，就保留實際加入的 noise 作為 label；condition 是新增的輸入。">實際加入的 noise $\epsilon$。</Option>
 <Option why="描述是希望網路多看的資訊，不是這個 noise prediction 練習的答案。">文字或類別 $c$。</Option>
 <Option why="本來在做 noise prediction，label 是 noise。也可以另外設計預測乾淨圖片的模型，但不是這次只增加 condition 輸入的修改。">把 label 直接換成乾淨圖片 $x_0$。</Option>
 </Choose>
 
-<Talk id="p-conditional-diff" partner="lumi" label="描述加入了，原本的答案要換嗎？" next="換成 velocity 的練習呢？">
+<Talk partner="lumi" pose="explain" id="p-conditional-diff" label="描述加入了，原本的答案要換嗎？" next="換成 velocity 的練習呢？">
 > 「它原本是在練習預測 noise。我們可以保留這個練習，只讓它多看描述嗎？」
 
 可以。從一對 $(x_0,c)$ 抽出圖片與描述，選一個 noise level $t$，把已知的 noise $\epsilon$ 加進圖片，得到 $x_t$。網路現在看 $x_t,t,c$，輸出 noise prediction $\epsilon_\theta(x_t,t,c)$；拿來對答案的仍是實際加入的 $\epsilon$。
@@ -142,7 +142,7 @@ Expectation 平均訓練的圖片與描述、抽到的時間，以及加入的 n
 這裡沿用 diffusion 的時間：$t$ 越大，圖片的 noise 越多；生成則往 $t=0$ 的乾淨端走。**新增的是網路可以看的 $c$，regression label 沒有換成文字，也仍不是完成的圖片。**
 </Talk>
 
-<Talk id="p-conditional-fm" partner="lumi" label="換成預測 velocity，也能多看描述嗎？" next="檢查 label 有沒有換">
+<Talk partner="lumi" pose="explain" id="p-conditional-fm" label="換成預測 velocity，也能多看描述嗎？" next="檢查 label 有沒有換">
 若手上是 Flow Matching，原本練習預測的答案是 reference path 的 velocity。先把 noise 端點記成 $X_0$、資料端點記成 $X_1$，condition $c$ 跟著資料端點；這裡沿用它從 $t=0$ 的 source 走向 $t=1$ 的 data 的時間，和剛才 diffusion 的方向分開。
 
 例如選一條直線 reference path：
@@ -169,14 +169,14 @@ $$
 Lumi 的提案對兩種模型做了同一個修改：**保留原本的 regression label，讓網路多看 $c$。** Condition 在訓練中影響 $\theta$，這就是 conditional training。
 </Talk>
 
-<Choose id="c-fm-label" label="兩種模型，多看描述時保留什麼？">
+<Choose partner="lumi" pose="question" id="c-fm-label" label="兩種模型，多看描述時保留什麼？">
 Diffusion 的網路練習預測 noise，Flow Matching 的網路練習預測 reference velocity。**Lumi 對兩種模型做的是同一種修改嗎？**
 <Option correct reply="是的，新增 condition 輸入，保留各自原本的 regression label。Condition 會透過這個訓練影響 θ。" why="兩種網路原本預測的量不同，但都能在保留原本答案時多看 condition。">是，多看 $c$，保留各自原本的 label。</Option>
 <Option why="Flow Matching 的 label 是 reference velocity，不是 diffusion 加入的 noise；不能因為都加了 condition 就把兩個答案混在一起。">是，把兩種模型的 label 都換成 noise。</Option>
 <Option why="訓練時已知端點，才造得出 reference velocity。生成時終點尚未知，也不會因此先知道整條生成路線。">不是，Flow Matching 生成時還要直接拿到真正終點。</Option>
 </Choose>
 
-<Talk id="p-finetune-loss" partner="mugi" label="挑好的圖片，怎麼拿來繼續練習？" next="再看看參數怎麼更新">
+<Talk partner="mugi" pose="explain" id="p-finetune-loss" label="挑好的圖片，怎麼拿來繼續練習？" next="再看看參數怎麼更新">
 把 Mugi 挑出的偏好資料記成 $\mathcal D_{\mathrm{pref}}$。原本模型不接收 $c$，所以這批資料先包含乾淨圖片 $x_0^{(i)}$，不替它硬加描述。
 
 從這批圖片抽出 $x_0$，選時間 $t$、加入 noise $\epsilon$ 得到 $x_t$。我們仍比較預測的 noise 與實際加入的 noise，只是圖片換成偏好資料：
@@ -195,7 +195,7 @@ $$
 如果原本已是 conditional model，就收集 $(x_0,c)$，讓 prediction 也使用 $c$；Flow Matching 則可以沿用 velocity regression，改在偏好資料上練習。共同點是拿來更新模型的資料分布改了。
 </Talk>
 
-<Talk id="p-finetune-update" partner="mugi" label="晚收到要求，也可能更新參數" next="這個 gradient 對誰求導？">
+<Talk partner="mugi" pose="explain" id="p-finetune-update" label="晚收到要求，也可能更新參數" next="這個 gradient 對誰求導？">
 有了剛才的 loss，就可以用 gradient descent 讓模型繼續學：
 
 $$
@@ -214,14 +214,14 @@ Mugi 的要求在原本模型訓練完後才出現，但它仍透過這個更新
 其他 alignment 方法也可能使用成對比較或 reward weighting；這裡選的是可以直接算的偏好資料 regression。**判斷界線時，要看原本的 $\theta$ 有沒有更新，不能只看要求來得早或晚。**
 </Talk>
 
-<Choose id="c-update" label="Mugi 這次想改動的是誰？">
+<Choose partner="mugi" pose="question" id="c-update" label="Mugi 這次想改動的是誰？">
 剛才的更新式有 $\nabla_\theta\mathcal L_{\mathrm{align}}$。**這個 gradient 是在提供什麼的修改方向？**
 <Option correct reply="它指出模型參數的更新方向，再用負號讓 loss 降低。這次確實改了 θ，所以是微調。" why="微分的下標是 θ，對應網路裡會被學習的參數。">生成模型的參數 $\theta$。</Option>
 <Option why="這次對 θ 微分，不是對正在生成的圖片輸入微分。兩個改動對象需要分開。">只修改這次正在生成的圖片 $x_t$。</Option>
 <Option why="偏好圖片用來造訓練例子；這個更新式改的是網路參數，不是把既有照片改畫一遍。">直接修改收集好的偏好照片 $x_0^{(i)}$。</Option>
 </Choose>
 
-<Talk id="steering-direction" partner="nori" label="Nori 可以改用什麼方向？" next="換一種任務，訊號還一樣嗎？">
+<Talk partner="nori" pose="explain" id="steering-direction" label="Nori 可以改用什麼方向？" next="換一種任務，訊號還一樣嗎？">
 Mugi 的 gradient 更新了模型參數。Nori 想保留 $\theta$，改的是這次 sampler 使用的計算。例如 score-based sampler 原本使用 $s_\theta(x_t,t)$，也就是對圖片 density 取 log，再對目前圖片 $x_t$ 求 gradient 的估計。
 
 假設能取得這次要求的額外方向 $g_t(x_t)$，sampling 可以暫時使用
@@ -239,7 +239,7 @@ $$
 原本網路沒有重新學，sampler 這次改用合成的 prediction。生成圖片的 $x_t$ 仍會改變，但生成模型的 $\theta$ 可以固定。
 </Talk>
 
-<Talk id="signals" partner="nori" label="換一種要求，幫手要回答什麼？" next="換個場景試試看">
+<Talk partner="nori" pose="explain" id="signals" label="換一種要求，幫手要回答什麼？" next="換個場景試試看">
 > 「紅帽可以請幫手辨認。可是使用者給一張模糊照片、希望還原它，或只說比較喜歡某種構圖，幫手還是在回答同一個問題嗎？」
 
 這些要求提供的資訊不同。**Condition** 是希望指定的內容，例如「戴紅帽的狗」；**observation** 是這次已經取得的量測，例如要還原的模糊照片；**reward** 則是一個打分標準，告訴我們哪種結果比較符合這次偏好。
@@ -247,7 +247,7 @@ $$
 模糊照片的量測可以用來檢查生成結果是否符合觀測，評分程式可以比較不同構圖。原本模型不會自動知道這次新取得的資訊；得先讓它進入生成或挑選的計算，才有機會影響結果。
 </Talk>
 
-<Judge id="j-obstacle" answer={false} label="新障礙物，會自己進入計算嗎？" yes="會加入" no="不會加入"
+<Judge partner="nori" pose="question" id="j-obstacle" answer={false} label="新障礙物，會自己進入計算嗎？" yes="會加入" no="不會加入"
   replyYes="增加步數，會把原本的生成計算做得更細，但沒有提供箱子的位置。每一步仍只有原本收到的資訊。"
   replyNo="得先提供新場景、障礙物位置或碰撞評分，模型才有機會據此調整結果；增加步數本身沒有加入新資訊。">
 <Figure src={obstacleScene} alt="兩張倉庫圖保持相同起點、終點與藍色路線；右圖新增紅色障礙物，舊路線仍穿過它。">
@@ -257,7 +257,7 @@ $$
 路線模型訓練好時，走道還是空的；今天多了一個箱子，原本路線會撞上它。我們**沒有提供新場景，也沒有碰撞評分**，只把 sampling 步數加倍。這會把箱子的位置當成新資訊，加入生成計算嗎？
 </Judge>
 
-<Talk id="last-pick" partner="nori" label="只在最後挑，也能引導嗎？" next="先算沒有成功的情況">
+<Talk partner="nori" pose="suggest" id="last-pick" label="只在最後挑，也能引導嗎？" next="先算沒有成功的情況">
 > 「回到紅帽狗。如果幫手只會看完成的照片，那先讓模型畫好幾張，最後留分數最高的，行不行？」
 
 可以。從原本模型獨立生成 $N$ 張候選，評分後只回傳最高者，稱為 **Best-of-$N$**。候選各自的生成過程沒變，但最後挑選會改變回傳結果的 distribution，也屬於 steering。
@@ -265,13 +265,13 @@ $$
 它不需要 reward 的 gradient，也不必改模型內部。可是如果模型原本很少畫出紅帽狗，只靠最後挑，會花多少生成計算呢？
 </Talk>
 
-<Think id="t-misses" label="兩次都沒畫對，有多常發生？">
+<Think partner="nori" pose="question" id="t-misses" label="兩次都沒畫對，有多常發生？">
 假設每次從 base model 獨立生成，畫出符合要求的紅帽狗的機率是 $p$；一次沒畫對的機率就是 $1-p$。
 
 現在生成兩張。**兩張都沒畫對的機率是多少？** 接著試著推到 $N$ 張：先算全部失敗，再用 $1$ 減掉它，就能得到至少成功一次的機率。
 </Think>
 
-<Reveal id="best-of-n" label="候選變多，成功率與花費都變了" next="比較兩種用法">
+<Reveal partner="nori" pose="explain" id="best-of-n" label="候選變多，成功率與花費都變了" next="比較兩種用法">
 獨立生成讓「每次都沒成功」的機率相乘，所以 $N$ 張都失敗是 $(1-p)^N$；至少命中一次則是它的補事件：
 
 $$
@@ -292,7 +292,7 @@ $$
 當 $p$ 很小，$\log(1-p)\approx-p$，所需的 $N$ 就和 $1/p$ 同一個量級。成功比較容易，代價是多生成完整候選；幫手只在結尾評分，還沒替那些差一點成功的圖片在途中修正方向。
 </Reveal>
 
-<Choose id="c-pick-or-learn" label="同樣先挑圖片，後面做了什麼？">
+<Choose partner="mugi" pose="question" id="c-pick-or-learn" label="同樣先挑圖片，後面做了什麼？">
 Mugi 和 Nori 都可能先生成一批紅帽狗照片。**哪個操作，才是這次保留原本參數的最後挑選？**
 <Option correct reply="挑選改變這次回傳哪張，沒有把偏好寫進 θ。若拿挑出的圖片繼續更新 θ，就回到 Mugi 的微調。"
   why="同樣有挑圖片這個動作，要看挑完是直接回傳，還是拿它們更新模型。">Nori 只回傳這批候選中分數最高的圖片。</Option>
@@ -300,7 +300,7 @@ Mugi 和 Nori 都可能先生成一批紅帽狗照片。**哪個操作，才是�
 <Option why="獨立生成更多候選增加的是生成與評估的成本，本身不是模型參數更新。">只要候選多於一張，就已經更新模型參數。</Option>
 </Choose>
 
-<Choose id="c-quality" label="幫手喜歡，圖片就一定好嗎？">
+<Choose partner="lumi" pose="question" id="c-quality" label="幫手喜歡，圖片就一定好嗎？">
 紅帽評分程式很喜歡一大片紅色：一張不像狗的紅色圖案也拿到高分；另一批結果都是同一隻狗、同一個姿勢。**只看平均 reward 變高，夠判斷 steering 的效果嗎？**
 <Option correct reply="還要看結果是否像合理資料，以及是否保留不同的答案。讓評分程式滿意，不自動等於滿足使用者的完整需求。"
   why="高分可以和不合理的圖片、過度集中同時發生。需要一起看 data fidelity 與 diversity。">不夠，要一起看圖片是否合理，以及結果的多樣性。</Option>
@@ -308,7 +308,7 @@ Mugi 和 Nori 都可能先生成一批紅帽狗照片。**哪個操作，才是�
 <Option why="每次同一張即使看起來合理，也沒有保留使用者可能想要的不同結果。">只要有一張合理的高分圖，重複回傳它就夠了。</Option>
 </Choose>
 
-<Say id="bridge" label="能不能在途中就提醒？" next="接著看看未完成的圖片">
+<Say partner="nori" pose="explain" id="bridge" label="能不能在途中就提醒？" next="接著看看未完成的圖片">
 現在我們能分清三位夥伴的提案：訓練時學會使用描述、拿新資料微調，或保留參數、用這次訊號引導生成與挑選。要求來得晚，仍然來得及加入；關鍵是它透過哪個計算影響結果。
 
 最後挑選可行，但目標很少見時要多生成許多候選，也沒幫差一點成功的圖片途中改方向。**能不能在圖片還只有模糊輪廓時，就判斷它有沒有朝紅帽或柯基的要求前進？** 接著要檢查幫手能看什麼、方向怎麼取得。

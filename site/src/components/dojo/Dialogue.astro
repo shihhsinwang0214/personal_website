@@ -388,7 +388,16 @@ const t = lang === 'zh'
       if (b.classList.contains('is-correct')) return !!b.dataset.why;
       return !!(b.dataset.why || (b.dataset.goto && byId.has(b.dataset.goto)) || b.dataset.replyOther);
     }
-    function stamp(node: Node, text: string) { node.dataset.stamp = text; node.classList.add('is-answered'); }
+    function partnerPose(node: Node, pose: 'question' | 'explain') {
+      const partner = node.querySelector<HTMLElement>(':scope > .dojo-partner[data-partner-reactive]');
+      if (!partner || partner.dataset.partnerPose === pose) return;
+      const source = partner.querySelector<HTMLTemplateElement>(`template[data-partner-art-pose="${pose}"]`);
+      const art = partner.querySelector<HTMLElement>('[data-partner-art]');
+      if (!source || !art) return;
+      art.replaceChildren(source.content.cloneNode(true));
+      partner.dataset.partnerPose = pose;
+    }
+    function stamp(node: Node, text: string) { node.dataset.stamp = text; node.classList.add('is-answered'); partnerPose(node, 'explain'); }
 
     function prepareReviews(node: Node) {
       node.querySelectorAll<HTMLDetailsElement>('[data-study-review]').forEach((review) => {
@@ -640,6 +649,7 @@ const t = lang === 'zh'
         slots.forEach((s) => s.classList.remove('is-target', 'is-over'));
       }
       function displayRow() {
+        partnerPose(node, allDone ? 'explain' : 'question');
         node.classList.toggle('is-complete', allDone);
         cards.forEach((c) => { c.hidden = !allDone && rows.length > 0 && c.dataset.row !== String(activeRow); });
         [...slots, ...rowHeads].forEach((s) => { s.hidden = !allDone && rows.length > 0 && s.dataset.row !== String(activeRow); });
@@ -673,6 +683,7 @@ const t = lang === 'zh'
           }
           // A finished row stays until the reader asks for the next one.
           fb.textContent = rowReplies[activeRow] || t.rowDone; fb.className = 'dojo-feedback ok';
+          partnerPose(node, 'explain');
           const btn = actions(node, t.nextRow, () => {
             activeRow++;
             displayRow();

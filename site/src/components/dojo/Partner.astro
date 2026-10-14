@@ -1,31 +1,51 @@
 ---
-import { dojoPartners, type DojoPartnerId } from '../../lib/dojoPartners';
-import { withBase } from '../../lib/url';
+import { Image } from 'astro:assets';
+import { dojoPartners, type DojoPartnerId, type DojoPartnerPose } from '../../lib/dojoPartners';
 
-interface Props { partner: DojoPartnerId; compact?: boolean }
-const { partner, compact = false } = Astro.props;
+interface Props { partner: DojoPartnerId; pose?: DojoPartnerPose; compact?: boolean; reactive?: boolean }
+const { partner, pose = 'welcome', compact = false, reactive = false } = Astro.props;
 const person = dojoPartners[partner];
+const size = compact ? 72 : 160;
+const widths = compact ? [72, 144] : [160, 320];
+const sizes = compact ? '72px' : '(max-width: 600px) 96px, 144px';
 ---
 
-<div class:list={['dojo-partner', { 'is-compact': compact }]} data-partner={partner}>
-  <span class="dojo-partner-avatar" aria-hidden="true">
-    {person.avatar ? <img src={withBase(person.avatar)} alt="" width="56" height="56" /> : person.initial}
+<div class:list={['dojo-partner', { 'is-compact': compact }]} data-partner={partner} data-partner-pose={pose} data-partner-reactive={reactive ? 'true' : undefined}>
+  <span class="dojo-partner-art" data-partner-art aria-hidden="true">
+    <Image src={person.poses[pose]} alt="" width={size} height={size} widths={widths} sizes={sizes} format="webp" quality={85} loading="lazy" decoding="async" />
   </span>
   <div class="dojo-partner-identity">
     <strong class="dojo-partner-name">{person.name}</strong>
     {!compact && <span class="dojo-partner-description">{person.description}</span>}
   </div>
+  {reactive && ['question', 'explain'].map((state) => (
+    <template data-partner-art-pose={state}>
+      <Image src={person.poses[state as DojoPartnerPose]} alt="" width={size} height={size} widths={widths} sizes={sizes} format="webp" quality={85} loading="lazy" decoding="async" />
+    </template>
+  ))}
 </div>
 
 <style is:global>
-  .dojo .dojo-partner { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; }
-  .dojo .dojo-partner-avatar { flex: none; display: grid; place-items: center; width: 56px; height: 56px; overflow: hidden; border: 1px solid var(--border); border-radius: 50%; background: var(--surface-2); color: var(--accent); font: 700 1.2rem var(--font-mono); }
-  .dojo .dojo-partner-avatar img { width: 100%; height: 100%; object-fit: contain; }
-  .dojo .dojo-partner-identity { min-width: 0; display: grid; gap: 3px; }
-  .dojo .dojo-partner-name { line-height: 1.35; }
-  .dojo .dojo-partner-description { font-size: .82rem; color: var(--text-muted); line-height: 1.5; }
-  .dojo .dojo-partner.is-compact { flex-direction: column; gap: 6px; margin: 0; }
-  .dojo .dojo-partner.is-compact .dojo-partner-avatar { width: 34px; height: 34px; font-size: .9rem; }
+  .dojo .dojo-partner { display: grid; grid-template-columns: 144px minmax(0, 1fr); align-items: center; gap: 20px; margin: 8px 0 20px; }
+  .dojo .dojo-partner-art { display: block; width: 144px; height: 144px; }
+  .dojo .dojo-partner-art img { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .dojo .dojo-partner-identity { min-width: 0; display: grid; gap: 6px; }
+  .dojo .dojo-partner-name { line-height: 1.35; font-size: 1.12rem; }
+  .dojo .dojo-partner-description { font-size: .86rem; color: var(--text-muted); line-height: 1.6; }
+  .dojo .dojo-partner.is-compact { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 6px; margin: 0; }
+  .dojo .dojo-partner.is-compact .dojo-partner-art { width: 64px; height: 64px; max-width: 100%; }
+  .dojo .dojo-partner.is-compact .dojo-partner-name { font-size: .9rem; }
   .dojo .dojo-talk blockquote { margin: 0 0 16px; padding: 10px 14px; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); border-radius: 0 8px 8px 0; }
   .dojo .dojo-talk blockquote p { margin: 0; }
+  @media (max-width: 600px) {
+    .dojo .dojo-partner { grid-template-columns: 96px minmax(0, 1fr); gap: 12px; }
+    .dojo .dojo-partner-art { width: 96px; height: 96px; }
+    .dojo .dojo-partner-name { font-size: 1rem; }
+    .dojo .dojo-partner-description { font-size: .8rem; }
+    .dojo .dojo-partner.is-compact { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .dojo .dojo-partner-art img { animation: dojo-partner-arrive .18s ease-out both; }
+  }
+  @keyframes dojo-partner-arrive { from { opacity: .4; } to { opacity: 1; } }
 </style>

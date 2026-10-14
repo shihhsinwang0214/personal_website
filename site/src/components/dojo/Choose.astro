@@ -11,12 +11,16 @@
  *   </Choose>
  */
 import Review from './Review.astro';
-interface Props { id: string; label?: string; shuffle?: boolean; review?: string }
-const { id, label = '你會怎麼做？', shuffle = true, review } = Astro.props;
+import Partner from './Partner.astro';
+import type { DojoPartnerId, DojoPartnerPose } from '../../lib/dojoPartners';
+
+interface Props { pose?: DojoPartnerPose; partner?: DojoPartnerId;  id: string; label?: string; shuffle?: boolean; review?: string }
+const { pose = 'question', partner, id, label = '你會怎麼做？', shuffle = true, review } = Astro.props;
 ---
 
 <div class="dojo-node dojo-choose" data-node data-kind="choose" id={id} data-shuffle={shuffle ? 'true' : 'false'}>
   <span class="dojo-tag">{label}</span>
+  {partner && <Partner partner={partner} pose={pose} reactive={pose === 'question'} />}
   {review && <Review group={review} />}
   <div class="dojo-body dojo-choose-body"><slot /></div>
   <p class="dojo-feedback" role="status" aria-live="polite"></p>

@@ -7,12 +7,16 @@
  *   只要 $\theta$ 被更新，就還算 test-time steering。
  *   </Judge>
  */
-interface Props { id: string; answer: boolean; label?: string; yes?: string; no?: string; replyYes?: string; replyNo?: string; goto?: string }
-const { id, answer, label = '成立嗎？', yes = '成立', no = '不成立', replyYes, replyNo, goto } = Astro.props;
+import Partner from './Partner.astro';
+import type { DojoPartnerId, DojoPartnerPose } from '../../lib/dojoPartners';
+
+interface Props { pose?: DojoPartnerPose; partner?: DojoPartnerId;  id: string; answer: boolean; label?: string; yes?: string; no?: string; replyYes?: string; replyNo?: string; goto?: string }
+const { pose = 'question', partner, id, answer, label = '成立嗎？', yes = '成立', no = '不成立', replyYes, replyNo, goto } = Astro.props;
 ---
 
 <div class="dojo-node dojo-judge" data-node data-kind="judge" id={id} data-answer={answer ? 'true' : 'false'} data-reply-yes={replyYes} data-reply-no={replyNo} data-goto={goto}>
   <span class="dojo-tag">{label}</span>
+  {partner && <Partner partner={partner} pose={pose} reactive={pose === 'question'} />}
   <div class="dojo-body"><slot /></div>
   <div class="dojo-judge-btns">
     <button type="button" class="dojo-opt dojo-judge-btn" data-value="true"><span class="dojo-mark" aria-hidden="true"></span><span class="dojo-opt-text">{yes}</span></button>

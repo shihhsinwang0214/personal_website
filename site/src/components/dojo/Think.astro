@@ -6,12 +6,16 @@
  *   <Think id="t1">一次抽很多個樣本，最後只留分數最高的，這樣還需要改 sampling 嗎？</Think>
  */
 import Review from './Review.astro';
-interface Props { id?: string; label?: string; placeholder?: string; next?: string; review?: string }
-const { id, label = '先自己想一下', placeholder = '可以寫下你的猜測和理由，也可以先在心裡想。', next = '一起對照看看', review } = Astro.props;
+import Partner from './Partner.astro';
+import type { DojoPartnerId, DojoPartnerPose } from '../../lib/dojoPartners';
+
+interface Props { pose?: DojoPartnerPose; partner?: DojoPartnerId;  id?: string; label?: string; placeholder?: string; next?: string; review?: string }
+const { pose = 'question', partner, id, label = '先自己想一下', placeholder = '可以寫下你的猜測和理由，也可以先在心裡想。', next = '一起對照看看', review } = Astro.props;
 ---
 
 <div class="dojo-node dojo-think" data-node data-kind="think" id={id} data-next={next}>
   <span class="dojo-tag">{label}</span>
+  {partner && <Partner partner={partner} pose={pose} reactive={pose === 'question'} />}
   {review && <Review group={review} />}
   <div class="dojo-body"><slot /></div>
   <textarea class="dojo-think-box" rows="3" placeholder={placeholder} aria-label={label}></textarea>

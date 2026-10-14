@@ -17,14 +17,15 @@
  */
 import Partner from './Partner.astro';
 import Review from './Review.astro';
-import type { DojoPartnerId } from '../../lib/dojoPartners';
+import type { DojoPartnerId, DojoPartnerPose } from '../../lib/dojoPartners';
 
-interface Props { id: string; columns: string[]; columnPartners?: DojoPartnerId[]; rows?: string[]; rowReplies?: string[]; done?: string; label?: string; intro?: string; review?: string }
-const { id, columns, columnPartners, rows, rowReplies = [], done, label = '把卡片放回表格', intro, review } = Astro.props;
+interface Props { pose?: DojoPartnerPose; partner?: DojoPartnerId;  id: string; columns: string[]; columnPartners?: DojoPartnerId[]; rows?: string[]; rowReplies?: string[]; done?: string; label?: string; intro?: string; review?: string }
+const { pose = 'question', partner, id, columns, columnPartners, rows, rowReplies = [], done, label = '把卡片放回表格', intro, review } = Astro.props;
 ---
 
 <div class="dojo-node dojo-sort" data-node data-kind="sort" id={id} data-columns={JSON.stringify(columns)} data-rows={rows ? JSON.stringify(rows) : undefined} data-row-replies={JSON.stringify(rowReplies)} data-done={done}>
   <span class="dojo-tag">{label}</span>
+  {partner && <Partner partner={partner} pose={pose} reactive={pose === 'question'} />}
   {review && <Review group={review} />}
   {intro && <div class="dojo-body"><p>{intro}</p></div>}
   {columnPartners?.map((partner, index) => <template data-column-partner={index}><Partner partner={partner} compact /></template>)}

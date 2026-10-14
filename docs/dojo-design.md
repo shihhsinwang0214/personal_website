@@ -14,7 +14,11 @@
 - Nori：戴 orca 帽的北極熊，是作者的 mini。
 - Lumi：有翅膀的鹿；Mugi：有柴犬臉的柯基。兩個名字目前是暫名。
 - 角色不固定代表某種方法，也沒有永遠正確的一位。角色提出的想法能保留合理動機，再由讀者檢查缺口。
-- 角色定義在 `site/src/lib/dojoPartners.ts`，`avatar` 預留之後的 Q 版圖片。現在用姓名、動物描述與字母頭像辨識，不以新圖取代已核准教學圖。
+- 角色定義在 `site/src/lib/dojoPartners.ts`。2026-10-14 使用者核准帶服裝與探索道具的 Q 版形象，並要求製作動作後加入秘境。三位各有 welcome／suggest／explain／question 四種去背姿勢，原始 PNG 保存在 `site/src/assets/dojo/partners/`，生成規格見 `docs/dojo-partner-assets.json`。Astro 產生適合顯示尺寸的 WebP 與 srcset，不以角色道具取代已核准教學圖或數學示意。
+
+姿勢跟著當下的任務：提案用 suggest、提問用 question、推導與整理用 explain、首頁與情境入口用 welcome。`Say`／`Talk`／`Reveal` 可用 `partner`、`pose` 指定；`Choose`／`Judge`／`Think`／`Sort` 的提問角色在對照完成後換成 explain，逐列表格讀整理時也是 explain、進下一列換回 question。角色不因答錯變成責備或失望的表情，不加入分數或勝負效果。
+
+圖片切換只重建該角色的裝飾性 img，不改題目狀態、焦點、閱讀步數或儲存資料。續讀用既有完成狀態還原姿勢；停用 JavaScript 仍能讀全部內容。正常對話顯示完整去背角色，分類標頭縮小；文字與公式保留原本寬度，手機版不讓角色浮在公式旁擠壓推導。插圖的淡入尊重 prefers-reduced-motion。
 
 元件契約：`<Talk partner="nori" study="group">` 沿用 Say 主線；`Say` 也可帶 `study`。`Choose`、`Think`、`Sort` 的 `review="group"` 在顯示時收起同組已讀提案，建立不含節點 ID、按鈕或輸入欄的唯讀複本。重看不改進度；續讀也會重建回顧並收起原提案；無 JavaScript 時原文仍全部可讀。`Reveal partner` 可讓夥伴接著整理公式，`Sort columnPartners` 可用名字作分類標頭。`Extra` 是頁內的原生 details，不增加閱讀步數。
 
