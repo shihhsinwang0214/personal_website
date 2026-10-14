@@ -10,7 +10,7 @@ title: "既要像資料，又要 reward 高：我們真正想抽哪個 distribut
 category: "courses"
 group: "Unit 7 · Test-time Guidance"
 status: "available"
-updated: 2026-10-13
+updated: 2026-10-14
 summary: "同時考慮 reward、log density 與保留多種答案的需求，會得到 p_R(x_0)∝p_data(x_0)e^{λR(x_0)}。但 noisy state 上需要先對所有可能的乾淨結果平均 reward 權重；常見 plug-in guidance 正是在近似這個 posterior average。"
 demos: []
 references:
@@ -22,6 +22,8 @@ references:
     href: "https://arxiv.org/abs/2606.02884"
   - label: "Ouyang et al., Training Language Models to Follow Instructions with Human Feedback (NeurIPS 2022)"
     href: "https://arxiv.org/abs/2203.02155"
+  - label: "Chung et al., Diffusion Posterior Sampling for General Noisy Inverse Problems (ICLR 2023; preprint 2022)"
+    href: "https://arxiv.org/abs/2209.14687"
 ---
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
@@ -383,7 +385,7 @@ $$
 
 $$
 \frac{q(x_t\mid x_0)p_{\mathrm{data}}(x_0)}{p_t(x_t)}
-=p(x_0\mid x_t).
+=p(x_0\mid x_t).\tag{2}
 $$
 
 $p(x_0\mid x_t)$ 的意思是：**看到目前的 noisy state $x_t$ 後，原本可能來自哪些乾淨資料 $x_0$，以及各個來源有多可能。** 這是對乾淨來源的 conditional density，也叫 **posterior density**。
@@ -410,13 +412,13 @@ p_t^R(x_t)
 p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}\,\mathrm dx_0.
 $$
 
-利用 Bayes rule，再把不隨 $x_0$ 改變的 $p_t(x_t)$ 提到積分外，就能接上 $h_t$ 的定義：
+利用式（2）的 Bayes rule，再把不隨 $x_0$ 改變的 $p_t(x_t)$ 提到積分外，就能接上 $h_t$ 的定義：
 
 $$
 p_t^R(x_t)=\frac{p_t(x_t)}{Z_R}\int e^{\lambda R(x_0)}p(x_0\mid x_t)\,\mathrm dx_0=\frac{p_t(x_t)h_t(x_t)}{Z_R}.
 $$
 
-$h_t$ 大，表示目前這個 noisy state 相容的乾淨結果，在 reward 加權後整體較有份量。**先平均 reward，再取 exponential，一般不等於直接平均 $e^{\lambda R(x_0)}$。** 現在像 U7.1 一樣取 log、對 $x_t$ 微分；$Z_R$ 不隨 $x_t$ 改變，所以
+現在像 U7.1 一樣取 log、對 $x_t$ 微分；因為 $Z_R$ 不隨 $x_t$ 改變，所以我們得到：
 
 $$
 \boxed{
@@ -425,44 +427,97 @@ $$
 }.
 $$
 
-這裡真正需要的 guidance 不是 $\nabla R(x_t)$，而是 **posterior 平均權重 $h_t$ 的 log-gradient**：稍微改動目前的 $x_t$，哪個方向能讓它相容的高 reward 結果整體更有份量？
+也就是說，我們可以在原本 pretrained model 估計的 score function 上，加上 $\nabla_{x_t}\log h_t(x_t)$ 來影響原本的生成軌跡，steer samples 往 target distribution $p_R$ 的方向走。
 
 ![Reward 重加權乾淨端的 density，noisy state 的 guidance 則來自 reward 權重的 posterior average](./imgs/w10-3-reward-tilting.png)
 
 *圖：reward 重加權乾淨端的機率；在 noisy state 上，$h_t$ 先對所有可能來源的 $e^{\lambda R}$ 取 posterior average。枝線表示後驗可能性，不是生成軌跡。*
 
 <Remark label="補充" summary="Exact tilted sampling 還需要匹配起始的 noisy distribution">
-和 U7.1 一樣，精確方向還需要配合正確的起始 distribution。剛才的推導在 $t=T$ 也成立：
+和 U7.1 一樣，精確方向還需要配合正確的起始 distribution。Sampling 從 $t=T$ 往回走；要走過目標的 $p_t^R$，起點也得從 $p_T^R$ 抽，而不一定是原本的 $p_T$。剛才的推導在 $t=T$ 也成立：
 
 $$
 p_T^R(x_T)=\frac{p_T(x_T)h_T(x_T)}{Z_R}.
 $$
 
-若 forward process 已完全忘掉 $x_0$，$x_T$ 與乾淨資料獨立，則 $h_T=\mathbb E[e^{\lambda R(x_0)}]=Z_R$，起點才仍是原本的 $p_T$。有限的 noise level 未必做到這件事；直接沿用原 Gaussian 起點，也可能是另一個 approximation，而不只是 guidance 的估計問題。
+想像不管原圖是貓、狗，還是其他內容，加噪到 $t=T$ 後都服從同一個 noise distribution。這就是 forward process「完全忘掉 $x_0$」：$q(x_T\mid x_0)=p_T(x_T)$，不再依賴原圖，$x_T$ 與 $x_0$ 也就獨立了。
+
+因此，看到 $x_T$ 不會再提供原圖的線索。代入式（2）的 Bayes rule，分子與分母的 $p_T(x_T)$ 抵消，posterior 就回到原本的 data density：
+
+$$
+p(x_0\mid x_T)=p_{\mathrm{data}}(x_0).
+$$
+
+這時 $h_T$ 的 posterior 平均，就變成對原本整個 data distribution 的平均。用剛才的 posterior 代入 $h_T$ 的定義：
+
+$$
+\begin{aligned}
+&h_T(x_T)\\
+&=\int e^{\lambda R(x_0)}p_{\mathrm{data}}(x_0)\,\mathrm dx_0\\
+&=Z_R.
+\end{aligned}
+$$
+
+最後一行正好是前面 $Z_R$ 的定義。把它代回起點的 density，兩個 $Z_R$ 就會相消：
+
+$$
+p_T^R(x_T)=\frac{p_T(x_T)Z_R}{Z_R}=p_T(x_T).
+$$
+
+在這個條件下，我們就可以沿用原本的 $p_T$ 作為生成起點。但有限的 noise level 可能仍留著原圖的些許訊息；**看起來像 Gaussian noise，不等於已經和 $x_0$ 獨立。** 此時 $h_T(x_T)$ 不一定等於 $Z_R$，$p_T^R$ 也就不一定和 $p_T$ 相同。
+
+所以，直接沿用原 Gaussian 起點，也可能有起始 distribution 的 approximation。**這和 guidance 的估計誤差是兩件事：一個是起點的 distribution 沒對上，一個是途中使用的方向沒估準。**
 </Remark>
 
 ## 實作上的近似，近似的是哪一項？
 
-$h_t$ 要積分所有可能的 $x_0$，通常無法直接算。比較容易的做法，是先沿用 U1 的 denoiser，估計目前圖片去噪後會是什麼：
+回顧一下，$h_t(x_t)$ 是固定目前的 noisy state $x_t$，把所有可能的乾淨來源 $x_0$ 所對應的 reward 權重 $e^{\lambda R(x_0)}$，按照 posterior $p(x_0\mid x_t)$ 取平均。因此，要算出它，就得對這些 $x_0$ 進行積分：
+
+$$
+\begin{aligned}
+h_t(x_t)
+&=\mathbb E\!\left[e^{\lambda R(x_0)}\mid x_t\right]\\
+&=\int e^{\lambda R(x_0)}p(x_0\mid x_t)\,\mathrm dx_0.
+\end{aligned}
+$$
+
+但我們不知道完整的 $p_{\mathrm{data}}(x_0)$，也就沒有一份可直接代入積分的完整 posterior $p(x_0\mid x_t)$。Pretrained model 雖然能估計 score 或 noise，卻不直接給出這個 posterior；這個平均通常還是算不出來。
+
+**既然精確地算出 $h_t(x_t)$ 很困難，有沒有可以近似的方法呢？**
+
+我們可以先試著替目前的 $x_t$ 找一個乾淨結果的估計，再用它來評估 reward。還記得 <Ref to="dma-tweedie-and-score"/> 的 **Tweedie formula** 嗎？只要 signal 尚未完全消失（$\bar\alpha_t>0$），它就讓我們不必跑完整條 reverse process，而能從 $x_t$ 與理想 score $s_t(x_t)$ 直接得到乾淨端的 posterior mean：
+
+$$
+\mathbb E[x_0\mid x_t]
+=\frac{x_t+\sigma_t^2s_t(x_t)}{\sqrt{\bar\alpha_t}}.
+$$
+
+把理想 score 換成 pretrained model 的估計 $s_t(x_t)\approx-\epsilon_\theta(x_t,t)/\sigma_t$，就得到
 
 $$
 \hat x_0(x_t,t)
 =\frac{x_t-\sigma_t\epsilon_\theta(x_t,t)}{\sqrt{\bar\alpha_t}}.
 $$
 
-分子先扣掉預測 noise，分母再還原 signal amplitude；理想上它是 $\mathbb E[x_0\mid x_t]$。Bansal 等人的 Universal Guidance [1] 在 denoised prediction 上評估可微的要求，使用這類 plug-in 方向。用正文的 reward 語言寫，就是先近似
+分子先扣掉預測 noise，分母再還原 signal amplitude。
+
+有了這個估計，我們可以先用單一的 $\hat x_0$ 代表所有可能的乾淨結果，交給 reward function 評分。這就把原本的 posterior 平均 $h_t(x_t)$ 用 $e^{\lambda R(\hat x_0(x_t,t))}$ 來近似：
 
 $$
 h_t(x_t)
 \approx e^{\lambda R(\hat x_0(x_t,t))}.
 $$
 
-取 log-gradient 後，guidance 變成
+這類先估計 $\hat x_0$，再把它代入 reward 權重的做法，被叫做一種 **plug-in estimation（代入估計）**，也可以稱為 **plug-in approximation**。這個近似手法在 test-time guidance 的研究中很常見 [1, 5]。
+
+取 log-gradient 後，我們得到 guidance term 的近似：
 
 $$
 \nabla_{x_t}\log h_t(x_t)
 \approx\lambda\nabla_{x_t}R(\hat x_0(x_t,t)),
 $$
+
+這個近似方法在 Bansal 等人的論文 [1] 中被稱為 **forward universal guidance**。
 
 這是在問：「稍微改動 $x_t$，它的去噪結果會怎麼變，reward 又會怎麼變？」Chain rule 把這兩個變化接起來：
 
@@ -474,14 +529,17 @@ $$
 
 右邊先算乾淨結果的 reward gradient，再用 $\partial\hat x_0/\partial x_t$ 這個 Jacobian——各個輸入座標改動對去噪結果的影響——換回 noisy image 的方向。這裡會對固定網路的輸入微分，並不更新 $\theta$。
 
-但它不是 exact tilt，因為一般來說
+雖然這個方法提供了一個近似，但它不保證得到 exact tilt，因為一般來說
 
 $$
-\mathbb E\!\left[e^{\lambda R(x_0)}\mid x_t\right]
-\neq e^{\lambda R(\mathbb E[x_0\mid x_t])}.
+\begin{aligned}
+h_t(x_t)
+&=\mathbb E\!\left[e^{\lambda R(x_0)}\mid x_t\right]\\
+&\neq e^{\lambda R(\mathbb E[x_0\mid x_t])}.
+\end{aligned}
 $$
 
-左邊先替每個可能結果算權重，再平均；右邊先把結果平均成一張圖，再算權重。就像兩張可能的清楚照片，平均後可能是一張模糊照片；替這張平均圖片算出的 reward 權重，不等於替兩張清楚照片各自算權重後的平均。**近似省掉的是 posterior 的不確定性，不只是少算一個常數。**
+而用這個近似算出的 log-gradient，也不保證與 $\nabla_{x_t}\log h_t(x_t)$ 相同。近期有一些研究試圖處理這個差距，我們把它們整理成下面的補充，有興趣的讀者可以參考一下。
 
 <Remark label="補充" summary="近期研究如何處理實作 guidance 與精確 target 的差距？">
 Geyfman 等人 [2] 分析常見 guidance 的 posterior 偏差，提出在其理論條件下與目標 posterior 一致的替代估計。Dandapanthula 與 Boffi [3] 則在 Gaussian／mixture 的例子中，分開分析 mode selection 與 mode 內的過度最佳化，並研究 reward damping schedule。
@@ -529,7 +587,8 @@ $Z_R$ 原本就會在 score 中消失。plug-in approximation 真正省掉的是
 
 ## 參考文獻
 
-1. Bansal, A. et al. [*Universal Guidance for Diffusion Models.*](https://arxiv.org/abs/2302.07121) 2023.（對 denoised prediction 使用任意 differentiable guidance。）
+1. Bansal, A. et al. [*Universal Guidance for Diffusion Models.*](https://arxiv.org/abs/2302.07121) 2023, §3.1, Eq. (6).（對 denoised prediction 使用可微 guidance，原文稱為 forward universal guidance，並引用更早的 DPS。）
 2. Geyfman, D. et al. [*Calibrated Test-Time Guidance for Bayesian Inference.*](https://proceedings.mlr.press/v306/geyfman26a.html) ICML 2026.（常見 guidance 與 calibrated posterior sampling 的差異。）
 3. Dandapanthula, S., Boffi, N. M. [*Are We Really Tilting? The Mechanics of Reward Guidance in Flow and Diffusion Models.*](https://arxiv.org/abs/2606.02884) 2026.（有限 particle plug-in 對 mode selection 與 reward hacking 的分析。）
 4. Ouyang, L. et al. [*Training Language Models to Follow Instructions with Human Feedback.*](https://arxiv.org/abs/2203.02155) NeurIPS 2022, §3.5, Eq. (2).（RLHF 的 reward 與 KL 部分；PPO-ptx 另包含預訓練資料項。）
+5. Chung, H. et al. [*Diffusion Posterior Sampling for General Noisy Inverse Problems.*](https://arxiv.org/abs/2209.14687) ICLR 2023, §3.1.（Preprint 首次公開於 2022-09-29；使用 Tweedie 的 posterior mean 近似 measurement likelihood。）
