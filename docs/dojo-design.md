@@ -5,6 +5,19 @@
 同一個問題，換讀者試著往下推，再一起對照理由。
 這一頁是給之後維護練功房的人（含 agent）看的規則。目前已有 U7.0–U7.2 的連續練習；分工與圖片規格見 `docs/dojo-u7-sequence.md`。
 
+## 2026-10-14：獨立學習與學習夥伴
+
+使用者要求：不先看筆記，也能在知識秘境學到來源單元的知識。必要定義、數學角色、訓練前提、推導與限制須在秘境內說清楚。延伸內容可以放可展開的 `<Extra>`，但必須直接寫在頁內，不能只用來源連結代替；筆記仍是連續閱讀版。這個要求取代下文早期版本將完整 losses、Best-of-N 成功率或相關延伸全部移出秘境的決定。
+
+先讓有名字的夥伴在具體情境裡提出做法，操作講清楚後才帶出方法名稱。讀完一組提案，進入選擇／分類／思考時收起原提案，讓讀者先回想；保留「再聽一次夥伴的提案」，允許重新對照，沒有懲罰、限次或分數。不要為了湊三位角色而發明第三種方法。
+
+- Nori：戴 orca 帽的北極熊，是作者的 mini。
+- Lumi：有翅膀的鹿；Mugi：有柴犬臉的柯基。兩個名字目前是暫名。
+- 角色不固定代表某種方法，也沒有永遠正確的一位。角色提出的想法能保留合理動機，再由讀者檢查缺口。
+- 角色定義在 `site/src/lib/dojoPartners.ts`，`avatar` 預留之後的 Q 版圖片。現在用姓名、動物描述與字母頭像辨識，不以新圖取代已核准教學圖。
+
+元件契約：`<Talk partner="nori" study="group">` 沿用 Say 主線；`Say` 也可帶 `study`。`Choose`、`Think`、`Sort` 的 `review="group"` 在顯示時收起同組已讀提案，建立不含節點 ID、按鈕或輸入欄的唯讀複本。重看不改進度；續讀也會重建回顧並收起原提案；無 JavaScript 時原文仍全部可讀。`Reveal partner` 可讓夥伴接著整理公式，`Sort columnPartners` 可用名字作分類標頭。`Extra` 是頁內的原生 details，不增加閱讀步數。
+
 **定位（2026-10-13 確定）：練功房是第一次學這個單元的預設入口。** 筆記的內容在這裡一段段浮現，
 在關鍵推理前，讀者先想、先選、先判斷；情境與必要解釋仍直接提供。技能書（筆記）是同一單元的連續閱讀版，給想一口氣讀完或回頭查的人。
 
@@ -54,7 +67,7 @@ JavaScript 關掉時所有節點直接顯示，整頁仍是一篇可讀的短文
 
 ## 一套腳本 = 一篇筆記的問題鏈
 
-腳本**不是筆記的壓縮版**。它把問題鏈改成讀者可以參與的第一次閱讀：情境 → 先想一個做法 → 對照理由與需要的條件 → 參與關鍵推導 → 換個情境再試一次。理解下一步所需的符號、公式與推理必須在主線或必讀探索中出現；技能書提供連續閱讀、完整延伸與查閱，結尾一定連回去。
+腳本**不是筆記的壓縮版**。它把問題鏈改成讀者可以參與的第一次閱讀：情境 → 先想一個做法 → 對照理由與需要的條件 → 參與關鍵推導 → 換個情境再試一次。理解下一步所需的符號、公式與推理必須在主線或必讀探索中出現；其餘來源延伸在頁內提供完整補充，技能書提供連續閱讀與查閱，結尾一定連回去。
 
 每個錯誤選項都必須對應真實的誤解，並且寫成岔路（`<Say detour back="…">`）或可重看的理由（`why`）。`reply` 可補作答當下的回應，但不能單獨代替錯誤選項的教材；只有 `reply` 的錯誤選項會鎖住。沒有理由可寫的錯誤選項，通常代表這題不值得問。
 
@@ -64,8 +77,10 @@ JavaScript 關掉時所有節點直接顯示，整頁仍是一篇可讀的短文
 site/src/content/dojo/<slug>.<lang>.mdx       腳本（collection `dojo`，schema 在 content.config.ts）
 site/src/components/dojo/Dialogue.astro       runner + 全部樣式（is:global，限 .dojo 之下）
 site/src/components/dojo/{Say,Explore,Choose,Option,Judge,Think,Reveal,Sort,Card}.astro
+site/src/components/dojo/{Talk,Partner,Review,Extra}.astro
 site/src/components/dojo/{DojoView,DojoIndex}.astro
 site/src/lib/dojo.ts                          路由、列表、筆記對照
+site/src/lib/dojoPartners.ts                  學習夥伴與未來 avatar
 site/src/pages/{dojo,zh/dojo}/{index,[slug]}.astro
 ```
 
@@ -78,6 +93,8 @@ Frontmatter：`slug`、`lang`、`title`（用一句情境，不用筆記標題�
 | 元件 | 讀者做什麼 | 來源 |
 |---|---|---|
 | `<Say>` | 讀一段旁白，按繼續 | 筆記段落、`<Ask>` |
+| `<Talk partner study>` | 聽具名夥伴提出做法，可在練習前收起同組提案 | 具體情境中的合理思路 |
+| `<Extra label>` | 展開頁內的完整補充，不改閱讀步數 | 來源的延伸推導與方法前提 |
 | `<Say detour back="c1">` | 檢查某條思路，讀完回到原題；答前答後皆可看 | 常見誤解或探索路徑 |
 | `<Explore id><Option goto>` | 自由選順序，把所有可行做法讀過後再比較 | 方法選擇前的問題 |
 | `<Choose id><Option goto／correct／why／reply>` | 選一個，再比較其他選項的理由 | `<QuizBlock>` |
@@ -110,6 +127,6 @@ Runner 的契約（`data-node`／`data-detour`／`data-back`／`data-goto`／`da
 
 ## 之後
 
-- 後續可從 U7.3 的 black-box reward 延伸；Best-of-N 的計算成本屬於那裡，不回填 U7.0。需要排序推導時再加入 `<Order>` 節點。
+- 後續可從 U7.3 的 black-box reward 延伸。U7.0 保留來源已有的 Best-of-N 成功率直覺；更完整的候選策略與計算成本分析再由 U7.3 接續，避免重複。需要排序推導時再加入 `<Order>` 節點。
 - 若要和解鎖成就接起來：只在「走完一套」時記錄，不記答對率。
 - 英文版：腳本檔名 `<slug>.en.mdx`，頁面與索引已經雙語。

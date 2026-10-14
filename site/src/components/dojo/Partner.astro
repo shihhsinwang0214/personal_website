@@ -1,0 +1,31 @@
+---
+import { dojoPartners, type DojoPartnerId } from '../../lib/dojoPartners';
+import { withBase } from '../../lib/url';
+
+interface Props { partner: DojoPartnerId; compact?: boolean }
+const { partner, compact = false } = Astro.props;
+const person = dojoPartners[partner];
+---
+
+<div class:list={['dojo-partner', { 'is-compact': compact }]} data-partner={partner}>
+  <span class="dojo-partner-avatar" aria-hidden="true">
+    {person.avatar ? <img src={withBase(person.avatar)} alt="" width="56" height="56" /> : person.initial}
+  </span>
+  <div class="dojo-partner-identity">
+    <strong class="dojo-partner-name">{person.name}</strong>
+    {!compact && <span class="dojo-partner-description">{person.description}</span>}
+  </div>
+</div>
+
+<style is:global>
+  .dojo .dojo-partner { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; }
+  .dojo .dojo-partner-avatar { flex: none; display: grid; place-items: center; width: 56px; height: 56px; overflow: hidden; border: 1px solid var(--border); border-radius: 50%; background: var(--surface-2); color: var(--accent); font: 700 1.2rem var(--font-mono); }
+  .dojo .dojo-partner-avatar img { width: 100%; height: 100%; object-fit: contain; }
+  .dojo .dojo-partner-identity { min-width: 0; display: grid; gap: 3px; }
+  .dojo .dojo-partner-name { line-height: 1.35; }
+  .dojo .dojo-partner-description { font-size: .82rem; color: var(--text-muted); line-height: 1.5; }
+  .dojo .dojo-partner.is-compact { flex-direction: column; gap: 6px; margin: 0; }
+  .dojo .dojo-partner.is-compact .dojo-partner-avatar { width: 34px; height: 34px; font-size: .9rem; }
+  .dojo .dojo-talk blockquote { margin: 0 0 16px; padding: 10px 14px; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); border-radius: 0 8px 8px 0; }
+  .dojo .dojo-talk blockquote p { margin: 0; }
+</style>

@@ -14,6 +14,8 @@
 
 ## 移出、保留與避免重複
 
+此節是第一版紀錄。2026-10-14 使用者要求秘境提供與來源相應的獨立學習內容後，移出完整 loss、Best-of-N 成功率及延伸的決定已被下方「學習夥伴與獨立內容」取代。
+
 - U7.0 的任意 g_t score 合成、input gradient 問答移到 U7.1 的 Bayes／classifier 脈絡，不先假定 noisy reward 已存在。
 - U7.0 刪除 Best-of-N 成功率與計算成本；只保留 steering 可以包含生成後挑選的界線。完整 Best-of-N 屬 U7.3。原候選圖保留，尚未在這三套啟用。
 - U7.0 的表格只比時間與參數，U7.1 的表格才比訊號、訓練前提與每步計算。
@@ -85,6 +87,34 @@ U7.0 progressVersion 由 2 改為 3，避免把舊十一個步驟套進新主線
 - 320px 寬度檢查所有主線，公式無橫向捲動、頁面不溢出、KaTeX error 為 0。較長題目標籤保留印章位置，避免字蓋在一起。首頁與灰紙標籤也檢查過。
 - 從正式建置 HTML 移除 scripts、展開 noscript 模擬停用 JavaScript：三套分別可讀 11／28／30 個節點，卡片分類與理由、每列整理、公式與結尾連結保留；320px 無公式或頁面溢出。
 - `npm run check` 通過（50 個既有 warning）；正式建置通過（219 頁）。最後建置使用獨立 Astro／Vite 快取與輸出，避免干擾已開啟的 dev preview。
+
+## 2026-10-14 學習夥伴與獨立內容
+
+三套延續同一組學習夥伴：戴 orca 帽的北極熊 Nori（作者 mini）、有翅膀的鹿 Lumi、有柴犬臉的柯基 Mugi。Lumi、Mugi 暫名可再改。這次沒有製作角色圖，以字母頭像與動物描述辨識，`dojoPartners.ts` 預留 avatar。已有教學圖沿用。
+
+先讀夥伴的具體做法，再看對應名稱，進入練習就收起該組提案。可用原生 details「再聽一次」重新對照；不是限時記憶考試，也不計分。角色會提出合理但有缺口的想法，沒有固定正確的角色。U7.1 只有兩種 guidance，Nori 檢查工具準備，不虛構第三種。
+
+|單元|新的問題鏈與來源涵蓋|主線／岔路／卡片|版本|
+|---|---|---|---|
+|U7.0|三個提案 → 名稱配對 → 時間／θ／生成動作 → 固定參數限制 → conditional diffusion／FM losses → 偏好 regression 與更新式 → 額外方向的限制 → condition／observation／reward → Best-of-N 成功率 → fidelity／diversity|25／0／12|6|
+|U7.1|Lumi 的 noisy classifier、Mugi 的雙回答、Nori 的準備檢查 → 收起後選輸入 → Bayes 與 input gradient → noisy classifier loss → conditional／unconditional 差 → dropout loss → CFG 係數 → noise 換算 → negative prompt → 五列工具比較 → 換工具遷移題|32／4／13|3|
+|U7.2|最高分／原比例／重新分配三個提案 → 收起後選完整需求 → log base 角色 → 集中問題與 entropy → exponential 權重／正規化／KL 最佳性 → 同目標的 KL 寫法 → clean score 與 noisy sources → posterior 平均 → denoiser 提案 → 收起後檢查 plug-in → chain rule → 起始分布／exact target 限制|34／3／0|3|
+
+頁內補充對照（不用離開秘境找定義）：
+
+- U7.1：conditional noisy 起點與 Gaussian 近似、分類值與局部 gradient／robustness、已是 conditional base 的 classifier 額外係數、固定時刻的 power density 與時間一致性的差別、paper strength convention、Flow Matching dropout／velocity 組合與 path 前提。
+- U7.2：MLE 中資料固定／θ 改變，以及平均 probability 和平均 log probability 的差別；多候選集中與連續空間極限；KL 懲罰與配對上限的推導；Bayesian observation 特例；RLHF objective 的共同結構與訓練流程差別；noisy 起始分布；posterior bias、mode selection 和 reward over-optimization 的研究脈絡。
+- 必要的 noisy classifier／dropout losses、entropy objective、p_R 最佳性、h_t 與 base posterior、denoiser 換算、chain rule 直接在主線，不只藏在答錯岔路。
+- U7.0 只提出一般 steering 計算與來源已有的 Best-of-N 命中率；U7.1 推 condition 的方向；U7.2 才處理 reward target 與 posterior average。沒有把 R(x_t) 偷渡成已知的 noisy reward。
+- 來源 labels 與結尾連結不變；新增主線使舊閱讀步數不再對應，故遞增版本。仍只存 `{version,step,total}`，不保存輸入文字或對錯。
+
+本版驗收：
+
+- 三套合計 91 個主線步驟、7 條岔路、25 張卡片；482 個數學片段已檢查 KaTeX 語法，MDX、imports、提案群組與 goto/back 均有效。
+- 三套主線實際走到結尾；選擇題的錯誤理由與岔路、答後重看、Judge 兩邊與 Think 都可用。分類用 Enter／Space 操作，錯放有提示，每列完成後仍需按鈕才露出下一列。
+- 提案在練習前收起；回顧可反覆開關，沒有新增主線節點或重複節點 ID。續讀後 U7.0／U7.1 還原 12／13 張卡片，U7.2 兩組回顧也還原；原提案收起，全部 Think 留空。
+- 用移除 scripts、保留 noscript 內容的 production HTML 驗收靜態閱讀：三套 25／36／37 個節點全部可讀，角色、卡片分類與結尾連結保留。展開全部頁內補充後，320px 無頁面或公式橫向溢出，KaTeX error 為 0。
+- 桌面版的角色卡片、從頭開始與三套連結已檢查。`npm run check` 通過（50 個既有 warning），正式建置通過（219 頁）。建置使用隔離的 Astro／Vite cache 與輸出。未部署。
 
 ## 新圖 prompts（原文）
 

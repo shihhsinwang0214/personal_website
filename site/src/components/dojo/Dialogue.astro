@@ -2,12 +2,14 @@
 /**
  * Dialogue.astro — wraps one dojo script and runs it one node at a time.
  *
- * Contract with the node components (Say / Explore / Choose / Judge / Think / Reveal / Sort):
+ * Contract with the node components (Say / Talk / Explore / Choose / Judge / Think / Reveal / Sort):
  *   [data-node][data-kind]        one beat of the dialogue, in document order
  *   [data-detour="true"]          skipped by the main line; reached only via goto
  *   [data-back="id"]              after a detour's 「繼續」, return to this node
  *   [data-goto="id"]              after 「繼續」, jump here instead of the next node
  *   [data-next="label"]           label for this node's continue button
+ *   [data-study="group"]          read before an exercise, hidden when its review opens
+ *   [data-study-review="group"]   optional, read-only recall of that study group
  *
  * Interaction rules (decided 2026-10-13):
  *   - Choose: after the correct pick the walk may continue, but every other
@@ -388,6 +390,24 @@ const t = lang === 'zh'
     }
     function stamp(node: Node, text: string) { node.dataset.stamp = text; node.classList.add('is-answered'); }
 
+    function prepareReviews(node: Node) {
+      node.querySelectorAll<HTMLDetailsElement>('[data-study-review]').forEach((review) => {
+        const sources = nodes.filter((n) => n.dataset.study === review.dataset.studyReview);
+        if (!review.dataset.bound) {
+          review.dataset.bound = 'true';
+          const content = review.querySelector<HTMLElement>('[data-study-review-content]')!;
+          sources.forEach((source) => {
+            const copy = document.createElement('article'); copy.className = 'dojo-study-review-source';
+            source.querySelectorAll(':scope > .dojo-tag, :scope > .dojo-partner, :scope > .dojo-body').forEach((part) => copy.appendChild(part.cloneNode(true)));
+            content.appendChild(copy);
+          });
+        }
+        // Canonical nodes remain available for resume and static reading. Only
+        // their presentation is hidden; reopening the review never changes progress.
+        sources.forEach((source) => source.classList.remove('is-shown'));
+      });
+    }
+
     function reveal(node: Node, scroll = true) {
       node.classList.add('is-shown');
       if (node === main[0]) scroll = false;
@@ -438,6 +458,7 @@ const t = lang === 'zh'
     }
 
     function show(node: Node) {
+      prepareReviews(node);
       const kind = node.dataset.kind;
       if (kind === 'explore' || kind === 'choose' || kind === 'judge' || kind === 'think' || kind === 'sort') node.dataset.stampLive = t.stampLive;
       reveal(node);
@@ -594,7 +615,10 @@ const t = lang === 'zh'
       shuffle(cards.slice()).forEach((c) => pool.appendChild(c));
       columns.forEach((name, ci) => {
         const col = document.createElement('div'); col.className = 'dojo-sort-col';
-        const head = document.createElement('div'); head.className = 'dojo-sort-head'; head.textContent = name; col.appendChild(head);
+        const head = document.createElement('div'); head.className = 'dojo-sort-head';
+        const profile = node.querySelector<HTMLTemplateElement>(`template[data-column-partner="${ci}"]`);
+        if (profile) head.appendChild(profile.content.cloneNode(true)); else head.textContent = name;
+        col.appendChild(head);
         for (let ri = 0; ri < Math.max(1, rows.length); ri++) {
           if (rows.length) {
             const rh = document.createElement('div'); rh.className = 'dojo-sort-rowhead'; rh.textContent = rows[ri]; rh.dataset.row = String(ri);
@@ -706,6 +730,7 @@ const t = lang === 'zh'
       for (let i = 0; i < upto && i < main.length; i++) {
         const n = main[i];
         n.classList.add('is-shown', 'is-done');
+        prepareReviews(n);
         const kind = n.dataset.kind;
         if (kind === 'explore') {
           bindExplore(n, true);

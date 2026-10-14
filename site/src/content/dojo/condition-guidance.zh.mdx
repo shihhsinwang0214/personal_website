@@ -6,12 +6,14 @@ note: "dma-classifier-guidance"
 summary: "想畫雪山上滑雪板的柯基，模型卻可能畫成哈士奇。趁圖片還沒完成，幫手要看什麼、又該提醒哪裡？我們從這張圖一起找出方向。"
 status: "available"
 updated: 2026-10-13
-minutes: 20
-progressVersion: "2"
+minutes: 35
+progressVersion: "3"
 series: "dma-guidance"
 order: 1
 ---
 import Say from '../../components/dojo/Say.astro';
+import Talk from '../../components/dojo/Talk.astro';
+import Extra from '../../components/dojo/Extra.astro';
 import Choose from '../../components/dojo/Choose.astro';
 import Option from '../../components/dojo/Option.astro';
 import Judge from '../../components/dojo/Judge.astro';
@@ -24,7 +26,7 @@ import Ref from '../../components/notes/Ref.astro';
 import scene from '../notes/research-areas/diffusion-models-and-their-applications/week-10/imgs/w10-1-corgi-steering-intuition-v2.png';
 import twoQuestions from './imgs/guidance-two-questions.png';
 
-<Say id="scene" label="圖片可能畫成什麼？" next="先決定幫手看什麼">
+<Say id="scene" label="圖片可能畫成什麼？" next="先聽 Lumi 的提案">
 我們想一個具體的情況：模型已經訓練好了，這次我們想請它畫**一隻在雪山上滑雪板的柯基**。即使模型能接收文字描述，把這句話交給它，就能保證最後畫出我們想要的圖片嗎？
 
 也許牠確實在雪山上滑雪，卻變成了哈士奇；也許畫出了柯基和雪山，牠卻只是站在雪地裡。我們這次想保留模型參數，趁圖片還沒完成，就給它一些修改的線索。
@@ -34,18 +36,42 @@ import twoQuestions from './imgs/guidance-two-questions.png';
 </Figure>
 </Say>
 
-<Choose id="c-picture" label="幫手現在要看什麼？">
+<Talk id="p-classifier" partner="lumi" study="guidance-plans" label="Lumi：請一位看得懂草稿的幫手">
+「如果畫到一半，狗的腿越來越長，我們能不能先請一位朋友看看：現在這張圖，還有多像柯基？」
+
+Lumi 想找的是一個**看得懂帶噪聲圖片、能判斷品種的模型**。先請它看目前的圖，再找出哪些小修改會提高它判斷為柯基的機率。這條做法稱為 **classifier guidance**；classifier 是負責判斷的幫手，guidance 是把它的判斷接到生成途中。
+</Talk>
+
+<Talk id="p-two-answers" partner="mugi" study="guidance-plans" label="Mugi：模型自己能回答兩次嗎？">
+「如果模型本來就會讀描述，我們能不能把同一張草稿問它兩次？一次說『請畫柯基』，另一次不指定品種。兩個回答差在哪裡？」
+
+Mugi 想比較的是**同一個生成模型，有描述與沒有描述時的 prediction**，再加強要求多出的部分。這條做法稱為 **classifier-free guidance（CFG）**。它不需要另一個 classifier，但需要模型真的學過這兩種輸入。
+</Talk>
+
+<Talk id="p-readiness" partner="nori" study="guidance-plans" label="Nori：先看看手上的工具會什麼" next="收起提案，換你來想">
+「這兩個想法都能寫出來，可是我們的幫手如果只看過乾淨照片，現在滿是噪聲，它還看得懂嗎？模型如果每次都拿到描述，突然不給，它會怎麼回答？」
+
+Nori 想先檢查**生成前學過什麼**。接下來每走一步，我們都先問：**現在需要誰的回答？它真的學過這種輸入嗎？** 再看看 Lumi 和 Mugi 的提案怎麼接到眼前這張圖。
+</Talk>
+
+<Choose id="c-picture" label="幫手現在要看什麼？" review="guidance-plans">
 我們不想等整張圖完成才挑選，而是想在**現在這一步**得到提醒。你會先把什麼交給幫手？
 <Option correct reply="這樣幫手看到的，就是我們現在能改動的圖片。接著得想，它能從這張帶噪聲的圖回答什麼。" why="途中修改需要根據目前的狀態。幫手得看得懂帶有噪聲的圖片，才有理由把它的判斷用在這一步。">目前這張還帶有噪聲的圖片。</Option>
 <Option why="完成的照片適合拿來挑選結果，但我們現在還沒有那張照片。要在途中提醒，得處理目前拿得到的輸入。">等圖片完成，只給幫手看最後的照片。</Option>
 <Option why="原本資料裡柯基的比例，不能告訴我們眼前這張圖片像什麼。現在的判斷需要看這張圖。">只告訴幫手資料裡有多少柯基照片。</Option>
 </Choose>
 
-<Say id="helper" label="草稿裡可以找到線索嗎？" next="問它一個能回答的問題">
+<Talk id="helper" partner="nori" label="草稿裡可以找到線索嗎？" next="問它一個能回答的問題">
 想像你正在畫這張圖，草稿還只有幾條模糊的線，動物看起來有點像狗，卻還看不出是哪個品種。旁邊的朋友看看草稿，提醒你「腿再短一點，會不會更像柯基？」我們就可以試著修改眼前的草稿，不必等整張畫完才重來。
 
-在 diffusion 中，眼前實際是還帶有噪聲的圖片，記成 $x_t$；希望它符合的「柯基」記成 condition $c$。沿用 U1 的時間：$t$ 越大噪聲越多，sampling 往 $t=0$ 的乾淨圖片走。於是我們找來一個練習過不同 noise levels 的判斷模型，先請它回答類別的問題。
-</Say>
+在 diffusion 中，眼前實際是還帶有噪聲的圖片，記成 $x_t$；希望它符合的「柯基」記成 condition $c$。沿用 U1 的時間：$t$ 越大噪聲越多，sampling 往 $t=0$ 的乾淨圖片走。帶噪聲的圖是這樣來的：
+
+$$
+x_t=\sqrt{\bar\alpha_t}\,x_0+\sigma_t\epsilon.
+$$
+
+$x_0$ 是原本乾淨的照片，$\bar\alpha_t$ 是保留的訊號比例，$\epsilon\sim\mathcal N(0,I)$ 是加進去的 noise，$\sigma_t=\sqrt{1-\bar\alpha_t}$ 決定它的幅度。於是我們找來一個練習過不同 noise levels 的判斷模型，先請它回答類別的問題。
+</Talk>
 
 <Choose id="c-probability" label="它正在回答哪個問題？">
 把目前的 $x_t$ 交給幫手，問：「**這張帶噪聲的圖，原本有多可能來自柯基照片？**」哪個量是在回答這個問題？
@@ -60,7 +86,7 @@ $p_t(x_t\mid c)$ 是「先指定柯基，看看柯基照片加噪後如何分布
 我們想生成的是前者描述的那群圖片。兩個量能接起來，但要用它們的關係推一步，不能直接把記號對調。
 </Say>
 
-<Reveal id="bayes" label="判斷怎麼接回生成？" next="看看哪些量會隨圖片變">
+<Reveal partner="lumi" id="bayes" label="判斷怎麼接回生成？" next="看看哪些量會隨圖片變">
 想像先把資料裡的柯基照片挑出來，再用原本 forward process 加噪。這群 noisy images 的 density 是 $p_t(x_t\mid c)$，就是指定品種後，我們想使用的分布。
 
 沒錯！又是使用 Bayes rule 的時候：
@@ -73,6 +99,12 @@ p_t(x_t\mid c)\\
 $$
 
 原本的 $p_t(x_t)$ 包含各種圖片，乘上「來自柯基」的機率後，較可能來自柯基的圖就得到較大的相對權重。分母 $p(c)$ 把總量調回 $1$。這個式子把幫手的判斷，接到了我們想生成的那群圖片。
+
+<Extra label="從哪一張圖開始生成，和這個關係有什麼關係？">
+剛才的 $p_t(x_t\mid c)$ 是一整條 noisy distribution：先從指定品種的乾淨資料抽 $x_0$，再用剛才同一個加噪規則。$t$ 越大，原圖通常越模糊。
+
+若終點 $T$ 的 $\bar\alpha_T$ 很小，指定品種後的 $x_T$ 也接近標準 Gaussian，於是能從近似的噪聲開始 reverse sampling。但有限的加噪不一定完全抹掉品種資訊，不能直接說 $p_T(x_T\mid c)$ 精確等於 Gaussian。Score identity、網路的估計、起點的近似和離散 sampler，是不同的步驟。
+</Extra>
 </Reveal>
 
 <Sort id="s-changing" label="只改眼前的圖，誰會跟著變？"
@@ -99,7 +131,7 @@ $$
 現在對 $x_t$ 求 gradient。原本資料的那一項給出 base score，剛才固定的那一項微分為零。**指定柯基多出的方向，應該來自哪一項？** 先試著寫出它的 gradient。
 </Think>
 
-<Reveal id="direction" label="指定品種，多出的方向" next="請網路估計這個方向">
+<Reveal partner="lumi" id="direction" label="指定品種，多出的方向" next="請網路估計這個方向">
 把 conditional score 記成 $s_t(x_t\mid c)$、base score 記成 $s_t(x_t)$，剛才逐項微分得到
 
 $$
@@ -135,11 +167,51 @@ $$
 <Option why="它們接收的輸入不同。網路大小或名字相同，不能代替看過相應輸入的訓練。">兩個都一樣，都是分類模型。</Option>
 </Choose>
 
-<Say id="classifier-limit" label="判斷準，方向也一定準嗎？" next="看看另一種現成模型">
+<Talk id="classifier-training" partner="lumi" label="這位幫手要怎麼練習？" next="把它的判斷接到 sampler">
+「既然途中有很多種模糊程度，我們就把同一張有品種標籤的照片，加上不同程度的噪聲。狗雖然越來越難認，原本的品種標籤還在，對吧？」
+
+把幫手的參數記成 $\phi$。從資料抽 $(x_0,c)$、抽 noise level $t$ 和 Gaussian noise $\epsilon$，按剛才的規則得到 $x_t$。請它替正確品種給出機率，訓練 loss 是
+
+$$
+\begin{aligned}
+&\mathcal L_{\mathrm{cls}}(\phi)\\
+&=\mathbb E_{(x_0,c),t,\epsilon}\big[\\
+&-\log p_\phi(c\mid x_t,t)\big].
+\end{aligned}
+$$
+
+正確品種的機率越高，負 log 越小。這就是 noisy classifier 的分類練習；可以直接加噪訓練照片，不必等生成模型先畫圖。噪聲很多時，照片本來就可能辨認不出來，合理的回答也可以很不確定。
+
+訓練時改的是 $\phi$，所以用 $\nabla_\phi\mathcal L_{\mathrm{cls}}$；現在請它幫忙修改圖片，則固定 $\phi$，用 $\nabla_{x_t}\log p_\phi(c\mid x_t,t)$。同樣在算 gradient，想改的對象不同。
+</Talk>
+
+<Reveal id="classifier-score" partner="lumi" label="把需要的方向放進同一個式子" next="再看看它有什麼限制">
+用已訓練好的 base model 估計 $s_\theta(x_t,t)$，再加上幫手提供的 input gradient：
+
+$$
+\begin{gathered}
+\widetilde s_\theta(x_t,t,c)\\
+=s_\theta(x_t,t)\\
++w\nabla_{x_t}\log p_\phi(c\mid x_t,t).
+\end{gathered}
+$$
+
+$w$ 是這次提醒的強度。從 unconditional base 出發時，$w=0$ 留下 base；若兩個估計都精確，$w=1$ 給出剛才的 conditional score。實際上，我們把這支合成 score 交給 reverse sampler，由 sampler 決定下一步圖片怎麼更新。這就是 Lumi 的 classifier guidance 提案。
+
+<Extra label="如果生成模型本來已經接收 condition 呢？">
+剛才從 unconditional base 出發。如果手上已是 conditional score，再多加 classifier 的方向，那是**在原本要求上額外加強**；額外係數為 $0$ 時就保留原本 conditional prediction。不能把兩種起點的「不加強」都叫 $w=1$。讀公式時先看 base 是哪支回答，再看額外項的係數。
+</Extra>
+</Reveal>
+
+<Talk id="classifier-limit" partner="nori" label="判斷準，方向也一定準嗎？" next="看看另一種現成模型">
 我們剛才用到的是機率隨圖片改變的 gradient。就像兩片地形高度很接近，局部坡度仍可能不同，類別機率估得準，也不自動保證 input gradient 準。
 
 上面這條路，生成模型可以原本不接收 $c$，另外請 noisy classifier 提供要求。接著換一種手上的工具：**如果我們已經有一個學會 condition 的生成模型，能不能從它自己的回答找出這個方向？**
-</Say>
+
+<Extra label="還可以怎麼檢查這位幫手？">
+分類正確率只檢查答案。Guidance 還要用到圖片附近的局部變化，所以我們也想知道：只做很小的輸入擾動，它的判斷是否穩定？一個能分類的網路，可能在很小的擾動下就大幅改變回答；不能只靠乾淨圖片的準確率，推論途中 input gradient 的品質。這是檢查方向的理由，不是宣稱穩定就保證生成成功。<a href="https://arxiv.org/abs/2208.08664">Kawar、Ganz 與 Elad 的研究</a>討論了 robust classifier 用於 guidance 的問題。
+</Extra>
+</Talk>
 
 <Choose id="c-difference" label="比較哪兩個回答？">
 暫時假設這個現成模型，也能回答「不指定品種」的情況。把**同一張 $x_t$、同一個 $t$** 問兩次：指定柯基時怎麼預測，不指定品種時又怎麼預測？要取出這次要求多出的部分，該怎麼比較？
@@ -153,6 +225,19 @@ $$
 
 我們想留下的是 condition 的影響，所以得扣掉共同的 base。比較的是同一張圖片的兩種回答，不是兩張完成圖片的差。
 </Say>
+
+<Reveal id="difference" partner="mugi" label="剛才扣掉的是哪一項？" next="檢查第二個回答是否學過">
+把剛才的 exact score identity 移項：
+
+$$
+\begin{gathered}
+\nabla_{x_t}\log p_t(c\mid x_t)\\
+=s_t(x_t\mid c)-s_t(x_t).
+\end{gathered}
+$$
+
+「有要求的方向」扣掉「原本的方向」，剩下的正是 condition 多出的部分。Mugi 的提案就是請生成模型估計右邊兩項，再相減。**同一張圖、同一個時刻**才是在比較兩種要求，不能拿兩張生成結果相減代替。
+</Reveal>
 
 <Choose id="c-dropout" label="另一個回答，真的準備好了嗎？">
 <Figure src={twoQuestions} alt="同一張 noisy image，以指定柯基與不指定品種兩種輸入詢問同一個模型；兩個回答都還是問號。">
@@ -171,8 +256,21 @@ $$
 公式裡寫得出 unconditional score，不代表網路已經學會估計它。需要的是準備模型時讓這種輸入也出現，並非每次 sampling 又重新訓練。
 </Say>
 
-<Reveal id="dropout" label="同一套參數，練習兩種輸入" next="看看生成時還要不要學">
+<Reveal partner="mugi" id="dropout" label="同一套參數，練習兩種輸入" next="看看生成時還要不要學">
 這個準備動作稱為 **conditioning dropout**。空 condition 記成 $\varnothing$，意思是這次不指定品種或 prompt，**不是要求圖片裡沒有柯基**。原本的圖片、noise level 與加入的 noise 都保留，網路仍預測那個 noise，只是有時不能看描述。
+
+把這次給網路看的 condition 記成 $\widetilde c$：它有時是原本的 $c$，有時是空 condition。那 training loss 就是
+
+$$
+\begin{aligned}
+&\mathcal L_{\mathrm{drop}}(\theta)\\
+&=\mathbb E_{(x_0,c),t,\epsilon,\widetilde c}
+\big[\|\epsilon_\theta(x_t,t,\widetilde c)\\
+&\hspace{5em}-\epsilon\|^2\big].
+\end{aligned}
+$$
+
+Expectation 平均的是資料、時刻、加進去的 noise，以及這次是否拿掉 condition 的隨機選擇。要預測的標籤仍是 $\epsilon$。若只拿掉某幾個品種的 condition，空輸入就會對應到被挑過的資料；與資料無關地拿掉，才讓它練習整體 base 的回答。
 
 模型準備好後，sampling 用同一套 $\theta$ 取得 $s_\theta(x_t,t,c)$ 和 $s_\theta(x_t,t,\varnothing)$，分別估計 conditional 與 unconditional score。相減，就能估計要求多出的方向。這條路需要的是已練習過兩種輸入的模型，不是叫我們現在把未準備好的模型重新訓練。
 </Reveal>
@@ -200,6 +298,39 @@ $$
 <Option why="代入 w=0，會從 conditional 減掉一次差值，最後剩下 unconditional。連原本 condition 的影響也拿掉了。">$w=0$。</Option>
 <Option why="代入 w=2，會在原本 conditional 回答上，多加一次兩種回答的差。這已經加強了提醒。">$w=2$。</Option>
 </Choose>
+
+<Talk id="cfg-combination" partner="mugi" label="也可以從沒有要求的回答看起" next="再想強度改了什麼">
+把剛才的式子展開，得到另一種完全相同的寫法：
+
+$$
+\begin{aligned}
+\widetilde s_\theta
+&=s_\theta^\varnothing+w(s_\theta^c-s_\theta^\varnothing)\\
+&=w s_\theta^c+(1-w)s_\theta^\varnothing.
+\end{aligned}
+$$
+
+這裡只是暫時把同一個 $(x_t,t)$ 的兩種回答縮寫成 $s_\theta^c$、$s_\theta^\varnothing$，方便看係數。$w=0$ 是 unconditional；$w=1$ 是 conditional；$w>1$ 則沿差值超過原本 conditional 的回答。
+
+<Extra label="這個更強的 score 對應什麼 density？">
+先固定一個 $t$，並假設用的是 exact scores。這支組合是以下相對權重取 log 後的 gradient：
+
+$$
+\begin{gathered}
+p_t(x_t)\,p_t(c\mid x_t)^w\\
+\propto p_t(x_t)^{1-w}p_t(x_t\mid c)^w.
+\end{gathered}
+$$
+
+因為乘法取 log 成加法，次方變係數；不隨 $x_t$ 變的正規化項微分為零。若總量有限，可以把這個時刻的相對權重正規化。
+
+可是每個時刻都寫得出這種 density，還不表示它們共同來自同一條 forward process。沿這些組合 scores 生成，也不能只靠這個固定時刻的等式，宣稱最後精確抽到 $p_0(x_0\mid c)^w p_0(x_0)^{1-w}$。
+</Extra>
+
+<Extra label="為什麼有些論文把不加強寫成另一個數字？">
+有些文獻從 conditional 回答多加 $w_{\mathrm{paper}}$ 倍差值，寫成 $(1+w_{\mathrm{paper}})s^c-w_{\mathrm{paper}}s^\varnothing$。在我們這裡，$w=1+w_{\mathrm{paper}}$。兩者表示同一個組合，只是命名的強度從不同基準算起；看到數字先代回公式。
+</Extra>
+</Talk>
 
 <Judge id="j-strength" answer={false} label="更強的提醒，代表什麼？" yes="更精確" no="改了取捨"
   replyYes="原本的 conditional prediction 在 w=1 時已經存在。調大 w 是刻意改變這個回答，也可能放大估計誤差，不能由強度說它估得更準。"
@@ -238,7 +369,7 @@ $$
 <Option why="共同的縮放因子會消去；這次換的是 prediction 的表示法，不是重新定義強度基準。">把不加強的基準改成 $w=0$。</Option>
 </Choose>
 
-<Reveal id="noise-cfg" label="把兩種 noise prediction 交給 sampler" next="整理兩條路需要的工具">
+<Reveal partner="mugi" id="noise-cfg" label="把兩種 noise prediction 交給 sampler" next="整理兩條路需要的工具">
 所以 CFG 的 noise 組合仍然是
 
 $$
@@ -253,18 +384,66 @@ $$
 把合成的 noise prediction 放進原 sampler，才由它產生往較低 noise level 走的下一張圖片。Classifier 的 $\phi$、生成模型的 $\theta$ 都可以保持固定；改變的是這次 sampler 使用的 prediction。
 </Reveal>
 
+<Talk id="negative-prompt" partner="nori" label="如果沒有要求的那一次，也放一段描述？" next="把兩條路的前提一起比較">
+「假如我們不想要模糊照片，把原本空輸入換成『模糊』，再從『清楚的柯基』往遠離『模糊』的方向推，可以嗎？」
+
+這是 negative prompt 的想法。把不想要的描述記成 $c_-$，同一個 $(x_t,t)$ 的 noise prediction 縮寫為 $\epsilon_\theta^c$、$\epsilon_\theta^{c_-}$，組合可以寫成
+
+$$
+\widetilde\epsilon_\theta
+=\epsilon_\theta^{c_-}
++w(\epsilon_\theta^c-\epsilon_\theta^{c_-}).
+$$
+
+如果明天換了一句新的描述，模型可能仍能組合已學過的詞語，不必逐句重訓；可是新的 condition 類型，不會因為我們寫得出公式就突然學會。Classifier guidance 可以另準備理解它的幫手，CFG 的兩支回答則依賴生成模型自己的 condition 能力。
+
+它換掉了比較的基準。$c_-$ 的回答也需要模型學過相應輸入；這不等於「模糊圖片的機率設成零」，也不能再把它直接解讀成 unconditional base 的 Bayes identity。
+
+<Extra label="如果模型學的是 Flow Matching velocity 呢？">
+Conditional training 也能讓 velocity 接收 $c$。以一條已知的 reference path $I_t$ 做練習：例如從 noise $X_0$ 到資料 $X_1$ 的 $I_t=(1-t)X_0+tX_1$，標籤是 $\partial_t I_t=X_1-X_0$。這裡 $t=0\to1$，和本篇 diffusion 往 $t=0$ 去噪的方向不同。
+
+Conditioning dropout 的 loss 是
+
+$$
+\begin{aligned}
+&\mathcal L_{\mathrm{drop}}^{\mathrm{FM}}(\theta)\\
+&=\mathbb E\big[\|v_\theta(I_t,t,\widetilde c)\\
+&\hspace{4em}-\partial_t I_t\|^2\big].
+\end{aligned}
+$$
+
+Expectation 平均 reference endpoints、時刻與是否拿掉 condition；label 仍是 reference velocity。學好兩種輸入後，也能組合
+
+$$
+\begin{gathered}
+\widetilde v_\theta(x,t,c)\\
+=v_\theta(x,t,\varnothing)\\
++w\big[v_\theta(x,t,c)\\
+-v_\theta(x,t,\varnothing)\big].
+\end{gathered}
+$$
+
+把這支 learned field 交給 ODE solver，才得到 generated trajectory。對常見的 Gaussian affine interpolation，velocity 和 score 有相應的換算關係，可以接回上面的直覺；一般 reference path 則不能只看「兩支 velocity 相減」，就宣稱它一定是 classifier 的 log-gradient。
+</Extra>
+</Talk>
+
 <Sort id="s-methods" label="我們各自需要準備誰？"
-  columns={["Classifier guidance", "CFG"]}
-  rows={["額外方向怎麼取得？", "生成前要準備什麼？", "每一步多算什麼？"]}
-  rowReplies={["一條路請另一個網路提供判斷，另一條比較生成模型自己的兩個回答。接著看這些回答在生成前是否已經準備好了。", "能寫出公式，不表示手上的模型已會回答相應輸入。準備好之後，還得比較生成時的計算。", "少一個外部模型，不等於第二種回答不用算。兩條路都有額外計算，不能只數模型個數。"]}
+  columns={["Lumi · Classifier guidance", "Mugi · CFG"]}
+  columnPartners={["lumi", "mugi"]} review="guidance-plans"
+  rows={["額外方向怎麼取得？", "生成前要準備什麼？", "每一步多算什麼？", "換新要求時，誰得懂它？", "各自要留意什麼？"]}
+  rowReplies={["一條路請另一個網路提供判斷，另一條比較生成模型自己的兩個回答。接著看這些回答在生成前是否已經準備好了。", "能寫出公式，不表示手上的模型已會回答相應輸入。準備好之後，還得比較生成時的計算。", "少一個外部模型，不等於第二種回答不用算。兩條路都有額外計算，不能只數模型個數。", "新的句子可能仍是模型已學會的輸入；沒學過的條件類型則是另一回事。先看需要誰理解這次要求。", "Classifier guidance 多了一位可更換的幫手；CFG 共用生成模型，但兩種回答都依賴它的準備。提醒強度仍要看品質、多樣性與估計誤差。"]}
   done="兩條路取得的是同一個 condition 額外方向的估計，但依賴的訓練前提與每步計算不同。選方法前，先看手上的工具真的會回答什麼。"
-  intro="把卡片描述的動作放回對應方法。每整理一列，先看看它告訴我們什麼，再比較下一列。">
+  intro="Lumi 提出 Classifier guidance，Mugi 提出 CFG。把實際動作放回對應夥伴；每列完成後，先讀整理，再比較下一列。">
 <Card col={0} row={0} context="Classifier guidance · 訊號來源" hint="這條路先有類別機率，再對正在看的圖片輸入求導。">請另一個網路判斷類別機率，再對圖片求導。</Card>
 <Card col={1} row={0} context="CFG · 訊號來源" hint="比較的是同一個生成模型，對同一張 noisy image 的兩種回答。">同一張圖有／沒有 condition 各問一次，再取差值。</Card>
 <Card col={0} row={1} context="Classifier guidance · 訓練前提" hint="幫手在生成途中看的是帶噪聲輸入，不能只準備乾淨照片的判斷。">幫手學過不同 noise levels 的類別判斷。</Card>
 <Card col={1} row={1} context="CFG · 訓練前提" hint="訓練時每次都給描述，並不自動提供空 condition 的可靠回答。">生成模型練習過有描述與空 condition 的輸入。</Card>
 <Card col={0} row={2} context="Classifier guidance · 每步計算" hint="拿到幫手的機率後，還得計算它對目前圖片的 input gradient。">多做幫手的 prediction 與圖片 input gradient。</Card>
 <Card col={1} row={2} context="CFG · 每步計算" hint="參數共用，但仍得取得有 condition 和沒有 condition 的 prediction。">取得生成模型的兩種 prediction。</Card>
+<Card col={0} row={3} context="Classifier guidance · 新要求" hint="要求由外部幫手提供；幫手得能讀目前的 noisy image，並判斷這個要求。">另準備能理解新要求的 noisy classifier，base 可以不接收它。</Card>
+<Card col={1} row={3} context="CFG · 新要求" hint="兩種回答來自生成模型本身。新 prompt 不必逐句重訓，但模型仍要學過相關輸入類型。">要求必須在生成模型學會的 condition 能力範圍內。</Card>
+<Card col={0} row={4} context="Classifier guidance · 限制" hint="讀到類別機率，還不表示局部修改方向可靠；網路和 input gradient 都有成本。">可另外準備幫手，但要檢查它的 noisy 判斷、input gradient 與成本。</Card>
+<Card col={1} row={4} context="CFG · 限制" hint="沒有外部 classifier，仍得準備兩種輸入的回答，並計算兩支 prediction。">不用外部 classifier，仍依賴兩種回答；強度大也可能少掉變化。</Card>
 </Sort>
 
 <Choose id="c-transfer" label="換一組工具，你會怎麼判斷？">
