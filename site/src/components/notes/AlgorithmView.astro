@@ -1,0 +1,142 @@
+---
+/**
+ * Two views of the same algorithm: MDX/KaTeX in the default slot and plain-text
+ * pseudocode in `code`. Each instance switches independently. Without JS and
+ * when printing, both views remain readable.
+ *
+ * <AlgorithmView id="unique-id" title="IW" code={`...`}>
+ *   ...Markdown and display math...
+ * </AlgorithmView>
+ */
+import { inlineMath } from '../../lib/inlineMath';
+
+interface Props { id: string; title: string; code: string }
+const { id, title, code } = Astro.props;
+const prefix = `algorithm-${id}`;
+---
+
+<section class="algorithm-view" data-algorithm-view id={prefix} aria-labelledby={`${prefix}-title`}>
+  <header class="algorithm-header">
+    <p class="algorithm-title" id={`${prefix}-title`} set:html={inlineMath(title)} />
+    <div class="algorithm-tabs" role="tablist" aria-label="演算法表示方式" hidden>
+      <button type="button" role="tab" id={`${prefix}-math-tab`}
+        aria-controls={`${prefix}-math`} aria-selected="true" tabindex="0" data-view="math">數學 pipeline</button>
+      <button type="button" role="tab" id={`${prefix}-code-tab`}
+        aria-controls={`${prefix}-code`} aria-selected="false" tabindex="-1" data-view="code">Pseudocode</button>
+    </div>
+  </header>
+  <div class="algorithm-panel" role="tabpanel" id={`${prefix}-math`}
+    aria-labelledby={`${prefix}-math-tab`} data-panel="math" tabindex="0">
+    <p class="algorithm-fallback-label">數學 pipeline</p>
+    <slot />
+  </div>
+  <div class="algorithm-panel" role="tabpanel" id={`${prefix}-code`}
+    aria-labelledby={`${prefix}-code-tab`} data-panel="code" tabindex="0">
+    <p class="algorithm-fallback-label">Pseudocode</p>
+    <pre class="algorithm-code"><code>{code.trim()}</code></pre>
+  </div>
+</section>
+
+<style>
+  .algorithm-view {
+    margin: 24px 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius, 12px);
+    background: var(--surface);
+    min-width: 0;
+  }
+  .algorithm-header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .algorithm-title { margin: 0; color: var(--text); font-weight: 700; }
+  .algorithm-tabs {
+    display: flex; gap: 3px; padding: 3px;
+    border: 1px solid var(--border); border-radius: 9px;
+    background: var(--surface-2);
+  }
+  .algorithm-tabs button {
+    border: 0; border-radius: 6px; padding: 6px 10px;
+    background: transparent; color: var(--text-muted);
+    font: inherit; font-size: .8rem; font-weight: 600;
+    line-height: 1.5; cursor: pointer;
+  }
+  .algorithm-tabs button[aria-selected="true"] {
+    background: var(--surface); color: var(--accent);
+    box-shadow: var(--shadow-sm);
+  }
+  .algorithm-tabs button:focus-visible {
+    outline: 2px solid var(--focus-ring); outline-offset: 2px;
+  }
+  .algorithm-panel { padding: 16px 18px; min-width: 0; }
+  .algorithm-panel :global(> :first-child) { margin-top: 0; }
+  .algorithm-panel :global(> :last-child) { margin-bottom: 0; }
+  .algorithm-fallback-label { font-size: .8rem; color: var(--text-muted); }
+  .algorithm-code {
+    margin: 0; padding: 14px 16px; border-radius: 8px;
+    background: var(--code-bg); color: var(--text);
+    font-family: var(--font-mono); font-size: .8rem; line-height: 1.8;
+    white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: auto;
+  }
+  .algorithm-code code {
+    padding: 0; border: 0; background: transparent; color: inherit;
+    font: inherit; white-space: inherit;
+  }
+  [hidden] { display: none; }
+  @media (max-width: 600px) {
+    .algorithm-header { padding: 12px; }
+    .algorithm-panel { padding: 14px 12px; }
+    .algorithm-code { padding: 10px 12px; }
+  }
+  @media print {
+    .algorithm-tabs { display: none !important; }
+    .algorithm-panel[hidden], .algorithm-fallback-label[hidden] { display: block; }
+    .algorithm-panel { break-inside: avoid; }
+    .algorithm-view { background: transparent; }
+    .algorithm-code { white-space: pre-wrap; }
+  }
+</style>
+
+<script>
+  function bindAlgorithmViews() {
+    document.querySelectorAll<HTMLElement>('[data-algorithm-view]').forEach((root) => {
+      if (root.dataset.bound) return;
+      const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>('[data-view]'));
+      const panels = Array.from(root.querySelectorAll<HTMLElement>('[data-panel]'));
+      const tablist = root.querySelector<HTMLElement>('[role="tablist"]');
+      if (tabs.length !== 2 || panels.length !== 2 || !tablist) return;
+      root.dataset.bound = 'true';
+
+      function select(view: string, focus = false) {
+        tabs.forEach((tab) => {
+          const active = tab.dataset.view === view;
+          tab.setAttribute('aria-selected', String(active));
+          tab.tabIndex = active ? 0 : -1;
+          if (active && focus) tab.focus();
+        });
+        panels.forEach((panel) => { panel.hidden = panel.dataset.panel !== view; });
+      }
+
+      tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => select(tab.dataset.view!));
+        tab.addEventListener('keydown', (event) => {
+          let next: number;
+          if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+          else if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
+          else if (event.key === 'Home') next = 0;
+          else if (event.key === 'End') next = tabs.length - 1;
+          else return;
+          event.preventDefault();
+          select(tabs[next].dataset.view!, true);
+        });
+      });
+
+      root.querySelectorAll<HTMLElement>('.algorithm-fallback-label').forEach((label) => { label.hidden = true; });
+      select('math');
+      tablist.hidden = false;
+    });
+  }
+  bindAlgorithmViews();
+  document.addEventListener('astro:page-load', bindAlgorithmViews);
+</script>

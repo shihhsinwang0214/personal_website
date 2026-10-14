@@ -1,0 +1,650 @@
+---
+slug: "gradient-free-steering"
+lang: "zh"
+title: "評審只肯打分，這些草稿接著怎麼畫？"
+note: "dma-gradient-free-steering"
+summary: "Mugi 想畫完再挑，Lumi 想讓有希望的草稿多留下幾份，Nori 則想換起點。先算出挑最高分改了什麼比例，再一起檢查途中重抽與起點搜尋怎麼使用分數。"
+status: "available"
+updated: 2026-10-15
+minutes: 55
+progressVersion: "1"
+series: "dma-guidance"
+order: 3
+---
+import Say from '../../components/dojo/Say.astro';
+import Talk from '../../components/dojo/Talk.astro';
+import Extra from '../../components/dojo/Extra.astro';
+import Choose from '../../components/dojo/Choose.astro';
+import Option from '../../components/dojo/Option.astro';
+import Judge from '../../components/dojo/Judge.astro';
+import Think from '../../components/dojo/Think.astro';
+import Reveal from '../../components/dojo/Reveal.astro';
+import Sort from '../../components/dojo/Sort.astro';
+import Card from '../../components/dojo/Card.astro';
+import Figure from '../../components/dojo/Figure.astro';
+import Ref from '../../components/notes/Ref.astro';
+import blackBox from './imgs/black-box-score.png';
+import candidates from './imgs/steering-candidates.png';
+import overview from '../notes/research-areas/diffusion-models-and-their-applications/week-10/imgs/w10-4-gradient-free-steering.png';
+
+<Say partner="nori" pose="welcome" id="scene" label="評審只肯給分數" next="先聽 Mugi 的提案">
+使用者還是想看不同的狗照片，也比較喜歡某些帽子、光線與構圖。他交給我們一個評分程式：放進完成的圖片，程式會回傳分數，卻說不出哪個 pixel 應該往哪裡改。生成模型的參數 $\theta$ 保持固定，**只有分數，還能讓喜歡的結果更常出現嗎？**
+
+把完成圖片記成 $x_0$、分數記成 reward $R(x_0)$。這種只能詢問結果、拿不到可用導數的評分，稱為 **black-box reward**；外部模擬器、碰撞檢查或人類評審都可能提供這種訊號。它不必是機率，也不必能微分。
+
+<Figure src={blackBox} eager alt="一張戴紅帽的柯基完成照片交給評分程式，程式只回傳 7 分與沒有修改線索；圖中沒有其他候選、排名、挑選或修改流程。">
+這張圖得到的 7 分是假設的評分，不是機率或模型實測。箭頭只表示交出圖片、拿回分數；程式沒有提供修改方向。接著能怎麼使用這個分數，先換我們來想。
+</Figure>
+</Say>
+
+<Talk partner="mugi" pose="suggest" id="p-finish" study="black-box-plans" label="Mugi：多畫幾張，再決定留下誰">
+「不知道怎麼改，那我們先照原本方式畫幾張。評審給完分，再選一張回傳。至少不需要請他說出修改方向。」
+
+Mugi 保留每張圖片原本的生成過程，把這次偏好放在**完成後的選擇**。可以挑最高分，也可以讓高分比較容易被抽到；這兩種規則會得到一樣的出現比例嗎？
+</Talk>
+
+<Talk partner="lumi" pose="suggest" id="p-drafts" study="black-box-plans" label="Lumi：比較有希望的草稿，多留幾份">
+「可是每張都畫完才評分，會不會花太多時間？如果畫到一半能先猜它最後會變成什麼，那比較有希望的草稿多留幾份，接著畫；其他草稿就少分一點時間。」
+
+Lumi 想改的是**哪些草稿得到接下來的生成計算**。評審仍只看完成品，所以途中得先估計未來，不能直接把 noisy image 當成完成照片。估計也可能看錯，不能一開始就把其他草稿全丟掉。
+</Talk>
+
+<Talk partner="nori" pose="suggest" id="p-source" study="black-box-plans" label="Nori：如果相同草稿總會畫成同一張呢？" next="收起提案，換你來比較">
+「假如同一個起點總會生成同一張圖，那複製草稿也只會畫出一樣的答案。能不能換個起點試畫，把容易畫出喜歡結果的起點找出來？」
+
+Nori 想保留整套生成規則，改的是**從哪些起點開始**。每個新起點仍要生成與評分；從幾次試畫找到高分起點，也還不等於已經抽到指定的分布。
+</Talk>
+
+<Sort partner="nori" pose="question" id="s-plans" label="三位夥伴把選擇放在哪裡？"
+  columns={["Mugi", "Lumi", "Nori"]} columnPartners={["mugi", "lumi", "nori"]} review="black-box-plans"
+  intro="先回想每位夥伴的操作，再把卡片放到他的名字下面。這三個提案沒有固定的贏家，要看手上的工具與這次想要的結果。"
+  done="分數可以用在完成品、草稿的後續計算，或起點的選擇。接著先把最容易做的完成後挑選算清楚。">
+<Card col={0} context="Mugi · 完成後選擇" hint="Mugi 願意先把作品都畫完，才用評審決定回傳哪一張。">獨立畫完一批，再用分數選出回傳的圖片。</Card>
+<Card col={1} context="Lumi · 途中分配" hint="Lumi 希望在作品完成之前，重新分配接下來的計算。">先估草稿的未來，把更多複本留給有希望的候選。</Card>
+<Card col={2} context="Nori · 起點選擇" hint="Nori 保留從起點到圖片的生成規則，改試不同起點。">試新的起點，生成並評分後，決定是否保留它。</Card>
+</Sort>
+
+<Say partner="lumi" pose="explain" id="target" label="這次想要怎樣的出現比例？" next="先試 Mugi 最直接的做法">
+如果只想找一張高分照片，挑最高分就很合理。但使用者還想保留不同答案；我們這次要檢查的是：反覆回傳圖片後，各種結果的比例，是否接近下面的 reward tilt？
+
+$$
+\begin{gathered}
+p_R(x_0)=\frac{p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}}{Z_R},\\
+Z_R=\mathbb E_{x_0\sim p_{\mathrm{data}}}
+\big[e^{\lambda R(x_0)}\big].
+\end{gathered}
+$$
+
+$p_{\mathrm{data}}$ 是原本的 base distribution，$\lambda>0$ 決定 reward 的影響，$Z_R$ 是對 base 抽出的完成品平均 reward 倍率。假設 $0<Z_R<\infty$，除掉它才讓總量等於 $1$。離散作品用機率，連續圖片用 density；後者的某個精確點不代表有非零的抽中機率。
+
+這個目標讓高分結果增加相對權重，仍保留 base 的比例。它的動機與最佳性在 <Ref to="dma-reward-tilting"/> 推過；**今天追的是怎麼真的抽，而不是重新更新模型**。先假設 base sampler 精確生成 $p_{\mathrm{data}}$，實際模型的差別等一下再檢查。
+</Say>
+
+<Talk partner="mugi" pose="explain" id="best" label="先把一批作品的最高分留下來" next="多跑幾趟會看到什麼？">
+「先畫 $N$ 張，再挑分數最高的。這個做法我們現在就能做，對吧？」
+
+<Figure src={candidates} alt="六張獨立完成的狗照片，帽子的顏色與品種不同；右邊是只回傳一張的空框，還沒有選定哪張。六張不是同一張圖的去噪步驟。">
+Mugi 提出多畫幾張之後，再來看這個情境。左邊是分開生成的候選，右邊只回傳一張；每張都要完整畫完，再交給評審。
+</Figure>
+
+從 base 獨立生成 $x_0^{(1)},\ldots,x_0^{(N)}$，評分後找出最高分編號 $i^\star$，輸出那張圖片：
+
+$$
+\begin{gathered}
+i^\star=\arg\max_{1\le i\le N}R(x_0^{(i)}),\\
+\widehat x_0=x_0^{(i^\star)}.
+\end{gathered}
+$$
+
+這就是 **Best-of-$N$**。$\arg\max$ 找的是候選編號，不是在更新 pixels 或參數；同分時可以訂一個固定或隨機的選擇規則。它不需要 reward gradient，也沒改每張候選原本的 sampling path。
+
+每次重新生成 $N$ 張、選出一張，再把整趟獨立重跑 $n$ 次，就收集到 $n$ 張輸出。**$N$ 是每趟比較多少張，$n$ 是最後收集多少次輸出。** 增加 $n$ 能看清這個規則的出現比例，還得算它是否等於 $p_R$。
+</Talk>
+
+<Think partner="mugi" pose="question" id="t-best" label="兩張裡只要有 C，它就會贏嗎？">
+把作品簡化成 $A,B,C$ 三種，base 各有 $1/3$ 的機率。評審的分數經過 $e^{\lambda R}$，得到倍率 $1,2,7$；這些是倍率，**不是原始 reward**，所以 $C$ 的分數最高。新目標希望 $A,B,C$ 的比例是 $1/10,2/10,7/10$。
+
+現在每次只畫兩張，也就是 Best-of-$2$。**最後回傳 $C$ 的機率是多少？** 可以先算兩張都不是 $C$ 的機率，再取補事件。它會剛好等於目標的 $7/10$ 嗎？
+</Think>
+
+<Reveal partner="mugi" pose="explain" id="best-proportions" label="把真的輸出比例算出來" next="重跑更多次能修正嗎？">
+兩張獨立，而且只要有一張 $C$，它就會贏。因此
+
+$$
+\begin{gathered}
+\Pr(\widehat x_0=C)\\
+=1-(2/3)^2=5/9,\\
+\Pr(\widehat x_0=A)\\
+=(1/3)^2=1/9,\\
+\Pr(\widehat x_0=B)\\
+=(2/3)^2-(1/3)^2=3/9.
+\end{gathered}
+$$
+
+輸出 $A$ 必須兩張都是 $A$；輸出 $B$ 則是沒有 $C$，但至少有一張 $B$。三個機率加起來是 $1$，卻不是目標的 $1:2:7$。**Best-of-$N$ 看的是誰勝過其他候選，reward tilt 看的是 base 乘上倍率後的比例。**
+
+甚至把倍率 $7$ 換成 $70$，只要分數排序相同，Best-of-$2$ 的這三個比例仍不變；目標比例卻會變成 $1:2:70$。所以只看排序的選擇，無法一般地保留倍率的資訊。
+</Reveal>
+
+<Choose partner="nori" pose="question" id="c-repeat" label="每天重跑同一個規則，比例會去哪裡？">
+我們維持 Best-of-$2$，每天重新生成，最後收集十萬張輸出。**$C$ 的比例會比較接近哪個量？**
+<Option correct reply="重跑看清的是這個 sampler 自己的比例。接著得改選擇規則，才能把 target 的倍率用進來。" why="每趟輸出 C 的機率仍是九分之五；增加收集次數不會改掉每趟規則。">$5/9$，Best-of-$2$ 的輸出機率。</Option>
+<Option why="十分之七是指定 target 的比例。反覆使用另一個輸出分布，不會因為次數多就換成 target。">$7/10$，因為輸出數量夠多。</Option>
+<Option why="每趟仍只比兩張，C 有時不在候選裡。增加的是重跑次數，不是每趟的候選數。">$1$，因為 $C$ 的分數最高。</Option>
+</Choose>
+
+<Talk partner="mugi" pose="suggest" id="p-weighted" study="terminal-rules" label="Mugi：不要每次都挑第一名呢？" next="先找需要補的倍率">
+「假如桌上剛好是一張 $A$、一張 $B$、一張 $C$，那讓它們各以 $1/10,2/10,7/10$ 被選到呢？$C$ 還是常出現，但其他作品也有機會。」
+
+這是在**固定這一批候選之後**，按權重抽一張。真正每趟從 base 生成，桌上不一定三種各有一張；所以還要問：base 原本的比例已經在哪裡反映？我們該替每張候選補哪個倍率？
+</Talk>
+
+<Think partner="lumi" pose="question" id="t-ratio" label="候選已經從 base 抽過，還缺哪一項？" review="terminal-rules">
+原本常見的作品，已經比較容易進入候選集合。想讓它們對應 $p_R$，要補的是「target 相對於抽樣來源增加多少」。在 base 為正的位置，試著把下面比值化簡：
+
+$$
+\begin{gathered}
+\frac{p_R(x_0)}{p_{\mathrm{data}}(x_0)}\\
+=\frac{p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}}
+{Z_R\,p_{\mathrm{data}}(x_0)}.
+\end{gathered}
+$$
+
+**哪些量會消掉？哪些量對所有候選相同？** 若最後還要除以這批權重的總和，那個共同常數需要先算出來嗎？
+</Think>
+
+<Reveal partner="lumi" pose="explain" id="importance" label="把候選的貢獻補成新的比例" next="用同一批作品算一次">
+Base 在分子與分母消去，剩下 $e^{\lambda R(x_0)}/Z_R$。$Z_R$ 對所有候選相同，正規化時也會消去，因此第 $i$ 張只需要正權重
+
+$$
+\begin{aligned}
+\omega^{(i)}&=e^{\lambda R(x_0^{(i)})},\\
+\bar\omega^{(i)}
+&=\frac{\omega^{(i)}}{\sum_{\ell=1}^N\omega^{(\ell)}}.
+\end{aligned}
+$$
+
+$\omega^{(i)}$ 是相對倍率，$\bar\omega^{(i)}$ 才是固定這批候選後，抽中第 $i$ 張的機率。**Base 的比例由候選出現的頻率反映，選擇時補上 reward 倍率**；不是再乘一次 base probability。
+
+用 target／抽樣來源的比值修正貢獻，是 **importance sampling** 的核心。這裡先做 **importance weighting（IW）**，再按 normalized weights 抽出一個編號，回傳那張完成品。
+
+<Extra label="如果只想算 target 下的平均，需要真的抽一張嗎？">
+令 $f(x_0)$ 是想平均的量，例如某類作品的指示函數，並假設 target 下的絕對期望有限。把期望的積分乘上並除以 base density，得到
+
+$$
+\begin{aligned}
+\mathbb E_{p_R}[f]
+&=\mathbb E_{p_{\mathrm{data}}}
+\left[\frac{p_R}{p_{\mathrm{data}}}f\right]\\
+&=\frac{\mathbb E_{p_{\mathrm{data}}}[e^{\lambda R}f]}
+{\mathbb E_{p_{\mathrm{data}}}[e^{\lambda R}]}.
+\end{aligned}
+$$
+
+兩個 expectation 都平均 base 抽出的完成品；分子多乘想平均的 $f$，分母是 $Z_R$。用同一批 $N$ 個獨立候選估計兩個平均，$1/N$ 相除消去後，得到
+
+$$
+\mathbb E_{p_R}[f]
+\approx\sum_{i=1}^N\bar\omega^{(i)}f(x_0^{(i)}).
+$$
+
+這是 **self-normalized importance sampling**：直接計算加權平均，不必再抽一張。有限樣本的比值通常有偏差；若候選獨立、相關量可積分，增加 $N$ 讓分子與分母的樣本平均趨近真正期望，才讓比值趨近 target 平均。
+</Extra>
+</Reveal>
+
+<Choose partner="mugi" pose="question" id="c-batch" label="桌上這批，C 有多少被抽中的機會？">
+這趟畫出的三張是 $A,A,C$，倍率是 $1,1,7$。**固定這批候選後，最後回傳 $C$ 的機率是多少？**
+<Option correct reply="每張候選各有自己的權重，總和是 9。兩張 A 都參與了分母，C 的機率是九分之七。" why="正規化用的是這批候選的總權重。這趟沒有 B，也不能把它憑空加入分母。">$7/9$。</Option>
+<Option goto="d-finite">$7/10$，因為 target 想要這個比例。</Option>
+<Option why="按權重抽樣仍可能抽中 A。每次只取最大值才會在這批必定選 C。">$1$，因為 $C$ 分數最高。</Option>
+</Choose>
+
+<Say partner="nori" pose="explain" id="d-finite" detour back="c-batch" label="目標比例，和這批候選的比例" next="回到桌上這三張">
+$7/10$ 是三種作品在整個 target 的比例。眼前桌上卻只有 $A,A,C$，權重總和是 $9$，沒有 $B$ 的那份權重；固定這批的選擇只能在它們之間發生。
+
+最極端的例子是 $N=1$：無論權重多高，只有一張就只能選它，輸出仍是 base。**按權重抽樣是在有限候選上近似 target，並非每批都精確重現 $p_R$。**
+</Say>
+
+<Say partner="nori" pose="explain" id="cost" label="選法改了，哪些成本還在？" next="再想 Lumi 的草稿提案">
+每趟的流程現在是：從 base 獨立畫 $N$ 張 → 評分並算倍率 → 正規化 → 按機率選一張。增加重跑次數 $n$，能看清固定 $N$ 的輸出分布；增加每趟候選數 $N$，才有機會更充分涵蓋 base，改善這個有限候選近似。
+
+可是每張還是得完整畫完、評一次分。若每次符合要求的機率是 $p$，獨立畫 $N$ 張至少命中一次的機率是 $1-(1-p)^N$；當 $p=0.001$、$N=1000$，也只有約 $0.632$。這是候選中有沒有命中，**不是按權重選出的那張一定成功的機率**。
+
+Mugi 已經讓分數進入選擇，Lumi 問的成本仍在：**有些草稿畫到一半就很沒希望，能不能把後面的計算分給別張？**
+</Say>
+
+<Talk partner="lumi" pose="suggest" id="p-estimate" study="draft-plans" label="Lumi：先猜它完成後會得到什麼分數">
+「先請 denoiser 猜一張完成圖，再讓評審看看；或者把同一張草稿試著完成幾次，看看最後的倍率平均是多少。這樣能不能在途中比較？」
+
+可以嘗試，但兩種都要分清估計與完成品。眼前還帶噪聲的狀態是 $x_t$，去噪估計是 $\hat x_0(x_t,t)$，真正走到終點才得到 $x_0$。在 VP 表示下，若 $\bar\alpha_t>0$，去噪估計是
+
+$$
+\hat x_0(x_t,t)
+=\frac{x_t-\sigma_t\epsilon_\theta(x_t,t)}
+{\sqrt{\bar\alpha_t}}.
+$$
+
+$\epsilon_\theta$ 是模型預測的 noise，$\sigma_t=\sqrt{1-\bar\alpha_t}$ 是 noise amplitude。扣掉預測的 noise，再除回訊號縮放，得到一張乾淨估計；**它不是已經確定的未來圖片**。
+
+用 $e^{\lambda R(\hat x_0)}$ 估計未來倍率，只需詢問 reward，不需微分。若改用多次獨立試畫，就先替每個完成品算 $e^{\lambda R}$，再取平均；試畫本身也有生成成本。這些都只是中途估計，不保證等於精確的未來平均。
+</Talk>
+
+<Choose partner="nori" pose="question" id="c-estimate" label="途中的數字，代表哪種資訊？" review="draft-plans">
+Lumi 把去噪估計交給評審，取得很高的分數。**這個數字目前能怎麼使用？**
+<Option correct reply="可以把它當成對未來的估計，用來分配計算；還要檢查誤差，以及一路加權後是否保留指定的 target。" why="評分的輸入是預測完成品。這條路可以不用 gradient，但仍保留預測的不確定性。">作為對未來結果的估計，幫忙決定哪些草稿繼續生成。</Option>
+<Option why="被評的是去噪估計，不是真正走到終點的圖片。高 noise 時，兩者可能差很多。">它已經是這張草稿最後一定會得到的 reward。</Option>
+<Option why="程式能回傳分數，不表示可以對 noisy image 微分；目前做的是比較候選。">有了分數，就能直接取得 reward 對 $x_t$ 的 gradient。</Option>
+</Choose>
+
+<Think partner="lumi" pose="question" id="t-resample" label="三份位置，要怎麼分給草稿？">
+假設這一段三張草稿應增加的正權重是 $1,2,7$，正規化後是 $0.1,0.2,0.7$。我們希望下一段仍保留三份候選，每次按這些機率抽一個草稿，**允許同一張被抽到多次**。
+
+抽三次，第三張平均會拿到多少份？每一趟都必須剛好有這個份數嗎？先想想「平均份數」和「真的抽到的份數」差在哪裡。
+</Think>
+
+<Reveal partner="lumi" pose="explain" id="resample" label="抽編號，接著讓那些草稿繼續畫" next="把途中流程接起來">
+每次選到第三張的機率是 $0.7$，抽三次的平均份數是 $3\times0.7=2.1$。前兩張平均是 $0.3,0.6$ 份，但真正每趟是整數：可能抽到 $(A,C,C)$，也可能三次都選 $C$；這些是可能結果，**不是指定要複製的名單**。
+
+按機率重抽候選，稱為 **resampling**。重抽後每份候選重新具有相同權重 $1/3$；高權重草稿平均有更多後代，得到更多後續計算，總份數仍是三份。原本生成模型與評分程式都沒有重新訓練。
+
+這裡的 $1,2,7$ 先假設是「這一段應增加的倍率」。有了估計，還得算它怎麼變成增量權重；等一下就檢查這一步。
+</Reveal>
+
+<Talk partner="lumi" pose="explain" id="smc" label="每走一段，再比較一次" next="如果只複製冠軍呢？">
+把生成中的候選稱為 **particle**，同時保留 $M$ 個。沿用 diffusion 從高 noise 往 $t=0$ 生成的時間，選 checkpoints $T=t_K>\cdots>t_0=0$；$K$ 是段數，$x_{t_k}^{(i)}$ 是時刻 $t_k$ 的第 $i$ 份草稿。
+
+從 $t_k$ 到 $t_{k-1}$，先用原 reverse sampler 讓每份草稿走一段，稱為 **propagate**。接著替第 $i$ 份計算這段新增的權重 $\omega_{k-1}^{(i)}$，稱為 **weight**；除以這批的權重總和得到 $\bar\omega_{k-1}^{(i)}$，再用這些機率重抽 $M$ 個編號，稱為 **resample**。
+
+重複「走一段 → 算增量權重 → 按機率重抽」，就是 **Sequential Monte Carlo（SMC）** 的基本操作。這裡每個 checkpoint 都重抽，重抽後權重回到 $1/M$；到 $t=0$，從最後 $M$ 張等機率選一張回傳。**改變的是哪些候選有後代，並非 $\theta$。**
+</Talk>
+
+<Choose partner="mugi" pose="question" id="c-champion" label="先把最好的複製成全部，會省什麼？">
+Mugi 說：「既然想把時間分給好的草稿，那每次只留最高分的一張，把它複製成 $M$ 份，不就好了？」**這個想法漏看了什麼？**
+<Option goto="d-deterministic">只要複製 $M$ 份，就一定會得到 $M$ 種不同結果。</Option>
+<Option correct reply="早期估計可能看錯，把所有草稿變成同一個祖先，就失去了其他可能未來。按權重抽樣仍可能退化，也得檢查祖先是否過度集中。" why="有限候選需要保留探索。評分的是對未來的估計，不是已知道哪條路最後最好。">早期判斷可能錯，所有後代也可能集中到同一個祖先。</Option>
+<Option why="模型參數仍然固定。只留一個祖先會改變候選與計算分配，但不等於更新生成模型參數。">複製草稿必定會讓模型重新訓練。</Option>
+</Choose>
+
+<Say partner="nori" pose="explain" id="d-deterministic" detour back="c-champion" label="相同草稿，接下來用什麼規則？" next="回到複製的目的">
+如果後續 sampler 有新的隨機性，相同草稿的複本可能走到不同結果。但沿完全相同的 deterministic ODE 走，相同狀態就會繼續走同一條路；複製十份，也還是同一種答案。
+
+只剩少數祖先、探索越來越窄的現象稱為 **particle degeneracy**。按 normalized weights 隨機重抽也可能發生它，尤其權重很集中時。若另外加探索或擾動，還得檢查那個動作是否保留 target；不能只因複本數很多就宣稱多樣性增加。
+</Say>
+
+<Talk partner="nori" pose="question" id="increment" label="每次都乘未來的分數，會算太多次嗎？" next="先試著算兩段">
+只剩少數祖先、後續探索越來越窄，稱為 **particle degeneracy**。即使用隨機重抽，權重很集中時仍可能發生；相同草稿的複本，還得靠後續的隨機生成才可能分開。若沿同一個 deterministic 規則走，複製份數也不會增加不同答案。
+
+「我們已經知道怎麼重抽。可是某張草稿的未來倍率先估成 $2$，後來變成 $6$，再走到完成品是 $12$。每一段都乘這個數字，最後會不會把同一份偏好算好幾次？」
+
+把 checkpoint $t_k$ 的正估計記成 $H_k(x_{t_k})$。它可以是剛才的便宜估計，不要求等於 U7.2 的精確 posterior 平均。開始取 $H_K\equiv1$，完成時取真正的 $H_0(x_0)=e^{\lambda R(x_0)}$；中間都要求正值。
+
+我們想讓每條完整的 base path，最後只增加一次 terminal reward 倍率。**中間估計改變時，這一段應該乘整個新估計，還是新舊之間增加的比例？**
+</Talk>
+
+<Think partner="nori" pose="question" id="t-telescope" label="讓途中倍率前後消去">
+先只切兩段：起點 $H_2=1$，中途 $H_1=2$，完成品 $H_0=6$。每段直接乘新的 $H$，累積是 $2\times6=12$，已經多算。
+
+如果每段改乘「新估計／舊估計」，兩段各會是多少？**乘起來能不能只剩完成品的 $6$？** 接著想想，中間估計改成 $3$，最後的乘積是否也會改變？
+</Think>
+
+<Reveal partner="nori" pose="explain" id="potentials" label="每一段只增加新的比例" next="為什麼終點比例仍是我們要的？">
+兩段是 $2/1$、$6/2$，相乘只剩 $6$。若中間改成 $3$，則是 $3/1$ 乘 $6/3$，同樣得到 $6$。於是將這段的倍率函數記成 **potential**：
+
+$$
+\begin{gathered}
+G_{k-1}(x_{t_{k-1}},x_{t_k})\\
+=\frac{H_{k-1}(x_{t_{k-1}})}{H_k(x_{t_k})},\\
+\omega_{k-1}^{(i)}\\
+=G_{k-1}(x_{t_{k-1}}^{(i)},x_{t_k}^{(i)}).
+\end{gathered}
+$$
+
+分子是走完這段的估計，分母是走之前的估計；代入第 $i$ 個候選的新舊狀態，就得到重抽所用的增量權重。新狀態必須配回它真正的上一個狀態，不能把別張草稿的 $H_k$ 拿來相除。
+
+沿同一條祖先路徑把各段相乘，每個中間 $H_k$ 都在分子、分母出現一次，因此
+
+$$
+\begin{gathered}
+\prod_{k=1}^K G_{k-1}(x_{t_{k-1}},x_{t_k})\\
+=\frac{H_0(x_0)}{H_K(x_T)}
+=e^{\lambda R(x_0)}.
+\end{gathered}
+$$
+
+**中途估計分配的是計算，起點與終點的選擇確定了整條路累積的倍率。** 只要維持這個構造，中間估計即使不精確，也不會因此改掉理想的 terminal tilt；但有限 $M$ 的草稿可能早就被淘汰，實際近似仍受估計影響。
+</Reveal>
+
+<Reveal partner="lumi" pose="explain" id="fk" label="先寫出路徑要占多少，再真的抽" next="算出的 target，和手上的草稿有什麼差別？">
+原 sampler 的路徑分布記成 $P$，整組 checkpoints 記成 $x_{t_K:0}$。把每條路的 base 權重乘上 potentials，再正規化，得到新的路徑 target $P_R$：
+
+$$
+\begin{gathered}
+P_R(\mathrm d x_{t_K:0})\\
+=\frac{1}{Z_R}P(\mathrm d x_{t_K:0})
+\prod_{k=1}^K G_{k-1}\\
+=\frac{e^{\lambda R(x_0)}}{Z_R}
+P(\mathrm d x_{t_K:0}).
+\end{gathered}
+$$
+
+第二個等號使用剛才的消去。每條抵達相同 $x_0$ 的路，只乘上相同的 terminal weight；將所有中途狀態的可能性累積起來，就得到 base 終點機率或 density 乘 $e^{\lambda R(x_0)}/Z_R$，也就是 $p_R$。
+
+這種用 potentials 定義加權路徑分布的架構，稱為 **Feynman–Kac（FK）model**。它先指定 target，式子裡沒有 particle 數 $M$；**SMC 才是用有限候選去近似它的抽樣演算法**。
+
+Singhal 等人的 **FK steering** 將這套構造用在 diffusion 引導，選擇中途估計、potentials、proposal 與重抽時機，再用 particle 方法抽樣。Kim、Kim 與 Park 的 **DAS（Diffusion Alignment as Sampling）** 也使用 SMC，透過 reward tempering 逐步增加中途 target 的偏好影響。這些名稱要對回構造與實際操作，不表示 FK 和 SMC 是互斥的方法。
+
+<Extra label="換了走下一段的 proposal，weight 還等於 potential 嗎？">
+正文用原 sampler 走一段，所以實際 proposal 和 base transition 相同。如果改用另一個 transition density $\tau_{k-1}$ 提出新狀態，而 base 的 transition density 是 $p_{\mathrm{base}}$，每段重抽、上一段權重相同時，就還要補抽樣來源的比值：
+
+$$
+\begin{aligned}
+\omega_{k-1}^{(i)}
+&=G_{k-1}(x_{t_{k-1}}^{(i)},x_{t_k}^{(i)})\\
+&\quad\cdot\frac{p_{\mathrm{base}}(x_{t_{k-1}}^{(i)}\mid x_{t_k}^{(i)})}
+{\tau_{k-1}(x_{t_{k-1}}^{(i)}\mid x_{t_k}^{(i)})}.
+\end{aligned}
+$$
+
+第一項是 target 相對於 base path 增加的倍率；第二項補償「真正從 proposal 抽，而不是從 base transition 抽」的差別，和完成品 IW 用的是同一個校正理由。Proposal 要涵蓋 target 會有質量的區域，才能使用這個比值。
+
+當 $\tau_{k-1}=p_{\mathrm{base}}$，後面比值是 $1$，才回到正文的 $\omega=G$。這裡的 $G_{k-1}$ 是增量權重函數，後面的 $G(z)$ 則是 deterministic generator；下標與輸入區分它們的角色。
+</Extra>
+</Reveal>
+
+<Choose partner="lumi" pose="question" id="c-bad-estimate" label="中途看錯了，哪一層會受影響？">
+某個中間 $H_k$ 估得很差，但維持正值、沿同一路徑用新舊比值，$H_K=1$，$H_0$ 仍用真正的 terminal reward。**下面哪個判斷符合剛才的構造？**
+<Option correct reply="乘積仍然消成終點的倍率，但有限 candidates 如何存活會受估計影響。這兩層要一起看。" why="路徑 target 由累積倍率確定，有限 particles 的誤差與退化由實際抽樣過程產生。">理想 terminal target 沒改，但有限 particles 的近似可能變差。</Option>
+<Option why="差的估計可能過早淘汰後來很好的草稿。乘積正確，不代表有限 M 已充分探索。">估計會消去，所以中途估計完全不重要。</Option>
+<Option goto="d-endpoints">只要每段都重新評分，不論最後用了什麼權重，都會是 $p_R$。</Option>
+</Choose>
+
+<Say partner="nori" pose="explain" id="d-endpoints" detour back="c-bad-estimate" label="最後剩下的，真的是原本那個倍率嗎？" next="回來檢查終點條件">
+相消後剩下的是 $H_0/H_K$。如果最後仍用預測圖的 reward，沒有換回真正 $x_0$ 的 $e^{\lambda R(x_0)}$，那剩下的就可能是另一個 terminal weight。
+
+同樣地，若起點 $H_K$ 隨 $x_T$ 改變、卻沒有補相應的起始加權，最後會多出 $1/H_K(x_T)$。**增加 $M$ 可以改善抽樣近似，不能把已經改掉的 FK target 自動修回來。**
+</Say>
+
+<Say partner="lumi" pose="explain" id="smc-output" label="把有限草稿真的接到終點" next="重跑更多趟，會修正哪個誤差？">
+現在可以把 Lumi 的操作完整接起來：抽 $M$ 個原 sampler 起點；每段保留舊狀態，讓它們各走一段，算新 $H$ 除以自己來路的舊 $H$；正規化後獨立重抽 $M$ 個編號，允許重複。重抽後等權重，再進下一段；終點的 $H_0$ 使用完成品真正的 reward。
+
+最後的 $M$ 張可以表示一個 empirical distribution：
+
+$$
+\begin{gathered}
+\widehat p_R^{(M)}(\mathrm d x_0)\\
+=\frac1M\sum_{i=1}^M\delta_{x_0^{(i)}}(\mathrm d x_0).
+\end{gathered}
+$$
+
+$\delta_{x_0^{(i)}}$ 是把質量放在第 $i$ 張完成品上的 point mass。想算某種作品的比例，就數這 $M$ 張有幾張屬於它，再除以 $M$；每份等權重，**不表示它們是彼此獨立的樣本**，因為可能共享祖先。從它們等機率抽一張，便是這趟回傳的結果。
+
+<Extra label="一趟增加 M，和把固定 M 重跑 n 次，哪裡不同？">
+令 $f(x_0)$ 是有界的圖片統計量，例如 $C$ 的指示函數。固定 checkpoints、使用正確權重，且符合相應的可積分性條件時，SMC 的一致性寫成
+
+$$
+\begin{gathered}
+\frac1M\sum_{i=1}^M f(x_0^{(i)})\\
+\xrightarrow[M\to\infty]{\text{依機率}}\\
+\mathbb E_{x_0\sim p_R}[f(x_0)].
+\end{gathered}
+$$
+
+左邊是一趟裡的 $M$ 個 particles，右邊是 target 下的平均。「依機率」表示兩者的差超過任意固定容許值的機率趨近 $0$；不要求這趟的 particles 彼此獨立。
+
+增加 $M$ 才是在改善每趟對 FK target 的近似。固定 $M$、獨立重跑 $n$ 趟，只會更清楚這個有限 sampler 的輸出比例，仍可能留下偏差。這個極限也不適用於已經設錯 terminal weighting 的 target。
+</Extra>
+
+<Extra label="一定要每段都重抽嗎？">
+不必。可以用 **effective sample size（ESS）** 描述 normalized weights 有多集中：
+
+$$
+\mathrm{ESS}=\frac{1}{\sum_{i=1}^M(\bar\omega^{(i)})^2}.
+$$
+
+等權重時，每項是 $1/M^2$，總和是 $1/M$，所以 ESS 是 $M$。若只有一份權重接近 $1$，總和接近 $1$，ESS 就接近 $1$；它描述權重集中程度，不是在數獨立祖先。
+
+可以等 ESS 低於門檻才重抽。某段沒有重抽時，要保留舊權重，下段再乘新增的 potential；不能一面略過重抽，一面仍假設下一段從等權重開始。
+</Extra>
+</Say>
+
+<Judge partner="nori" pose="question" id="j-repeat-smc" answer={false} label="一趟只有三份，多跑一萬趟呢？" yes="足夠消除" no="仍可能有偏差"
+  replyYes="重跑讓你看清固定 M=3 的輸出分布。每趟仍只有三份，早期淘汰與有限近似的偏差可能一直存在。"
+  replyNo="是的。要改善每趟的有限 particle 近似，要看 M、估計、proposal 與重抽策略；增加重跑次數不會自動做到這些。">
+每趟只用 $M=3$ 個 particles，但獨立重跑很多趟。**只增加重跑次數 $n$，就足以消除每趟有限 $M$ 的抽樣偏差嗎？**
+</Judge>
+
+<Talk partner="nori" pose="suggest" id="source-target" label="同一個起點，固定會畫出同一張圖" next="起點的比例，怎麼接到圖片的比例？">
+「回到我的提案。如果複製草稿總會畫出同一張，那我們保留生成規則，改試起點呢？」
+
+把 deterministic generator 記成 $G$：起點 $z$ 送進它，完成品是 $x_0=G(z)$；$G$ 包含這次固定的生成計算，給定同一個 $z$ 就得到同一個結果。原本起點的 density 是 $p_Z$，所以原本抽的是 $z\sim p_Z$。
+
+每個起點都有能詢問的分數 $R(G(z))$。想讓高分結果更常出現，可以把 reward 倍率放回起點：
+
+$$
+p_Z^R(z)\propto p_Z(z)e^{\lambda R(G(z))}.
+$$
+
+這裡用 $p_Z$ 保留原本起點的相對 density，用 exponential 提高高分結果所對應的權重。**生成規則沒有改，換的是想抽的 source distribution。** 它的 target 寫得出來，還不表示我們已會從它抽樣。
+</Talk>
+
+<Think partner="nori" pose="question" id="t-source" label="不同起點如果畫出同一種作品呢？">
+暫時用三個離散起點做例子：$z_a,z_b,z_c$ 原本各有 $1/3$ 機率，$G(z_a)=A$、$G(z_b)=G(z_c)=B$。完成品的 reward 倍率是 $A$ 得 $1$、$B$ 得 $3$。
+
+把倍率放回起點，三個未正規化權重是 $1/3,1,1$。**正規化後，生成 $A,B$ 的機率是多少？** 試著把會畫成同一種作品的起點機率加起來，再和圖片端的 base 乘 reward 比較。
+</Think>
+
+<Reveal partner="nori" pose="explain" id="source-push" label="把會畫成同一種作品的起點加起來" next="怎麼在起點之間找？">
+起點權重總和是 $7/3$，所以三個起點的機率是 $1/7,3/7,3/7$。$A$ 只有一個來源，機率是 $1/7$；$B$ 有兩個來源，相加得到 $6/7$。
+
+圖片端原本是 $A$ 占 $1/3$、$B$ 占 $2/3$，乘倍率 $1,3$ 後權重同樣是 $1/3,2$，正規化也是 $1/7,6/7$。**不需要 $G$ 一對一，所有會畫出同一類結果的來源都要算進來。**
+
+更一般地，把起點端的正規化常數也記成 $Z_R$，它是 base 起點生成的完成品之 reward 倍率平均：$Z_R=\mathbb E_{z\sim p_Z}[e^{\lambda R(G(z))}]$。從 $p_Z^R$ 抽起點後用同一個 $G$，任意可積分的圖片統計量 $f$ 的平均是
+
+$$
+\begin{gathered}
+\mathbb E_{z\sim p_Z^R}[f(G(z))]\\
+=\frac1{Z_R}\mathbb E_{z\sim p_Z}\big[\\
+e^{\lambda R(G(z))}f(G(z))\big].
+\end{gathered}
+$$
+
+原本 $z\sim p_Z$ 經 $G$ 產生 base output law；上式正是這個 base 的 reward 加權平均。因此 source tilt 接回的是 **generator 真正的 output law**，不需要計算圖片端的 density，也不表示原模型誤差消失。
+</Reveal>
+
+<Talk partner="nori" pose="explain" id="chains" label="試一個新起點，再決定留不留下" next="分數較低，一定要拒絕嗎？">
+「現在有了起點 target。那先從目前的 $z$ 提出一個新 $z'$，畫出 $G(z')$ 並評分，再決定要不要換過去，好嗎？」
+
+可以，但如果永遠只收較高分者，就又變成找高分點，而不是抽指定比例。把目前起點、下一個起點串成序列，稱為一條 **chain**；接受時移到 $z'$，拒絕時仍留在 $z$，留下不動也是這個序列的一步。
+
+用有接受機率的 Markov transition 保留指定 target，再收集樣本，稱為 **Markov chain Monte Carlo（MCMC）**。先考慮對稱 proposal：從 $z$ 提出 $z'$，和反向提出的機率相同。那接受機率是
+
+$$
+\begin{gathered}
+P_{\mathrm{accept}}(z,z')\\
+=\min\big\{1,\\
+\frac{p_Z(z')}{p_Z(z)}\\
+\cdot e^{\lambda_j[R(G(z'))-R(G(z))]}\big\}.
+\end{gathered}
+$$
+
+$\lambda_j$ 是這條 chain 的 reward 強度，$j$ 是 chain 編號。Normalizing constant 相除消去；比的是 **prior density 乘 reward 倍率**。每次抽 $U\sim\mathrm{Uniform}(0,1)$，若 $U<P_{\mathrm{accept}}$ 就換成 $z'$，否則留下 $z$。這些計算都不需要 reward gradient。
+
+<Extra label="這個接受機率，為什麼能保留 target？">
+把此 chain 的 target 記成 $\pi(z)=p_Z^{\lambda_j}(z)$，proposal density 暫記為 $a(z'\mid z)$。對稱時 $a(z'\mid z)=a(z\mid z')$，正向的機率流量是
+
+$$
+\begin{gathered}
+\pi(z)a(z'\mid z)\\
+\cdot\min\{1,\pi(z')/\pi(z)\}\\
+=a(z'\mid z)\\
+\cdot\min\{\pi(z),\pi(z')\}.
+\end{gathered}
+$$
+
+反向把 $z,z'$ 對調，因為 proposal 對稱，得到相同的量；加上拒絕時留在原位的機率，就不會讓 target 的質量淨流向某一邊。這個正反流量相等的條件稱為 **detailed balance**，它給出 target invariance。
+
+若 proposal 不對稱，target 比值還要乘 $a(z\mid z')/a(z'\mid z)$，不能仍沿用只有 prior 與 reward 的版本。保留 target 是 transition 的性質；有限次更新是否探索充分，還是另一個問題。
+</Extra>
+</Talk>
+
+<Choose partner="mugi" pose="question" id="c-accept" label="這次分數低一點，還可能保留嗎？">
+對稱 proposal 下，新舊起點的 prior density 相同，新候選的 reward weight 是舊候選的一半。**這次應該怎麼決定？**
+<Option correct reply="Target 的比值是一半，所以以一半機率接受。這樣做是在抽指定比例，不是每一步都最大化分數。" why="接受規則允許較低分的候選，保留正反向的機率流量。">以 $1/2$ 機率接受新候選。</Option>
+<Option why="永遠拒絕分數較低的候選，會把接受規則改成只爬分數，失去剛才的 target 保留理由。">分數下降就一定拒絕。</Option>
+<Option why="對稱的是 proposal，不是 target。Reward weight 的差別仍要進入接受機率。">Proposal 對稱，所以一律接受。</Option>
+</Choose>
+
+<Talk partner="lumi" pose="suggest" id="tempering" label="一直在同一種構圖附近，別條路能幫忙嗎？" next="交換起點，能不能随便換？">
+「如果高分的起點分成幾個相隔很遠的區域，一條 chain 可能一直只找到同一種構圖。能不能同時用幾種 reward 強度找，再讓它們交換線索？」
+
+讓第 $j$ 條 chain 使用 $\lambda_j$，target 是
+
+$$
+p_Z^{\lambda_j}(z)
+\propto p_Z(z)e^{\lambda_jR(G(z))}.
+$$
+
+小的 $\lambda_j$ 比較不受 reward 影響，可以搭配較大的提案步伐探索 base 有機會生成的其他區域；大的 $\lambda_j$ 更偏好高分起點，可以搭配較小步伐修正。**強度不會自動決定提案步長**，兩者仍是分開選的設計。
+
+各 chain 先依剛才的接受規則試新起點，再提出跨 chain 的交換，把探索找到的結果帶到目標強度。這是 Wang 等人的 **Source Parallel Tempering（SPT）**：在 source space 同時抽不同強度的 targets，且交換也有接受機率。最後從指定強度 $\lambda$ 的 chain 收集 $z$，再輸出 $G(z)$。
+</Talk>
+
+<Think partner="lumi" pose="question" id="t-swap" label="交換前後，哪些因子會消掉？">
+兩條 chain 的強度是 $\lambda_i,\lambda_j$，起點是 $z_i,z_j$。Joint target 是兩個 targets 的乘積；若交換起點，新舊比值中與 reward 有關的部分是
+
+$$
+\frac{e^{\lambda_iR(G(z_j))}e^{\lambda_jR(G(z_i))}}
+{e^{\lambda_iR(G(z_i))}e^{\lambda_jR(G(z_j))}}.
+$$
+
+兩邊都含相同的 $p_Z(z_i)p_Z(z_j)$，prior 因子已經消去。**試著把 exponential 的指數合併，看看哪些強度與 reward 的差會乘在一起。**
+</Think>
+
+<Reveal partner="lumi" pose="explain" id="swap" label="交換也要保留各自的比例" next="原規則保留了，就已經找充分嗎？">
+分子的指數減去分母的指數，再把共同項提出來，就得到
+
+$$
+\begin{gathered}
+P_{\mathrm{swap}}=\min\big\{1,\\
+\exp\!\left[\begin{gathered}
+(\lambda_i-\lambda_j)\\
+\cdot\big(R(G(z_j))\\
+-R(G(z_i))\big)
+\end{gathered}\right]\big\}.
+\end{gathered}
+$$
+
+在對稱選擇交換 pair 的設定下，這個接受規則保留各 chain targets 的乘積。不能看到另一條分數高就直接搬過來，否則改掉的不只是探索速度，也可能是 target。
+
+實際一輪 SPT 是：各 chain 提出新起點 → 生成與評分 → 依 $P_{\mathrm{accept}}$ 接受或留在原位 → 對一對 chains 依 $P_{\mathrm{swap}}$ 決定是否交換。交換時起點與已算好的 reward 一起換，避免拿某個起點配上另一張圖片的分數。
+
+每個新 proposal 都有生成與評分成本。重複這個流程後，目標 chain 的樣本可能相關；還要看它是否探索到不同高分區域，**保留 target 的規則，不等於有限搜尋已到達 target**。
+</Reveal>
+
+<Judge partner="nori" pose="question" id="j-source-fixed" answer={true} label="新的起點，每次都要重新學嗎？" yes="可以固定" no="必須更新"
+  replyYes="可以。新起點經同一個固定 G 得到完成品，再交給 reward。變的是起點與接受結果，原模型參數可以一直保留。"
+  replyNo="生成新圖片是使用模型，不是更新模型。SPT 的 local proposal 和交換操作都能在固定生成規則下進行。">
+SPT 每次試新起點，都重新生成並評分。**這些操作可以一直保留生成模型的參數 $\theta$ 嗎？**
+</Judge>
+
+<Sort partner="nori" pose="question" id="s-methods" label="回到工作桌，各種做法改了什麼？"
+  columns={["完成後挑選／IW", "途中 SMC", "起點 SPT"]}
+  rows={["分數在哪個階段發生作用？", "怎麼決定留下誰？", "增加計算時，還要看什麼？"]}
+  rowReplies={["完成後挑選與 IW 都得先畫完；SMC 用未來估計分配下一段計算；SPT 生成完成品評分，決定留哪個起點。接著比較選擇規則。", "都在使用分數，規則卻不同。要說接近 target，得檢查 normalized weights、累積 potentials，或接受規則。", "計算可以改善近似，但不能單靠平均 reward 或總呼叫次數，判斷是否抽對 target。候選涵蓋、祖先集中與 chain 探索是不同的問題。"]}
+  intro="方法名稱已經介紹過了。現在把實際動作與限制放回它們發生的位置；每完成一列，先看整理，再比較下一列。"
+  done="完成後的 argmax 找最高分；IW 與 SMC 按權重近似 target；SPT 用保留 source target 的接受規則搜尋。每一條路仍需要足夠且合適的計算。">
+<Card col={0} row={0} context="完成後 · 使用分數" hint="這兩種規則都從完整候選出發，差別是最後怎麼選。">把一批完成圖片評分後，再決定回傳哪張。</Card>
+<Card col={1} row={0} context="途中 · 使用分數" hint="目前還不是完成品，需要先估未來，再算這段權重。">從草稿估未來倍率，決定哪些後代繼續生成。</Card>
+<Card col={2} row={0} context="起點 · 使用分數" hint="SPT 的分數來自 G(z)，用來決定起點的接受與交換。">從新起點畫出完成品，評分後決定是否換起點。</Card>
+<Card col={0} row={1} context="完成後 · 選擇規則" hint="同一批候選可以 argmax，也可以按 normalized weights 抽；兩者輸出 law 不同。">最高分挑選，或用 exponential 倍率正規化後抽一張。</Card>
+<Card col={1} row={1} context="途中 · 選擇規則" hint="SMC 的份數由隨機重抽決定；potential 構造再檢查累積的 target。">用校正後的增量權重重抽 M 份，允許相同祖先。</Card>
+<Card col={2} row={1} context="起點 · 選擇規則" hint="它不只是把高分全部留下；local 與 swap 都有接受機率。">依 target 比值接受新起點，也依接受機率交換。</Card>
+<Card col={0} row={2} context="完成後 · 計算限制" hint="每張完整候選都要生成與評分；固定 N 多跑 n 趟不會自動改掉比例。">Rare target 要很多候選；有限 N 的 IW 仍有近似誤差。</Card>
+<Card col={1} row={2} context="途中 · 計算限制" hint="多份複本可能共享祖先，H 的估計也影響哪些草稿存活。">看估計與祖先是否集中；增加 M 不會修正設錯的 target。</Card>
+<Card col={2} row={2} context="起點 · 計算限制" hint="每個新起點仍須生成，正確的接受規則也不表示有限 chain 已探索充分。">每個 proposal 都要畫完並評分，有限搜尋可能困在局部。</Card>
+</Sort>
+
+<Choose partner="mugi" pose="question" id="c-transfer" label="最後換一個生成工具試試看">
+這次生成器是 deterministic，從相同草稿往後總會得到相同結果。你想保留生成規則，也想探索不同答案。**哪個做法比較符合這次需求？**
+<Option why="完全相同的狀態沿同一條 deterministic 規則走，複製很多份仍會得到同一張，沒有增加不同答案。">只把目前最好的草稿複製一百份，照同一條路繼續。</Option>
+<Option correct reply="這能探索不同起點，仍保留原生成規則。接受與交換需要按 target 設計，搜尋是否充分也還要檢查。" why="固定 G 不代表固定 z；起點可以改用保留指定 source target 的抽樣規則。">試不同起點，用 target 比值的接受與交換規則做 source 搜尋。</Option>
+<Option why="單靠找到一個高分點，沒有檢查其他結果的比例，也沒有說明是否探索到其他高分區域。">找到一個高分起點，就宣稱已經抽到整個 $p_R$。</Option>
+</Choose>
+
+<Say partner="mugi" pose="explain" id="extension" label="其他草稿，也能參考當下最好的那張嗎？" next="回到評審一開始的限制">
+我們剛才的主線，讓分數決定哪些候選留下來。還有另一個延伸：**保留每張草稿，參考當下最好候選的預測完成品，改動接下來的 prediction。** 它也不必對 reward 微分，但操作與 SMC 的重抽不同。
+
+<Extra label="BoNG：怎麼用候選的差異提供修改方向？">
+時間 $t$ 上保留 $M$ 個 $x_t^{(i)}$，各自算去噪估計 $\hat x_0^{(i)}$，評分後選當下最高分編號
+
+$$
+i^\star=\arg\max_{1\le i\le M}R(\hat x_0^{(i)}).
+$$
+
+這裡評的是**預測完成品**，不是已經生成到終點的 $x_0$。對第 $i$ 張而言，$\hat x_0^{(i^\star)}-\hat x_0^{(i)}$ 是從自己預測移向參考預測的向量。Kim 等人將這種用最好候選引導其他 particles 的方法稱為 **Best-of-$N$ Guidance（BoNG）**；這裡沿用 $M$ 表示途中候選數。
+
+怎麼將這個位移換成 noise prediction？先固定目前的 $x_t^{(i)}$，沿用 VP 的去噪公式：
+
+$$
+\begin{gathered}
+\hat x_0^{(i)}\\
+=\frac{x_t^{(i)}-\sigma_t\epsilon_\theta(x_t^{(i)},t)}
+{\sqrt{\bar\alpha_t}},\\
+\widetilde{\hat x}_0^{(i)}-\hat x_0^{(i)}\\
+=-\frac{\sigma_t}{\sqrt{\bar\alpha_t}}\\
+\cdot\big(\widetilde\epsilon_\theta^{(i)}
+-\epsilon_\theta(x_t^{(i)},t)\big).
+\end{gathered}
+$$
+
+第二行是兩個去噪估計相減，固定的 $x_t^{(i)}$ 消去。若想讓左邊等於 $w_{\mathrm B}(\hat x_0^{(i^\star)}-\hat x_0^{(i)})$，在 $\sigma_t>0$、$\bar\alpha_t>0$ 時移項，就得到
+
+$$
+\begin{gathered}
+\widetilde\epsilon_\theta^{(i)}
+=\epsilon_\theta(x_t^{(i)},t)\\
+-w_{\mathrm B}\frac{\sqrt{\bar\alpha_t}}{\sigma_t}
+\big(\hat x_0^{(i^\star)}-\hat x_0^{(i)}\big).
+\end{gathered}
+$$
+
+$w_{\mathrm B}\ge0$ 是本次位移的強度。$w_{\mathrm B}=0$ 保留原 prediction；$w_{\mathrm B}=1$ 時，固定目前 state 算出的新去噪估計剛好等於參考候選，但**不表示下一步 state 或最後圖片已經相同**。將合成 prediction 交給原 sampler，才讓各張圖走向下一個較低 noise level。
+
+每個 reverse step 重新「去噪估計 → 評分選參考 → 修改每張 prediction → 繼續生成」，最好編號也可以改變。參考候選本身的位移是零。這是一種用候選差異提出方向的方式，沒有計算 $\nabla R$，也沒有更新 $\theta$。
+
+以上沒有像 FK 那樣證出 terminal weighting 等於 $e^{\lambda R(x_0)}$，所以不能直接宣稱 BoNG 抽到 exact tilt。來源筆記也將它列為延伸；所用 VP 換算保留了 $\sqrt{\bar\alpha_t}$，不能和 signal amplitude 為 $1$ 的另一套 noise schedule 混用。
+</Extra>
+
+<Extra label="想對照來源研究與演算法的完整寫法？">
+本頁主線已經給出完成品 IW、SMC 的每段循環、SPT 的接受與交換規則；來源技能書另將每個流程寫成數學 pipeline 與 pseudocode，方便逐步查閱。
+
+- Singhal 等人的 <a href="https://proceedings.mlr.press/v267/singhal25b.html">FK steering</a>：中途估計、potentials 與 particle 抽樣。
+- Kim、Kim 與 Park 的 <a href="https://arxiv.org/abs/2501.05803">DAS</a>：reward tempering 與 SMC。
+- Wang 等人的 <a href="https://proceedings.mlr.press/v306/wang26da.html">SPT</a>：在 deterministic generator 的 source space 提案與交換。
+- Kim 等人的 <a href="https://arxiv.org/abs/2610.05108">BoNG</a>：用最好候選的預測完成品引導其他 particles，為來源列出的近期 preprint。
+</Extra>
+</Say>
+
+<Say partner="nori" pose="explain" id="bridge" label="只有分數，我們仍能做哪些選擇？" next="回技能書連著讀">
+評審只肯打分，我們仍可以引導：完成後按倍率抽選，在途中用增量權重重抽草稿，或保留 deterministic generator、改抽起點。**挑到高分作品和近似指定的出現比例，要用各自的規則檢查**；多算幾次不會自動把它們變成同一件事。
+
+<Figure src={overview} alt="三種機制並列：Best-of-N 完整生成後只留最高分；SMC 按權重重抽且 particle 總數保持固定；SPT 在不同 reward 強度的 source chains 間提案與交換。圖中曲線是機制示意，不是模型實測軌跡。">
+這張來源圖整理終點挑選、途中重抽與 source 搜尋。SPT 的各列是 reward 強度，不是 diffusion time；圖中的生成器 $G_\theta$ 對應本頁固定的 $G$，而 FK 的 $G_{k-1}$ 是另一個增量權重函數。機制示意不代表有限計算已精確抽到 $p_R$。
+</Figure>
+
+<Extra label="如果原模型沒有精確學到資料分布呢？">
+正文為了檢查 sampling 規則，先假設 base 是 $p_{\mathrm{data}}$。若原模型實際輸出的是 $p_\theta$，同樣的 terminal weighting 近似的是以下權重**正規化後的分布**：
+
+$$
+p_\theta(x_0)e^{\lambda R(x_0)}.
+$$
+
+若還使用有限步 sampler，base 更精確地說是它真正產生的 output law，也包含離散化誤差。增加 candidates、particles 或 chain 搜尋，可以改善相對於這個 base 的抽樣近似，**不會自動把 base 修成 $p_{\mathrm{data}}$**。
+
+某種作品若在 base 完全沒有機會，有限 reward 的重新加權也不能讓它出現；低機率區域即使提高倍率，也可能尚未被有限候選看見。因此還要分開看模型誤差、sampling 近似、reward、合理性與多樣性。
+</Extra>
+
+接著換一個更具體的要求：使用者交來一張模糊照片，希望生成的清楚圖片真的和它相容。**評審該怎麼打分，才是在還原這張照片，而不只是選一張好看的狗？** <Ref to="dma-guidance-applications"/> 從量測過程接續這個問題。
+
+本篇的同一組比例、FK／SMC 推導、SPT 接受規則與 BoNG 延伸，也可以在 <Ref to="dma-gradient-free-steering" mode="full"/> 連著讀。
+</Say>

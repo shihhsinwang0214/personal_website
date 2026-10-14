@@ -3,7 +3,7 @@
 2026-10-13 名稱確定：中文使用「知識秘境(Beta)」，英文使用「Knowledge Realms (Beta)」。原稱練功房；程式檔名、collection、網址與進度鍵沿用 `dojo`，既有閱讀位置可繼續使用。下文的歷史名稱與設計稿名稱保留原稱。
 
 同一個問題，換讀者試著往下推，再一起對照理由。
-這一頁是給之後維護練功房的人（含 agent）看的規則。目前已有 U7.0–U7.2 的連續練習；分工與圖片規格見 `docs/dojo-u7-sequence.md`。
+這一頁是給之後維護練功房的人（含 agent）看的規則。目前已有 U7.0–U7.3 的連續練習；分工與圖片規格見 `docs/dojo-u7-sequence.md`。
 
 ## 2026-10-14：獨立學習與學習夥伴
 
@@ -131,6 +131,6 @@ Runner 的契約（`data-node`／`data-detour`／`data-back`／`data-goto`／`da
 
 ## 之後
 
-- 後續可從 U7.3 的 black-box reward 延伸。U7.0 保留來源已有的 Best-of-N 成功率直覺；更完整的候選策略與計算成本分析再由 U7.3 接續，避免重複。需要排序推導時再加入 `<Order>` 節點。
+- U7.3 已接續 black-box reward、候選比例、途中重抽與 source 搜尋。U7.0 保留 Best-of-N 命中率直覺，U7.3 則檢查輸出分布與 target 的差別；下一套可從 U7.4 的量測與 observation reward 接續。需要排序推導時再加入 `<Order>` 節點。
 - 若要和解鎖成就接起來：只在「走完一套」時記錄，不記答對率。
 - 英文版：腳本檔名 `<slug>.en.mdx`，頁面與索引已經雙語。

@@ -10,8 +10,8 @@ title: "Reward 只會打分、不會給方向，還能怎麼引導？"
 category: "courses"
 group: "Unit 7 · Test-time Guidance"
 status: "available"
-updated: 2026-10-12
-summary: "Reward 只會打分時，可以比較候選並重新分配生成計算。從終點挑選開始，先看 SMC 如何讓有希望的候選繼續生成，再用 Feynman–Kac 的權重解釋它近似哪個 target；最後比較 BoNG 的途中引導與 SPT 的起點搜尋。"
+updated: 2026-10-15
+summary: "用三種作品算出 Best-of-N 的輸出比例為何不等於目標，再從 target／base 比值引出 importance weighting 與按權重抽樣。讓完成作品的成本引出草稿估計與 SMC，用 Feynman–Kac 檢查各段權重是否保留終點 tilt，最後介紹 SPT 的起點搜尋，再把 BoNG 的途中引導列為延伸閱讀。"
 demos: []
 references:
   - label: "Singhal et al., A General Framework for Inference-time Scaling and Steering of Diffusion Models (ICML 2025)"
@@ -34,13 +34,14 @@ import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
+import AlgorithmView from '../../../components/AlgorithmView.astro';
 
 # Reward 只會打分、不會給方向，還能怎麼引導？
 
 <Objectives>
-- **分清挑最高分與依權重抽樣。** 寫出 Best-of-$N$ 的 argmax 與 normalized reward weights，說明它們為什麼不是同一個 sampling 規則。
-- **從三個候選說明 SMC 的操作與 target。** 解釋 propagate、weight、resample，再用各段權重的消去說明 Feynman–Kac 如何保留指定的終點 tilt。
-- **比較不同方法在哪裡使用 reward。** 分清 BoNG 改動途中方向、SPT 搜尋起點，以及有限 candidates、錯誤的中途估計與不充分搜尋帶來的限制。
+- **算出挑最高分為什麼不等於抽目標分布。** 比較 Best-of-$N$ 的輸出比例與 $p_R$，再從 target／base 比值寫出 importance weights 與選中候選的機率。
+- **從三個候選說明 SMC 的操作與 target。** 解釋 propagate、weight、resample，用各段權重的消去檢查終點 tilt，再分清 FK model、SMC 與論文中的 FK steering。
+- **比較不同方法在哪裡使用 reward。** 分清終點挑選、途中重抽候選與 SPT 搜尋起點，以及有限 candidates、錯誤的中途估計與不充分搜尋帶來的限制。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
@@ -51,52 +52,215 @@ import Ref from '../../../components/Ref.astro';
 
 但很多 reward 比較像一位評審：作品完成後，他能打出 0 到 10 分，卻說不出每一個 pixel、token 或分子座標該往哪裡移。人類偏好、外部模擬器、compiler 是否通過、碰撞檢查與 hard constraint 都可能是這種 **black-box reward**。
 
-這時沒有可用的微分方向，但仍能比較兩個結果誰比較好。最自然的想法是多生成幾個候選，再用分數決定留下哪一些。下面先把 base model 視為精確的 $p_{\mathrm{data}}$；實作時換成模型真正抽出的 distribution，不能靠 steering 消除原本的 model error。
+下面我們會先考慮 base pretrained model 已經學到最理想的 $p_{\mathrm{data}}$；實作時，我們會將它換成模型真正學到的 distribution $p_\theta$。至於 model error 如何影響 steering，會作為補充放在最後。那麼我們現在的問題是：
 
 <Ask>
-Reward 只能比較候選的好壞時，<br />
-我們怎麼把有限的 sampling compute 移向高分區域？
+如果 Reward 只能比較候選資料的好壞時，<br />
+我們怎麼改變 sampling 方式來讓結果變得更像 $p_R(x_0)$？
 </Ask>
 
-## 最直接的方法：多抽幾次，再挑最好的
+## 不知道怎麼改，那多畫幾張呢？
 
-抽 $N$ 個獨立樣本 $x_0^{(1)},\ldots,x_0^{(N)}\sim p_{\mathrm{data}}$，再輸出
+想像我們請模型畫一張符合這次要求的圖片。評審看完後，只說這張圖有幾分，卻無法告訴我們該改哪裡。既然不知道怎麼修改，那最自然的想法就是：**再畫幾張，讓評審比較，最後留下分數最高的那張。**
+
+把這個做法寫成數學，就是先抽 $N$ 個獨立樣本 $x_0^{(1)},\ldots,x_0^{(N)}\sim p_{\mathrm{data}}$，再輸出
 
 $$
 i^\star=\arg\max_{1\le i\le N}R(x_0^{(i)}),
 \qquad \widehat x_0=x_0^{(i^\star)}.
 $$
 
-也就是先找出分數最高的編號 $i^\star$，再回傳那個樣本。這就是 **Best-of-$N$**：不需要 reward gradient，也不改每一條 sampling path，但要付出生成 $N$ 個完整樣本與 $N$ 次評分的成本。
+也就是先找出分數最高的編號 $i^\star$，再回傳那個樣本。這就是 **Best-of-$N$**：評審只需要替完成的作品打分，不需要 reward gradient，也不改每一條 sampling path。
 
-<Ref to="dma-test-time-steering"/> 已算過：若符合要求的機率是 $p$，至少命中一次的機率就是 $1-(1-p)^N$。例如 $p=0.001$、$N=1000$ 時也只有約 $0.632$；rare target 需要很多候選，而且每個候選都要走完才能評分。
+因此，Best-of-$N$ 的 sampling pipeline，就是從 $p_{\mathrm{data}}$ 生成 $N$ 張候選、用 $R$ 評分，再留下最高分的 $\widehat x_0$：
 
-Best-of-$N$ 選的是最大值，也不等於抽 $p_R$。若要依 reward 權重抽樣，可以改用
+<AlgorithmView id="u73-bon" title="Best-of-$N$：一次 sampling" code={`輸入：候選數 N、base_sampler、reward R
+輸出：一個完成品 x_out
+
+for i = 1, ..., N:
+    x[i] ← base_sampler()       # 從 p_data 獨立生成
+    score[i] ← R(x[i])
+
+i_star ← argmax_i score[i]
+x_out ← x[i_star]
+return x_out`}>
 
 $$
+\begin{aligned}
+&\{x_0^{(i)}\}_{i=1}^N,
+\quad x_0^{(i)}\sim p_{\mathrm{data}}\\
+&\quad\xrightarrow{\text{評分}}
+\{R(x_0^{(i)})\}_{i=1}^N\\
+&\quad\xrightarrow{\text{選最高分}}
+\widehat x_0=x_0^{(i^\star)}.
+\end{aligned}
+$$
+
+</AlgorithmView>
+
+這裡每次輸出一張圖片。我們會把整個 pipeline 獨立重複 $n$ 次，每次都重新生成 $N$ 張候選。把第 $j$ 次留下的圖片記成 $\widehat x_0^{(j)}$，最後收集成一個 sample set：
+
+$$
+\mathcal D_{\mathrm{BoN}}
+=\{\widehat x_0^{(j)}\}_{j=1}^n.
+$$
+
+$N$ 是每次拿來比較的候選數，$n$ 是最後收集的輸出數。這個 set 中各種結果出現的比例，形成我們觀察到的 empirical distribution；**我們希望它接近目標 distribution $p_R(x_0)$。** 那麼，反覆使用 Best-of-$N$ 得到的 $\mathcal D_{\mathrm{BoN}}$，真的會呈現我們想要的分布嗎？
+
+## 挑最高分，就等於抽到 $p_R$ 嗎？
+
+Best-of-$N$ 可以提高每次留下的作品分數，但我們要檢查的是 $\mathcal D_{\mathrm{BoN}}$ 的分布。**只看誰的 reward 最大，並沒有要求不同結果出現的比例符合 $p_R$。** 我們可以沿用作品與評審的情景，把這個差別算出來。
+
+先假設模型只會畫出 $A,B,C$ 三種作品，原本出現的機率相同，也就是 $p_{\mathrm{data}}(A)=p_{\mathrm{data}}(B)=p_{\mathrm{data}}(C)=1/3$。評審給它們的分數經過 $e^{\lambda R}$ 轉成 reward weights，分別是 $1,2,7$。所以目標 $p_R$ 希望三種作品的比例是 $1/10,2/10,7/10$；例如
+
+$$
+p_R(C)
+=\frac{(1/3)\cdot7}{(1/3)(1+2+7)}
+=\frac{7}{10}.
+$$
+
+分子是 $C$ 原本的機率乘上 reward weight，分母把三種作品的加權機率加起來。這裡的 $1,2,7$ 是 reward 決定的倍率，不是評審的原始分數。
+
+但如果每次只畫兩張，也就是 Best-of-$2$，只要其中有 $C$，它就會贏。兩張都不是 $C$ 的機率是 $(2/3)^2$，因此每次輸出 $\widehat x_0$ 是 $C$ 的機率為
+
+$$
+\Pr(\widehat x_0=C)
+=1-\left(\frac23\right)^2
+=\frac59\ne\frac7{10}.
+$$
+
+所以，把這個 pipeline 重複很多次，$\mathcal D_{\mathrm{BoN}}$ 中 $C$ 的比例會逐漸穩定在 $5/9$，而不是目標的 $7/10$。**因此增加重複次數 $n$，並不會越來越靠近 $p_R$。** 既然不對，那我們應該怎麼修正呢？
+
+## 不要只看最好，能不能按照 reward weight 的比例來抽選？
+
+回到評審面前已經畫好的三張作品。若它們的 reward weights 是 $1,2,7$，我們可以讓三張作品分別有 $1/10,2/10,7/10$ 的機率被選中，而不是每次只留最高分。這個動作想做的是：**候選仍由原模型生成，但選擇時補上它在 target 中應該增加的相對權重。**
+
+為什麼該補的權重是 $e^{\lambda R}$？候選原本從 $p_{\mathrm{data}}$ 抽出，原本常出現的作品已經比較容易進入候選集合。現在要改成 $p_R$，因此在 $p_{\mathrm{data}}(x_0)>0$ 的位置，我們看的是「目標 density 除以原本抽樣的 density」：
+
+$$
+\frac{p_R(x_0)}{p_{\mathrm{data}}(x_0)}
+=\frac{1}{Z_R}e^{\lambda R(x_0)}.
+$$
+
+$Z_R$ 是 <Ref to="dma-reward-tilting"/> 中讓 $p_R$ 正規化的常數，對所有候選都相同。因此比較相對權重時可以消去它，不需要重新計算 $p_{\mathrm{data}}$。**原本的 base probability 由候選出現的頻率反映，選擇時再乘 reward weight。** 用 target 與原抽樣 distribution 的比值修正樣本貢獻，正是 **importance sampling** 的核心；這裡我們的具體做法是先替候選解做 **importance weighting**，然後再按權重重新抽樣。
+
+<Remark label="補充" summary="Importance sampling 的具體數學形式">
+令 $f(x_0)$ 是我們想平均的量，例如作品的 reward $R(x_0)$。若 $f$ 在 $p_R$ 下的絕對期望有限，我們想計算 $\mathbb E_{x_0\sim p_R}[f(x_0)]$，但手上能直接抽的是 $x_0\sim p_{\mathrm{data}}$。由於 $p_R$ 是以 $p_{\mathrm{data}}$ 為 base 的 tilt，可以把期望改寫成
+
+$$
+\begin{aligned}
+\mathbb E_{x_0\sim p_R}[f(x_0)]
+&=\mathbb E_{x_0\sim p_{\mathrm{data}}}
+\left[\frac{p_R(x_0)}{p_{\mathrm{data}}(x_0)}f(x_0)\right]\\
+&=\frac{\mathbb E_{x_0\sim p_{\mathrm{data}}}
+[e^{\lambda R(x_0)}f(x_0)]}{Z_R}.
+\end{aligned}
+$$
+
+第一個等號是在期望的積分裡乘上並除以 $p_{\mathrm{data}}(x_0)$，把原本對 target 的平均換成對 base 的加權平均；第二個等號代入正文剛得到的 density 比值。**抽樣的來源換成 base，但每個結果的貢獻要乘上 target／base 的比值。**
+
+由 $p_R$ 的正規化條件，$Z_R=\mathbb E_{x_0\sim p_{\mathrm{data}}}[e^{\lambda R(x_0)}]$。因此，從 base 獨立抽出 $N$ 個候選後，可以用樣本平均估計分子與分母，得到
+
+$$
+\mathbb E_{x_0\sim p_R}[f(x_0)]
+\approx
+\frac{\sum_{i=1}^N e^{\lambda R(x_0^{(i)})}f(x_0^{(i)})}
+{\sum_{i=1}^N e^{\lambda R(x_0^{(i)})}}.
+$$
+
+分子把每個候選的 $f(x_0^{(i)})$ 乘上 reward weight，分母則用同一批候選的權重總和做正規化；兩個樣本平均中的 $1/N$ 相除後消去。這個有限樣本的比值估計稱為 **self-normalized importance sampling**；它通常有有限樣本偏差，不能把上面的近似號換成等號。
+
+這個公式直接給出的是加權平均，不必真的抽出一張圖片。正文則再按 normalized weights 選出候選，將權重用在 sampling 的輸出上。
+</Remark>
+
+我們試著將演算法寫下來：把第 $i$ 張候選 $x_0^{(i)}$ 的正權重記成 $\omega^{(i)}$，並把它除以這一批所有候選的權重總和：
+
+$$
+\begin{aligned}
+\omega^{(i)}&=e^{\lambda R(x_0^{(i)})},\\
 \bar\omega^{(i)}
-=\frac{e^{\lambda R(x_0^{(i)})}}{\sum_{j=1}^N e^{\lambda R(x_0^{(j)})}}.
+&=\frac{\omega^{(i)}}{\sum_{\ell=1}^N\omega^{(\ell)}}.
+\end{aligned}
 $$
 
-按這些機率選候選，才是在有限樣本上近似 tilted distribution：高分較常被選中，但不是永遠選冠軍。不過它仍等到終點才評分。**能不能更早知道哪一條路有希望，把計算留給那些候選？**
+$\omega^{(i)}$ 是第 $i$ 張作品應增加的倍率；$\bar\omega^{(i)}$ 才是在這一批候選中選中它的機率，且 $\sum_{i=1}^N\bar\omega^{(i)}=1$。因此我們以機率 $\bar\omega^{(i)}$ 選第 $i$ 張，輸出 $\widehat x_0=x_0^{(i)}$。剛才三張作品的例子，就是 $(\omega^{(1)},\omega^{(2)},\omega^{(3)})=(1,2,7)$ 對到 $(\bar\omega^{(1)},\bar\omega^{(2)},\bar\omega^{(3)})=(0.1,0.2,0.7)$。
+
+因此，固定這一批候選後，sampling pipeline 就是：
+
+<AlgorithmView id="u73-iw" title="IW：一次 sampling" code={`輸入：候選數 N、base_sampler、reward R、強度 lambda
+輸出：一個完成品 x_out
+
+for i = 1, ..., N:
+    x[i] ← base_sampler()       # 從 p_data 獨立生成
+    omega[i] ← exp(lambda * R(x[i]))
+
+omega_bar ← omega / sum(omega)
+i ← 按機率 omega_bar[1:N] 抽出一個候選編號
+x_out ← x[i]
+return x_out`}>
+
+$$
+\begin{aligned}
+&\{x_0^{(i)}\}_{i=1}^N,
+\quad x_0^{(i)}\sim p_{\mathrm{data}}\\
+&\quad\xrightarrow{\text{評分與加權}}
+\{\omega^{(i)}=e^{\lambda R(x_0^{(i)})}\}_{i=1}^N\\
+&\quad\xrightarrow{\text{正規化}}
+\{\bar\omega^{(i)}\}_{i=1}^N\\
+&\quad\xrightarrow{\text{按權重抽選}}
+\widehat x_0=x_0^{(i)}.
+\end{aligned}
+$$
+
+</AlgorithmView>
+
+最後一行的 $i$ 是以機率 $\bar\omega^{(i)}$ 抽出的候選編號，而不是 $i^\star$。**前面的候選生成相同，改的是最後留下哪張圖片的規則。**
+
+每次重新生成候選、按這些機率選出一張，再獨立重複 $n$ 次，得到的 sample set 記成 $\mathcal D_{\mathrm{IW}}=\{\widehat x_0^{(j)}\}_{j=1}^n$。它和 $\mathcal D_{\mathrm{BoN}}$ 的差別，是 pipeline 最後一步從 argmax 換成隨機選擇。**這是在有限候選上近似 $p_R$，不是有限 $N$ 下就精確抽到 $p_R$。** 增加 $n$ 能看清這個規則的輸出分布；要改善有限候選對 target 的近似，則要讓每次的候選更充分地涵蓋 base distribution，例如增加 $N$。
+
+不過，不管最後挑最高分還是按權重抽樣，**每張作品都得完整畫完，才能使用這次評分。** 生成 $N$ 張作品，就要付出 $N$ 次完整生成與 $N$ 次評分的成本。<Ref to="dma-test-time-steering"/> 已算過：若符合要求的機率是 $p$，至少命中一次的機率就是 $1-(1-p)^N$。例如 $p=0.001$、$N=1000$ 時也只有約 $0.632$；rare target 需要很多候選。
+
+如果有些草稿畫到一半就已經不太有希望，還要把它們全部畫完嗎？**能不能更早估計哪一張草稿有希望，把後續計算分給那些候選？**
 
 ## 能不能讓比較有希望的候選繼續生成？
 
-想像同時畫幾張草稿，不必等到每張都完成才請評審看。畫到一半時，先估計各張草稿有多值得繼續：比較有希望的多留幾份，較沒希望的停止，把接下來的計算分給留下來的草稿。
+沿用剛才畫圖的情景，我們可以同時畫幾張草稿，畫到一半時先估計它們最後可能得到的結果，再決定哪些繼續畫。比較有希望的多留幾份，較沒希望的停止，把接下來的計算分給留下來的草稿。
 
-例如目前有三張草稿，這一段的正權重是 $1,2,7$。我們不直接選最高分，而是每次以 $0.1,0.2,0.7$ 的機率抽一張，抽出三張後繼續畫。第三張可能被抽到不只一次，也可能保留其他草稿；若後續生成有隨機性，同一張草稿的複本還能畫出不同結果。
+但評審原本只能評完成品。畫到一半時，我們可以先請模型猜最後會畫成什麼，也就是對目前的 noisy state 算去噪估計，再讓評審打分；也可以試著把這張草稿完成幾次，對那些結果的 reward weights 取平均。**這時得到的是對未來結果的估計，還不是最後的 reward。**
 
-把生成中的候選稱為 **particle**，同時保留 $M$ 個。沿用 U1 的時間方向，選幾個檢查點 $T=t_K>\cdots>t_0=0$；從 $t_k$ 走到 $t_{k-1}$，做三件事：
+若三張草稿在這一段應乘上的正權重是 $1,2,7$，就沿用剛才按權重抽樣的做法，每次以 $0.1,0.2,0.7$ 的機率抽一張，允許重複抽到同一張，抽出三張後繼續畫。第三張可能被抽到不只一次，也可能保留其他草稿；若後續生成有隨機性，同一張草稿的複本還能畫出不同結果。這些中途估計要怎麼變成「這一段應乘的權重」，我們稍後再檢查。
 
-1. **Propagate：** 每個 particle 用原 reverse sampler 走下一段，記住新位置與它的來路。
-2. **Weight：** 替這一段算出正權重 $\omega_{k-1}^{(i)}$，估計第 $i$ 個候選應該分到多少計算。
-3. **Resample：** 用 $\bar\omega_{k-1}^{(i)}=\omega_{k-1}^{(i)}/\sum_j\omega_{k-1}^{(j)}$ 當選中機率，重新抽出 $M$ 個候選，再繼續生成。
+把生成中的候選稱為 **particle**，同時保留 $M$ 個；$M$ 是途中保留的候選數，和剛才完整生成後才挑選的 $N$ 分開記。沿用 U1 的時間方向，選幾個檢查點 $T=t_K>\cdots>t_0=0$，其中 $K$ 是生成被切成的段數。$x_{t_k}^{(i)}$ 表示時間 $t_k$ 上第 $i$ 個 particle 的狀態；從 $t_k$ 走到 $t_{k-1}$，做三件事：
 
-這就是 **Sequential Monte Carlo（SMC）** 的基本操作。這裡先假設每輪都 resample 成等權重；我們改的是哪些候選有後代，不是模型的參數。但還有一個問題：**這一段的權重到底要怎麼算，才不只是憑分數留下喜歡的草稿？**
+1. **Propagate：** 每個 particle 用原 reverse sampler 從 $x_{t_k}^{(i)}$ 走到 $x_{t_{k-1}}^{(i)}$，記住新位置與它的來路。
+2. **Weight：** 替這一段算出正權重 $\omega_{k-1}^{(i)}$。上標 $i$ 指候選，下標 $k-1$ 指這一段抵達的 checkpoint；它是這一段新增的倍率。
+3. **Resample：** 用 $\bar\omega_{k-1}^{(i)}=\omega_{k-1}^{(i)}/\sum_{\ell=1}^M\omega_{k-1}^{(\ell)}$ 當選中機率，允許重複地抽出 $M$ 個候選，再繼續生成。
 
-## 每次都乘分數，會不會重複計算？
+第 $i$ 個候選平均會被抽到 $M\bar\omega_{k-1}^{(i)}$ 次，所以高權重者平均有更多複本繼續生成。三張草稿的例子裡，平均複本數是 $3(0.1,0.2,0.7)=(0.3,0.6,2.1)$；真正抽到的份數是整數，不是照這個平均硬切。
 
-途中拿到的 noisy state 不能直接當完成品評分。我們可以先去噪，或試著完成幾條可能的後續路徑，估計它最後的 reward 權重。把這個正的估計記成 $H_k(x_{t_k})$：它估計目前候選的未來有多值得保留，不一定等於上一篇精確的 $h_{t_k}$。
+這就是 **Sequential Monte Carlo（SMC）** 的基本操作。這裡先假設每個 checkpoint 都 resample，抽出的 $M$ 個 particles 重新具有相同權重 $1/M$；我們改的是哪些候選有後代，不是模型的參數。走到 $t=0$ 後，從最後的 $M$ 個 particles 中等機率選一個作為 $\widehat x_0$。把整趟生成獨立重複 $n$ 次，便得到 $\mathcal D_{\mathrm{SMC}}=\{\widehat x_0^{(j)}\}_{j=1}^n$，再檢查它的分布是否接近 $p_R$。
+
+<Question id="Q1">
+既然要把計算集中到高 reward 區域，**每個 checkpoint 都只保留當下分數最高的 particle，再把它複製成 $M$ 份，不是最有效率嗎？**
+
+<Answer>
+這樣會很快失去 diversity，而且越早期越危險。高 noise 時，一個 particle 的 clean outcome 還有很多可能；當下看起來最好的 denoised estimate，未必是最後 reward 最高的那條路。
+
+若每次只留下最大值，第一次判斷稍微偏掉，所有 particles 就會變成同一個祖先。後面即使還有很多 network evaluations，也只是在很窄的區域重複搜尋。這個現象叫 **particle degeneracy**。
+
+SMC 使用 normalized weights 做隨機 resampling，而不是只複製冠軍；但權重很集中時，仍可能只剩少數祖先，所以這個做法也不能完全防止退化。
+
+此外，複製後若使用有隨機性的 sampler，後代仍有機會分開探索；若沿同一個 deterministic ODE 走，完全相同的複本會繼續走同一條路，需要另外設計能保留 target 的探索動作。複製份數本身不等於新增不同候選。
+
+所以 particles 的目的不是每一步都立刻選出贏家，而是**在集中計算與保留多種可能未來之間取得平衡**。
+</Answer>
+</Question>
+
+即使保留了不同候選，還有一個問題：**這一段的權重到底要怎麼算，才能讓最後的結果近似我們要的 $p_R$？**
+
+## 每走一段都乘權重，會不會重複計算？
+
+剛才我們用去噪估計或幾次試畫，估計一張草稿最後的 reward 權重。把時間 $t_k$、狀態 $x_{t_k}$ 上的這個正估計記成 $H_k(x_{t_k})$。我們可以參考 <Ref to="dma-reward-tilting"/> 中對所有可能乾淨結果平均 reward weight 的 $h_{t_k}$，但這裡的便宜估計不要求等於那個精確平均。
 
 但若每走一段就把 $H_k$ 再乘一次，同一個高分訊號就會被重複計算。比較自然的做法是只乘**新舊估計的比值**：例如估計從 $2$ 變成 $6$，這一段新增的倍率是 $3$，不是再乘一次 $6$。於是定義這一段的權重函數，也稱為 **potential**：
 
@@ -108,6 +272,8 @@ G_{k-1}(x_{t_{k-1}},x_{t_k})
 \end{aligned}
 $$
 
+分子是走完這一段後對未來的估計，分母是走之前的估計；$G_{k-1}$ 把兩者換成這一段應乘的倍率。把第 $i$ 個 particle 的新舊狀態代進去，就得到 SMC 使用的 $\omega_{k-1}^{(i)}$，再由它算出 resampling 機率 $\bar\omega_{k-1}^{(i)}$。
+
 我們希望整條路最後只被乘上 $e^{\lambda R(x_0)}$，所以取 $H_K\equiv1$、$H_0(x_0)=e^{\lambda R(x_0)}$。中間的 $H_k>0$ 可以使用便宜的估計；把各段相乘，就看到它們前後消去：
 
 $$
@@ -115,47 +281,116 @@ $$
 =\frac{H_0(x_0)}{H_K(x_T)}=e^{\lambda R(x_0)}.
 $$
 
+每個中間估計 $H_k(x_{t_k})$ 都在一段的分子、另一段的分母各出現一次，所以相除後只剩終點 $H_0$ 與起點 $H_K$。$H_K=1$ 表示開始時不另加權；$H_0=e^{\lambda R(x_0)}$ 則使用完成品真正的 reward weight。
+
 這樣，所有抵達同一個 $x_0$ 的 base paths，都只乘上它的 terminal reward weight。把途中狀態積分掉後，終點就是我們要的 $p_R(x_0)\propto p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}$。**中途估計影響有限計算怎麼分配；在這個構造裡，它不改變理想的 terminal target。**
 
-這種用 potentials 重新加權路徑的架構，稱為 **Feynman–Kac（FK）model**；SMC 則用有限 particles 去近似它。Singhal 等人的 **FK steering** [1] 研究這些中途評分與權重的設計；Kim、Kim 與 Park 的 **DAS（Diffusion Alignment as Sampling）** [2] 則結合 SMC 與 reward tempering，逐步增加 reward 的影響。
+剛才 SMC 的 weight 與 resample，延續了 IW 的想法：補上目標與實際抽樣方式之間的相對權重，再按權重抽選。但只說「使用 SMC」，還沒有指定每一段要近似什麼 target，也還沒有回答這些中途權重累積後會得到什麼終點分布。
 
-<Remark label="補充" summary="把整條路徑的重新加權正式寫下來">
-令 $P$ 表示原 sampler 產生整條路徑的 distribution；$\mathrm d x_{t_K:0}$ 表示這些檢查點上整組狀態的取值。FK 的重新加權寫成
+這種用 potentials 重新加權路徑的架構，稱為 **Feynman–Kac（FK）model**。它讓我們把「中途怎麼加權」與「最後想抽到哪裡」連在一起：**設計各段 $G_{k-1}$，檢查它們的乘積是否保留指定的 terminal reward tilt，再用 SMC 去近似這個 target。** 沿用畫草稿的例子，我們先檢查一路偏向哪些草稿，最後會不會變成想要的作品比例，再用有限草稿實際執行抽樣。
+
+先把「應占多少比例」寫下來。令 $P$ 表示原 sampler 的路徑分布，$\mathrm d x_{t_K:0}$ 表示從 $T=t_K$ 到 $0$ 的整組 checkpoint 狀態。FK model 定義加權後的路徑分布 $P_R$：
 
 $$
 \begin{aligned}
 P_R(\mathrm d x_{t_K:0})
-&=\frac{1}{Z_R}P(\mathrm d x_{t_K:0})\prod_{k=1}^K G_{k-1}\\
+&=\frac{1}{Z_R}P(\mathrm d x_{t_K:0})
+\prod_{k=1}^K G_{k-1}(x_{t_{k-1}},x_{t_k})\\
 &=\frac{e^{\lambda R(x_0)}}{Z_R}P(\mathrm d x_{t_K:0}).
 \end{aligned}
 $$
 
-最後的權重只依賴 $x_0$，所以把其餘時刻積分掉，原路徑的 terminal density 乘上同一個權重即可。若 $P$ 的終點是 $p_{\mathrm{data}}$，結果就是 $p_R$；若使用有限步、近似模型，base 則是該 sampler 實際產生的 output distribution，不能直接換成真實資料分布。
+$Z_R$ 是讓總質量等於 $1$ 的 normalizing constant，這裡假設它有限且非零。第二行用了剛才 potentials 的消去；把途中狀態積分掉，便得到終點的 $p_R(x_0)$。**這個 target 的定義裡沒有 particle 數 $M$，也還沒有真的抽出任何圖片。**
 
-上述權重假設 particle 沿原 sampler 前進。DAS 等方法還會改動 proposal，也就是「這一段如何提出新狀態」的 distribution；此時權重必須補上 base transition 與 proposal 的機率比，不能直接照抄正文的簡化式。
+那 SMC 真正拿來重抽的 weight，和 FK 的 potential $G_{k-1}$ 有什麼關係？令 $p_{\mathrm{base}}(x_{t_{k-1}}\mid x_{t_k})$ 是原 sampler 走這一段的 transition density，$\tau_{k-1}(x_{t_{k-1}}\mid x_{t_k})$ 是實際提出新狀態的 proposal density。沿用每個 checkpoint 都 resample 的設定，上一段的 particles 已有相同權重；這一段的 importance weight 可寫成 [1]
+
+$$
+\begin{aligned}
+\omega_{k-1}^{(i)}
+&=G_{k-1}(x_{t_{k-1}}^{(i)},x_{t_k}^{(i)})\\
+&\quad\cdot
+\frac{p_{\mathrm{base}}(x_{t_{k-1}}^{(i)}\mid x_{t_k}^{(i)})}
+{\tau_{k-1}(x_{t_{k-1}}^{(i)}\mid x_{t_k}^{(i)})}.
+\end{aligned}
+$$
+
+$G_{k-1}$ 表示這一段 target 相對於 base path 應增加的倍率；後面的 density ratio 則補償「實際從 proposal 抽，而不是從 base transition 抽」的差別，正是 IW 的校正。Proposal 必須涵蓋加權後會有質量的區域。**正文使用原 sampler 作為 proposal，所以 $\tau_{k-1}=p_{\mathrm{base}}$，比值是 $1$，才得到 $\omega_{k-1}^{(i)}=G_{k-1}(x_{t_{k-1}}^{(i)},x_{t_k}^{(i)})$。** 因此 FK 的 potential 與 SMC 的抽樣 weight 有明確關係，但改動 proposal 後不能把兩者直接當成同一個量。
+
+SMC 使用這些 weights 做 propagate、weight、resample，產生最後的 $M$ 個 particles。每個 checkpoint 都重抽後，它們有相同權重，因此用它們表示的終點分布是
+
+$$
+\widehat p_R^{(M)}(\mathrm d x_0)
+=\frac{1}{M}\sum_{i=1}^M\delta_{x_0^{(i)}}(\mathrm d x_0)
+\approx p_R(x_0)\,\mathrm d x_0.
+$$
+
+$\delta_{x_0^{(i)}}$ 表示把全部質量放在第 $i$ 張完成品上的 point mass；例如要算某類圖片的比例，就是數這 $M$ 張裡有幾張屬於那一類，再除以 $M$。所以 **$P_R$ 是 FK 指定的路徑 target，$\widehat p_R^{(M)}$ 是 SMC 實際算出的隨機近似**。有限 $M$ 時，particles 可能共享祖先，這個近似也不會自動等於 $p_R$。
+
+那麼論文裡的 **FK steering** 呢？Singhal 等人 [1] 用這個名稱描述把 FK 構造用在 diffusion 引導的整套 framework：設計中途 reward 估計與 potentials，檢查它們如何保留 terminal target，再用 SMC 等 particle 方法近似加權後的分布。正文的 $G_{k-1}=H_{k-1}/H_k$ 是其中一種構造；論文也探討其他 potentials、proposal 與重抽時機。**FK steering 的 particle 實作可以使用 SMC，因此兩者描述的是同一套方法中的不同層級。**
+
+Kim、Kim 與 Park 的 **DAS（Diffusion Alignment as Sampling）** [2] 也使用 SMC，但著重以 reward tempering 設計中途 targets，逐步增加 reward 的影響。即使沒有使用 FK 這個名稱，也可以從已指定的中途 targets 推導正確的 SMC weights；FK 提供的是把這些設計放回加權路徑分布、檢查 terminal target 的統一表述。
+
+如果一篇論文把 FK 與 SMC 分開介紹，可以先依「target／potentials 的構造」與「particle 抽樣演算法」這兩層來讀；若它把 FK steering 列成一個方法名稱，則要看該方法選了哪些 potentials、proposal 與重抽時機。不能僅由名稱推論兩者使用互斥的抽樣機制。
+
+把剛才的步驟串起來，就是下面這個 SMC sampler。這裡使用原 sampler 作為 proposal，並在每個 checkpoint 按 FK 的增量權重重抽；數學版顯示一段的操作，pseudocode 把整個 $K$ 段迴圈寫出來。
+
+<AlgorithmView id="u73-smc" title="SMC：使用 FK 增量權重" code={`輸入：particle 數 M、檢查點 t[K] > ... > t[0] = 0
+      原 sampler 的起點抽樣與 base_step、正估計 H[0:K]
+條件：H[K](x) = 1；H[0](x) = exp(lambda * R(x))
+輸出：一個完成品 x_out
+
+for i = 1, ..., M:
+    x[i] ← 原 sampler 的起點抽樣()
+
+for k = K, ..., 1:
+    old ← x                    # 保留走之前的狀態
+    for i = 1, ..., M:
+        candidate[i] ← base_step(old[i], t[k], t[k-1])
+        omega[i] ← H[k-1](candidate[i]) / H[k](old[i])
+
+    omega_bar ← omega / sum(omega)
+    for m = 1, ..., M:
+        ancestor[m] ← 按 omega_bar 抽一個編號（可重複）
+    x ← candidate[ancestor[1:M]]
+    # 所有重抽後的 particles 都重新具有相同權重 1/M
+
+i ← 從 1, ..., M 等機率抽一個編號
+x_out ← x[i]
+return x_out`}>
+
+$$
+\begin{aligned}
+&\{x_{t_k}^{(i)}\}_{i=1}^M\\
+&\quad\xrightarrow{\text{原 sampler 走一段}}
+\{x_{t_{k-1}}^{(i)}\}_{i=1}^M\\
+&\quad\xrightarrow{\text{新舊估計相除}}
+\left\{\omega_{k-1}^{(i)}
+=\frac{H_{k-1}(x_{t_{k-1}}^{(i)})}{H_k(x_{t_k}^{(i)})}\right\}_{i=1}^M\\
+&\quad\xrightarrow{\text{正規化並重抽 }M\text{ 次}}
+\{x_{t_{k-1}}^{(A_m)}\}_{m=1}^M.
+\end{aligned}
+$$
+
+$A_m$ 是第 $m$ 次重抽選中的候選編號，選中 $i$ 的機率是 $\bar\omega_{k-1}^{(i)}$；每次獨立抽編號，所以可以重複選中同一個候選。對 $k=K,\ldots,1$ 重複這個 pipeline，最後從 $t=0$ 的 $M$ 個 particles 中等機率選一個，輸出 $\widehat x_0$。
+
+</AlgorithmView>
+
+<Remark label="分清楚" summary="增加 particles $M$，和重複生成 $n$ 次差在哪裡？">
+SMC 的近似可以用「圖片上的統計量」來檢查。令 $f(x_0)$ 是我們想平均的一個有界函數，例如某類圖片的指示函數。在固定 checkpoints、正確的權重與適當的可積分性條件下，SMC 的一致性表示 [1, 2]
+
+$$
+\begin{aligned}
+\int f(x_0)\,\widehat p_R^{(M)}(\mathrm d x_0)
+&=\frac{1}{M}\sum_{i=1}^M f(x_0^{(i)})\\
+&\xrightarrow[M\to\infty]{\text{依機率}}
+\int f(x_0)p_R(x_0)\,\mathrm d x_0.
+\end{aligned}
+$$
+
+左邊平均的是這一趟生成後的 $M$ 張完成品，右邊則是 target 下的平均；「依機率」表示兩者的差超過任意固定容許值的機率會趨近 $0$。若 $f$ 是指示函數，這就是某類圖片的 empirical 比例趨近 target 比例。這個極限不要求同一趟的 particles 彼此獨立。
+
+**增加 $M$ 是讓每一趟 SMC 更充分地近似 FK target；增加 $n$ 則是把固定 $M$ 的 sampler 獨立重跑，看清它的輸出分布。** 只增加 $n$ 不會消除有限 $M$ 帶來的偏差。另一方面，若 potentials 的乘積已不是 $e^{\lambda R(x_0)}$，改變的是 FK target 本身；增加 $M$ 也不會替我們修正這個目標。
 </Remark>
-
-<Remark label="分清楚" summary="Feynman–Kac 與 SMC 不是兩個同義詞">
-Feynman–Kac model 是**數學上的 target**：它說一條 base path 要乘上哪些 potentials，才形成新的 path distribution。
-
-SMC 是**計算上的 approximation**：有限 particles 透過 propagate、weight、resample 近似那個 target。即使 potentials 的乘積精確，有限 particles 仍有抽樣誤差；中途估計很差時也會讓結果不穩定。如果任意選 potentials、連 terminal 乘積都變了，則連理想 target 也已經不是原本的 $p_R$。
-</Remark>
-
-<Question id="Q1">
-既然要把計算集中到高 reward 區域，**每個 checkpoint 都只保留當下分數最高的 particle，再把它複製成 $M$ 份，不是最有效率嗎？**
-
-<Answer>
-這樣會很快失去 diversity，而且越早期越危險。高 noise 時，一個 particle 的 clean outcome 還有很多可能；當下看起來最好的 denoised estimate，未必是最後 reward 最高的那條路。
-
-若每次只留下最大值，第一次判斷稍微偏掉，所有 particles 就會變成同一個祖先。後面即使還有很多 network evaluations，也只是在很窄的區域重複搜尋。這個現象叫 **particle degeneracy**。
-
-SMC 使用 normalized weights 做隨機 resampling，而不是只複製冠軍；但這也不能完全防止退化。Reward tempering 逐步增加 reward 的影響，也是在避免一次 weighting 就只剩一個祖先。
-
-此外，複製後若使用有隨機性的 sampler，後代仍有機會分開探索；若沿同一個 deterministic ODE 走，完全相同的複本會繼續走同一條路，需要另外設計能保留 target 的探索動作。複製份數本身不等於新增不同候選。
-
-所以 particles 的目的不是每一步都立刻選出贏家，而是**在集中計算與保留多種可能未來之間取得平衡**。
-</Answer>
-</Question>
 
 <Remark label="補充" summary="一定要每一段都 resample 嗎？">
 不必。常用 effective sample size（ESS）量權重有多集中：
@@ -167,63 +402,25 @@ $$
 等權重時 ESS 是 $M$；一個權重接近 $1$ 時，ESS 則接近 $1$。可以等它低於某個門檻才 resample。若這一輪不 resample，下輪須保留舊權重，再乘新增的 $G$，而不是每段都從等權重重新開始。
 </Remark>
 
-## 不只複製，能不能讓其他候選也參考它？
-
-Kim 等人的 **Best-of-$N$ Guidance（BoNG）** [4] 先對每個 noisy particle 算去噪估計 $\hat x_0^{(i)}$，再選
-
-$$
-i^\star=\arg\max_i R(\hat x_0^{(i)}).
-$$
-
-就像評審挑出一張最有希望的草稿，其他人不必把自己的畫丟掉，可以參考那張草稿的結果來修改。BoNG 不只是保留冠軍，而是用它的去噪結果引導其他 particles：希望把第 $i$ 張的去噪估計，往 $\hat x_0^{(i^\star)}$ 移動。
-
-沿用 U1 的 VP 符號，$\hat x_0^{(i)}=(x_t^{(i)}+\sigma_t^2s_\theta(x_t^{(i)},t))/\sqrt{\bar\alpha_t}$。固定目前的 $x_t^{(i)}$，去噪估計的改動就是 score 改動的 $\sigma_t^2/\sqrt{\bar\alpha_t}$ 倍；因此想把 clean estimate 往冠軍拉，就能換算出要加入的 score，再用 $\epsilon=-\sigma_t s$ 換回 noise prediction：
-
-$$
-\widetilde\epsilon_\theta^{(i)}
-=\epsilon_\theta(x_t^{(i)},t)
--w_{\mathrm B}\frac{\sqrt{\bar\alpha_t}}{\sigma_t}
-\left(\hat x_0^{(i^\star)}-\hat x_0^{(i)}\right).
-$$
-
-其中 $w_{\mathrm B}\ge0$ 控制這次 guidance 的強度，並非原模型參數。括號是「目前去噪結果離最好結果的位移」；換到 score 空間後，正號把其他候選往它拉，再把改過的 noise prediction 交給 sampler。這不需要對 reward 微分，但也不是 SMC resampling，更不自動保證精確抽到 $p_R$。
-
-<Remark label="補充" summary="BoNG 的位移怎麼換成 U1 的 noise prediction？">
-令 $\Delta s^{(i)}$ 表示要加到 base score 的方向。固定 $x_t^{(i)}$，Tweedie 的 affine 換算給出
-
-$$
-\widetilde{\hat x}_0^{(i)}-\hat x_0^{(i)}
-=\frac{\sigma_t^2}{\sqrt{\bar\alpha_t}}\Delta s^{(i)}.
-$$
-
-若希望左邊等於 $w_{\mathrm B}(\hat x_0^{(i^\star)}-\hat x_0^{(i)})$，就得到
-
-$$
-\Delta s^{(i)}
-=w_{\mathrm B}\frac{\sqrt{\bar\alpha_t}}{\sigma_t^2}
-\left(\hat x_0^{(i^\star)}-\hat x_0^{(i)}\right).
-$$
-
-最後 $\widetilde\epsilon_\theta^{(i)}=\epsilon_\theta(x_t^{(i)},t)-\sigma_t\Delta s^{(i)}$，正是正文的式子。原文 [4] 使用 signal amplitude 為 $1$ 的 Gaussian kernel；這裡保留 $\sqrt{\bar\alpha_t}$，是為了換成 U1 的 VP 表示，而不是把兩套 noise schedule 混用。$w_{\mathrm B}=1$ 時，改過的去噪估計剛好等於冠軍。
-</Remark>
-
 ## 能不能直接改抽哪些起點？
 
-還有另一個想法：與其改動生成途中的樣本，不如改抽哪些起點。若 <Ref to="dma-flow-map"/> 的 deterministic generator 把 source $z\sim p_Z$ 送成 $x_0=G(z)$，每個 $z$ 都有一個確定的結果與 reward $R(G(z))$。所以可以在 source space 定義
+除了在途中重抽候選，還有另一個想法，是沿用原本的生成規則，改抽哪些起點。Q1 已經看到：若同一張草稿往後總會畫成同一個結果，複製更多份也不會增加不同答案。那我們能不能回到生成之前，**讓會畫出高分作品的起點更常被抽到？**
+
+沿用 <Ref to="dma-flow-map"/>，把 deterministic generator 記成 $G$，它將起點 $z$ 送成完成品 $x_0=G(z)$；原本抽起點的 density 是 $p_Z$，也就是 $z\sim p_Z$。一旦 $z$ 決定，生成的圖片也就決定了。因此，每個起點都有一個可以計算的分數 $R(G(z))$；我們可以把資料端的 reward weight 放回起點，定義
 
 $$
 p_Z^R(z)\propto p_Z(z)e^{\lambda R(G(z))}.
 $$
 
-$p_Z$ 是原本起點的 density；新權重讓會生成高分結果的起點更常被抽到。把這個 distribution 經同一個 $G$ 搬到資料端，就得到以 generator 的 output law 為 base 的 reward tilt；不需要先計算資料端的 density。
+$p_Z^R$ 是我們現在想抽的起點 distribution：$p_Z(z)$ 保留原本起點的相對密度，$e^{\lambda R(G(z))}$ 則提高會生成高分結果的起點權重。若從 $p_Z^R$ 收集到起點 $z^{(1)},\ldots,z^{(n)}$，資料端收集的樣本就是 $\{G(z^{(\ell)})\}_{\ell=1}^n$。把同一個 $G$ 用在這些起點上，就得到以 generator 的 output law 為 base 的 reward tilt；不需要先計算資料端的 density。**但這個 target 寫得出來，還不表示我們已經知道怎麼從 $p_Z^R$ 抽樣。**
 
-但只在高 reward 區域附近找，可能一直找到相似的答案。我們可以同時考慮幾個強度 $\lambda_j$：小的 $\lambda_j$ 不那麼排斥低分候選，較容易探索不同區域；大的 $\lambda_j$ 則偏向這次想要的高分結果。Wang 等人的 **Source Parallel Tempering（SPT）** [3] 就在 source space 同時探索這些 targets：
+但只在高 reward 區域附近找，可能一直找到相似的答案。我們可以同時考慮幾個強度 $\lambda_j$：小的 $\lambda_j$ 比較不受 reward 的影響，可以盡可能在原本模型有可能生成的資料中探索；我們通常會搭配比較大的修正步伐，來做 exploration。大的 $\lambda_j$ 則偏向在已經得到的高分結果附近做小幅度修正，通常搭配比較小的修正步伐，來做 refinement。Wang 等人的 **Source Parallel Tempering（SPT）** [3] 就在 source space 同時探索這些 targets：
 
 $$
 p_Z^{\lambda_j}(z)\propto p_Z(z)e^{\lambda_jR(G(z))}.
 $$
 
-每一條 **chain** 是一連串 source 候選：從目前的 $z$ 提出 $z'$，生成 $G(z')$ 並評分，再依新舊 target 權重決定接受它，還是留在原處。不是永遠選高分者，而是用機率接受或拒絕，使這個 Markov transition 保留指定 target；這類抽樣稱為 **Markov chain Monte Carlo（MCMC）**。
+這裡 $j$ 是不同強度的編號，第 $j$ 個 target 使用 $\lambda_j$。每一條 **chain** 是一連串 source 候選：從目前的 $z$ 提出新起點 $z'$，生成 $G(z')$ 並計算 $R(G(z'))$，再依新舊 target 權重決定接受它，還是留在 $z$。接受時下一個狀態是 $z'$，拒絕時則仍是 $z$；不是永遠選高分者，而是用機率接受或拒絕，使這個 Markov transition 保留 $p_Z^{\lambda_j}$。這類抽樣稱為 **Markov chain Monte Carlo（MCMC）**。
 
 接著，不同強度的 chains 也可以交換候選，讓較容易探索的 chain 把結果帶到目標強度 $\lambda$。交換同樣有接受機率，不能想換就換。SPT 不需要 reward gradient，但每個新起點都要經過生成與評分；有限搜尋也不代表已充分探索 target。
 
@@ -251,6 +448,135 @@ $$
 在對稱選擇交換 pair 的情況下，這個機率保留各 chain targets 的乘積。Local sampling 與交換都保留它，並不表示有限步就已到達它；還要檢查 chains 是否探索到不同高分區域。
 </Remark>
 
+下面把正文的對稱 local proposal 版本寫成兩種表示。設共有 $L\ge2$ 條 chains，第 $j$ 條使用 $\lambda_j$，其中 $\lambda_L=\lambda$ 是我們要的目標強度。Pseudocode 中的 `reward[j]` 儲存 $R(G(z_j))$，接受新起點或交換 chains 時也一起更新。
+
+<AlgorithmView id="u73-spt" title="SPT：一次 local update 與交換" code={`輸入：L 條 chains 的起點 z[1:L] 與 reward[1:L]
+      強度 lambda[1:L]（lambda[L] = 目標 lambda）
+      source density p_Z、G、R、對稱的 local proposal
+條件：reward[j] = R(G(z[j]))
+輸出：更新後的 z[1:L]、reward[1:L]
+
+for j = 1, ..., L:
+    z_proposed ← symmetric_proposal(z[j])
+    reward_proposed ← R(G(z_proposed))
+    accept ← min(1, p_Z(z_proposed) / p_Z(z[j])
+        * exp(lambda[j] * (reward_proposed - reward[j])))
+    if Uniform(0, 1) < accept:
+        z[j] ← z_proposed
+        reward[j] ← reward_proposed
+
+(a, b) ← 隨機選一對相鄰 chains（選擇不依賴目前位置）
+swap_accept ← min(1, exp((lambda[a] - lambda[b])
+    * (reward[b] - reward[a])))
+if Uniform(0, 1) < swap_accept:
+    交換 z[a], z[b]
+    交換 reward[a], reward[b]
+
+return z[1:L], reward[1:L]
+# 重複更新並探索後，從目標 chain 輸出 G(z[L])`}>
+
+$$
+\begin{aligned}
+&\{z_j\}_{j=1}^L\\
+&\quad\xrightarrow{\text{各 chain 提案並評分}}
+\{z'_j,\ R(G(z'_j))\}_{j=1}^L\\
+&\quad\xrightarrow{P_{\mathrm{accept}}\text{ 接受或保留}}
+\{z_j\}_{j=1}^L\\
+&\quad\xrightarrow{P_{\mathrm{swap}}\text{ 交換一對 chains}}
+\{z_j\}_{j=1}^L.
+\end{aligned}
+$$
+
+箭頭後的 $z_j$ 表示該操作完成後的目前位置。重複這個 pipeline 後，從強度為 $\lambda_L=\lambda$ 的目標 chain 收集起點，再用 $x_0=G(z_L)$ 得到完成品。兩種接受機率使用前面補充中的公式；這些 MCMC 輸出可能相關，有限次更新也不代表已充分探索 target。
+
+</AlgorithmView>
+
+## 還有哪些方法可以參考？
+
+除了前面介紹的做法，還有很多方法可以在沒有 reward gradient 的情況下引導生成。我們把這些方法列在最後，給有興趣的讀者繼續看。
+
+回到 SMC 畫草稿的情景，我們用權重決定哪些草稿繼續畫，並檢查了這些權重如何保留終點 target。現在換一個問題：其他草稿除了被留下或被淘汰，**能不能參考目前最好的那張，修改自己接下來的畫法？**
+
+想像評審挑出一張最有希望的草稿，其他人保留自己的畫，但參考那張草稿預計完成的結果來修改。我們仍然不知道 reward 的微分方向，卻可以比較候選，從它們的差異提出一個改動方向。
+
+把這個動作寫成數學，仍然同時保留 $M$ 個 particles。時間 $t$ 上第 $i$ 個狀態是 $x_t^{(i)}$，模型對它的完成品預測是 $\hat x_0^{(i)}$；這不是已經生成完的 $x_0$。先替這些預測打分，再選出當下評分最高的編號
+
+$$
+i^\star=\arg\max_{1\le i\le M} R(\hat x_0^{(i)}).
+$$
+
+也就是用第 $i^\star$ 張的去噪結果作為參考。對第 $i$ 張來說，$\hat x_0^{(i^\star)}-\hat x_0^{(i)}$ 是「從自己的預測完成品，移到最好預測完成品」的向量；我們希望沿這個向量改動它。每個 checkpoint 都重新評分，所以 $i^\star$ 也可能改變。Kim 等人把這種用最好候選引導其他 particles 的做法稱為 **Best-of-$N$ Guidance（BoNG）** [4]；這裡仍用 $M$ 表示途中候選數。
+
+沿用 U1 的 VP 符號，$\hat x_0^{(i)}=(x_t^{(i)}+\sigma_t^2s_\theta(x_t^{(i)},t))/\sqrt{\bar\alpha_t}$。固定目前的 $x_t^{(i)}$，去噪估計的改動就是 score 改動的 $\sigma_t^2/\sqrt{\bar\alpha_t}$ 倍；因此想把 clean estimate 往冠軍拉，就能換算出要加入的 score，再用 $\epsilon=-\sigma_t s$ 換回 noise prediction：
+
+$$
+\widetilde\epsilon_\theta^{(i)}
+=\epsilon_\theta(x_t^{(i)},t)
+-w_{\mathrm B}\frac{\sqrt{\bar\alpha_t}}{\sigma_t}
+\left(\hat x_0^{(i^\star)}-\hat x_0^{(i)}\right).
+$$
+
+其中 $\epsilon_\theta(x_t^{(i)},t)$ 是原模型的 noise prediction，$\widetilde\epsilon_\theta^{(i)}$ 是加入引導後交給 sampler 的 prediction；$w_{\mathrm B}\ge0$ 控制位移的強度，並非原模型參數。括號是剛才的完成品位移，$\sqrt{\bar\alpha_t}/\sigma_t$ 則把它換成 U1 的 noise prediction 改動。$w_{\mathrm B}=0$ 時沿用原 prediction；$w_{\mathrm B}=1$ 時，固定目前 $x_t^{(i)}$ 所算出的新去噪估計會對到最好候選。
+
+因此，BoNG 的動作是**比較 $R(\hat x_0^{(i)})$ → 用完成品位移修改 $\epsilon_\theta$ → 讓各個 $x_t^{(i)}$ 繼續生成**。它用候選的差異提出方向，不需要對 reward 微分；但這裡沒有像 FK 那樣檢查 terminal weighting 是否等於 $e^{\lambda R(x_0)}$，所以也不自動保證最後收集的樣本近似 $p_R$。
+
+把這個操作寫成兩種表示如下。Pseudocode 裡的 `x_hat[i]` 對到 $\hat x_0^{(i)}$，`epsilon_guided[i]` 對到 $\widetilde\epsilon_\theta^{(i)}$；`sampler_step` 則是讓原 sampler 使用這個改過的 prediction 走一步。
+
+<AlgorithmView id="u73-bong" title="BoNG：一個 reverse step" code={`輸入：目前的 M 個狀態 x[1:M]、時刻 t > 0、下一時刻 t_next
+      noise model epsilon_theta、VP schedule、R、強度 w_B
+輸出：下一時刻的 M 個狀態 x_next[1:M]
+
+for i = 1, ..., M:
+    epsilon[i] ← epsilon_theta(x[i], t)
+    x_hat[i] ← (x[i] - sigma(t) * epsilon[i]) / sqrt(alpha_bar(t))
+    score[i] ← R(x_hat[i])
+
+i_star ← argmax_i score[i]
+for i = 1, ..., M:
+    displacement ← x_hat[i_star] - x_hat[i]
+    epsilon_guided[i] ← epsilon[i]
+        - w_B * sqrt(alpha_bar(t)) / sigma(t) * displacement
+    x_next[i] ← sampler_step(x[i], t, t_next, epsilon_guided[i])
+
+return x_next[1:M]`}>
+
+$$
+\begin{aligned}
+&\{x_t^{(i)}\}_{i=1}^M\\
+&\quad\xrightarrow{\text{去噪估計}}
+\{\hat x_0^{(i)}\}_{i=1}^M\\
+&\quad\xrightarrow{\text{評分並選參考}}
+ i^\star=\arg\max_{1\le i\le M} R(\hat x_0^{(i)})\\
+&\quad\xrightarrow{\text{用位移引導全部候選}}
+\{\widetilde\epsilon_\theta^{(i)}\}_{i=1}^M\\
+&\quad\xrightarrow{\text{sampler 走下一步}}
+\{x_{t'}^{(i)}\}_{i=1}^M,\quad t'<t.
+\end{aligned}
+$$
+
+$\widetilde\epsilon_\theta^{(i)}$ 使用正文的位移公式計算。$i^\star$ 提供參考完成品，但全部 $M$ 個候選仍各自走下一步；對每個 $t>0$ 的 reverse step 重複這個操作，直到抵達 $t=0$。
+
+</AlgorithmView>
+
+<Remark label="補充" summary="BoNG 的位移怎麼換成 U1 的 noise prediction？">
+令 $\Delta s^{(i)}$ 表示要加到 base score 的方向。固定 $x_t^{(i)}$，Tweedie 的 affine 換算給出
+
+$$
+\widetilde{\hat x}_0^{(i)}-\hat x_0^{(i)}
+=\frac{\sigma_t^2}{\sqrt{\bar\alpha_t}}\Delta s^{(i)}.
+$$
+
+若希望左邊等於 $w_{\mathrm B}(\hat x_0^{(i^\star)}-\hat x_0^{(i)})$，就得到
+
+$$
+\Delta s^{(i)}
+=w_{\mathrm B}\frac{\sqrt{\bar\alpha_t}}{\sigma_t^2}
+\left(\hat x_0^{(i^\star)}-\hat x_0^{(i)}\right).
+$$
+
+最後 $\widetilde\epsilon_\theta^{(i)}=\epsilon_\theta(x_t^{(i)},t)-\sigma_t\Delta s^{(i)}$，正是正文的式子。原文 [4] 使用 signal amplitude 為 $1$ 的 Gaussian kernel；這裡保留 $\sqrt{\bar\alpha_t}$，是為了換成 U1 的 VP 表示，而不是把兩套 noise schedule 混用。$w_{\mathrm B}=1$ 時，改過的去噪估計剛好等於冠軍。
+</Remark>
+
 ![Best-of-N 的終點挑選、SMC 的途中重抽樣，以及 SPT 的 source-space 搜尋](./imgs/w10-4-gradient-free-steering.png)
 
 *圖：Best-of-$N$ 在終點挑選；SMC 按 normalized weights 重抽 particles；SPT 在 source space 提案與交換。後兩者示意 sampling 機制，不表示有限計算下已精確抽到 $p_R$。*
@@ -260,9 +586,10 @@ $$
 | 方法 | Reward 在哪裡使用？ | 主要好處 | 主要限制 |
 |---|---|---|---|
 | Best-of-$N$ | 完整樣本的終點 | 最單純、完全 model-agnostic | rare target 需要很大的 $N$ |
+| Importance weighting ＋ resampling | 完整樣本的終點 | 用 target／base 比值校正候選的選中機率 | 有限 $N$ 仍是近似，每張候選都要生成完 |
 | FK steering／DAS | 多個中間 checkpoints | 途中重新分配 compute | 需要設計 intermediate potentials，可能 particle degeneracy |
-| BoNG | reverse diffusion 的 particle population | Best sample 能在途中影響其他 particles | 不是自動等於 exact tilted sampling |
 | SPT | deterministic generator 的 source space | gradient-free，能用 tempering 跨越 modes | 每個 proposal 都要生成並評分 |
+| BoNG | reverse diffusion 的 particle population | Best sample 能在途中影響其他 particles | 不是自動等於 exact tilted sampling |
 
 ## 消化一下
 
@@ -295,6 +622,12 @@ SPT 為什麼特別適合 deterministic flow map？
 SPT 不需要 reward gradient。它利用的是 source space 通常較簡單，而且 deterministic map 讓每個 proposal 的 output 與 reward 都能明確計算。
 </Explanation>
 </QuizBlock>
+
+<Remark label="補充" summary="Base model 的誤差會如何影響 steering？">
+正文先假設 base pretrained model 已經學到 $p_{\mathrm{data}}$。實作時，若模型真正學到的是 $p_\theta$，同樣的 terminal reward weighting 會把 $p_\theta(x_0)e^{\lambda R(x_0)}$ 正規化成新的 distribution。也就是說，**即使 steering 的抽樣近似已經足夠準確，它逼近的仍是以 $p_\theta$ 為 base 的 reward tilt。** $p_\theta$ 原本較少生成的資料，乘上 reward weight 後仍可能不足；若某個區域在 base distribution 下的機率是零，重新加權也不能讓它出現。因此，提高 reward 並不保證消除原本的 model error。
+
+若還使用有限步的 sampler，base 更精確地說是該 sampler 實際產生的 output distribution，其中也包含離散化帶來的偏差。這與有限 candidates、particles 或 MCMC 搜尋造成的抽樣誤差不同：增加 steering 的計算，可以改善後者的近似，卻不會自動把 base 換成真實的 $p_{\mathrm{data}}$。
+</Remark>
 
 <Bridge to="dma-guidance-applications">
 沒有 reward gradient，仍然能引導：我們可以比較完整候選，也可以在途中用權重分配後續計算，或回到 source space 搜尋。重要的是分清「最後只挑最高分」與「近似某個 target distribution」，兩者並不是同一件事。

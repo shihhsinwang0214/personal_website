@@ -1,6 +1,53 @@
-# U7.0–U7.2 練功房：連續問題鏈
+# U7.0–U7.3 知識秘境：連續問題鏈
 
 日期：2026-10-13。沿用 intuition-first-academic-teaching 與 intuition-first-image-slides；本次改練功房腳本，來源筆記保持原文。
+
+## 2026-10-15：U7.3 的 black-box reward 問題鏈
+
+新增 `site/src/content/dojo/gradient-free-steering.zh.mdx`，來源為 `dma-gradient-free-steering`（現行 U7.3，legacy filename `dma-w10-4-gradient-free-steering.zh.mdx`）。沿用 `dma-guidance` 系列，`order: 3`、`progressVersion: "1"`，自動接在 U7.2 後面；首頁、四篇系列導覽、U7.2 的下一套連結與來源筆記橫幅依 collection 自動更新。
+
+主線從「評審只會打分」出發，Mugi 提出完成後選擇、Lumi 提出途中分配草稿的後續計算、Nori 提出保留 deterministic generator 並換起點。先讀提案，分類時收起並提供唯讀回顧；角色不固定代表正確方法。
+
+| 問題鏈 | 本頁的推導與檢查 |
+|---|---|
+| 挑最高分就抽對比例嗎？ | A/B/C 的 base 各為 1/3，倍率為 1/2/7；自己算 Best-of-2 的 C 比例 5/9，再比較 target 的 7/10。分清每趟候選 N 與重跑次數 n。 |
+| 完成後按比例選呢？ | 從 target/base 比值得到 exponential weights；用 A/A/C 算 7/9，檢查有限候選、N=1、生成成本與 rare target。頁內補 self-normalized importance sampling。 |
+| 草稿可以多留幾份嗎？ | 去噪估計與多次試畫、propagate/weight/resample、平均複本數與整數份數、共享祖先、deterministic 複本與 particle degeneracy。 |
+| 每段都乘一次，會多算嗎？ | 自己算 H2=1、H1=2、H0=6 的新舊比值，推 potentials 消去；分清 FK path target、有限 SMC 近似與 FK steering/DAS。頁內補 proposal 校正、SMC 一致性與 ESS。 |
+| 保留生成規則，改抽起點呢？ | 多個起點對同一作品的 toy、source tilt 與 output law、MCMC 接受機率、detailed balance、不同強度的 SPT chains、自己合併交換前後的比值。 |
+| 最好候選能提供方向嗎？ | BoNG 放頁內延伸：先比較 predicted clean outcomes，再從固定 state 的去噪公式推出 noise prediction 位移；分清它與 exact tilt 的保證。 |
+
+共 41 個主線節點、3 條誤解岔路、12 張分類卡片、8 個頁內補充。每個錯誤選項都有可重看的理由或岔路；兩題 Judge 各提供兩邊的回應。必要定義與推導直接在主線或頁內，不依賴讀者先看筆記。結尾連回來源 U7.3，並從模糊照片的評分問題接到 U7.4 筆記；不連到尚未製作的 U7.4 秘境。
+
+### 圖片順序
+
+使用者指出開場不能提前透露 Best-of-N 後，新增 `imgs/black-box-score.png`：只有一張完成照片、評分程式、假設的 7 分與「沒有修改線索」。箭頭只表示評分的 input/output，沒有多候選、排名或方法解答。使用內建 ImageGen 生成，檢查繁體文字與單張圖片的限制後保存原 PNG，由 Astro 輸出 responsive WebP。
+
+原本的 `imgs/steering-candidates.png` 移到 Mugi 提出「先畫 N 張再挑」的 `best` 情境；結尾沿用來源的 `w10-4-gradient-free-steering.png` 整理三種機制，圖說補 source 強度不是 diffusion time、generator G 與 potential G 的角色差別。只調整圖片與圖說，不改主線步數或儲存欄位。
+
+### 驗收
+
+- MDX、imports、goto/back、提案群組、正確選項數與每個選項的理由均通過；210 個數學片段經 KaTeX 嚴格渲染，0 error。筆記結構／Ref／禁用句型檢查為 0 issue。
+- 實際走完 41 個主線、所有錯誤理由與三條岔路；Judge 的兩邊、Think 與鍵盤分類可用，方法表每列整理後需要點按才進入下一列。
+- 完成後續讀還原 12 張分類卡片、5 個提案回顧來源與解釋姿勢；6 個 Think 輸入清空。只記閱讀位置，沒有新增作答或評分儲存。
+- 將正式 HTML 移除 scripts、保留 noscript 的教材模擬靜態閱讀：44 個節點與 12 張卡片皆可讀，8 個補充全開後，320px 沒有頁面或展示式橫向溢出，KaTeX error 為 0。
+- `check-content.mjs` 通過（50 個既有 warning）；正式建置通過（220 頁），使用獨立 Astro/Vite cache 與輸出。新圖及原候選圖的位置、來源連結與 U7.0–U7.3 導覽已核對。未部署。
+
+<details>
+<summary>U7.3 新開場圖的 ImageGen prompt</summary>
+
+```text
++Use case: scientific-educational.
+Asset type: first question illustration for a Traditional Chinese Knowledge Realms teaching website, wide 16:9 landscape.
+Primary request: depict the learner's problem BEFORE any solution is proposed: an external black-box evaluator can score ONE completed dog photograph, but supplies no advice about how to improve it. Do not reveal generating several candidates, choosing the best, reweighting, particles, or source search.
+Scene: clean white canvas, polished natural softly shaded educational illustration, deep navy large Traditional Chinese typography, restrained blue process accents and coral detail, ample whitespace. Match a calm textbook illustration, no humans or mascots.
+Composition: exactly ONE large completed photograph at left in a simple paper frame, showing a natural golden-and-white corgi wearing a red hat, realistic proportions, outdoor soft natural light. This is a single finished image, not a noisy draft, not a gallery and not one stage in a series. Center: a modest black-box scoring workstation with a blue computer screen and no exposed algorithm, label exactly「評分程式」. One thin blue connector carries the ONE photo into the workstation. Right: one large white response card showing exactly「7 分」, with a small neutral speech bubble below exactly「沒有修改線索」. A thin blue connector from the workstation to the card only represents input to evaluator and returned score. No vectors pointing to edits, no second photo, no edited output.
+Text verbatim: top heading exactly「評審只肯給分數」; under left photo exactly「一張完成圖片」; central label exactly「評分程式」; response exactly「7 分」; speech bubble exactly「沒有修改線索」; bottom question exactly「知道它有幾分，接著能怎麼做？」.
+Constraints: exactly one photo and one numeric score, ALL Chinese is Traditional Chinese, sparse large legible type for phone viewing, photo and scoring machine are dominant. The score is a hypothetical classroom score and the image must not imply that 7 is a probability.
+Avoid: multiple candidates, thumbnails, gallery, rankings, winner/champion, Best-of-N wording, best selection, resampling, particles, copying pictures, flow paths, gradients, formulas, edited photos, correct/incorrect marks, red crosses, green ticks, page numbers, watermarks, invented methods or extra text. The illustration poses the problem without showing a solution.
+```
+
+</details>
 
 ## 每套要回答的問題
 
