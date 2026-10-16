@@ -20,6 +20,7 @@ interface Props { entry: DojoEntry; all: DojoEntry[]; lang: Lang }
 const { entry, all, lang } = Astro.props;
 const { Content } = await render(entry);
 const note = await resolveNoteRef(entry.data.note, lang);
+const sourceInChinese = lang === 'en' && /\/zh\//.test(note?.href ?? '');
 const theme = dojoThemeOf(entry);
 const sequence = dojoSeriesEntries(all, entry);
 const seriesNav = await Promise.all(sequence.map(async (e) => ({ entry: e, note: await resolveNoteRef(e.data.note, lang) })));
@@ -33,7 +34,7 @@ const alternates = [
 const minutesLabel = entry.data.minutes ? (lang === 'zh' ? `約 ${entry.data.minutes} 分鐘` : `~${entry.data.minutes} min`) : '';
 const t = lang === 'zh'
   ? { mode: '想連著讀？', modeLink: '連續閱讀版', series: '這一系列的問題' }
-  : { mode: 'Prefer continuous reading?', modeLink: 'Read the note', series: 'Questions in this sequence' };
+  : { mode: 'Prefer continuous reading?', modeLink: sourceInChinese ? 'Read the note (Chinese)' : 'Read the note', series: 'Questions in this sequence' };
 ---
 
 <Base
@@ -79,7 +80,7 @@ const t = lang === 'zh'
         </div>
       </div>
     </header>
-    <Dialogue slug={entry.data.slug} lang={lang} progressVersion={entry.data.progressVersion} noteHref={note?.href} noteTitle={note?.title} nextHref={next ? withBase(dojoRoute(next.data.slug, next.data.lang)) : undefined} nextTitle={next ? `${nextNote?.code ?? ''} ${next.data.title}`.trim() : undefined}>
+    <Dialogue slug={entry.data.slug} lang={lang} progressVersion={entry.data.progressVersion} noteHref={note?.href} noteTitle={note ? `${note.title}${sourceInChinese ? ' (Chinese)' : ''}` : undefined} nextHref={next ? withBase(dojoRoute(next.data.slug, next.data.lang)) : undefined} nextTitle={next ? `${nextNote?.code ?? ''} ${next.data.title}`.trim() : undefined}>
       <Content />
     </Dialogue>
   </main>

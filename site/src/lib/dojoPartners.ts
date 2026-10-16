@@ -16,9 +16,9 @@ export type DojoPartnerPose = (typeof dojoPartnerPoses)[number];
 
 /** A role belongs to this part of the conversation, not permanently to a mascot. */
 export const dojoPartners = {
-  nori: { name: 'Nori', description: '戴 orca 帽的北極熊', poses: { welcome: noriWelcome, suggest: noriSuggest, explain: noriExplain, question: noriQuestion } },
-  lumi: { name: 'Lumi', description: '有翅膀的鹿', poses: { welcome: lumiWelcome, suggest: lumiSuggest, explain: lumiExplain, question: lumiQuestion } },
-  mugi: { name: 'Mugi', description: '有柴犬臉的柯基', poses: { welcome: mugiWelcome, suggest: mugiSuggest, explain: mugiExplain, question: mugiQuestion } },
+  nori: { name: 'Nori', description: '戴 orca 帽的北極熊', descriptionEn: 'A polar bear in an orca hat', poses: { welcome: noriWelcome, suggest: noriSuggest, explain: noriExplain, question: noriQuestion } },
+  lumi: { name: 'Lumi', description: '有翅膀的鹿', descriptionEn: 'A winged deer', poses: { welcome: lumiWelcome, suggest: lumiSuggest, explain: lumiExplain, question: lumiQuestion } },
+  mugi: { name: 'Mugi', description: '有柴犬臉的柯基', descriptionEn: 'A corgi with a Shiba face', poses: { welcome: mugiWelcome, suggest: mugiSuggest, explain: mugiExplain, question: mugiQuestion } },
 } as const;
 
 export type DojoPartnerId = keyof typeof dojoPartners;

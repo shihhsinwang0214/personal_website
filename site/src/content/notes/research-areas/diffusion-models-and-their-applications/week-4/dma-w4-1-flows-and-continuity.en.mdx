@@ -1,0 +1,206 @@
+---
+slug: "dma-w4-1-flows-and-continuity"
+label: "dma-flows-and-continuity"
+prereqs:
+  - math-vector-field-ode
+  - math-mse-conditional-expectation
+  - math-conditional-expectation
+lang: "en"
+title: "Learn Where to Go by Following the Crowd"
+category: "courses"
+group: "Unit 2 · Flow Matching"
+status: "available"
+updated: 2026-10-16
+summary: "Construct reference paths and velocity labels, train with squared error, and interpret the optimal field as a conditional average before sampling with Euler."
+demos:
+  - "notes/research_areas/diffusion-models-applications/w4-1-reference-paths.html"
+  - "notes/research_areas/diffusion-models-applications/w4-0-flow-ode.html"
+references:
+  - label: "Lipman, Chen, Ben-Hamu, Nickel & Le, Flow Matching for Generative Modeling (ICLR 2023)"
+    href: "https://arxiv.org/abs/2210.02747"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# Learn Where to Go by Following the Crowd
+
+<Objectives title="After reading, you can">
+- **Construct a reference path and its velocity.** For $I_t=(1-t)X_0+tX_1$, identify endpoints and derivative $X_1-X_0$.
+- **Turn following the crowd into regression.** Train on $(I_t,t)$ with velocity label $\dot I_t$.
+- **Interpret the optimum.** Average reference velocities conditional on passing through the same location at the same time.
+- **Generate along the learned field.** Apply Euler updates, evaluating the network at each current state.
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+The preceding note introduced transport between two distributions.
+
+Rearranging sand requires both intermediate positions and a local velocity rule.
+
+The next questions are:
+
+<Ask>
+How do we choose a path?<br />
+How do we know where to move at every moment?
+</Ask>
+
+## Suppose we know both endpoints
+
+Replace sand with people leaving the New Year's fireworks near Taipei 101. Some head toward City Hall Station, others toward Taipei 101/World Trade Center or Xiangshan Station.
+
+First suppose each person knows a starting point $x_0$ and destination $x_1$. Choose a curve with those endpoints:
+
+$$
+I_t(x_0,x_1).
+$$
+
+The simplest idealized route is a straight line:
+
+$$
+I_t(x_0,x_1)=(1-t)x_0+tx_1,\qquad
+\dot I_t(x_0,x_1)=x_1-x_0.
+$$
+
+Given a pair of endpoints, both position and velocity are directly calculable. No network is needed.
+
+<Remark label="Terminology" summary="Random endpoints turn reference paths into a stochastic interpolant">
+For fixed endpoints, $I_t(x_0,x_1)$ is a reference path. Sampling random endpoints makes $I_t(X_0,X_1)$ a random process connecting their distributions, a simple **stochastic interpolant**.
+
+We focus here on the reference-path interpretation. <Ref to="dma-unified-equation"/> develops the general construction.
+</Remark>
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w4-1-reference-paths.en.html" class="demo-frame" title="Moving a crowd along straight reference paths" style="height: 820px; width: 100%; border: none;"></iframe>
+
+<Question label="Discussion" id="Q1">
+**What information does this apparently simple generator assume that generation does not have?**
+
+<Answer summary="Show the reasoning">
+It assumes the endpoint is known. In image generation, if the desired final image were already available, we could simply return it.
+
+During generation we only know:
+
+> **The current time and position.**
+
+We do not know which training endpoint pair belongs to our sample. We need a common rule:
+
+$$
+v_t(x).
+$$
+
+But people at the same corner may head toward different stations. **Which reference velocity should the field choose?**
+</Answer>
+</Question>
+
+Imagine being lost, without a map or a working phone. What would you do at an unfamiliar corner?
+
+## A natural attempt: follow the crowd
+
+If we do not know the route, we might follow nearby people who do.
+
+At position $x$ and time $t$, consider reference paths passing through that location then, and observe their velocities.
+
+Each reference path supplies an input $(I_t,t)$ and label $\dot I_t$. Train a network by regression:
+
+$$
+\boxed{
+\mathcal L_{\mathrm{CFM}}(\theta)
+=
+\mathbb E_{t,(X_0,X_1)}
+\left[
+\left\|v_\theta(I_t,t)-\dot I_t\right\|^2
+\right].
+}
+$$
+
+At the reference position, ask the model to match that person's velocity.
+
+An endpoint pair and a time directly yield this training pair. We do not solve an ODE to produce it. Lipman and colleagues [1] call this **simulation-free training**.
+
+Simulation-free means no ODE solve is needed to construct these training targets. Generation along the trained field still needs numerical integration.
+
+Several reference paths can share the same input while supplying different velocities. A deterministic network must return one answer.
+
+### Squared error performs the averaging
+
+We have seen this conflict before: when squared error fits multiple labels at the same input, it selects their mean.
+
+Apply <Ref to="math-mse-conditional-expectation"/> with input $(I_t,t)$ and label $\dot I_t$:
+
+$$
+\boxed{
+v_t^*(x)
+=
+\mathbb E\!\left[
+\dot I_t(X_0,X_1)
+\mid I_t(X_0,X_1)=x
+\right].
+}
+$$
+
+In the crowd example, this means:
+
+> **At $x$, average the directions and speeds of people who could pass here at time $t$, using their conditional probabilities.**
+
+Squared-error training and conditional averaging are two views of the same construction: one is the practical objective, the other its ideal field.
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w4-0-flow-ode.en.html" class="demo-frame" title="Average reference velocities into a common field" style="height: 820px; width: 100%; border: none;"></iframe>
+
+Drag the yellow traveler to change its starting point. The surrounding sectors aggregate compatible reference directions, with brighter or longer sectors indicating stronger posterior weight. The yellow arrow is their weighted mean. The yellow curve records the resulting ODE trajectory; dragging resets time and recomputes it. Change target samples to compare flows.
+
+The core idea is **construct supervised reference paths, then let regression combine them into a common velocity field** [1].
+
+## How do we follow the trained field?
+
+Draw $x^{(0)}\sim p_0$ and solve
+
+$$
+\frac{\mathrm dx_t}{\mathrm dt}=v_\theta(x_t,t).
+$$
+
+There is generally no closed-form solution. Divide time into intervals and approximate with a numerical solver. Euler uses
+
+$$
+x^{(k+1)}
+=
+x^{(k)}+\Delta t\,
+v_\theta\!\left(x^{(k)},t_k\right).
+$$
+
+Ask for the current direction, walk a short distance, then ask again at the new location. Euler needs one network evaluation per step. Finer grids usually improve accuracy under the usual regularity conditions, at greater cost.
+
+If velocity barely changes, a large step may work. If its direction or magnitude changes, frequent updates become necessary. Unit 3 asks whether we can reduce those changes as well as improve the solver.
+
+## Check your understanding
+
+<QuizBlock id="w4-1-a">
+What is the velocity of $I_t=(1-t)x_0+tx_1$?
+<Option>$tx_1$</Option>
+<Option correct>$x_1-x_0$</Option>
+<Option>$x_t-x_0$</Option>
+<Explanation>Differentiate with respect to time, holding the endpoints fixed.</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w4-1-b">
+What does the ideal regression field learn?
+<Option>A randomly chosen passing path.</Option>
+<Option correct>The conditional mean of passing reference velocities.</Option>
+<Option>The nearest endpoint.</Option>
+<Explanation>At a fixed input, squared error selects the conditional label mean.</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-conditional-flow-matching">
+We can average reference velocities, but will everyone following that average still reach the intended destination distribution? Next we answer using mass conservation.
+</Bridge>
+
+## References
+
+1. Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., Le, M. [*Flow Matching for Generative Modeling.*](https://arxiv.org/abs/2210.02747) ICLR 2023.

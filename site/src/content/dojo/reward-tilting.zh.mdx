@@ -3,11 +3,11 @@ slug: "reward-tilting"
 lang: "zh"
 title: "兩張都合理，我們要更常抽到哪一張？"
 note: "dma-reward-tilting"
-summary: "使用者比較喜歡其中一張柯基照片，卻也想看到不同結果。我們怎麼決定新的出現比例？圖片還沒完成時，又要把哪些可能性一起考慮？"
+summary: "從喜歡的照片比例走到連續分布實作；畫出 posterior、平均圖片與 hₜ，檢查 plug-in 省掉的不確定性。"
 status: "available"
-updated: 2026-10-13
-minutes: 40
-progressVersion: "3"
+updated: 2026-10-16
+minutes: 55
+progressVersion: "5"
 series: "dma-guidance"
 order: 2
 ---
@@ -15,6 +15,7 @@ import Say from '../../components/dojo/Say.astro';
 import Talk from '../../components/dojo/Talk.astro';
 import Extra from '../../components/dojo/Extra.astro';
 import Choose from '../../components/dojo/Choose.astro';
+import Experiment from '../../components/dojo/Experiment.astro';
 import Option from '../../components/dojo/Option.astro';
 import Judge from '../../components/dojo/Judge.astro';
 import Think from '../../components/dojo/Think.astro';
@@ -23,6 +24,8 @@ import Figure from '../../components/dojo/Figure.astro';
 import Ref from '../../components/notes/Ref.astro';
 import photos from './imgs/reward-two-photos.png';
 import sources from './imgs/reward-possible-sources.png';
+
+import SteeringExperiment from '../../components/dojo/SteeringExperiment.astro';
 
 <Say partner="nori" pose="welcome" id="scene" label="使用者還有一個偏好" next="先想希望怎麼回傳">
 使用者看了幾張雪山上的柯基，說：「這些都沒畫錯，但我比較喜歡這種光線和構圖。可以多給我幾張不同的結果嗎？」他交給我們一個美感程式，輸入完成圖片，就會得到一個分數。
@@ -190,7 +193,7 @@ $$
 <Option why="超過 1 的是相對權重，不代表倍率不能用。要補的是正規化，不必把權重截掉。">把超過 $1$ 的權重截成 $1$ 即可。</Option>
 </Choose>
 
-<Reveal partner="lumi" pose="explain" id="target" label="把總量調回 1" next="檢查這個候選是不是最佳解">
+<Reveal partner="lumi" pose="explain" id="target" label="把總量調回 1" next="先把這個分布真的畫出來">
 把權重的總和或積分記成 $Z_R$，再除掉它，定義候選 distribution：
 
 $$
@@ -202,6 +205,10 @@ $$
 
 對兩張照片，$Z_R$ 是權重的總和；對連續圖片，則對所有 $x_0$ 積分。假設 $0<Z_R<\infty$ 且相關期望有定義，這才是一個可用的 distribution。現在還差一步：確認這個候選真的讓剛才的目標最大。
 </Reveal>
+
+<SteeringExperiment id="tilt-practice" mode="tilt" partner="nori" label="自己畫出 base 乘 reward 之後的分布">
+把 A、B 換回 U7.0 的雙峰連續資料。兩種 reward 可以偏右，也可以同時偏好左右兩側；先觀察樣本，再回來證明這個候選為何是最佳解。
+</SteeringExperiment>
 
 <Choose partner="nori" pose="question" id="c-optimum" label="目標值裡，哪一項能改變？">
 用 $p_{\mathrm{data}}e^{\lambda R}=Z_Rp_R$ 代回剛才的 log 比值。拆出不隨 $\widetilde p$ 改變的 $\log Z_R$，剩下的是對 $\widetilde p$ 平均 $\log(p_R/\widetilde p)$，即負的 KL：
@@ -316,12 +323,11 @@ $\beta>0$ 控制保留 reference 的程度。對這個理想 distribution 問題
 </Extra>
 </Talk>
 
-<Choose partner="mugi" pose="question" id="c-weights" label="回到兩張照片，算一次比例">
-兩個未正規化權重是 $1/2$ 與 $3/2$，總量是 $2$。**除掉總量後，$A,B$ 會以什麼機率出現？**
-<Option correct reply="B 會更常出現，但 A 仍有機會。這個目標描述的是新的出現比例，還得有方法真的抽出這個比例。" why="兩張各自除以同一個總量 2，得到四分之一與四分之三。">$A$ 是 $1/4$，$B$ 是 $3/4$。</Option>
-<Option why="A 的權重仍是正的。重新加權沒有把它刪掉，也沒有改成只取最大分數。">每次都回傳 $B$。</Option>
-<Option why="Reward 倍率不同，已經改變原本相等的權重。正規化保留新比例，不會把它們改回相同。">仍各占 $1/2$。</Option>
-</Choose>
+<Experiment id="c-weights" mode="proportions" partner="mugi" label="把回傳規則交給你，比例會怎麼變？" next="再檢查原本比例的影響">
+回到兩張都合理的照片。$A,B$ 原本各占一半，reward 分別是 $0,1$；取 $\lambda=\log3$，剛才算出的未正規化權重是 $1/2$ 與 $3/2$，總量是 $2$。
+
+**我們已經寫下希望的比例，你選的回傳規則真的會抽出它嗎？** 先猜 $B$ 會占多少，自己選擇照原本比例抽、每次取最高 reward，或按新權重抽。跑過一次後，換一條規則或改變原本的比例，再比較結果。
+</Experiment>
 
 <Talk partner="nori" pose="explain" id="base" label="原本資料的影響還在嗎？" next="先看完成圖片的方向">
 這個比例同時使用 base 和 reward。若原本兩張不一樣常出現，得把各自的原本權重一起乘進去，不能只比較 reward 誰高。倍率差得很大時，也可能大幅放大原本 density 很低的區域；有 base 不等於每張結果都合理的保證。
@@ -447,7 +453,7 @@ Mugi 想用 $e^{\lambda R(\hat x_0)}$，替代我們需要的 $h_t$。這會省�
 回想剛才的去噪估計 $\hat x_0(x_t,t)$：理想上，它先平均了各個可能來源。Mugi 想只替這張估計評分，用 $e^{\lambda R(\hat x_0)}$ 代替先算各個來源倍率再平均的 $h_t$。**一張平均估計，會保留所有可能來源的平均權重嗎？** 可以從剛才平均與非線性操作的順序想起。
 </Think>
 
-<Reveal partner="mugi" pose="explain" id="plugin" label="把兩種順序算出來比較" next="看看怎麼得到途中的方向">
+<Reveal partner="mugi" pose="explain" id="plugin" label="把兩種順序算出來比較" next="用連續分布比較兩種順序">
 把高維圖片暫時換成一個數字：$A$ 是 $x_0=0$、$B$ 是 $x_0=1$，看過 $x_t$ 後仍各有一半可能。令 $R(x_0)=x_0$、$\lambda=\log3$，兩個來源的 reward 與倍率就和剛才相同。
 
 先平均資料，得到 $\hat x_0=1/2$；再計算它的倍率：
@@ -461,6 +467,10 @@ $$
 
 只用一張 denoised prediction 代替所有來源的平均，稱為 **plug-in approximation**。它沒有保留來源的不確定性，省掉的不是只有正規化常數。
 </Reveal>
+
+<SteeringExperiment id="posterior-practice" mode="posterior" partner="nori" label="真的畫出可能來源，比較 hₜ 和 plug-in">
+把目前的 xₜ 固定，看看可能的乾淨來源與它們的平均位置。下方另外畫出 hₜ 和 plug-in 隨 xₜ 改變的函數；先用圖理解丟掉了哪些不確定性，再求方向。
+</SteeringExperiment>
 
 <Think partner="lumi" pose="question" id="t-direction" label="有了權重，方向怎麼來？">
 現在得到的關係是 $p_t^R=p_th_t/Z_R$。沿用 U7.1 的做法，先取 log，再對目前圖片 $x_t$ 求 gradient。
@@ -549,6 +559,14 @@ $$
   replyNo="可以說這個評分指標提高了，還不能因此說抽到了 p_R。要檢查的是整個出現比例，合理性與多樣性也得另外看。">
 我們用 plug-in guidance 生成一批圖片，平均 reward 比以前高。**只靠這個數字，就能證明 sampler 抽到剛才定義的 $p_R$ 嗎？**
 </Judge>
+
+<Think partner="nori" id="t-distribution-evidence" label="換你用圖說出差別">
+回到你剛才的實驗，選一組 λ 和 reward。引用目標曲線、生成直方圖，以及 posterior mean 或 hₜ 的一個數字，說明「分數較高」「權重定義正確」「實際抽到目標分布」各需要什麼證據。
+</Think>
+
+<Reveal partner="nori" id="distribution-evidence" label="逐項對照證據">
+平均 reward 只回答評分指標。曲線的正規化與推導回答目標如何定義。要檢查抽樣，還得對照整個分布的比例、形狀與被漏掉的區域；一維直方圖有有限樣本波動，也不能替真實圖片提供同樣的精確檢查。
+</Reveal>
 
 <Choose partner="lumi" pose="question" id="c-transfer" label="最後換個原本比例試試看">
 原本 $A,B$ 的機率現在改成 $3/4$、$1/4$，reward 仍是 $0$、$1$，$\lambda=\log3$，倍率仍是 $1$、$3$。**重新加權後，哪個比例才符合我們的目標？**

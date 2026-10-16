@@ -3,11 +3,11 @@ slug: "gradient-free-steering"
 lang: "zh"
 title: "評審只肯打分，這些草稿接著怎麼畫？"
 note: "dma-gradient-free-steering"
-summary: "Mugi 想畫完再挑，Lumi 想讓有希望的草稿多留下幾份，Nori 則想換起點。先算出挑最高分改了什麼比例，再一起檢查途中重抽與起點搜尋怎麼使用分數。"
+summary: "選順序完整探索完成後挑選、途中 SMC 與起點 MCMC／SPT；真的生成樣本、追蹤祖先與鏈，再做最後統整。"
 status: "available"
-updated: 2026-10-15
-minutes: 55
-progressVersion: "1"
+updated: 2026-10-16
+minutes: 85
+progressVersion: "3"
 series: "dma-guidance"
 order: 3
 ---
@@ -19,6 +19,8 @@ import Option from '../../components/dojo/Option.astro';
 import Judge from '../../components/dojo/Judge.astro';
 import Think from '../../components/dojo/Think.astro';
 import Reveal from '../../components/dojo/Reveal.astro';
+import Derivation from '../../components/dojo/Derivation.astro';
+import DeriveStep from '../../components/dojo/DeriveStep.astro';
 import Sort from '../../components/dojo/Sort.astro';
 import Card from '../../components/dojo/Card.astro';
 import Figure from '../../components/dojo/Figure.astro';
@@ -26,6 +28,10 @@ import Ref from '../../components/notes/Ref.astro';
 import blackBox from './imgs/black-box-score.png';
 import candidates from './imgs/steering-candidates.png';
 import overview from '../notes/research-areas/diffusion-models-and-their-applications/week-10/imgs/w10-4-gradient-free-steering.png';
+
+import SteeringExperiment from '../../components/dojo/SteeringExperiment.astro';
+import Explore from '../../components/dojo/Explore.astro';
+import MethodPath from '../../components/dojo/MethodPath.astro';
 
 <Say partner="nori" pose="welcome" id="scene" label="評審只肯給分數" next="先聽 Mugi 的提案">
 使用者還是想看不同的狗照片，也比較喜歡某些帽子、光線與構圖。他交給我們一個評分程式：放進完成的圖片，程式會回傳分數，卻說不出哪個 pixel 應該往哪裡改。生成模型的參數 $\theta$ 保持固定，**只有分數，還能讓喜歡的結果更常出現嗎？**
@@ -49,22 +55,13 @@ Mugi 保留每張圖片原本的生成過程，把這次偏好放在**完成後�
 Lumi 想改的是**哪些草稿得到接下來的生成計算**。評審仍只看完成品，所以途中得先估計未來，不能直接把 noisy image 當成完成照片。估計也可能看錯，不能一開始就把其他草稿全丟掉。
 </Talk>
 
-<Talk partner="nori" pose="suggest" id="p-source" study="black-box-plans" label="Nori：如果相同草稿總會畫成同一張呢？" next="收起提案，換你來比較">
+<Talk partner="nori" pose="suggest" id="p-source" study="black-box-plans" label="Nori：如果相同草稿總會畫成同一張呢？" next="先確認這次要抽的分布">
 「假如同一個起點總會生成同一張圖，那複製草稿也只會畫出一樣的答案。能不能換個起點試畫，把容易畫出喜歡結果的起點找出來？」
 
 Nori 想保留整套生成規則，改的是**從哪些起點開始**。每個新起點仍要生成與評分；從幾次試畫找到高分起點，也還不等於已經抽到指定的分布。
 </Talk>
 
-<Sort partner="nori" pose="question" id="s-plans" label="三位夥伴把選擇放在哪裡？"
-  columns={["Mugi", "Lumi", "Nori"]} columnPartners={["mugi", "lumi", "nori"]} review="black-box-plans"
-  intro="先回想每位夥伴的操作，再把卡片放到他的名字下面。這三個提案沒有固定的贏家，要看手上的工具與這次想要的結果。"
-  done="分數可以用在完成品、草稿的後續計算，或起點的選擇。接著先把最容易做的完成後挑選算清楚。">
-<Card col={0} context="Mugi · 完成後選擇" hint="Mugi 願意先把作品都畫完，才用評審決定回傳哪一張。">獨立畫完一批，再用分數選出回傳的圖片。</Card>
-<Card col={1} context="Lumi · 途中分配" hint="Lumi 希望在作品完成之前，重新分配接下來的計算。">先估草稿的未來，把更多複本留給有希望的候選。</Card>
-<Card col={2} context="Nori · 起點選擇" hint="Nori 保留從起點到圖片的生成規則，改試不同起點。">試新的起點，生成並評分後，決定是否保留它。</Card>
-</Sort>
-
-<Say partner="lumi" pose="explain" id="target" label="這次想要怎樣的出現比例？" next="先試 Mugi 最直接的做法">
+<Say partner="lumi" pose="explain" id="target" label="這次想要怎樣的出現比例？" next="選一條方法路徑">
 如果只想找一張高分照片，挑最高分就很合理。但使用者還想保留不同答案；我們這次要檢查的是：反覆回傳圖片後，各種結果的比例，是否接近下面的 reward tilt？
 
 $$
@@ -79,6 +76,19 @@ $p_{\mathrm{data}}$ 是原本的 base distribution，$\lambda>0$ 決定 reward �
 
 這個目標讓高分結果增加相對權重，仍保留 base 的比例。它的動機與最佳性在 <Ref to="dma-reward-tilting"/> 推過；**今天追的是怎麼真的抽，而不是重新更新模型**。先假設 base sampler 精確生成 $p_{\mathrm{data}}$，實際模型的差別等一下再檢查。
 </Say>
+
+<Say partner="nori" id="shared-toy" label="三條路共用的資料與目標">
+沿用同一個可實作的 base：$\frac12\mathcal N(-2,0.55^2)+\frac12\mathcal N(2,0.55^2)$。位置 $x_0$ 是完成資料，$x_t$ 是 noisy state；橫軸的數字是 toy 資料，不是即時生成的狗照片。每條路都用同一分布真的抽樣，並和數值積分得到的 reward tilt 對照。
+</Say>
+
+<Explore partner="nori" id="e-methods" label="先完整探索一種做法，再回來選下一條" next="完整讀完各路後，再做最後統整">
+順序由你選。每條路都包含預測、真正抽樣畫圖、必要推導與限制；按最後的返回才標記「已完整探索」。中途可以先回列表，稍後接著讀。
+<Option goto="path-finish">畫完後選：Best-of-N 與 IW</Option>
+<Option goto="path-smc">途中重抽：SMC 與完整 FK 推導</Option>
+<Option goto="path-source">保留生成規則、改抽起點：MCMC 與 SPT</Option>
+</Explore>
+
+<MethodPath id="path-finish" back="e-methods" title="畫完後選：Best-of-N 與 IW">
 
 <Talk partner="mugi" pose="explain" id="best" label="先把一批作品的最高分留下來" next="多跑幾趟會看到什麼？">
 「先畫 $N$ 張，再挑分數最高的。這個做法我們現在就能做，對吧？」
@@ -100,6 +110,10 @@ $$
 
 每次重新生成 $N$ 張、選出一張，再把整趟獨立重跑 $n$ 次，就收集到 $n$ 張輸出。**$N$ 是每趟比較多少張，$n$ 是最後收集多少次輸出。** 增加 $n$ 能看清這個規則的出現比例，還得算它是否等於 $p_R$。
 </Talk>
+
+<SteeringExperiment id="best-practice" mode="best" partner="nori" label="真正生成候選，觀察 Best-of-N 分布">
+先讓每趟的候選真的從雙峰資料抽出，依評分挑一個。觀察排序與倍率的差別，再回來算離散例子的完整比例。
+</SteeringExperiment>
 
 <Think partner="mugi" pose="question" id="t-best" label="兩張裡只要有 C，它就會贏嗎？">
 把作品簡化成 $A,B,C$ 三種，base 各有 $1/3$ 的機率。評審的分數經過 $e^{\lambda R}$，得到倍率 $1,2,7$；這些是倍率，**不是原始 reward**，所以 $C$ 的分數最高。新目標希望 $A,B,C$ 的比例是 $1/10,2/10,7/10$。
@@ -192,6 +206,10 @@ $$
 </Extra>
 </Reveal>
 
+<SteeringExperiment id="importance-practice" mode="importance" partner="nori" label="同一個 base，改成按倍率抽候選">
+這次不用 argmax。每批候選重新生成，從當批正規化權重抽編號；對照 N = 1 與較大的 N，並檢查 target 是否真的被近似。
+</SteeringExperiment>
+
 <Choose partner="mugi" pose="question" id="c-batch" label="桌上這批，C 有多少被抽中的機會？">
 這趟畫出的三張是 $A,A,C$，倍率是 $1,1,7$。**固定這批候選後，最後回傳 $C$ 的機率是多少？**
 <Option correct reply="每張候選各有自己的權重，總和是 9。兩張 A 都參與了分母，C 的機率是九分之七。" why="正規化用的是這批候選的總權重。這趟沒有 B，也不能把它憑空加入分母。">$7/9$。</Option>
@@ -205,13 +223,21 @@ $7/10$ 是三種作品在整個 target 的比例。眼前桌上卻只有 $A,A,C$
 最極端的例子是 $N=1$：無論權重多高，只有一張就只能選它，輸出仍是 base。**按權重抽樣是在有限候選上近似 target，並非每批都精確重現 $p_R$。**
 </Say>
 
-<Say partner="nori" pose="explain" id="cost" label="選法改了，哪些成本還在？" next="再想 Lumi 的草稿提案">
+<Say partner="nori" pose="explain" id="cost" label="選法改了，哪些成本還在？" next="整理完成品選擇的限制">
 每趟的流程現在是：從 base 獨立畫 $N$ 張 → 評分並算倍率 → 正規化 → 按機率選一張。增加重跑次數 $n$，能看清固定 $N$ 的輸出分布；增加每趟候選數 $N$，才有機會更充分涵蓋 base，改善這個有限候選近似。
 
 可是每張還是得完整畫完、評一次分。若每次符合要求的機率是 $p$，獨立畫 $N$ 張至少命中一次的機率是 $1-(1-p)^N$；當 $p=0.001$、$N=1000$，也只有約 $0.632$。這是候選中有沒有命中，**不是按權重選出的那張一定成功的機率**。
 
 Mugi 已經讓分數進入選擇，Lumi 問的成本仍在：**有些草稿畫到一半就很沒希望，能不能把後面的計算分給別張？**
 </Say>
+
+<Say partner="nori" pose="explain" id="finish-done" label="完成品這條路已探索完整" next="回方法列表並標記已完整探索">
+你已實作 Best-of-N 與 IW，讀過候選相對權重、有限 N 的輸出 law、重跑 n 趟的意義與生成成本。回到列表，探索能否在途中分配計算，或改抽起點。
+</Say>
+
+</MethodPath>
+
+<MethodPath id="path-smc" back="e-methods" title="途中重抽：SMC 與完整 FK 推導">
 
 <Talk partner="lumi" pose="suggest" id="p-estimate" study="draft-plans" label="Lumi：先猜它完成後會得到什麼分數">
 「先請 denoiser 猜一張完成圖，再讓評審看看；或者把同一張草稿試著完成幾次，看看最後的倍率平均是多少。這樣能不能在途中比較？」
@@ -258,6 +284,10 @@ Lumi 把去噪估計交給評審，取得很高的分數。**這個數字目前�
 重複「走一段 → 算增量權重 → 按機率重抽」，就是 **Sequential Monte Carlo（SMC）** 的基本操作。這裡每個 checkpoint 都重抽，重抽後權重回到 $1/M$；到 $t=0$，從最後 $M$ 張等機率選一張回傳。**改變的是哪些候選有後代，並非 $\theta$。**
 </Talk>
 
+<SteeringExperiment id="smc-practice" mode="smc" partner="nori" label="逐段操作：哪些草稿真的留下後代？">
+每個粒子有自己的位置與祖先。先逐步執行一趟，再跑 300 趟各回傳一個的直方圖；故意把中途 H 估錯，觀察最後的真實 reward 校正能否救回已消失的左峰。後面會完整推導這個新舊比值為何必要。
+</SteeringExperiment>
+
 <Choose partner="mugi" pose="question" id="c-champion" label="先把最好的複製成全部，會省什麼？">
 Mugi 說：「既然想把時間分給好的草稿，那每次只留最高分的一張，把它複製成 $M$ 份，不就好了？」**這個想法漏看了什麼？**
 <Option goto="d-deterministic">只要複製 $M$ 份，就一定會得到 $M$ 種不同結果。</Option>
@@ -271,67 +301,202 @@ Mugi 說：「既然想把時間分給好的草稿，那每次只留最高分的
 只剩少數祖先、探索越來越窄的現象稱為 **particle degeneracy**。按 normalized weights 隨機重抽也可能發生它，尤其權重很集中時。若另外加探索或擾動，還得檢查那個動作是否保留 target；不能只因複本數很多就宣稱多樣性增加。
 </Say>
 
-<Talk partner="nori" pose="question" id="increment" label="每次都乘未來的分數，會算太多次嗎？" next="先試著算兩段">
+<Talk partner="nori" pose="question" id="increment" label="每次都乘未來的分數，會算太多次嗎？" next="先一起走過一個例子">
 只剩少數祖先、後續探索越來越窄，稱為 **particle degeneracy**。即使用隨機重抽，權重很集中時仍可能發生；相同草稿的複本，還得靠後續的隨機生成才可能分開。若沿同一個 deterministic 規則走，複製份數也不會增加不同答案。
 
-「我們已經知道怎麼重抽。可是某張草稿的未來倍率先估成 $2$，後來變成 $6$，再走到完成品是 $12$。每一段都乘這個數字，最後會不會把同一份偏好算好幾次？」
+「我們已經知道怎麼重抽。可是某張草稿的未來倍率先估成 $2$，走到完成品是 $6$。兩段各乘一次 $2$、$6$，最後是 $12$；我們想增加的明明只有 $6$ 倍，怎麼多算了？」
 
 把 checkpoint $t_k$ 的正估計記成 $H_k(x_{t_k})$。它可以是剛才的便宜估計，不要求等於 U7.2 的精確 posterior 平均。開始取 $H_K\equiv1$，完成時取真正的 $H_0(x_0)=e^{\lambda R(x_0)}$；中間都要求正值。
 
-我們想讓每條完整的 base path，最後只增加一次 terminal reward 倍率。**中間估計改變時，這一段應該乘整個新估計，還是新舊之間增加的比例？**
+我們想讓每條完整的 base path，最後只增加一次 terminal reward 倍率。這裡追的是**累積乘積應該是多少**，不是每段評分各有多高。先一起示範，再換你選下一個動作。
 </Talk>
 
-<Think partner="nori" pose="question" id="t-telescope" label="讓途中倍率前後消去">
-先只切兩段：起點 $H_2=1$，中途 $H_1=2$，完成品 $H_0=6$。每段直接乘新的 $H$，累積是 $2\times6=12$，已經多算。
+<Reveal partner="nori" pose="explain" id="increment-example" label="先看我們怎麼選下一個數學動作" next="換一組數字，你會用哪個工具？">
+這條路只切兩段：$H_2=1$、$H_1=2$、$H_0=6$。每次只展開一個動作，看看想算的量，怎麼決定我們使用的工具。
 
-如果每段改乘「新估計／舊估計」，兩段各會是多少？**乘起來能不能只剩完成品的 $6$？** 接著想想，中間估計改成 $3$，最後的乘積是否也會改變？
+<Derivation label="從累積倍率，找出每段應增加多少">
+<DeriveStep title="先讓累積倍率到達中途估計" goal="走到第一個檢查點，累積倍率要變成 2。" tool="新估計除以原本累積的倍率。" reason="開始時是 1 倍；我們要補的是乘上多少，才會到 2 倍。">
+先解「$1$ 乘上多少等於 $2$」，第一段的倍率就是
+
+$$
+\frac{H_1}{H_2}=\frac21=2.
+$$
+
+這裡 $H_1,H_2$ 是同一條路在這兩個 checkpoints 的估計值。第一段完成後，這條路已經累積 $2$ 倍；下一段不能假裝還沒乘過。
+</DeriveStep>
+
+<DeriveStep title="只補上第二段還欠的倍率" goal="目前已經有 2 倍，完成時希望是 6 倍。" tool="解乘法關係，用 6 除以 2。" reason="我們在找乘上多少，不是在問分數增加了幾分。">
+這次要解「$2$ 乘上多少等於 $6$」，因此新增的是
+
+$$
+\frac{H_0}{H_1}=\frac62=3.
+$$
+
+直接再乘 $6$ 會得到 $12$；相減得到的 $4$ 也不是要乘的倍率。**選相除，是因為現在要解的是乘法裡還缺哪個因子。**
+</DeriveStep>
+
+<DeriveStep title="把兩段相乘，檢查有沒有重複計算" goal="整條路最後只增加完成品的 6 倍。" tool="相乘，再約掉同一個中間估計。" reason="中途的 2 在一段分子、另一段分母各出現一次。">
+把兩段接起來，得到
+
+$$
+\frac{H_1}{H_2}\frac{H_0}{H_1}
+=\frac21\frac62=6.
+$$
+
+中間估計先幫忙分配計算，再被下一段的比值抵消。不是把 reward 忽略掉，而是讓同一份終點偏好只累積一次。
+</DeriveStep>
+</Derivation>
+</Reveal>
+
+<Choose partner="nori" pose="question" id="c-increment-tool" label="換你選下一個數學工具">
+換一條路：上一個 checkpoint 已累積 $3$ 倍，新的估計希望累積到 $12$ 倍。**這段應新增哪個倍率？先想要解的是「乘上多少」，再選工具。**
+<Option correct reply="目前的 3 倍乘上 4，就到 12 倍。選相除的理由，是我們在找還缺的乘法因子。" why="新舊比值補的是累積乘積還缺多少，已經乘過的部分不會再算一次。">用新估計除以舊估計，$12/3=4$。</Option>
+<Option why="相減得到 9，是加法上的差；把它當倍率乘上原本的 3，會得到 27，而不是希望的 12。">用新估計減掉舊估計，$12-3=9$。</Option>
+<Option why="原本已經有 3 倍，再直接乘 12，就累積到 36 倍；相當於把之前的那份又算進去。">直接把新的 $12$ 當成這段倍率。</Option>
+</Choose>
+
+<Think partner="nori" pose="question" id="t-telescope" label="只給框架，你能補出相消那一步嗎？">
+現在把同一條路切成三段。起點、中間兩個 checkpoints、終點的正估計依序是 $H_3,H_2,H_1,H_0$；這裡先記同一路徑上的取值，等一下再把狀態寫回函數的輸入。
+
+每段都用新估計除以舊估計，累積是
+
+$$
+\frac{H_2}{H_3}\frac{H_1}{H_2}\frac{H_0}{H_1}.
+$$
+
+**哪些項能消去？最後還剩誰？** 再加上起點取 $1$、終點使用真正的 reward 倍率，試著用一句話說出：為什麼中間估計不必精確，整條路的理想倍率仍能保留？
 </Think>
 
 <Reveal partner="nori" pose="explain" id="potentials" label="每一段只增加新的比例" next="為什麼終點比例仍是我們要的？">
-兩段是 $2/1$、$6/2$，相乘只剩 $6$。若中間改成 $3$，則是 $3/1$ 乘 $6/3$，同樣得到 $6$。於是將這段的倍率函數記成 **potential**：
+三段乘積裡，$H_2,H_1$ 都在分子、分母各出現一次，只剩 $H_0/H_3$。接著把這個動作寫回每一段的狀態，檢查真正需要的條件。
+
+<Derivation label="從同一路徑的比值，推到終點的倍率">
+<DeriveStep title="先確認比的是同一條路的前後狀態" goal="替從 t_k 走到 t_{k−1} 的這一段定義倍率。" tool="新舊估計的比值。" reason="走完這段的候選，必須配回它真正的來路，才是在補同一條路的累積倍率。">
+將這段的倍率函數記成 **potential**：
 
 $$
 \begin{gathered}
 G_{k-1}(x_{t_{k-1}},x_{t_k})\\
-=\frac{H_{k-1}(x_{t_{k-1}})}{H_k(x_{t_k})},\\
+=\frac{H_{k-1}(x_{t_{k-1}})}{H_k(x_{t_k})}.
+\end{gathered}
+$$
+
+分子是走完這段後的估計，分母是走之前的估計。新狀態不能拿別張草稿的舊估計來相除；否則前後相消的那個數字就不再相同。
+</DeriveStep>
+
+<DeriveStep title="將第 i 份候選的狀態代進去" goal="算出這張草稿在這一段要用的抽樣權重。" tool="把候選的前後狀態代入 potential。" reason="倍率函數描述一般規則；實際重抽需要每張草稿自己的數值。">
+正文使用原 sampler 走這一段，所以第 $i$ 個候選的增量權重是
+
+$$
+\begin{gathered}
 \omega_{k-1}^{(i)}\\
 =G_{k-1}(x_{t_{k-1}}^{(i)},x_{t_k}^{(i)}).
 \end{gathered}
 $$
 
-分子是走完這段的估計，分母是走之前的估計；代入第 $i$ 個候選的新舊狀態，就得到重抽所用的增量權重。新狀態必須配回它真正的上一個狀態，不能把別張草稿的 $H_k$ 拿來相除。
+用這批 $\omega$ 的總和正規化，才得到選中各候選的機率。改用別的 proposal 時還要校正抽樣來源，後面的頁內補充會展開那個比值。
+</DeriveStep>
 
-沿同一條祖先路徑把各段相乘，每個中間 $H_k$ 都在分子、分母出現一次，因此
+<DeriveStep title="沿同一條祖先路徑相乘" goal="檢查所有段數累積後，整條路增加多少倍。" tool="乘積中的相同因子前後消去。" reason="每個中間 H 都在相鄰兩段的分子與分母各出現一次。">
+沿同一條祖先路徑，把各段的比值相乘；中間取值就像剛才三段的例子一樣消去，只剩
 
 $$
 \begin{gathered}
 \prod_{k=1}^K G_{k-1}(x_{t_{k-1}},x_{t_k})\\
-=\frac{H_0(x_0)}{H_K(x_T)}
-=e^{\lambda R(x_0)}.
+=\frac{H_0(x_0)}{H_K(x_T)}.
 \end{gathered}
 $$
 
-**中途估計分配的是計算，起點與終點的選擇確定了整條路累積的倍率。** 只要維持這個構造，中間估計即使不精確，也不會因此改掉理想的 terminal tilt；但有限 $M$ 的草稿可能早就被淘汰，實際近似仍受估計影響。
+這是沿一條路徑檢查累積倍率，不是在平均整批 particles；不同路徑有自己的中間狀態與估計。
+</DeriveStep>
+
+<DeriveStep title="代入起點與終點的條件" goal="最後只留下完成品真正的 reward 倍率。" tool="代入 H_K=1 與終點的 exponential weight。" reason="相消只保證剩下 H_0/H_K；它是否等於想要的倍率，要看這兩端怎麼選。">
+起點取 $H_K\equiv1$、終點取 $H_0(x_0)=e^{\lambda R(x_0)}$，所以
+
+$$
+\frac{H_0(x_0)}{H_K(x_T)}
+=e^{\lambda R(x_0)}.
+$$
+
+**中途估計分配的是計算，兩端的選擇確定了累積倍率。** 中間估計須為正，才能使用比值；維持這個構造時，它不改掉理想的 terminal tilt。但有限 $M$ 的草稿可能早就被淘汰，實際近似仍受估計影響。
+</DeriveStep>
+</Derivation>
 </Reveal>
 
-<Reveal partner="lumi" pose="explain" id="fk" label="先寫出路徑要占多少，再真的抽" next="算出的 target，和手上的草稿有什麼差別？">
-原 sampler 的路徑分布記成 $P$，整組 checkpoints 記成 $x_{t_K:0}$。把每條路的 base 權重乘上 potentials，再正規化，得到新的路徑 target $P_R$：
+<Choose partner="lumi" pose="question" id="c-path-tool" label="路徑的倍率有了，怎麼回到完成品的比例？">
+我們已知道每條路最後只乘 $e^{\lambda R(x_0)}$。可是同一張完成品可能由不同路徑抵達。**想算完成品在新分布下占多少，接著該做哪個數學動作？**
+<Option correct reply="把抵達同一種完成品的路徑質量加起來，才得到終點的機率；連續空間則用相應的積分。" why="要算的是完成品的總量，每條通往它的路都可能有貢獻，且保留原本的路徑機率。">累積所有通往該完成品的路徑貢獻，再正規化。</Option>
+<Option why="只留最可能的路，會拿掉其他也會抵達這個終點的貢獻；那是在挑路，不是在算終點的總機率。">只保留通往它最可能的那一條路。</Option>
+<Option why="各路在 base 下不一定一樣常發生。平均 reward 倍率卻丟掉路徑原本的機率，就沒有保留 base 的出現比例。">忽略各路原本機率，只把 reward 倍率等權平均。</Option>
+</Choose>
 
+<Say partner="nori" pose="explain" id="fk-four-paths" label="先把四條路徑的貢獻真的加起來" next="再寫成一般的路徑分布">
+先換一個只有四條 base paths 的小例子：兩條抵達 $A$，機率是 $0.1,0.2$；兩條抵達 $B$，機率是 $0.3,0.4$。終點倍率是 $A$ 得 $1$、$B$ 得 $3$。加權後的總量是
+
+$$
+\begin{aligned}
+A:&\,0.1\cdot1+0.2\cdot1=0.3,\\
+B:&\,0.3\cdot3+0.4\cdot3=2.1.
+\end{aligned}
+$$
+
+同一個終點的倍率能提出求和，所以也能先把 base 路徑機率加成 $p_{\mathrm{data}}(A)=0.3$、$p_{\mathrm{data}}(B)=0.7$，再各乘 $1,3$。正規化總量是 $2.4$，得到 $A$ 占 $1/8$、$B$ 占 $7/8$。
+
+這就是剛才選「累積所有路徑」的理由；只保留一條路，就會漏掉另一條的質量。
+</Say>
+
+<Reveal partner="lumi" pose="explain" id="fk" label="先寫出路徑要占多少，再真的抽" next="算出的 target，和手上的草稿有什麼差別？">
+接著用原 sampler 的路徑分布 $P$，把「每條路增加多少」接到「完成品應占多少」。整組 checkpoints 記成 $x_{t_K:0}$；我們先定義路徑 target $P_R$，再檢查它的終點。
+
+<Derivation label="先寫路徑權重，再把途中狀態累積起來">
+<DeriveStep title="先對每條 base path 加權" goal="定義希望每條生成路徑增加的相對權重。" tool="原路徑質量乘上各段 potentials，再正規化。" reason="只有倍率還沒有機率；要保留各條路原本的貢獻，也要讓總質量回到 1。">
 $$
 \begin{gathered}
 P_R(\mathrm d x_{t_K:0})\\
 =\frac{1}{Z_R}P(\mathrm d x_{t_K:0})
-\prod_{k=1}^K G_{k-1}\\
+\prod_{k=1}^K G_{k-1}.
+\end{gathered}
+$$
+
+$P(\mathrm d x_{t_K:0})$ 表示 base 分配給這些路徑的機率質量。這一行的乘積沿用前面定義的狀態輸入；$Z_R$ 是所有 base paths 加權後的總量，假設有限且非零。
+</DeriveStep>
+
+<DeriveStep title="代入剛才驗證過的累積倍率" goal="看清一條完整路徑最後依賴哪個 reward。" tool="把 potentials 的乘積換成相消後的結果。" reason="前面已檢查同一路徑的中間 H 前後消去，不需要重新乘一次中途估計。">
+$$
+\begin{gathered}
+P_R(\mathrm d x_{t_K:0})\\
 =\frac{e^{\lambda R(x_0)}}{Z_R}
 P(\mathrm d x_{t_K:0}).
 \end{gathered}
 $$
 
-第二個等號使用剛才的消去。每條抵達相同 $x_0$ 的路，只乘上相同的 terminal weight；將所有中途狀態的可能性累積起來，就得到 base 終點機率或 density 乘 $e^{\lambda R(x_0)}/Z_R$，也就是 $p_R$。
+新權重只看終點 $x_0$。所以兩條路只要抵達同一種完成品，就會乘上同一個 terminal weight；原本機率不同的路，仍保留它們的相對貢獻。
+</DeriveStep>
 
-這種用 potentials 定義加權路徑分布的架構，稱為 **Feynman–Kac（FK）model**。它先指定 target，式子裡沒有 particle 數 $M$；**SMC 才是用有限候選去近似它的抽樣演算法**。
+<DeriveStep title="把抵達同一完成品的路都算進來" goal="從路徑的分布算出終點的出現比例。" tool="對中途狀態求和；連續空間使用積分。" reason="終點不告訴我們走了哪條路，要將所有相容路徑的貢獻累積起來。">
+剛才四條路已算出 A 的加權質量為 0.3、B 為 2.1。現在固定同一個終點，所有通往它的路都乘相同的 terminal reward；因此倍率能提出對中途狀態的求和。連續空間用積分，保留的是各條 base path 原本的貢獻。
+</DeriveStep>
 
-Singhal 等人的 **FK steering** 將這套構造用在 diffusion 引導，選擇中途估計、potentials、proposal 與重抽時機，再用 particle 方法抽樣。Kim、Kim 與 Park 的 **DAS（Diffusion Alignment as Sampling）** 也使用 SMC，透過 reward tempering 逐步增加中途 target 的偏好影響。這些名稱要對回構造與實際操作，不表示 FK 和 SMC 是互斥的方法。
+<DeriveStep title="讀回一般的 terminal target" goal="確認新的終點比例就是指定的 reward tilt。" tool="提出只依賴終點的倍率，保留 base 的終點分布。" reason="固定同一終點時，倍率不隨中途狀態改變；把中途可能性累積後，剩下原 sampler 的終點分布。">
+若 base sampler 的終點分布是 $p_{\mathrm{data}}$，和剛才四條路一樣，把各終點的所有路徑累積後得到
+
+$$
+p_R(x_0)
+=\frac{e^{\lambda R(x_0)}}{Z_R}
+p_{\mathrm{data}}(x_0).
+$$
+
+離散時是終點機率，連續時是 density。**我們先定義路徑怎麼加權，再推出它的 terminal target**；這個定義裡沒有 particle 數 $M$，也還沒有真的抽出圖片。
+
+這套用 potentials 加權路徑的架構，稱為 **Feynman–Kac（FK）model**。SMC 才是用有限候選近似它的抽樣演算法；完整推導給出理想 target，有限草稿的近似與退化仍要另外檢查。
+</DeriveStep>
+</Derivation>
+
+<Extra label="FK steering 與 DAS，和這兩層有什麼關係？">
+Singhal 等人的 **FK steering** 將這套構造用在 diffusion 引導，選擇中途估計、potentials、proposal 與重抽時機，再用 particle 方法抽樣。Kim、Kim 與 Park 的 **DAS（Diffusion Alignment as Sampling）** 也使用 SMC，透過 reward tempering 逐步增加中途 target 的偏好影響。
+
+這些名稱要對回「target 與 potentials 怎麼構造」和「實際怎麼抽」兩層，不表示 FK 和 SMC 是互斥的方法。
+</Extra>
 
 <Extra label="換了走下一段的 proposal，weight 還等於 potential 嗎？">
 正文用原 sampler 走一段，所以實際 proposal 和 base transition 相同。如果改用另一個 transition density $\tau_{k-1}$ 提出新狀態，而 base 的 transition density 是 $p_{\mathrm{base}}$，每段重抽、上一段權重相同時，就還要補抽樣來源的比值：
@@ -409,9 +574,17 @@ $$
 
 <Judge partner="nori" pose="question" id="j-repeat-smc" answer={false} label="一趟只有三份，多跑一萬趟呢？" yes="足夠消除" no="仍可能有偏差"
   replyYes="重跑讓你看清固定 M=3 的輸出分布。每趟仍只有三份，早期淘汰與有限近似的偏差可能一直存在。"
-  replyNo="是的。要改善每趟的有限 particle 近似，要看 M、估計、proposal 與重抽策略；增加重跑次數不會自動做到這些。">
+  replyNo="仍可能有偏差。要改善每趟的有限 particle 近似，要看 M、估計、proposal 與重抽策略；增加重跑次數不會自動做到這些。">
 每趟只用 $M=3$ 個 particles，但獨立重跑很多趟。**只增加重跑次數 $n$，就足以消除每趟有限 $M$ 的抽樣偏差嗎？**
 </Judge>
+
+<Say partner="nori" pose="explain" id="smc-done" label="操作與完整推導都讀完了" next="回方法列表並標記已完整探索">
+你已看見粒子的重抽與祖先，讀過增量比值、potentials 相消、FK 的終點分布，以及有限 M 的近似與退化。理想 target 的構造與有限抽樣的表現，要分別檢查。
+</Say>
+
+</MethodPath>
+
+<MethodPath id="path-source" back="e-methods" title="保留生成規則、改抽起點：MCMC 與 SPT">
 
 <Talk partner="nori" pose="suggest" id="source-target" label="同一個起點，固定會畫出同一張圖" next="起點的比例，怎麼接到圖片的比例？">
 「回到我的提案。如果複製草稿總會畫出同一張，那我們保留生成規則，改試起點呢？」
@@ -487,6 +660,10 @@ $$
 </Extra>
 </Talk>
 
+<SteeringExperiment id="source-practice" mode="source" partner="nori" label="真正跑一條 source chain，保留拒絕的步">
+固定的 quantile generator 將 standard Normal 起點變成同一個雙峰 base。只改起點的接受規則；查看較低分接受、重複位置與實際輸出直方圖。
+</SteeringExperiment>
+
 <Choose partner="mugi" pose="question" id="c-accept" label="這次分數低一點，還可能保留嗎？">
 對稱 proposal 下，新舊起點的 prior density 相同，新候選的 reward weight 是舊候選的一半。**這次應該怎麼決定？**
 <Option correct reply="Target 的比值是一半，所以以一半機率接受。這樣做是在抽指定比例，不是每一步都最大化分數。" why="接受規則允許較低分的候選，保留正反向的機率流量。">以 $1/2$ 機率接受新候選。</Option>
@@ -494,7 +671,7 @@ $$
 <Option why="對稱的是 proposal，不是 target。Reward weight 的差別仍要進入接受機率。">Proposal 對稱，所以一律接受。</Option>
 </Choose>
 
-<Talk partner="lumi" pose="suggest" id="tempering" label="一直在同一種構圖附近，別條路能幫忙嗎？" next="交換起點，能不能随便換？">
+<Talk partner="lumi" pose="suggest" id="tempering" label="一直在同一種構圖附近，別條路能幫忙嗎？" next="交換起點，能不能隨便換？">
 「如果高分的起點分成幾個相隔很遠的區域，一條 chain 可能一直只找到同一種構圖。能不能同時用幾種 reward 強度找，再讓它們交換線索？」
 
 讓第 $j$ 條 chain 使用 $\lambda_j$，target 是
@@ -520,7 +697,7 @@ $$
 兩邊都含相同的 $p_Z(z_i)p_Z(z_j)$，prior 因子已經消去。**試著把 exponential 的指數合併，看看哪些強度與 reward 的差會乘在一起。**
 </Think>
 
-<Reveal partner="lumi" pose="explain" id="swap" label="交換也要保留各自的比例" next="原規則保留了，就已經找充分嗎？">
+<Reveal partner="lumi" pose="explain" id="swap" label="交換也要保留各自的比例" next="實際觀察交換與額外成本">
 分子的指數減去分母的指數，再把共同項提出來，就得到
 
 $$
@@ -541,11 +718,21 @@ $$
 每個新 proposal 都有生成與評分成本。重複這個流程後，目標 chain 的樣本可能相關；還要看它是否探索到不同高分區域，**保留 target 的規則，不等於有限搜尋已到達 target**。
 </Reveal>
 
+<SteeringExperiment id="tempering-practice" mode="tempering" partner="nori" label="跑三條不同強度的鏈，按機率交換">
+比較單鏈與三鏈的完整執行紀錄。每鏈迭代數相同，因此三鏈花更多 G 與 reward 呼叫；用軌跡與兩峰的涵蓋來判讀，不把較高平均 reward 當成已收斂。
+</SteeringExperiment>
+
 <Judge partner="nori" pose="question" id="j-source-fixed" answer={true} label="新的起點，每次都要重新學嗎？" yes="可以固定" no="必須更新"
   replyYes="可以。新起點經同一個固定 G 得到完成品，再交給 reward。變的是起點與接受結果，原模型參數可以一直保留。"
   replyNo="生成新圖片是使用模型，不是更新模型。SPT 的 local proposal 和交換操作都能在固定生成規則下進行。">
 SPT 每次試新起點，都重新生成並評分。**這些操作可以一直保留生成模型的參數 $\theta$ 嗎？**
 </Judge>
+
+<Say partner="nori" pose="explain" id="source-done" label="起點分布、接受與交換都探索完整" next="回方法列表並標記已完整探索">
+你已實作 MCMC 與 SPT，完整讀過 source tilt 如何回到 output law、接受與交換的推導，以及有限搜尋與生成成本。回列表後，才能用最後的比較表統整不同限制。
+</Say>
+
+</MethodPath>
 
 <Sort partner="nori" pose="question" id="s-methods" label="回到工作桌，各種做法改了什麼？"
   columns={["完成後挑選／IW", "途中 SMC", "起點 SPT"]}
@@ -563,6 +750,13 @@ SPT 每次試新起點，都重新生成並評分。**這些操作可以一直�
 <Card col={1} row={2} context="途中 · 計算限制" hint="多份複本可能共享祖先，H 的估計也影響哪些草稿存活。">看估計與祖先是否集中；增加 M 不會修正設錯的 target。</Card>
 <Card col={2} row={2} context="起點 · 計算限制" hint="每個新起點仍須生成，正確的接受規則也不表示有限 chain 已探索充分。">每個 proposal 都要畫完並評分，有限搜尋可能困在局部。</Card>
 </Sort>
+
+<Choose partner="nori" id="c-intermediate-access" label="生成工具允許停下來，該怎麼用？">
+你能保存多個 noisy states，讓它們各走下一段，也有便宜的未來倍率估計。希望在完成前重新分配計算，哪個操作直接符合需求？
+<Option correct reply="這是途中 SMC 的介面前提，仍須檢查估計與祖先退化。" why="這是途中 SMC 的介面前提，仍須檢查估計與祖先退化。">用增量權重重抽候選，再讓後代繼續生成。</Option>
+<Option why="這仍花完每張候選的生成成本，沒有在途中重分配。">全部畫完才選最大值，就是途中分配。</Option>
+<Option why="會重複計入同一份偏好，須使用與目標一致的增量比值。">每段直接乘完整終點倍率，越多次越準。</Option>
+</Choose>
 
 <Choose partner="mugi" pose="question" id="c-transfer" label="最後換一個生成工具試試看">
 這次生成器是 deterministic，從相同草稿往後總會得到相同結果。你想保留生成規則，也想探索不同答案。**哪個做法比較符合這次需求？**

@@ -1,0 +1,178 @@
+---
+slug: "dma-w4-4-fm-vs-diffusion"
+label: "dma-fm-vs-diffusion"
+prereqs:
+  - math-conditional-expectation
+  - math-euler-error
+lang: "en"
+title: "Why Can Straight Reference Paths Produce Curved ODE Trajectories?"
+category: "courses"
+group: "Unit 3 · 減少 ODE 的離散化誤差"
+status: "available"
+updated: 2026-10-16
+summary: "Separate reference paths from generated trajectories, use crossing paths to explain changing marginal velocity, and motivate finite-step error analysis."
+demos:
+  - "notes/research_areas/diffusion-models-applications/w4-3-crossing.html"
+references:
+  - label: "Liu, Gong & Liu, Flow Straight and Fast (ICLR 2023)"
+    href: "https://arxiv.org/abs/2209.03003"
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
+    href: "https://arxiv.org/abs/2210.02747"
+  - label: "Tong et al., Improving and Generalizing Flow-Based Generative Models with Minibatch OT (TMLR 2024)"
+    href: "https://arxiv.org/abs/2302.00482"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# Why Can Straight Reference Paths Produce Curved ODE Trajectories?
+
+<Objectives title="After reading, you can">
+- **Distinguish reference paths and ODE trajectories:** training labels versus motion under their averaged field.
+- **Calculate velocity at a crossing** and explain why a smooth version can turn along a trajectory.
+- **Connect pairing to sampling cost** through velocity variation and finite-step approximation.
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+Generation repeatedly evaluates the current velocity and applies an Euler update:
+
+$$
+x^{(k+1)}
+=
+x^{(k)}+\Delta t\,
+v_\theta\!\left(x^{(k)},t_k\right).
+$$
+
+Our linear reference paths have constant velocities. Does their optimal average also remain constant along a generated trajectory? If so, perhaps one large step would suffice.
+
+But consider the question carefully:
+
+<Ask>
+Do straight reference paths imply straight Flow ODE trajectories?
+</Ask>
+
+## Two crossing lines expose the issue
+
+Consider two endpoint pairs:
+
+$$
+(-1,-1)\longrightarrow(1,1),\qquad
+(1,-1)\longrightarrow(-1,1).
+$$
+
+Both reference lines cross the origin at $t=1/2$, with velocities
+
+$$
+(2,2),\qquad(-2,2).
+$$
+
+At the shared input, squared-error regression outputs their mean:
+
+$$
+v_{1/2}(0)
+=\frac12(2,2)+\frac12(-2,2)
+=(0,2).
+$$
+
+The upward arrow belongs to neither reference path. It averages the two compatible directions.
+
+This one arrow alone does not prove a trajectory bends. It only proves that the marginal velocity differs from each reference velocity there.
+
+Now thicken each endpoint into a small cloud, turning two singular lines into smooth streams. Follow the averaged field from the lower-left stream:
+
+- Before overlap, the compatible stream mostly moves rightward and upward.
+- Within overlap, opposing horizontal signals cancel increasingly.
+- In the symmetric smooth construction, uniqueness prevents left and right trajectories from meeting and then separating. The left trajectory remains on its side and eventually turns leftward.
+
+Its horizontal velocity therefore changes through
+
+$$
+\text{rightward}\longrightarrow0\longrightarrow\text{leftward}.
+$$
+
+Changing direction bends the trajectory. The zero-width two-point toy concentrates this behavior at a singular crossing; smoothing spreads the turn over an interval.
+
+> **Constant reference velocities do not imply a marginal velocity that remains constant along an ODE trajectory.**
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w4-3-crossing.en.html" class="demo-frame" title="Crossing reference paths and curved marginal trajectories" style="height: 940px; width: 100%; border: none;"></iframe>
+
+Switch pairings while keeping both endpoint distributions fixed. Independent pairing creates conflicting directions; position-based pairing makes reference routes more parallel in this toy and can straighten the marginal trajectories.
+
+## Changing velocity makes coarse integration difficult
+
+The ODE specifies instantaneous velocity:
+
+$$
+\frac{\mathrm dx_t}{\mathrm dt}=v_t(x_t).
+$$
+
+The exact displacement over an interval requires integration:
+
+$$
+x_{t+h}
+=
+x_t+\int_t^{t+h}v_\tau(x_\tau)\,\mathrm d\tau.
+$$
+
+A **numerical solver** approximates this continuous integral with finitely many calculations.
+
+Euler evaluates the network once at the beginning of the interval and uses
+
+$$
+x_{t+h}\approx x_t+h\,v_\theta(x_t,t).
+$$
+
+A **network evaluation** is one call to the model. Euler uses one per step; other solvers may use several. This cost strongly affects generation time.
+
+Euler ignores within-step velocity changes. It resembles checking navigation only occasionally: constant direction and speed are easy, while turns and speed changes make a long unchecked movement inaccurate.
+
+Consequently,
+
+- Nearly constant velocity can permit accurate coarse steps.
+- Rapid velocity changes can require a finer grid to control endpoint error.
+
+We now have two directions to investigate:
+
+**Can we make generated trajectories closer to constant-speed straight lines, reducing the evaluations needed for accurate sampling?**
+
+**Or can a solver adapt its step size, taking large steps in stable regions and shorter ones where velocity changes quickly?**
+
+The first changes the learned transport geometry; the second changes numerical integration.
+
+## Check your understanding
+
+<QuizBlock id="w4-4-a">
+What does optimal regression return at a shared reference input?
+<Option>A random passing velocity.</Option>
+<Option correct>The posterior-weighted average of compatible velocities.</Option>
+<Option>Always zero.</Option>
+<Explanation>Squared error selects the conditional label mean.</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w4-4-b">
+Which choice directly changes reference-path crossings?
+<Option>Network depth.</Option>
+<Option correct>The endpoint coupling.</Option>
+<Option>Canvas resolution.</Option>
+<Explanation>The same marginals allow different pairings. Minibatch OT [3] uses this freedom to create more structured assignments.</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-error-theory">
+Finite-step integration introduces error related to how velocity varies along a trajectory.
+
+Variation includes changing speed as well as turning. How should we measure it and connect it to Euler error?
+
+Next we define that quantity and derive a finite-step bound, preparing the analysis behind straightening methods such as Rectified Flow [1].
+</Bridge>
+
+## References
+
+1. Liu, X., Gong, C., Liu, Q. [*Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow.*](https://arxiv.org/abs/2209.03003) ICLR 2023.
+2. Lipman, Y., et al. [*Flow Matching for Generative Modeling.*](https://arxiv.org/abs/2210.02747) ICLR 2023.
+3. Tong, A., et al. [*Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport.*](https://arxiv.org/abs/2302.00482) TMLR 2024.

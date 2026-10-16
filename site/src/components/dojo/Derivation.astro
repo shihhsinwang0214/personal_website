@@ -1,0 +1,31 @@
+---
+import { langFromUrl } from '../../lib/noteRefs';
+const isZh = langFromUrl(Astro.url) === 'zh';
+/** A worked derivation inside one dialogue beat; it never adds a progress step. */
+interface Props { label: string; optional?: boolean }
+const { label, optional = false } = Astro.props;
+---
+
+<div class="dojo-derivation" data-derivation data-derive-required={optional ? 'false' : 'true'} role="group" aria-label={label}>
+  <p class="dojo-derive-label">{label}</p>
+  <slot />
+  <div class="dojo-derive-controls" data-derive-controls hidden>
+    <button type="button" class="dojo-btn" data-derive-next>{isZh ? '接著推一步' : 'Work through the next step'}</button>
+    <button type="button" class="dojo-btn dojo-btn-ghost" data-derive-all>{isZh ? '看完整推導' : 'Show the full derivation'}</button>
+    <button type="button" class="dojo-btn dojo-btn-ghost" data-derive-reset hidden>{isZh ? '從這段重看' : 'Review from the first step'}</button>
+  </div>
+  <p class="dojo-derive-status" data-derive-status role="status" aria-live="polite"></p>
+</div>
+
+<style is:global>
+  .dojo .dojo-derivation { margin: 1.2rem 0; min-width: 0; }
+  .dojo .dojo-derive-label { margin: 0 0 14px; color: var(--accent); font-weight: 600; }
+  .dojo .dojo-derive-controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; }
+  .dojo .dojo-derive-controls .dojo-btn { white-space: normal; text-align: left; max-width: 100%; }
+  .dojo .dojo-derive-status { color: var(--text-muted); font-size: .85rem; margin: 10px 0 0; }
+  .dojo .dojo-derive-status:empty { display: none; }
+  @media print {
+    .dojo [data-derive-step][hidden] { display: block !important; }
+    .dojo .dojo-derive-controls, .dojo .dojo-derive-status { display: none !important; }
+  }
+</style>

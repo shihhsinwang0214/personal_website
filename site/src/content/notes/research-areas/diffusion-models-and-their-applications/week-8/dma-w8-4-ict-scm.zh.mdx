@@ -8,14 +8,16 @@ prereqs:
   - ml-moving-targets-ema
   - ml-loss-declaration
 lang: "zh"
-title: "讓 CT 訓得起來：iCT 與連續時間的 sCM"
+title: "相鄰點越來越近，訓練該怎麼繼續？"
 category: "courses"
 group: "Unit 5 · Consistency Models"
 status: "available"
-updated: 2026-10-04
-summary: "iCT 分別處理 boundary、bias 與 variance；sCM 再把時間間隔推到零，將相鄰點一致改寫成沿軌跡的全導數為零。"
+updated: 2026-10-16
+summary: "從小間隔的梯度尺度問題推到連續時間 consistency，逐步推導停止梯度的極限更新，再區分 iCT 與 sCM 的實作改良。"
 demos: []
 references:
+  - label: "Lai, Song, Kim, Mitsufuji & Ermon, The Principles of Diffusion Models (v3, 2026)"
+    href: "https://arxiv.org/abs/2510.21890"
   - label: "Song & Dhariwal, Improved Techniques for Training Consistency Models (ICLR 2024)"
     href: "https://arxiv.org/abs/2310.14189"
   - label: "Lu & Song, Simplifying, Stabilizing and Scaling Continuous-Time Consistency Models (2024)"
@@ -25,245 +27,183 @@ references:
   - label: "Karras, Aittala, Aila & Laine, Elucidating the Design Space of Diffusion-Based Generative Models (NeurIPS 2022)"
     href: "https://arxiv.org/abs/2206.00364"
 ---
-import Objectives from '../../../components/Objectives.astro';
-import Prereq from '../../../components/Prereq.astro';
-import QuizBlock from '../../../components/QuizBlock.astro';
-import Option from '../../../components/Option.astro';
-import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
-import Details from '../../../components/Details.astro';
-import Bridge from '../../../components/Bridge.astro';
-import Ref from '../../../components/Ref.astro';
-import Question from '../../../components/Question.astro';
 import Answer from '../../../components/Answer.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Explanation from '../../../components/Explanation.astro';
+import Objectives from '../../../components/Objectives.astro';
+import Option from '../../../components/Option.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Ref from '../../../components/Ref.astro';
+import Remark from '../../../components/Remark.astro';
 
-# 讓 CT 訓得起來：iCT 與連續時間的 sCM
+# 相鄰點越來越近，訓練該怎麼繼續？
 
 <Objectives>
-- **把 iCT 的改動對回誤差來源。** 判斷 EMA、loss、時間取樣與 curriculum 各自在處理 boundary、bias 還是 variance。
-- **推出連續時間的一致性條件。** 從相鄰點一致得到 $\frac{d}{dt}f(x_t,t)=0$，並說明 JVP 如何計算全導數。
-- **說出 sCM 如何穩住訓練。** 分清 TrigFlow 參數化與 tangent normalization 的作用。
+- **比較有限間隔與連續時間的要求。** 用 chain rule 展開沿 trajectory 的全導數。
+- **推導停止梯度 loss 的小間隔更新。** 說明為何要比較縮放後的梯度，且不能直接把條件速度塞進 squared residual。
+- **解釋穩定技巧改動了什麼。** 分開 target EMA、discrepancy、時間抽樣與 tangent 正規化。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 訓練不穩，是哪三件事在作用
+## 兩個回答幾乎一樣時，梯度還剩多少？
 
-上一篇結尾留下的圖像是：CT 的目標是 CD 目標的條件版本，代價是 bias 與 variance 的取捨。把這個單元到目前為止碰過的所有誤差整理成三類，接下來每一項技術都會被放進其中一格：
+<Ref to="dma-cd-vs-ct"/> 把 finite-gap 近似控制在小間隔裡。可是 $h$ 越小，兩個相鄰回答也越接近；不能只說近似變準，就當作訓練一定更容易。這一篇先讓我們看見更新裡究竟剩下哪個量，再討論如何算它。
 
-- **boundary**：$f(x,\varepsilon)=x$ 有沒有精確成立、參數化在兩端是否有界。
-- **bias**：目標的期望偏離真實終點——來自 Euler 對彎曲軌跡的 $O(\Delta t^2)$ 誤差、$f_{\theta^-}$ 非線性的 Jensen gap，以及任何讓「目標」與「真值」系統性不同的東西。
-- **variance**：目標本身的隨機散佈——條件目標退向自己的 $\epsilon$、極端樣本、以及 $\Delta t$ 小時訊噪比變差。
+想像在車程中每隔一小段時間問一次總站。如果答案真的一致，沿車程的變化率應該是零。以位置與時間為輸入的 $f(x,t)$ 有兩種變化來源：時間本身改變，以及車子移到新的位置。由 chain rule，
 
-這一篇不引入新的損失，**新的物件只有一個**：沿軌跡的全導數。前半是 Song 與 Dhariwal 的 iCT [1]，修補離散時間的訓練；後半是 Lu 與 Song 的 sCM [2]，把 $\Delta t$ 推到零。
+$$
+\frac{\mathrm d}{\mathrm dt}f(x_t,t)
+=\partial_t f(x_t,t)+J_xf(x_t,t)v_t(x_t).
+$$
+
+第一項固定位置只改時間，第二項固定時間看位置沿 $v_t$ 移動的影響。$J_xf$ 是矩陣，乘 velocity 後得到與 $f$ 同維度的向量。**兩項相消，才是沿 trajectory 的答案不變。**
+
+## 從離散 loss 推出該用的更新
+
+固定 target 參數 $\theta^-$，先用精確相鄰點 $x_{t-h}$，並令
+
+$$
+L_h=\mathbb E\|f_\theta(x_t,t)-f_{\theta^-}(x_{t-h},t-h)\|^2.
+$$
+
+這裡暫時省略與 $h$ 無關的時間權重。要看 $h\to0$，先展開 target：
+
+$$
+f_{\theta^-}(x_{t-h},t-h)
+=f_{\theta^-}(x_t,t)-h\frac{\mathrm d}{\mathrm dt}f_{\theta^-}(x_t,t)+O(h^2).
+$$
+
+只讓線上輸出接受參數梯度，然後在比較點將兩份參數數值設成相同，零階差距便消失。因此
+
+$$
+\left.\frac{1}{h}\nabla_\theta L_h\right|_{\theta^-=\theta}
+\longrightarrow
+2\mathbb E\left[(J_\theta f_\theta)^\top
+\frac{\mathrm d}{\mathrm dt}f_{\theta^-}(x_t,t)\right].
+$$
+
+$J_\theta f$ 把輸出空間的變化帶回參數空間。原始梯度會按 $h$ 縮小，所以要先除以 $h$ 才得到非零的比較極限；不能直接說「把間隔設為零」就有一個可用 loss。這個結果假設足夠光滑、可交換微分與期望，並在兩份參數數值相同的比較點成立。
+
+右邊可由 pseudo-objective $2\mathbb E[f_\theta^\top\operatorname{sg}(\mathrm df_{\theta^-}/\mathrm dt)]$ 產生相同梯度。這裡關心的是更新方向，並沒有把這個內積當作非負誤差指標。
 
 <Question id="Q1">
-iCT 的第一個改動是**把 target 網路的 EMA 拿掉**。這和一般直覺相反：目標會動的訓練（bootstrapping）不是都要靠 EMA 才不發散嗎？
-
-**拿掉之後，$f_\theta$ 為什麼不會直接崩掉？**
-
+既然正確條件是 $\partial_tf+J_xfv_t=0$，我們能否直接用單筆 $\epsilon$ 代替 $v_t$，最小化 $\mathbb E\|\partial_tf_\theta+J_xf_\theta\epsilon\|^2$？
 <Answer>
-關鍵是**這裡的「目標會動」和 RL 那種不一樣**。
+這個直接代換會改變目標。令 $\delta=\epsilon-v_t(x_t)$，給定 $x_t$ 時它是零均值。展開平方後交叉項消失，但仍多出 $\mathbb E\|J_xf_\theta\delta\|^2$；它依賴線上網路的 Jacobian，不能當成與參數無關的常數。
 
-RL 裡 target network 要 EMA，是因為目標值 $r+\gamma\max_a Q(s',a)$ 本身就是網路輸出，沒有任何外部的錨；目標追著自己跑，所以要把它拖慢。
-
-CT 的目標是 $f_{\theta^-}(x_{t_n},t_n)$，看起來也是自己。但它被兩件事釘住了：
-
-1. **邊界條件寫在架構裡。** <Ref to="dma-consistency-function"/> 那一節說過，$f_\theta(x,\varepsilon)=x$ 對任何一組參數都成立。所以最靠近乾淨端的那一格是**正確答案**，不管網路好不好。訊號是從那裡往外傳的，不是憑空自舉。
-2. **$t_n<t_{n+1}$，目標永遠比輸入更靠近乾淨端。** 每一對都是「已經對的那一側教還沒對的那一側」，方向是單向的，沒有兩邊互相追的迴路。
-
-所以 CT 不需要靠 EMA 去穩住一個沒有錨的自舉。而 EMA 反過來會壞事：上一篇那條「CT 與 CD 損失只差 $o(\Delta t)$」的定理，條件是 $\theta^-=\theta$。$\theta^-$ 一旦是滯後的 EMA，極限就換成另一個目標——$f_\theta$ 收斂到的不再是 consistency function。這是一個 **bias**，而且是那種「怎麼訓都到不了」的 bias，不是訓久一點就好。
-
-換成 $\theta^-=\text{stopgrad}(\theta)$ 之後，目標是**當前**參數（只是不回傳梯度），定理的條件回來了。那為什麼還要 stop-gradient？因為要梯度的話，損失就變成在最小化「$f_\theta$ 在相鄰兩點的差」，而那正是上一題那個退化解喜歡的東西。
-
-一句話：**EMA 在這裡壓的不是不穩定，是收斂的位置。**
+剛才的 stopped-gradient 更新不同：$\epsilon$ 線性地出現在固定 target 的 $\partial_tf_{\theta^-}+J_xf_{\theta^-}\epsilon$ 裡。取條件平均便恢復 $v_t$，而參數梯度只經過線上輸出。這才是 conditional trick 在連續時間更新裡可用的結構；「條件速度無偏」本身還不夠。
 </Answer>
 </Question>
 
-## iCT：五個改動，各對一格
+## 用方向導數計算，而不是存整個矩陣
 
-Song 與 Dhariwal [1] 把 2023 年的 CT 從「勉強能訓、品質明顯輸 CD」改到「不用 teacher 也能追上或超過 CD」。改動有五個，每一個都能對回上面的三格。
-
-**一、拿掉 target 的 EMA（bias）。** 原版用 $\theta^-=\text{EMA}(\theta)$ 當目標網路。直覺上 EMA 是在壓 variance——讓目標平滑一點。但 iCT 證明它其實引入 **bias**：上一篇說 CT 損失與 CD 損失在 $\Delta t\to0$ 時只差 $o(\Delta t)$，那條定理的條件是 $\theta^-=\theta$；一旦 $\theta^-$ 是一個滯後的 EMA，極限就變成另一個目標，$f_\theta$ 不再收斂到 consistency function。改成 $\theta^-=\text{stopgrad}(\theta)$——目標是**當前**參數、只是不回傳梯度——後品質大幅提升。這一條值得記住，因為它反直覺：一個看起來是穩定器的東西，在這裡是 bias 的來源。（<Ref to="dma-consistency-function"/> 說的「目標側要 stop-gradient」仍然成立，只是不再另加 EMA。）
-
-**二、Pseudo-Huber 取代 $\ell_2$（variance）。** 用
-
-$$
-d(x,y)=\sqrt{\|x-y\|^2+c^2}-c,\qquad c=0.00054\sqrt{D}
-$$
-
-（$D$ 是資料維度）。它在 $\|x-y\|\ll c$ 時像 $\ell_2$、在 $\|x-y\|\gg c$ 時像 $\ell_1$，梯度的模有上界。CT 的目標帶著 $O(\Delta t)$ 的隨機退向，偶爾會有離群的樣本把 $\ell_2$ 的梯度拉得很大；pseudo-Huber 把這些離群值的影響壓下來。原版用的 LPIPS 則被拿掉——它讓 $f_\theta$ 學到評估指標的特徵、對 FID 有系統性的不公平影響，是另一種 bias。
-
-**三、時間權重 $\lambda(t_n)=\frac{1}{t_{n+1}-t_n}$（variance 的均衡）。** 相鄰兩點輸出的差距是 $O(\Delta t)$；用 EDM 的時間網格 [4]（$t$ 小處密、$t$ 大處疏）時，不同 $n$ 的 $\Delta t$ 差好幾個數量級，loss 的尺度也跟著差好幾個數量級。乘上 $1/\Delta t$ 把每一對的貢獻拉到同一尺度，等效於**對 $t$ 小的區域加重**——那裡 $x_t$ 接近資料、細節在那裡決定。
-
-**四、Lognormal 時間取樣（把預算放在有訊號的地方）。** 不再均勻抽 $n$，而是讓 $\log t_n$ 近似服從 $\mathcal N(P_{\text{mean}},P_{\text{std}}^2)$，$P_{\text{mean}}=-1.1$、$P_{\text{std}}=2.0$。這就是 <Ref to="dma-fm-vs-diffusion"/> 那第四個設定——訓練端的加權（<Ref to="dma-shared-techniques"/> 把它換算成 $\log\text{SNR}$ 上的權重）：兩端的一致性條件太容易（$t$ 極小時 $f\approx$ 恆等、$t$ 極大時 $x_t$ 幾乎沒資訊），中段才是 $f$ 真正在變的地方，訊號在那裡。
-
-**五、$N$ 的指數 curriculum（bias 隨時間換 variance）。** 原版的 $N$ 線性地從 2 增加到 150；iCT 改成
-
-$$
-N(k)=\min\big(s_0\,2^{\lfloor k/K'\rfloor},\ s_1\big)+1,\qquad s_0=10,\ s_1=1280,
-$$
-
-$k$ 是訓練步、$K'$ 讓翻倍的次數剛好填滿整段訓練。這是上一篇那個取捨的排程：一開始 $N$ 小、bias 大但訊號強；每翻倍一次就把 bias 砍一半，而 $f_\theta$ 已經接近、variance 造成的擾動可承受。終點 $N=1280$ 比原版大得多，因為前面四項把 variance 壓下來了，才容得下這麼小的 $\Delta t$。
-
-<Details summary="其他兩個小改動：Fourier 尺度與 dropout">
-iCT 還把時間 embedding 的 Fourier 尺度從 16 調到 0.02，並提高 dropout。前者的理由與下半篇的 sCM 相通：CT 比的是兩個**相鄰**時刻的輸出，$f_\theta$ 對 $t$ 越敏感，這個差就越被 $t$ 方向的高頻擾動污染；把 Fourier 尺度調小等於強迫 $f_\theta$ 對 $t$ 平滑。這一條歸在 variance。（具體數值以原文為準。）
-</Details>
-
-## 把 $\Delta t$ 推到零
-
-iCT 的五項全部是在**離散**時間網格上和 bias–variance 周旋。有一個更直接的想法：既然 bias 來自 $\Delta t$ 不為零，那就讓 $\Delta t\to0$，看損失變成什麼。
-
-自我一致性說 $f(x_t,t)$ 沿軌跡不變。「不變」在微分的語言裡就是**沿軌跡的全導數為零**：
-
-$$
-\boxed{\;\frac{d}{dt}f(x_t,t)=\partial_t f(x_t,t)+\nabla_x f(x_t,t)\cdot\frac{dx_t}{dt}=0\;}\qquad\text{沿每一條 PF-ODE 軌跡}.
-$$
-
-這是這一篇唯一的新物件。逐項讀：第一項是「時間往前走、位置不動」時 $f$ 的變化；第二項是「位置隨軌跡移動」帶來的變化，$\frac{dx_t}{dt}$ 是 PF-ODE 的速度（本單元座標下 $=\mathbb E[\epsilon\mid x_t]$）。兩項要**恰好相消**。<Ref to="dma-error-theory"/> 裡出現過同一個算子——那裡是對速度場 $v$ 取 $\partial_t v+(v\cdot\nabla)v$ 得到加速度；這裡是對 $f$ 取，得到「$f$ 沿軌跡的漂移」。
-
-Song 等人 [3] 已經推出：$\ell_2$ 版的 CM 損失在 $N\to\infty$ 時，梯度趨近
-
-$$
-\nabla_\theta\ \mathbb E\Big[f_\theta(x_t,t)^{\!\top}\ \frac{d}{dt}f_{\theta^-}(x_t,t)\Big]
-$$
-
-（$\theta^-$ 側的全導數不回傳梯度）。把它推到零，就是要 $f_\theta$ 沿軌跡的全導數為零。這個目標**沒有 $\Delta t$**：Euler 漏掉 velocity 變化的誤差、Jensen gap，兩個 $O(\Delta t^2)$ 的 bias 來源在極限裡一起消失。
-
-那要怎麼在沒有 teacher 的情形下算 $\frac{dx_t}{dt}$？和上一篇一樣，用 <Ref to="dma-denoising-regression"/> 的 **conditional trick**。$x_t=x_0+t\epsilon$ 對 $t$ 微分，條件速度是 $\epsilon$ 本身。而 $\frac{d}{dt}f=\partial_tf+\nabla_xf\cdot\dot x_t$ **對 $\dot x_t$ 是線性的**，所以用 $\epsilon$ 代替 $\mathbb E[\epsilon\mid x_t]$ 後取期望是**精確的**——連上一篇那個 Jensen gap 都沒有了，因為現在條件量不再被包在非線性函數裡面，而是線性地進入一個乘積。連續時間 CT 在這裡又多賺一項。
-
-計算上，$\partial_tf+\nabla_xf\cdot v$ 是 $f$ 在 $(x,t)$ 沿方向 $(v,1)$ 的方向導數，一次 **Jacobian-vector product**（JVP）就得到，不用算整個 Jacobian：`torch.func.jvp(f, (x, t), (v, ones))`。成本約等於一次前向傳播。
-
-<Details summary="全導數的 JVP：三行程式與為什麼不算 Jacobian">
-$\nabla_xf$ 是 $D\times D$ 的矩陣（$D$ 是資料維度），算不起、也不需要；我們只要它乘上一個向量 $v$ 的結果。前向模式自動微分正好算這個：給輸入的一個擾動方向，輸出對應的擾動。
+我們需要的是 $J_xf\,v+\partial_tf$，不是 $J_xf$ 的每個元素。把 $(x,t)$ 的擾動方向設成 $(v,1)$，一次 Jacobian–vector product（JVP）就能得到所需向量：
 
 ```python
-def total_derivative(f, x, t, v):          # d/dt f(x_t, t) along dx/dt = v
-    _, df_dt = torch.func.jvp(f, (x, t), (v, torch.ones_like(t)))
-    return df_dt
+_, tangent = torch.func.jvp(
+    f, (x, t), (velocity, torch.ones_like(t))
+)
 ```
 
-tangent 用 $(v,1)$：$x$ 方向擾動 $v$、$t$ 方向擾動 $1$，輸出就是 $\nabla_xf\cdot v+\partial_tf$。<Ref week="dma-week-flow-maps"/> 的 MeanFlow 會用同一招，只是它的 tangent 多一個分量。
-</Details>
+`velocity` 可以是 teacher 的 $v_\phi$；從頭訓練時則用這筆配對的條件速度。後者的原始 stopped-gradient 更新在條件平均下精確相同，但單筆 tangent 仍有隨機性。JVP 省下完整 Jacobian 的儲存，不等於沒有額外計算成本。
 
-## sCM：為什麼原本訓不穩，怎麼穩住
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/fast-maps-gaussian.html?topic=5-4" class="demo-frame" title="U5.4：解析 Gaussian 互動檢查" style="height: 900px; width: 100%; border: none;"></iframe>
 
-連續時間的目標在 2023 年就寫出來了，但當時**訓不穩** [3]。Lu 與 Song [2] 花了一整篇找原因，結論是：問題不在目標，在**全導數 $\frac{d}{dt}f_{\theta^-}$ 這個量的數值行為**。把它拆開來看每一項，是這篇最值得學的方法論。
+**互動 demo：解析 Gaussian 檢查。** 調整起始時間、區間與位置，直接計算本篇的關係；偏差控制是明示的 surrogate，沒有使用預設的品質曲線。
 
-**TrigFlow 參數化（boundary）。** 先把路徑換成
+## iCT 先修改有限間隔的訓練問題
 
-$$
-x_t=\cos t\ x_0+\sin t\ z,\qquad t\in[0,\tfrac\pi2],\quad z\sim\mathcal N(0,\sigma_d^2I),
-$$
+Song 與 Dhariwal 的 improved consistency training（iCT）[1] 仍使用相鄰點，但調整了 target、距離函數與抽時間的方法。它們各有具體作用，不必全塞進同一種「variance 技巧」裡。
 
-consistency model 寫成
+**Target 使用當前參數的停止梯度副本。** 原始 CM 可用 EMA target；iCT 指出滯後 target 會影響 CT 的小間隔分析，於是去掉訓練 target 的 EMA。這不等於「任何 EMA 都有害」；另存 EMA 參數作評估，與用 EMA 產生本次 target 是兩個用途。上面的推導也讓我們看到為什麼比較點 $\theta^-=\theta$ 需要明寫。
 
-$$
-f_\theta(x_t,t)=\cos t\ x_t-\sin t\ \sigma_d\,F_\theta\!\Big(\frac{x_t}{\sigma_d},t\Big).
-$$
-
-對照 <Ref to="dma-consistency-function"/> 的 $c_{\text{skip}}x+c_{\text{out}}F$：$c_{\text{skip}}=\cos t$、$c_{\text{out}}=-\sigma_d\sin t$。$t=0$ 時 $f=x_t$，邊界精確；兩個係數都是有界、光滑、彼此正交的三角函數，沒有 EDM 那組 $\frac{\sigma_d^2}{t^2+\sigma_d^2}$ 式的比值在 $t$ 大時的數值問題。更重要的是：同一個 $F_\theta$ 也是這條路徑的 PF-ODE 速度（$\frac{dx_t}{dt}=\sigma_dF_\theta$ 是 diffusion 模型的參數化），所以 **diffusion 模型與 consistency model 共用一個網路形式**，可以直接從 teacher 初始化、也可以直接在同一份程式碼上切換 sCD 與 sCT。（EDM 的 $t$ 與這裡的三角時間之間差一個 $\tan$：$t_{\text{EDM}}=\sigma_d\tan t$。）
-
-在這個參數化下把全導數算出來：
+**讓大殘差不必產生任意大的梯度。** 對向量殘差 $r$，pseudo-Huber discrepancy 是
 
 $$
-\frac{d}{dt}f_{\theta^-}(x_t,t)
-=-\cos t\,\Big(\sigma_dF_{\theta^-}-\frac{dx_t}{dt}\Big)
-\;-\;\sin t\,\Big(x_t+\sigma_d\,\frac{dF_{\theta^-}}{dt}\Big).
+d(r)=\sqrt{\|r\|^2+c^2}-c,\qquad
+\nabla_r d(r)=\frac{r}{\sqrt{\|r\|^2+c^2}}.
 $$
 
-（sCT 時 $\frac{dx_t}{dt}$ 用條件速度 $\cos t\,z-\sin t\,x_0$；sCD 時用 teacher。）兩個括號各是一個「該為零的東西」：第一個是 $F_\theta$ 與真實速度的差——這一項在 $F$ 從 teacher 初始化時本來就小；第二個含 $\frac{dF}{dt}$，是網路對時間的敏感度，**這是不穩定的來源**。
+梯度 norm 不超過 $1$。小殘差時它近似平方，大殘差時增長接近線性；這是限制離群殘差影響的機制，不是讓 target noise 消失。
 
-![EDM 的 c_skip、c_out 曲線與 TrigFlow 的 cos、sin 曲線，以及兩個時間座標的對應。](./imgs/w8-4-1.svg)
+**重新配置時間與間隔。** iCT 使用隨間隔變化的 loss 權重、lognormal noise-level sampling，以及逐階增加網格點數的 curriculum。抽時間決定哪些區域常被看到，權重決定看見之後的貢獻；改變網格則改變相鄰 target 的距離。它們都會改變有效訓練分配，不能只由名稱判斷最終品質。
 
-**圖：EDM 與 TrigFlow 的邊界參數化。** 兩者在乾淨端都是恆等；TrigFlow 用有界三角函數把 EDM 的無界噪聲尺度攤到有限區間。
+## sCM 再把有限差分換成 tangent
 
-**Tangent normalization（variance）。** 全導數 $\frac{d}{dt}f_{\theta^-}$ 的模在不同 $t$、不同樣本之間差很多個數量級，直接乘進損失會讓少數大 tangent 的樣本主導梯度。sCM 把它正規化：
+Lu 與 Song 的 sCM [2] 使用連續時間 consistency，並重新安排座標與數值尺度。這裡需要更換加噪座標，當場對照：改用角度 $t\in[0,\pi/2]$，
 
 $$
-g\ \leftarrow\ \frac{g}{\|g\|+c},\qquad c=0.1,
+x_t=\cos t\,x_0+\sin t\,z,\qquad
+z\sim\mathcal N(0,\sigma_d^2I).
 $$
 
-（或直接 clip 到 $[-1,1]$）。正規化只改變每個樣本的權重、不改變方向，所以不動極限解——梯度為零的條件仍是全導數為零——只是把 variance 壓平。
+乾淨端仍是 $0$，噪聲端變成 $\pi/2$；這裡的 $t$ 已不是 VE noise 標準差。將位置除以 $\cos t$ 後，noise 標準差為 $\sigma_d\tan t$，因此能和 VE 座標對照。單筆條件速度是 $-\sin t\,x_0+\cos t\,z$。
 
-**Tangent warmup（穩住 $\frac{dF}{dt}$ 那一項）。** 上面的第二個括號 $-\sin t\,(x_t+\sigma_d\frac{dF}{dt})$ 在訓練初期最不穩，因為 $\frac{dF}{dt}$ 是網路對時間的敏感度、初始時沒有任何理由是平滑的。sCM 在這一項前面乘一個係數 $r$，前一萬步從 0 線性升到 1——先只用第一個括號（等於一個接近 diffusion 的目標）把 $F$ 穩住，再逐漸打開時間方向的一致性。
+對應的終點參數化可寫成
 
-**時間 embedding 與 normalization 層（穩住 $\frac{dF}{dt}$ 的另一半）。** $\frac{dF}{dt}$ 經過時間 embedding 與各種 adaptive normalization 層，它們對 $t$ 的敏感度直接放大進 tangent。sCM 把時間輸入改成簡單的 $c_{\text{noise}}(t)=t$ 加小尺度的 positional embedding，並把 adaptive group normalization 改成一個對輸入與輸出都做正規化的版本（「adaptive double normalization」）。這與 iCT 調小 Fourier 尺度是同一個動機：**讓 $f$ 對 $t$ 平滑**。
+$$
+f_\theta(x,t)=\cos t\,x
+-\sigma_d\sin t\,F_\theta(x/\sigma_d,t).
+$$
 
-**Adaptive weighting（variance 的均衡）。** 對不同 $t$ 的損失尺度，sCM 不再手選 $\lambda(t)$，而是學一個權重網路 $w_\phi(t)$，形式上是最大化一個「加權損失 $-$ 權重的 log」，等價於讓每個 $t$ 的損失被自己的尺度正規化。這是 iCT 第三項 $\lambda=1/\Delta t$ 的連續時間、自動化版本。
+$t=0$ 時自動回傳 $x$。沿一條路微分，用乘積法則得到
 
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/week-8/w8-4-2.html" class="demo-frame" title="沿軌跡的全導數：兩支箭頭相消：互動 demo" style="height: 920px; width: 100%; border: none;"></iframe>
+$$
+\begin{aligned}
+\frac{\mathrm df_\theta}{\mathrm dt}
+={}&-\cos t\left(\sigma_dF_\theta-\dot x_t\right)\\
+&-\sin t\left(x_t+\sigma_d\frac{\mathrm dF_\theta}{\mathrm dt}\right).
+\end{aligned}
+$$
 
-**互動 demo：全導數是兩支箭頭的合力。** 沿解析軌跡拖動時間、切換 surrogate 訓練狀態與 tangent normalization；看 $\partial_t f_\theta$ 與 $\nabla_x f_\theta\cdot\dot x_t$ 如何由不平衡逐漸相消。
+這把不穩定的來源展開了：不只係數的尺度，還有網路沿時間與位置的導數。sCM 因而使用 tangent normalization、warmup、合適的時間 embedding 與自適應權重。它們是實際訓練設計；消除 finite-gap 近似，不會同時消除模型與優化誤差。
 
-## 四個方法各站在哪裡
+<Remark label="限制" summary="正規化 tangent 後，哪些等式要重新檢查？">
+將每筆 tangent $g$ 換成 $g/(\|g\|+c)$，會限制它對更新的影響。但正規化是非線性的，通常 $\mathbb E[g/(\|g\|+c)]\ne\mathbb E[g]/(\|\mathbb E[g]\|+c)$。因此原始更新的條件無偏性，不能直接用來保證正規化後的 expected gradient 或最終解完全相同。這是穩定化策略與原始理論之間需要保留的界線。
+</Remark>
 
-| 技術 | 出處 | 對付的誤差 | 一句話 |
-|---|---|---|---|
-| $c_{\text{skip}},c_{\text{out}}$ 參數化 | CM / EDM | boundary | 邊界寫進架構，排除平凡解 |
-| TrigFlow 參數化 | sCM | boundary（＋數值） | 有界的 $\cos,\sin$ 係數；與 diffusion 共用網路 |
-| 目標側 stop-gradient | CM | （方向） | 資訊從邊界單向往外傳 |
-| 拿掉 target 的 EMA | iCT | **bias** | EMA 讓極限目標不再是 consistency function |
-| Pseudo-Huber | iCT | variance | 壓離群樣本的梯度 |
-| $\lambda=1/\Delta t$、adaptive weighting | iCT / sCM | variance（均衡） | 不同 $t$ 的損失拉到同一尺度 |
-| Lognormal 時間取樣 | iCT | variance（預算） | 把樣本放在 $f$ 真正在變的中段 |
-| $N$ 指數 curriculum | CM / iCT | bias↔variance | 先強訊號、再逐步消 bias |
-| $\Delta t\to0$（連續時間） | CM / sCM | **bias** | 消掉 Euler acceleration error 與 Jensen gap |
-| 條件速度代 $\dot x_t$ | sCT | — | 線性進入全導數，期望精確 |
-| Tangent normalization / clipping | sCM | variance | 只改權重不改方向 |
-| Tangent warmup、時間 embedding、double normalization | sCM | variance（$\frac{dF}{dt}$ 的穩定） | 讓 $f$ 對 $t$ 平滑 |
+![EDM 與 TrigFlow 的係數、時間座標與邊界對照。](./imgs/w8-4-1.svg)
 
-三格都填滿了。最終那一格「$\Delta t\to0$」把 bias 整個消掉，代價是必須算全導數、必須面對 $\frac{dF}{dt}$ 的數值行為——sCM 的其餘技術幾乎都是為了付這個代價。Lu 與 Song 用這套方法把 CT 放大到十億級參數、在 ImageNet 512 上兩步取樣接近 teacher 的品質 [2]。
+*圖：兩種參數化都有明確邊界；三角時間把 noise 尺度換成有限角度區間。它不保證 ODE trajectory 變成等速直線。*
 
-## 先消化一下
+## 消化一下
 
 <QuizBlock id="w8-4-a">
-iCT 把 target 網路的 EMA 拿掉（改成 $\theta^-=\text{stopgrad}(\theta)$）。這一項改動在對付的是：
-<Option>variance——EMA 讓目標太平滑、學不到細節。</Option>
-<Option>boundary——EMA 破壞了 $f(x,\varepsilon)=x$。</Option>
-<Option correct>bias——「CT 損失與 CD 損失只差 $o(\Delta t)$」的定理要求 $\theta^-=\theta$，用滯後的 EMA 當目標時極限變成另一個目標，$f_\theta$ 不再收斂到 consistency function。</Option>
-<Explanation>
-反直覺之處在此：EMA 通常被當成穩定器（壓 variance），但在 CT 裡它改變了損失的極限。邊界由參數化保證，與目標網路無關。stop-gradient 仍然保留——那是方向，不是 EMA。
-</Explanation>
+沿 trajectory 的 $\mathrm df/\mathrm dt$ 包含什麼？
+<Option>只有 $\partial_tf$。</Option>
+<Option correct>$\partial_tf+J_xf\,v_t$，因為時間與位置同時改變。</Option>
+<Option>只有網路對參數的梯度。</Option>
+<Explanation>對輸入的方向導數與對參數的更新梯度有不同角色。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w8-4-b">
-連續時間的自我一致性條件 $\partial_tf+\nabla_xf\cdot\dot x_t=0$，相對於離散的相鄰點損失，多消掉了哪些誤差？
-<Option>teacher 的 score 誤差。</Option>
-<Option correct>Euler 對彎曲軌跡的 $O(\Delta t^2)$ 誤差，以及條件目標被包在非線性 $f_{\theta^-}$ 裡的 Jensen gap——兩者都是 $\Delta t$ 不為零才有的。</Option>
-<Option>網路容量不足造成的逼近誤差。</Option>
-<Explanation>
-連續時間裡沒有 $\Delta t$，兩個 bias 來源同時消失；而且條件速度是**線性**進入全導數，代換後期望精確。teacher 誤差只在 sCD 有、sCT 沒有 teacher；網路容量是另一回事，任何損失都有。
-</Explanation>
+為什麼不能把條件速度直接塞進 squared residual 就宣稱無偏？
+<Option correct>展開後多出的 variance 項含線上網路的 Jacobian，會影響參數梯度。</Option>
+<Option>因為 Gaussian noise 沒有期望。</Option>
+<Option>因為 chain rule 在高維失效。</Option>
+<Explanation>需要固定 target、並檢查條件量在更新裡如何出現。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w8-4-c">
-sCM 的 tangent normalization 把 $\frac{d}{dt}f_{\theta^-}$ 除以 $\|\cdot\|+c$。它**不會**改變最終學到的 $f$，理由是：
-<Option correct>它只改變每個樣本在梯度裡的權重，不改變方向；梯度為零的條件仍是全導數為零。</Option>
-<Option>$c$ 很小所以幾乎沒作用。</Option>
-<Option>它只在訓練初期啟用。</Option>
-<Explanation>
-正規化是逐樣本的正標量縮放，極限解不變，變的是收斂路上的 variance。$c=0.1$ 不算小，作用很明顯；它全程啟用，只在訓練初期啟用的是 tangent warmup（那一項是為了 $\frac{dF}{dt}$ 的穩定）。
-</Explanation>
-</QuizBlock>
-
-<QuizBlock id="w8-4-d">
-TrigFlow 用 $x_t=\cos t\,x_0+\sin t\,z$、$f_\theta=\cos t\,x_t-\sin t\,\sigma_dF_\theta$。相對於 EDM 那組 $c_{\text{skip}},c_{\text{out}}$，它的好處**不包括**：
-<Option>係數是有界、光滑的三角函數，數值行為好。</Option>
-<Option>同一個 $F_\theta$ 也是 PF-ODE 的速度參數化，diffusion 模型與 consistency model 共用網路形式。</Option>
-<Option correct>它讓 PF-ODE 的軌跡變成直線，一步 Euler 就精確。</Option>
-<Explanation>
-TrigFlow 只是換座標——三角時間與 EDM 時間差一個 $\tan$——邊際 trajectory 上的 velocity 變化不會因為換座標就自動消失（<Ref to="dma-linear-path"/>：同一物件、不同座標）。它改善的是參數化的數值行為與網路共用，不是在最小化 geometric curvature 或加速度積分。
-</Explanation>
+連續時間 consistency 去掉了什麼？
+<Option>所有 teacher 與模型誤差。</Option>
+<Option>所有隨機梯度。</Option>
+<Option correct>原本由有限相鄰間隔構造所引入的差分近似；仍有函數逼近與優化問題。</Option>
+<Explanation>精確的微分條件不等於已精確學到解。</Explanation>
 </QuizBlock>
 
 <Bridge to="dma-multistep-limit">
-iCT 與 sCM 讓 $f_\theta$ 更接近正確終點；但一步仍可能不完美。最自然的補救是多走幾步。問題是 consistency function 每次只會回到終點，它真的能像 ODE 一樣靠縮小步長持續變準嗎？<Ref to="dma-multistep-limit"/> 檢查這件事。
+我們已能更仔細地訓練「任何位置到共同終點」的函數。但它每次仍只回答終點。如果多呼叫幾次，是否就能像加密 ODE 步長那樣持續變準？<Ref to="dma-multistep-limit"/> 先檢查這個取樣程序到底保留了什麼。
 </Bridge>
 
 ## 參考文獻
 
-1. Song, Y., Dhariwal, P. [*Improved Techniques for Training Consistency Models.*](https://arxiv.org/abs/2310.14189) ICLR 2024.（iCT：EMA target 的 bias 分析、pseudo-Huber、$\lambda=1/\Delta t$、lognormal 時間取樣、指數 curriculum。）
-2. Lu, C., Song, Y. [*Simplifying, Stabilizing and Scaling Continuous-Time Consistency Models.*](https://arxiv.org/abs/2410.11081) 2024.（sCM：TrigFlow、全導數的分解、tangent normalization / warmup、時間 embedding 與 normalization 層、adaptive weighting、JVP。）
-3. Song, Y., Dhariwal, P., Chen, M., Sutskever, I. [*Consistency Models.*](https://arxiv.org/abs/2303.01469) ICML 2023.（連續時間 CM 的極限形式與原始的 $N$ curriculum。）
-4. Karras, T., Aittala, M., Aila, T., Laine, S. [*Elucidating the Design Space of Diffusion-Based Generative Models.*](https://arxiv.org/abs/2206.00364) NeurIPS 2022.（EDM 時間網格與 $c_{\text{skip}},c_{\text{out}}$。）
+主要理論參考：[The Principles of Diffusion Models](https://arxiv.org/abs/2510.21890)，§11.3，特別是 Proposition 11.3.1、式 11.3.3–11.3.12；iCT 細節參照原始論文。正文的符號沿用本課程；方法實作細節再對照下列原始論文。
+
+1. [Song & Dhariwal, Improved Techniques for Training Consistency Models (ICLR 2024)](https://arxiv.org/abs/2310.14189)。
+2. [Lu & Song, Simplifying, Stabilizing and Scaling Continuous-Time Consistency Models (2024)](https://arxiv.org/abs/2410.11081)。
+3. [Song, Dhariwal, Chen & Sutskever, Consistency Models (ICML 2023)](https://arxiv.org/abs/2303.01469)。
+4. [Karras, Aittala, Aila & Laine, Elucidating the Design Space of Diffusion-Based Generative Models (NeurIPS 2022)](https://arxiv.org/abs/2206.00364)。

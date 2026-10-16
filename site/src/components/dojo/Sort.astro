@@ -1,4 +1,6 @@
 ---
+import { langFromUrl } from '../../lib/noteRefs';
+const isZh = langFromUrl(Astro.url) === 'zh';
 /**
  * Sort.astro — a comparison table the reader fills by dragging. Columns are the
  * table's column headers; each <Card col={i}> is one cell that belongs under
@@ -20,7 +22,7 @@ import Review from './Review.astro';
 import type { DojoPartnerId, DojoPartnerPose } from '../../lib/dojoPartners';
 
 interface Props { pose?: DojoPartnerPose; partner?: DojoPartnerId;  id: string; columns: string[]; columnPartners?: DojoPartnerId[]; rows?: string[]; rowReplies?: string[]; done?: string; label?: string; intro?: string; review?: string }
-const { pose = 'question', partner, id, columns, columnPartners, rows, rowReplies = [], done, label = '把卡片放回表格', intro, review } = Astro.props;
+const { pose = 'question', partner, id, columns, columnPartners, rows, rowReplies = [], done, label = isZh ? '把卡片放回表格' : 'Place the cards in the table', intro, review } = Astro.props;
 ---
 
 <div class="dojo-node dojo-sort" data-node data-kind="sort" id={id} data-columns={JSON.stringify(columns)} data-rows={rows ? JSON.stringify(rows) : undefined} data-row-replies={JSON.stringify(rowReplies)} data-done={done}>
@@ -31,7 +33,7 @@ const { pose = 'question', partner, id, columns, columnPartners, rows, rowReplie
   {columnPartners?.map((partner, index) => <template data-column-partner={index}><Partner partner={partner} compact /></template>)}
   <p class="dojo-sort-question" data-sort-question hidden></p>
   <div class="dojo-sort-table" role="group" aria-label={label}></div>
-  <div class="dojo-sort-pool" role="group" aria-label="待放置的卡片"><slot /></div>
+  <div class="dojo-sort-pool" role="group" aria-label={isZh ? '待放置的卡片' : 'Cards to place'}><slot /></div>
   <p class="dojo-feedback" role="status" aria-live="polite"></p>
   <noscript><div class="dojo-body">{rowReplies.map((reply) => <p>{reply}</p>)}{done && <p>{done}</p>}</div></noscript>
 </div>

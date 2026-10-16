@@ -3,11 +3,11 @@ slug: "condition-guidance"
 lang: "zh"
 title: "圖片還沒畫完，怎麼提醒它要畫柯基？"
 note: "dma-classifier-guidance"
-summary: "想畫雪山上滑雪板的柯基，模型卻可能畫成哈士奇。趁圖片還沒完成，幫手要看什麼、又該提醒哪裡？我們從這張圖一起找出方向。"
+summary: "用同一個雙峰分布實際跑 classifier guidance 與 CFG；完整讀完兩條方法路徑後，再比較工具前提並判讀新情境。"
 status: "available"
-updated: 2026-10-13
-minutes: 35
-progressVersion: "3"
+updated: 2026-10-16
+minutes: 50
+progressVersion: "4"
 series: "dma-guidance"
 order: 1
 ---
@@ -25,6 +25,10 @@ import Figure from '../../components/dojo/Figure.astro';
 import Ref from '../../components/notes/Ref.astro';
 import scene from '../notes/research-areas/diffusion-models-and-their-applications/week-10/imgs/w10-1-corgi-steering-intuition-v2.png';
 import twoQuestions from './imgs/guidance-two-questions.png';
+
+import SteeringExperiment from '../../components/dojo/SteeringExperiment.astro';
+import Explore from '../../components/dojo/Explore.astro';
+import MethodPath from '../../components/dojo/MethodPath.astro';
 
 <Say partner="nori" pose="welcome" id="scene" label="圖片可能畫成什麼？" next="先聽 Lumi 的提案">
 我們想一個具體的情況：模型已經訓練好了，這次我們想請它畫**一隻在雪山上滑雪板的柯基**。即使模型能接收文字描述，把這句話交給它，就能保證最後畫出我們想要的圖片嗎？
@@ -131,7 +135,7 @@ $$
 現在對 $x_t$ 求 gradient。原本資料的那一項給出 base score，剛才固定的那一項微分為零。**指定柯基多出的方向，應該來自哪一項？** 先試著寫出它的 gradient。
 </Think>
 
-<Reveal partner="lumi" pose="explain" id="direction" label="指定品種，多出的方向" next="請網路估計這個方向">
+<Reveal partner="lumi" pose="explain" id="direction" label="指定品種，多出的方向" next="先準備兩條方法路徑共用的分布">
 把 conditional score 記成 $s_t(x_t\mid c)$、base score 記成 $s_t(x_t)$，剛才逐項微分得到
 
 $$
@@ -146,6 +150,24 @@ $$
 
 這是精確 density 與 score 的關係。實際上要請網路估計，再交給 reverse-time sampler 使用；score 本身不是圖片要移動的距離。對圖片微分時繞過了 $p(c)$，也不表示我們已經算出它的數值。
 </Reveal>
+
+<Say partner="nori" pose="explain" id="guidance-toy" label="把草稿換成能真的生成的一維資料" next="選一條路開始">
+沿用 U7.0：$p_{\mathrm{base}}=\frac12\mathcal N(-2,0.55^2)+\frac12\mathcal N(2,0.55^2)$，左右兩群分別是 $c=0,1$。先把「生成柯基」換成「選擇其中一群」，圖的橫軸是資料 $x$，沒有把數字當成真正的狗照片。
+
+這個分布的 noisy density、類別機率與 score 都可解析計算，因此先用理想工具實際跑 reverse sampler，觀察固定參數後樣本怎麼改。每條路接著完整檢查：真實網路要怎麼學會所需的回答，以及公式如何換成 noise prediction。
+</Say>
+
+<Explore partner="nori" id="e-methods" label="先完整探索一種做法，再回來選下一條" next="完整讀完各路後，再做最後統整">
+順序由你選。每條路都包含預測、真正抽樣畫圖、必要推導與限制；按最後的返回才標記「已完整探索」。中途可以先回列表，稍後接著讀。
+<Option goto="path-classifier">請 noisy classifier 提供方向</Option>
+<Option goto="path-cfg">比較同一模型的兩種回答</Option>
+</Explore>
+
+<MethodPath id="path-classifier" back="e-methods" title="請 noisy classifier 提供方向">
+
+<SteeringExperiment id="classifier-practice" mode="classifier" partner="lumi" label="先跑一次：classifier 的方向真的改了哪些樣本？">
+先用上面已定義的理想 noisy classifier。執行 A／B 後看兩張直方圖，再讀下方同一個 xₜ 的方向與 sampler 一步。
+</SteeringExperiment>
 
 <Choose partner="nori" pose="question" id="c-input" label="我們想改的是誰？">
 把 noisy classifier 寫成 $p_\phi(c\mid x_t,t)$，$\phi$ 是它的參數，生成模型的參數仍是 $\theta$。現在想保留幫手的判斷方式，**改動它正在看的圖片**，讓類別的 log-probability 增加。該對誰求 gradient？
@@ -203,15 +225,47 @@ $w$ 是這次提醒的強度。從 unconditional base 出發時，$w=0$ 留下 b
 </Extra>
 </Reveal>
 
-<Talk partner="nori" pose="question" id="classifier-limit" label="判斷準，方向也一定準嗎？" next="看看另一種現成模型">
+<Think partner="lumi" pose="question" id="t-noise" label="手上的網路輸出 noise 呢？">
+U1 的網路通常輸出 noise prediction $\epsilon_\theta$。在帶噪聲的時刻，沿用 noise amplitude $\sigma_t=\sqrt{1-\bar\alpha_t}>0$，換成 score 是
+
+$$
+s_\theta(x_t,t)=-\frac{\epsilon_\theta(x_t,t)}{\sigma_t}.
+$$
+
+先看 classifier guidance：在不接收 $c$ 的 base score 上，加 $w$ 倍 classifier 的 input gradient。**換成 noise prediction 時，這個額外項前面的正負號與倍率會怎樣？** 試著把 score 組合式兩邊乘上 $-\sigma_t$。
+</Think>
+
+<Reveal partner="lumi" pose="explain" id="noise-classifier" label="先把 classifier 的方向換過去" next="回頭檢查方向估計的限制">
+將 score 組合式乘上 $-\sigma_t$，得到
+
+$$
+\begin{gathered}
+\widetilde\epsilon_\theta(x_t,t,c)\\
+=\epsilon_\theta(x_t,t)\\
+-w\sigma_t\!\nabla_{x_t}\!\log p_\phi(c\mid x_t,t).
+\end{gathered}
+$$
+
+負號與 $\sigma_t$ 都來自剛才的換算。這裡從 **unconditional base** 加 classifier 提醒，所以 $w=0$ 才是不加提醒；和 CFG 從 conditional 出發、以 $w=1$ 為基準不同。
+</Reveal>
+
+<Talk partner="nori" pose="question" id="classifier-limit" label="判斷準，方向也一定準嗎？" next="完成這條路的整理">
 我們剛才用到的是機率隨圖片改變的 gradient。就像兩片地形高度很接近，局部坡度仍可能不同，類別機率估得準，也不自動保證 input gradient 準。
 
-上面這條路，生成模型可以原本不接收 $c$，另外請 noisy classifier 提供要求。接著換一種手上的工具：**如果我們已經有一個學會 condition 的生成模型，能不能從它自己的回答找出這個方向？**
+上面這條路，生成模型可以原本不接收 $c$，另外請 noisy classifier 提供要求。另一條方法路徑會檢查：**如果我們已經有一個學會 condition 的生成模型，能不能從它自己的回答找出這個方向？**
 
 <Extra label="還可以怎麼檢查這位幫手？">
 分類正確率只檢查答案。Guidance 還要用到圖片附近的局部變化，所以我們也想知道：只做很小的輸入擾動，它的判斷是否穩定？一個能分類的網路，可能在很小的擾動下就大幅改變回答；不能只靠乾淨圖片的準確率，推論途中 input gradient 的品質。這是檢查方向的理由，不是宣稱穩定就保證生成成功。<a href="https://arxiv.org/abs/2208.08664">Kawar、Ganz 與 Elad 的研究</a>討論了 robust classifier 用於 guidance 的問題。
 </Extra>
 </Talk>
+
+<Say partner="nori" pose="explain" id="classifier-done" label="這條路已從分布走到完整公式" next="回方法列表並標記已完整探索">
+你已用固定模型生成樣本，區分 input gradient 與參數更新，也讀過 noisy classifier 的 loss、score 組合、noise 換算和限制。回列表後再探索另一種取得方向的方法。
+</Say>
+
+</MethodPath>
+
+<MethodPath id="path-cfg" back="e-methods" title="比較同一模型的兩種回答">
 
 <Choose partner="mugi" pose="question" id="c-difference" label="比較哪兩個回答？">
 暫時假設這個現成模型，也能回答「不指定品種」的情況。把**同一張 $x_t$、同一個 $t$** 問兩次：指定柯基時怎麼預測，不指定品種時又怎麼預測？要取出這次要求多出的部分，該怎麼比較？
@@ -226,7 +280,7 @@ $w$ 是這次提醒的強度。從 unconditional base 出發時，$w=0$ 留下 b
 我們想留下的是 condition 的影響，所以得扣掉共同的 base。比較的是同一張圖片的兩種回答，不是兩張完成圖片的差。
 </Say>
 
-<Reveal partner="mugi" pose="explain" id="difference" label="剛才扣掉的是哪一項？" next="檢查第二個回答是否學過">
+<Reveal partner="mugi" pose="explain" id="difference" label="剛才扣掉的是哪一項？" next="先實際組合兩種回答並生成">
 把剛才的 exact score identity 移項：
 
 $$
@@ -238,6 +292,10 @@ $$
 
 「有要求的方向」扣掉「原本的方向」，剩下的正是 condition 多出的部分。Mugi 的提案就是請生成模型估計右邊兩項，再相減。**同一張圖、同一個時刻**才是在比較兩種要求，不能拿兩張生成結果相減代替。
 </Reveal>
+
+<SteeringExperiment id="cfg-practice" mode="cfg" partner="mugi" label="先跑一次：同一張圖的兩種回答怎麼改變生成？">
+先用這個 toy 的解析 conditional 與 unconditional score。兩支回答在相同的 xₜ、t 上計算；接著才檢查真實網路提供它們的訓練前提。
+</SteeringExperiment>
 
 <Choose partner="mugi" pose="question" id="c-dropout" label="另一個回答，真的準備好了嗎？">
 <Figure src={twoQuestions} alt="同一張 noisy image，以指定柯基與不指定品種兩種輸入詢問同一個模型；兩個回答都還是問號。">
@@ -338,29 +396,9 @@ $$
 把 $w$ 從 $1$ 調大，condition 的影響更強了。這表示原本 conditional score 被估得更精確，還是我們刻意改變了 sampling 的品質與多樣性取捨？
 </Judge>
 
-<Think partner="lumi" pose="question" id="t-noise" label="手上的網路輸出 noise 呢？">
-U1 的網路通常輸出 noise prediction $\epsilon_\theta$。在帶噪聲的時刻，沿用 noise amplitude $\sigma_t=\sqrt{1-\bar\alpha_t}>0$，換成 score 是
-
-$$
-s_\theta(x_t,t)=-\frac{\epsilon_\theta(x_t,t)}{\sigma_t}.
-$$
-
-先看 classifier guidance：在不接收 $c$ 的 base score 上，加 $w$ 倍 classifier 的 input gradient。**換成 noise prediction 時，這個額外項前面的正負號與倍率會怎樣？** 試著把 score 組合式兩邊乘上 $-\sigma_t$。
-</Think>
-
-<Reveal partner="lumi" pose="explain" id="noise-classifier" label="先把 classifier 的方向換過去" next="再換模型自己的兩種回答">
-將 score 組合式乘上 $-\sigma_t$，得到
-
-$$
-\begin{gathered}
-\widetilde\epsilon_\theta(x_t,t,c)\\
-=\epsilon_\theta(x_t,t)\\
--w\sigma_t\!\nabla_{x_t}\!\log p_\phi(c\mid x_t,t).
-\end{gathered}
-$$
-
-負號與 $\sigma_t$ 都來自剛才的換算。這裡從 **unconditional base** 加 classifier 提醒，所以 $w=0$ 才是不加提醒；和 CFG 從 conditional 出發、以 $w=1$ 為基準不同。
-</Reveal>
+<Say partner="nori" pose="explain" id="cfg-noise-input" label="兩支回答一起換成 noise prediction" next="換你判斷係數">
+在同一個 $x_t,t$，兩支回答都使用 $s_\theta=-\epsilon_\theta/\sigma_t$，其中 $\sigma_t=\sqrt{1-\bar\alpha_t}>0$。將整個 CFG 等式乘上 $-\sigma_t$，再檢查共同因子與係數。
+</Say>
 
 <Choose partner="mugi" pose="question" id="c-noise-cfg" label="CFG 的係數也要變號嗎？">
 對同一張 $x_t$ 和同一個 $t$，兩種 prediction 共用相同的 score／noise 換算因子。把剛才的 CFG 組合換成 noise prediction，**組合係數會怎樣？**
@@ -384,7 +422,7 @@ $$
 把合成的 noise prediction 放進原 sampler，才由它產生往較低 noise level 走的下一張圖片。Classifier 的 $\phi$、生成模型的 $\theta$ 都可以保持固定；改變的是這次 sampler 使用的 prediction。
 </Reveal>
 
-<Talk partner="nori" pose="suggest" id="negative-prompt" label="如果沒有要求的那一次，也放一段描述？" next="把兩條路的前提一起比較">
+<Talk partner="nori" pose="suggest" id="negative-prompt" label="如果沒有要求的那一次，也放一段描述？" next="完成這條路的整理">
 「假如我們不想要模糊照片，把原本空輸入換成『模糊』，再從『清楚的柯基』往遠離『模糊』的方向推，可以嗎？」
 
 這是 negative prompt 的想法。把不想要的描述記成 $c_-$，同一個 $(x_t,t)$ 的 noise prediction 縮寫為 $\epsilon_\theta^c$、$\epsilon_\theta^{c_-}$，組合可以寫成
@@ -427,6 +465,12 @@ $$
 </Extra>
 </Talk>
 
+<Say partner="nori" pose="explain" id="cfg-done" label="兩種輸入、生成組合與限制都讀完了" next="回方法列表並標記已完整探索">
+你已實際跑 CFG，讀過 conditioning dropout 的 loss、強度基準、noise prediction、negative prompt 與 Flow Matching 對應。這些是方法的不同角色；同樣畫得出一張圖，不代表訓練前提與計算成本相同。
+</Say>
+
+</MethodPath>
+
 <Sort partner="nori" pose="question" id="s-methods" label="我們各自需要準備誰？"
   columns={["Lumi · Classifier guidance", "Mugi · CFG"]}
   columnPartners={["lumi", "mugi"]} review="guidance-plans"
@@ -446,11 +490,25 @@ $$
 <Card col={1} row={4} context="CFG · 限制" hint="沒有外部 classifier，仍得準備兩種輸入的回答，並計算兩支 prediction。">不用外部 classifier，仍依賴兩種回答；強度大也可能少掉變化。</Card>
 </Sort>
 
+<Choose partner="nori" id="c-tools-cfg" label="工具已準備好，要選哪一條？">
+模型已學過有／沒有文字的輸入，這次仍在它理解的品種類型內，手上沒有額外 classifier。你會先試什麼？
+<Option correct reply="兩種必要輸入都已準備好；生成時組合 prediction 即可。" why="兩種必要輸入都已準備好；生成時組合 prediction 即可。">用同一模型的兩支 prediction 做 CFG。</Option>
+<Option why="空輸入是沒有指定要求，不是否定要求。">把空 condition 當成「禁止柯基」。</Option>
+<Option why="這個情境的兩種輸入已學過，並沒有新增未學會的類型。">一定要重新訓練整個模型。</Option>
+</Choose>
+
 <Choose partner="nori" pose="question" id="c-transfer" label="換一組工具，你會怎麼判斷？">
 現在手上只有乾淨照片的 classifier，以及訓練時每次都給描述的生成模型；後者沒有練習過空 condition。**立刻套用上面兩種做法，哪個判斷比較合理？**
 <Option why="乾淨照片上的判斷，沒有提供目前 noisy image 的可靠類別機率與 input gradient。">直接用 classifier guidance，分類器已經存在了。</Option>
 <Option why="模型有 conditional 回答，還不表示它學過沒有 condition 時的回答。相減所需的另一支 prediction 尚未準備好。">直接用 CFG，模型已經會根據描述生成了。</Option>
 <Option correct reply="兩條路各缺一種必要的回答。公式提供組合方式，訓練前提才告訴我們手上的工具能不能用。" why="前者需要 noisy classifier；後者需要學過空 condition 的生成模型。這個情境還沒有準備好它們。">兩條路都還缺相應輸入的判斷能力。</Option>
+</Choose>
+
+<Choose partner="nori" id="c-shared-plot" label="兩張實驗圖重疊，能推出什麼？">
+在 toy 中，classifier guidance 和 CFG 使用相同 c、w、步數與種子，樣本直方圖幾乎重疊。哪個解釋符合共同推導？
+<Option correct reply="Bayes identity 讓兩種理想訊號相等，並沒有取消網路準備與 sampler 的需求。" why="Bayes identity 讓兩種理想訊號相等，並沒有取消網路準備與 sampler 的需求。">理想訊號給出同一支合成 score；真實網路的訓練前提仍不同。</Option>
+<Option why="圖中用的是解析理想回答，不能代替真實網路的訓練。">CFG 不必學過空 condition。</Option>
+<Option why="w 改變合成 score，且有限步與起點仍有近似。">任何 w 都精確抽到 conditional distribution。</Option>
 </Choose>
 
 <Say partner="nori" pose="explain" id="bridge" label="如果使用者只交給你一個評分程式？" next="接著決定喜歡的結果要多常出現">

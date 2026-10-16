@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fast maps：解析 Gaussian 檢查</title><style>
+*{box-sizing:border-box}body{margin:0;padding:12px;font:15px/1.65 system-ui,sans-serif;color:#29313a;background:#f8fafc;min-height:100vh}.card{max-width:790px;margin:auto;padding:20px;border:1px solid #d9dfe3;border-radius:12px;background:#fbfcfd}.dark{color:#e7ebef;background:#17191f}.dark .card{background:#1e2228;border-color:#41474e}h2{font-size:18px;margin:0 0 8px}p{margin:6px 0 12px}canvas{display:block;width:100%;height:300px;border:1px solid #bac5ce;border-radius:8px}[hidden]{display:none!important}.controls{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}label{display:grid;gap:4px;font-size:13px}input{width:100%;accent-color:#39845f}.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}.stat{padding:8px 10px;border-left:3px solid #4b9872;font-size:12px}.stat strong{display:block;font:600 16px ui-monospace,monospace}.note{font-size:12px;opacity:.8;margin-top:14px}@media(max-width:460px){body{padding:6px}.card{padding:12px}.controls{grid-template-columns:1fr}canvas{height:255px}.stats{gap:5px}}
+</style></head><body><main class="card"><h2 id="title"></h2><p id="goal"></p><canvas id="plot" aria-label="解析 trajectory 與模型近似的比較"></canvas><div class="controls">
+<label>起始時間比例 <output id="av"></output><input id="a" type="range" min="0.05" max="0.95" step="0.01" value="0.65"></label>
+<label id="blabel">區間比例 <output id="bv"></output><input id="b" type="range" min="0.05" max="0.95" step="0.01" value="0.55"></label>
+<label>標準化起點／mean shift <output id="zv"></output><input id="z" type="range" min="-2" max="2" step="0.05" value="1"></label>
+<label>刻意加入的模型偏差 c <output id="cv"></output><input id="c" type="range" min="0" max="0.2" step="0.01" value="0"></label>
+</div><div class="stats" id="stats"></div><p class="note">本頁直接計算解析公式；模型偏差是明示的 surrogate，不是訓練 checkpoint。導數以 centered difference 核對，所有數值都由目前控制項重算。實際網路訓練請使用正文的 Python／notebook。</p></main>
+<script src="./_demo-common.js"></script><script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id), topic=new URLSearchParams(location.search).get('topic')||'5-0';
+const goals={
+'5-0':['一次去噪與終點 map','比較同一個 noisy input 的 posterior mean 與 ODE 終點；兩者的輸出 variance 不同。'],
+'5-1':['兩步合一的 target','比較 teacher 的兩個 Euler 短步與一個大步，再反解 pseudo-clean target。'],
+'5-2':['沿軌跡保持相同的終點','沿解析 Gaussian trajectory 移動出發時間；終點 map 的值應保持不變。'],
+'5-3':['CT 平均位置與精確 trajectory','條件配對的平均恢復 Euler 點；它與精確短段位置仍有差距。'],
+'5-4':['全導數與停止梯度的理論物件','精確終點 map 沿 trajectory 的全導數為零；明示偏差會產生非零 tangent。'],
+'5-5':['精確多步與模型偏差','比較精確再加噪程序與帶偏的 map；換軌和 marginal 誤差是不同問題。'],
+'5-6':['Gaussian oracle：訓練前的檢查','先核對條件位置散佈與 Euler error，再使用 notebook 訓練 CD／CT。'],
+'6-0':['指定中途時間的 flow map','沿同一條解析 trajectory 直接跳或分段跳；偏差 c 只作用在 learned-map surrogate。'],
+'6-1':['固定目的時間，移動出發點','移動起始時間時，精確 map 抵達同一路線的相同目的位置；也可比較合成 residual。'],
+'6-2':['瞬時速度、平均速度與修正','使用同一條 Gaussian flow，核對 u = v + (r−t) du/dt；起始時間方向包括位置移動。'],
+'6-3':['兩個短段的位移相加','比較直接長跳與先到中點再跳；精確平均速度符合時間加權合成，帶偏模型未必符合。'],
+'6-4':['加噪 KL 的梯度方向','此例 target 是 N(0,1)，student clean mean 是 θ。圖顯示兩側加噪密度；score 差給出 θ 的更新訊號。'],
+'6-5':['半群 residual 不是完整品質指標','分開看解析 identity、帶偏 map 的合成 residual 與落點誤差，不能用單一數字替代所有檢查。'],
+'6-6':['MeanFlow：實作前先對答案','用解析 flow 檢查 identity 與 semigroup；此頁不訓練網路，可與 notebook 的 learned map 分開比較。']};
+if(topic==='6-4'){ $('b').closest('label').hidden=true; $('c').closest('label').hidden=true; } else if(topic==='6-2'||(topic.startsWith('5')&&!['5-4','5-5'].includes(topic))){ $('c').closest('label').hidden=true; }
+const conf=goals[topic]||goals['5-0'];$('title').textContent=conf[0];$('goal').textContent=conf[1];
+let dark=false;const canvas=$('plot'),ctx=canvas.getContext('2d');
+const Q=t=>(1-t)**2+.36*t*t,M=t=>2*t;
+const V=(x,t)=>2+(-2+2.72*t)/(2*Q(t))*(x-M(t));
+const P=(x,r,t)=>M(r)+Math.sqrt(Q(r)/Q(t))*(x-M(t));
+const U=(x,r,t)=>2+(-2+1.36*(r+t))/(Math.sqrt(Q(t))*(Math.sqrt(Q(r))+Math.sqrt(Q(t))))*(x-M(t));
+const v=(x,t)=>t*x/(1+t*t),F=(x,t)=>x/Math.sqrt(1+t*t),ve=(x,s,t)=>x*Math.sqrt((1+s*s)/(1+t*t));
+const E=(x,s,t)=>x+(s-t)*v(x,t),normal=(x,m,q)=>Math.exp(-((x-m)**2)/(2*q))/Math.sqrt(2*Math.PI*q);
+function line(points,color,width=2,dash=[]){ctx.beginPath();ctx.strokeStyle=color;ctx.lineWidth=width;ctx.setLineDash(dash);points.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.stroke();ctx.setLineDash([])}
+function draw(){const a=+$('a').value,b=+$('b').value,z=+$('z').value,c=+$('c').value;for(const [id,value]of [['av',a],['bv',b],['zv',z],['cv',c]])$(id).textContent=value.toFixed(2);
+const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;canvas.width=w*dpr;canvas.height=h*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);ctx.fillStyle=dark?'#e7ebef':'#29313a';ctx.font='12px system-ui';const X=t=>42+t*(w-64),Y=x=>h*.5-x*(h-68)/10;line([[42,20],[42,h-28],[w-20,h-28]],dark?'#606b78':'#b7c3cf',1);let stats;
+if(topic==='6-4'){const t=a,theta=z,q=(1-t)**2+t*t,gradient=t*t*theta/q;const Xd=x=>42+(x+5)/10*(w-64),Yd=y=>h-32-y*(h-70);const pts=(m)=>Array.from({length:201},(_,i)=>{const x=-5+i*.05;return[Xd(x),Yd(normal(x,m,q))]});line(pts(0),'#4a9874',3);line(pts(t*theta),'#c7783c',2);ctx.fillText('green：target   orange：student',52,20);stats=[['noise marginal variance',q],['KL',t*t*theta*theta/(2*q)],['∂KL / ∂θ',gradient],['score difference',t*theta/q]];
+}else if(topic.startsWith('5')){const t=2*a,s=t*(1-b),x=Math.sqrt(1+t*t)*z,xt=E(x,s,t),exact=ve(x,s,t),tm=(t+s)/2,two=E(E(x,tm,t),s,tm),target=(two-(s/t)*x)/(1-s/t);
+line(Array.from({length:121},(_,i)=>[X(i/120),Y(Math.sqrt(1+(2*i/120)**2)*z)]),'#4a9874',3);
+if(topic==='5-3'||topic==='5-6'){const postMean=x/(1+t*t),postStd=t/Math.sqrt(1+t*t);for(let k=-3;k<=3;k++){const clean=postMean+k*postStd*.5,eps=(x-clean)/t;line([[X(t/2),Y(x)],[X(s/2),Y(clean+s*eps)]],'#a4aab4',1)}}
+line([[X(t/2),Y(x)],[X(s/2),Y(xt)]],'#c7783c',2,[5,4]);for(const [time,y,col]of [[t,x,'#477fbd'],[s,exact,'#4a9874']]){ctx.fillStyle=col;ctx.beginPath();ctx.arc(X(time/2),Y(y),5,0,2*Math.PI);ctx.fill()}ctx.fillStyle=dark?'#e7ebef':'#29313a';ctx.fillText('green：ODE trajectory   dashed：Euler step',52,18);ctx.fillText('time 0 → 2',w-115,h-8);
+if(topic==='5-1')stats=[['one Euler error',Math.abs(xt-exact)],['two Euler error',Math.abs(two-exact)],['pseudo-clean target',target],['student reconstruction error',Math.abs((s/t)*x+(1-s/t)*target-two)]];
+else if(topic==='5-4')stats=[['f(x_t,t)',z],['∂t f',-t*x/(1+t*t)**1.5],['J_x f · v',t*x/(1+t*t)**1.5],['biased-map total derivative',c*z]];
+else if(topic==='5-5'){let vv=(1+2*c)**2;for(let k=0;k<4;k++){const tau=t*(1-k/5);vv=(1+c*tau)**2*(vv+tau*tau)/(1+tau*tau)}stats=[['exact-map output variance',1],['biased first-jump variance',(1+2*c)**2],['after 4 re-noise cycles',vv],['model bias c',c]];}
+else if(topic==='5-3'||topic==='5-6')stats=[['CT conditional mean (= Euler)',xt],['exact short-step position',exact],['CT conditional std',(t-s)/Math.sqrt(1+t*t)],['Euler position error',Math.abs(xt-exact)]];
+else stats=[['posterior mean',x/(1+t*t)],['ODE endpoint',F(x,t)],['denoiser output variance',1/(1+t*t)],['endpoint-map output variance',1]];
+}else{const t=.9*a,r=t+(1-t)*b,x=M(t)+Math.sqrt(Q(t))*z,mid=(t+r)/2,exact=P(x,r,t),G=(x,r,t)=>P(x,r,t)+c*(r-t)**2*x,direct=G(x,r,t),split=G(G(x,mid,t),r,mid),dv=V(x,t),u=U(x,r,t),eps=1e-5,du=(U(x+eps*dv,r,t+eps)-U(x-eps*dv,r,t-eps))/(2*eps);
+line(Array.from({length:121},(_,i)=>{const at=i/120;return[X(at),Y(M(at)+Math.sqrt(Q(at))*z)]}),'#4a9874',3);line([[X(t),Y(x)],[X(r),Y(direct)]],'#477fbd',2,[5,3]);for(const [time,y,col]of [[t,x,'#477fbd'],[r,exact,'#4a9874'],[r,split,'#c7783c']]){ctx.fillStyle=col;ctx.beginPath();ctx.arc(X(time),Y(y),4,0,2*Math.PI);ctx.fill()}ctx.fillStyle=dark?'#e7ebef':'#29313a';ctx.fillText('green：exact flow   blue：direct   orange：split',52,18);ctx.fillText('time 0 → 1',w-115,h-8);
+if(topic==='6-2')stats=[['instantaneous v',dv],['mean velocity u',u],['(r−t) du/dt',(r-t)*du],['identity residual',Math.abs(u-dv-(r-t)*du)]];
+else stats=[['exact endpoint',exact],['biased direct-map error',Math.abs(direct-exact)],['biased semigroup residual',Math.abs(direct-split)],['exact semigroup residual',Math.abs(P(P(x,mid,t),r,mid)-exact)]];
+}
+$('stats').replaceChildren(...stats.map(([label,value])=>{const box=document.createElement('div');box.className='stat';const text=document.createElement('span');text.textContent=label;const num=document.createElement('strong');num.textContent=Math.abs(value)<1e-8?value.toExponential(2):value.toFixed(5);box.append(text,num);return box}));}
+for(const id of ['a','b','z','c'])$(id).addEventListener('input',draw);addEventListener('resize',draw);
+if(window.NDFlow){const theme=()=>{dark=NDFlow.palette().dark;document.body.classList.toggle('dark',dark);draw()};NDFlow.onThemeChange(theme);theme()}else draw();
+})();
+</script></body></html>

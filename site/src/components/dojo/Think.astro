@@ -1,4 +1,6 @@
 ---
+import { langFromUrl } from '../../lib/noteRefs';
+const isZh = langFromUrl(Astro.url) === 'zh';
 /**
  * Think.astro — a pause: the reader writes a few lines for themselves (never stored,
  * never sent), then presses 「看我的整理」, which reveals the next node (usually a <Reveal>).
@@ -10,7 +12,7 @@ import Partner from './Partner.astro';
 import type { DojoPartnerId, DojoPartnerPose } from '../../lib/dojoPartners';
 
 interface Props { pose?: DojoPartnerPose; partner?: DojoPartnerId;  id?: string; label?: string; placeholder?: string; next?: string; review?: string }
-const { pose = 'question', partner, id, label = '先自己想一下', placeholder = '可以寫下你的猜測和理由，也可以先在心裡想。', next = '一起對照看看', review } = Astro.props;
+const { pose = 'question', partner, id, label = isZh ? '先自己想一下' : 'Pause and think', placeholder = isZh ? '可以寫下你的猜測和理由，也可以先在心裡想。' : 'Write your prediction and reasoning, or think it through first.', next = isZh ? '一起對照看看' : 'Compare the reasoning', review } = Astro.props;
 ---
 
 <div class="dojo-node dojo-think" data-node data-kind="think" id={id} data-next={next}>
@@ -19,5 +21,5 @@ const { pose = 'question', partner, id, label = '先自己想一下', placeholde
   {review && <Review group={review} />}
   <div class="dojo-body"><slot /></div>
   <textarea class="dojo-think-box" rows="3" placeholder={placeholder} aria-label={label}></textarea>
-  <p class="dojo-think-hint">也可以先在心裡想，再看整理。文字只留在這個頁面，重新載入就會消失。</p>
+  <p class="dojo-think-hint">{isZh ? '也可以先在心裡想，再看整理。文字只留在這個頁面，重新載入就會消失。' : 'You can also think first, then read the explanation. Your writing stays on this page and disappears when you reload.'}</p>
 </div>

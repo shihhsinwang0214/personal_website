@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title> ERM: the score we compute and the risk we want </title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; background: transparent; color: #1f2733; }
+  body[data-dark="1"] { color: #e9e6e1; }
+  .card { max-width: 660px; margin: 0 auto; padding: 18px; border-radius: 14px; background: #fffdfb; border: 1px solid #e7e0d6; }
+  body[data-dark="1"] .card { background: #1f2126; border-color: #2c2d31; }
+  .goal { font-size: 0.9rem; line-height: 1.55; margin: 0 0 12px; }
+  .goal b { color: #2a4ea3; } body[data-dark="1"] .goal b { color: #d8a44a; }
+  canvas { width: 100%; max-width: 470px; height: auto; display: block; margin: 0 auto; border-radius: 10px; }
+  .cap { text-align: center; font-size: 0.72rem; line-height: 1.5; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .cap { color: #9a988f; }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+  label { font-size: 0.82rem; font-weight: 600; }
+  select { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc4b8; background: #fff; color: inherit; font: inherit; }
+  body[data-dark="1"] select { background: #262830; border-color: #3a3b42; color: #e9e6e1; }
+  input[type=range] { width: 170px; max-width: 52vw; accent-color: #2a4ea3; }
+  body[data-dark="1"] input[type=range] { accent-color: #d8a44a; }
+  button { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2a4ea3; color: #fff; font-size: 0.82rem; }
+  body[data-dark="1"] button { background: #d8a44a; color: #1f2126; }
+  button.ghost { background: transparent; color: inherit; border: 1px solid #ccc4b8; font-weight: 600; }
+  body[data-dark="1"] button.ghost { border-color: #3a3b42; }
+  .seg { display: inline-flex; border: 1px solid #ccc4b8; border-radius: 8px; overflow: hidden; }
+  body[data-dark="1"] .seg { border-color: #3a3b42; }
+  .seg button { border-radius: 0; background: transparent; color: inherit; font-weight: 600; padding: 6px 11px; }
+  .seg button[aria-pressed="true"] { background: #2a4ea3; color: #fff; }
+  body[data-dark="1"] .seg button[aria-pressed="true"] { background: #d8a44a; color: #1f2126; }
+  .chk { font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .stats b { font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; font-size: 0.72rem; color: #646c78; margin: 6px 0 0; }
+  body[data-dark="1"] .legend { color: #9a988f; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .observe { font-size: 0.82rem; line-height: 1.6; margin: 14px 0 0; color: #646c78; }
+  body[data-dark="1"] .observe { color: #9a988f; }
+  .observe b { color: #1f2733; } body[data-dark="1"] .observe b { color: #e9e6e1; }
+</style>
+<script defer src="/personal_website/notes/research_areas/_english-demo.js"></script><style>html[lang="en"] .stats{overflow-wrap:anywhere}html[lang="en"] label{max-width:100%}</style></head>
+<body>
+<div class="card">
+  <p class="goal"> Learning goal: <b> Empirical risk </b> is computable from observations; <b> population risk </b> is the expected loss of interest. In this polynomial example, increasing degree improves the ideal training fit but can worsen population risk. Sample size, noise, model family, and numerical fitting affect the curves. </p>
+  <canvas id="fit" style="aspect-ratio:5/3" aria-label="Points: training observations; dashed gray: sin(2πx); solid: current polynomial least-squares fit."></canvas>
+  <p class="cap"> Points: training observations; dashed gray: sin(2πx); solid: current polynomial least-squares fit. </p>
+  <canvas id="curve" style="aspect-ratio:5/2" aria-label="Log vertical axis: training MSE, population risk, irreducible error σ², and the current degree marker."></canvas>
+  <p class="cap"> Log vertical axis: training MSE, population risk, irreducible error σ², and the current degree marker. </p>
+  <div class="controls">
+    <div class="row">
+      <label for="d"> Degree d </label><input id="d" type="range" min="0" max="20" step="1" value="3" />
+      <label for="n">n</label><input id="n" type="range" min="10" max="300" step="5" value="30" />
+    </div>
+    <div class="row">
+      <label for="sg"> Noise σ </label><input id="sg" type="range" min="0" max="0.5" step="0.01" value="0.15" />
+      <button id="seed" class="ghost"> 🎲 Resample data </button>
+    </div>
+    <div class="stats"><span>d = <b id="vd">3</b></span> <span>n = <b id="vn">30</b></span> <span>σ = <b id="vs">0.15</b></span> <span> Training MSE = <b id="vtr">—</b></span> <span> Population risk = <b id="vte">—</b></span> <span>σ² = <b id="vir">0.0225</b></span></div>
+  </div>
+  <p class="observe"> Observe: <b> ideal unregularized minimum training error cannot rise for nested polynomial spaces</b>. Computed fits can deviate because of numerical stabilization. Population risk need not decrease. More data can reduce a generalization gap; setting σ=0 does not guarantee correct extrapolation or identify a function from finitely many observations. <b> Noise is not required for finite-data generalization failure</b>.</p>
+</div>
+
+<script src="../_demo-common.js"></script>
+<script>
+(function () {
+
+  var DMAX = 20;
+  var el = function (i) { return document.getElementById(i); };
+  var dF = MLF.hiDPICanvas(el('fit')), dC = MLF.hiDPICanvas(el('curve'));
+  var pal = MLF.palette(), seed = 0, data = null, curves = null;
+
+  function rebuild() {
+    var n = +el('n').value, sg = +el('sg').value;
+    data = MLF.toy1d(n, sg, seed);
+    curves = { tr: [], te: [] };
+    for (var d = 0; d <= DMAX; d++) {
+      var f = MLF.polyfit(data.x, data.y, d);
+      curves.tr.push(Math.max(MLF.mse(f, data.x, data.y), 1e-7));
+      curves.te.push(Math.max(MLF.risk(f, sg), 1e-7));
+    }
+  }
+
+  function drawFit() {
+    var s = dF.resize(), ctx = dF.ctx; MLF.clear(ctx, s, pal);
+    var ax = MLF.axes(ctx, s, { x: [-0.02, 1.02], y: [-1.9, 1.9], pal: pal,
+      xticks: [0, 0.25, 0.5, 0.75, 1], yticks: [-1, 0, 1], xlab: 'x', ylab: 'y' });
+    var g = MLF.grid(220), i, pts = [];
+    for (i = 0; i < g.length; i++) pts.push([g[i], MLF.truth(g[i])]);
+    MLF.line(ctx, ax, pts, MLF.rgb(pal.a, 0.45), 1.6, [5, 4]);
+    var d = +el('d').value, f = MLF.polyfit(data.x, data.y, d), pts2 = [];
+    for (i = 0; i < g.length; i++) pts2.push([g[i], Math.max(-3, Math.min(3, MLF.polyval(f, g[i])))]);
+    MLF.line(ctx, ax, pts2, MLF.rgb(pal.d), 2.2);
+    for (i = 0; i < data.x.length; i++) MLF.dot(ctx, ax, data.x[i], data.y[i], MLF.rgb(pal.b, 0.8), 2.4);
+    el('vtr').textContent = MLF.mse(f, data.x, data.y).toFixed(4);
+    el('vte').textContent = MLF.risk(f, +el('sg').value).toFixed(4);
+  }
+
+  function drawCurve() {
+    var s = dC.resize(), ctx = dC.ctx; MLF.clear(ctx, s, pal);
+    var sg = +el('sg').value, ir = Math.max(sg * sg, 1e-7);
+    var lo = 1e-4, hi = 3, i, A = [], B = [];
+    var ax = MLF.axes(ctx, s, { x: [0, DMAX], y: [lo, hi], logy: true, pal: pal,
+      xticks: [0, 5, 10, 15, 20], yticks: [1e-4, 1e-2, 1, 3],
+      fmty: function (v) { return v >= 1 ? String(v) : v.toExponential(0); },
+      xlab: "Polynomial degree d" });
+    for (i = 0; i <= DMAX; i++) { A.push([i, Math.min(hi, Math.max(lo, curves.tr[i]))]); B.push([i, Math.min(hi, Math.max(lo, curves.te[i]))]); }
+    if (sg > 0) {
+      MLF.ref(ctx, ax, { y: ir, color: MLF.rgb(pal.c) });
+      MLF.label(ctx, ax.box.l + 5, ax.Y(ir) - 7, 'σ² = ' + ir.toFixed(4), MLF.rgb(pal.c));
+    }
+    MLF.line(ctx, ax, A, MLF.rgb(pal.b), 2);
+    MLF.line(ctx, ax, B, MLF.rgb(pal.d), 2, [5, 4]);
+    MLF.ref(ctx, ax, { x: +el('d').value, color: pal.accent, dash: [] });
+    MLF.legend(ctx, ax, [{ t: "Training MSE", c: MLF.rgb(pal.b) }, { t: "Population risk", c: MLF.rgb(pal.d) }], 'tr', pal);
+  }
+
+  function draw() {
+    el('vd').textContent = el('d').value;
+    el('vn').textContent = el('n').value;
+    var sg = +el('sg').value;
+    el('vs').textContent = sg.toFixed(2);
+    el('vir').textContent = (sg * sg).toFixed(4);
+    drawFit(); drawCurve();
+  }
+  function full() { rebuild(); draw(); }
+
+  el('d').oninput = draw;
+  el('n').oninput = full;
+  el('sg').oninput = full;
+  el('seed').onclick = function () { seed = (seed + 1) % 997; full(); };
+  window.addEventListener('resize', draw);
+  MLF.onThemeChange(function () { pal = MLF.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); });
+  document.body.dataset.dark = pal.dark ? '1' : '0';
+  full();
+
+})();
+</script>
+</body>
+</html>

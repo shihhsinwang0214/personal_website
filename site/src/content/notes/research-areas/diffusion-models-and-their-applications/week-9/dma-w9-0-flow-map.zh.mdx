@@ -5,14 +5,16 @@ prereqs:
   - math-vector-field-ode
   - math-pushforward-flow-map
 lang: "zh"
-title: "Consistency Trajectory Models：能不能在任意時間之間直接跳躍？"
+title: "能不能沿同一條路，直接跳到指定的中途？"
 category: "courses"
 group: "Unit 6 · Consistency Trajectory Model and Flow Map"
 status: "available"
-updated: 2026-10-08
-summary: "Consistency function 只會直達終點；CTM 最早把目標時間也交給模型，讓它能從任意 $t$ 沿同一條軌跡跳到任意 $s$，而 flow map 則把這個物件的一般規則整理出來。"
+updated: 2026-10-16
+summary: "從 CM 只能回終點的限制建立雙時間 flow map，再由合成規則構造 CTM 的監督，分清 map、局部速度與自誘導 teacher。"
 demos: []
 references:
+  - label: "Lai, Song, Kim, Mitsufuji & Ermon, The Principles of Diffusion Models (v3, 2026)"
+    href: "https://arxiv.org/abs/2510.21890"
   - label: "Kim et al., Consistency Trajectory Models (ICLR 2024)"
     href: "https://arxiv.org/abs/2310.02279"
   - label: "Boffi, Albergo & Vanden-Eijnden, Flow Map Matching (2024)"
@@ -20,169 +22,152 @@ references:
   - label: "Song, Dhariwal, Chen & Sutskever, Consistency Models (ICML 2023)"
     href: "https://arxiv.org/abs/2303.01469"
 ---
+import Answer from '../../../components/Answer.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Explanation from '../../../components/Explanation.astro';
 import Objectives from '../../../components/Objectives.astro';
+import Option from '../../../components/Option.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Question from '../../../components/Question.astro';
-import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
-import Option from '../../../components/Option.astro';
-import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
-import Details from '../../../components/Details.astro';
-import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
+import Remark from '../../../components/Remark.astro';
 
-# Consistency Trajectory Models：能不能從任意 $t$ 直接跳到任意 $s$？
+# 能不能沿同一條路，直接跳到指定的中途？
 
 <Objectives>
-- **說出 consistency model 的多步病根。** 指出「先回終點再重加噪」為什麼不是沿同一條路前進。
-- **解釋 CTM 如何訓練任意時間跳躍。** 寫出 $G_\theta(x_t,t\to s)$ 的 soft consistency 目標，並說明它如何讓一步與多步留在同一條 trajectory 上。
-- **從 CTM 抽出雙時間 flow map。** 推出 $\psi_{t\to s}$ 的恆等、端點、半群與速度相容四個條件。
+- **定義任意時間的 flow map。** 分清恆等、合成與指定動力學三種要求。
+- **構造 CTM 的 soft consistency target。** 比較直接跳與 teacher 短段接學生跳躍。
+- **說出局部動力學如何進入訓練。** 區分外部 teacher 與有資料監督的 self-induced teacher。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 只會直達終點，反而走不了中途
+## 只會報總站，還不會報中途的位置
 
-<Ref to="dma-multistep-limit"/> 收在一個問題上：Consistency Models [3] 學到的 $f(x_t,t)$ 只能把軌跡上的點直接送到資料端。想多走幾步時，只能先到資料端、**重新加噪聲**到某個中間時刻，再跳一次。每次重新加噪都會重新配對，因此下一跳已經不在原本那條 trajectory 上。
+<Ref to="dma-multistep-limit"/> 已檢查 CM 的多步程序：先回資料端，再加新 noise，另選一條 trajectory 出發。它在精確模型下可以保留正確 marginal，卻沒有提供「沿目前這條路停在中途」的直接回答。
 
-這就像一班車只會開到總站。想在中途站下車，竟得先坐到總站，再換車折返。我們真正缺的不是多搭幾次「直達總站」，而是一個可以接收目的時間 $s$、把現在的 $x_t$ **直接送到同一條 trajectory 上的 $x_s$** 的模型。
+想像導航除了目的地，也能回答「沿現在這條路再走到指定時間，會在哪裡」。我們要多給模型的資訊不是更多 noise，而是**目的時間**。如此才有可能由同一個起點，選擇一步到底或在中途停留。
 
-Kim 等人在 2023 年提出的 **Consistency Trajectory Models**（CTM）[1]，先把這件事做成了可以訓練的模型。2024 年的 Flow Map Matching [2] 才進一步把 CTM 與其他方法背後的共同物件整理成一般的 flow-map framework。這個單元也按照這個順序走：先看 CTM 怎麼從 consistency model 長出來，再把它學到的物件抽象成 flow map。
+## 先把現在、目的地與方向固定下來
 
-## 先對齊時間方向與符號
-
-本單元沿用 <Ref week="dma-week-flow-matching"/> 的時間方向：$t=0$ 是噪聲、$t=1$ 是資料。CTM 原文使用相反的方向，$t=0$ 是資料、$t=T$ 是噪聲；把時間反過來讀，描述的仍是同一條 trajectory，也不影響「從任意 $t$ 跳到任意 $s$」這件事。
-
-邊際速度場一律寫成 $v_t(x)$。下面的 $u$ 若單獨出現，表示落在 $t$ 與 $s$ 之間的**中間時刻**；到了 <Ref to="dma-meanflow"/>，帶參數的 $u(z,r,t)$ 才表示平均速度。
-
-## CTM：把目的時間 $s$ 也交給模型
-
-Consistency model 的輸入只有現在的位置與時間，$f_\theta(x_t,t)$ 的目的地永遠固定在資料端。CTM 多給模型一個目的時間：
+本單元回到 U2 的生成時間：$t=0$ 是噪聲、$t=1$ 是資料。令 $X_0\sim p_0$、$X_1\sim p_1$，reference process 是 $I_t=(1-t)X_0+tX_1$，marginal velocity 為
 
 $$
-G_\theta(x_t,t\to s)\approx x_s.
+v_t(x)=\mathbb E[X_1-X_0\mid I_t=x].
 $$
 
-它問的不是「從這裡怎麼回到終點」，而是：**我現在在 $x_t$，如果沿同一條 trajectory 走到時間 $s$，會在哪裡？** 因此 $s=1$ 時，它退回 consistency function；$s=t$ 時，它應該留在原地。
+$X_1-X_0$ 是可由端點配對算出的 reference velocity；真正的 ODE trajectory 滿足 $\dot x_t=v_t(x_t)$。除非另外說明，下面的 $x_t$ 都指這條 ODE 上的位置。這與 U5 的 $0$ 為資料方向相反；不是把 U5 的 VE noise 標準差直接代成這裡的時間。
 
-但 training data 並沒有直接告訴我們同一條 ODE trajectory 上的 $x_s$。CTM 沿用 consistency distillation 的想法：先讓 teacher 從 $t$ 走到一個介於兩者之間的時間 $u$，再要求「直接跳到 $s$」與「先走到 $u$，再跳到 $s$」得到同一個位置。以下先寫生成方向 $t<s$：
-
-$$
-G_\theta(x_t,t\to s)\;\approx\;G_{\theta^-}\!\big(\tilde x_u,u\to s\big),
-\qquad
-\tilde x_u=\operatorname{Solver}_{\text{teacher}}(x_t,t\to u),
-\qquad u\in(t,s].
-$$
-
-右邊停止 gradient，$\theta^-$ 是 EMA 或凍結的參數。$u$ 靠近 $t$ 時，teacher 只需要先走一小步；$u=s$ 時，右邊因為 $G(\tilde x_s,s\to s)=\tilde x_s$，就變成直接回歸 teacher 走到的 trajectory point。CTM 在兩者之間隨機抽 $u$，稱為 **soft consistency matching**。
-
-所以 CTM 的關鍵不是換了一個新的 sampler，而是把 consistency model 從「只能跳到固定終點」改成了「任意 $t\to s$」。多步生成可以直接走成 $0\to s_1\to s_2\to\cdots\to1$，中途不必回終點，也不必重新加噪。實務上 CTM 還加入 denoising score matching 與 adversarial loss 來提升品質；這一篇先抓住上面這條主線就好。
-
-## CTM 學到的物件，有哪些一定要遵守的規則？
-
-CTM 已經告訴我們「任意 $t\to s$」可以怎麼訓練。接下來回頭問：如果一個模型真的能沿同一條 ODE trajectory 在任意兩個時間之間移動，它的輸出必須遵守哪些關係？
-
-<Ref to="dma-flows-and-continuity"/> 說速度場 $v_t$ 定義了一組不交叉的 trajectories。取一顆粒子，它在時刻 $t$ 的位置是 $x$；沿著同一條 trajectory 走到時刻 $s$，它會落在一個確定的位置。把這個對應記成
+對初始位置 $x$ 與起始時間 $t$，定義
 
 $$
-\psi_{t\to s}(x)\;=\;\text{經過 }(x,t)\text{ 的那條軌跡在時刻 }s\text{ 的位置}.
+\psi_{t\to s}(x)=x+\int_t^s v_\tau(x_\tau)\,\mathrm d\tau,
+\qquad x_t=x.
 $$
 
-$s$ 可以大於 $t$，也可以小於 $t$。這個雙時間映射叫做 **flow map**。CTM 的 $G_\theta(x_t,t\to s)$ 就是在學它；<Ref week="dma-week-consistency"/> 的 consistency function 則是把 $s$ 固定在資料端的特例。
+它回傳同一條 ODE trajectory 在 $s$ 的位置，稱為 flow map。生成方向是 $t\le s$，反向也可在 ODE 存在且唯一的範圍定義。U5 的 consistency function 是把目的時間固定在資料端；換成本單元方向，便是 $\psi_{t\to1}$。
+
+## 中途停一下，為什麼應該不影響結果？
+
+給定同一個起點，先沿 ODE 到中途 $u$，再從那個位置接著走到 $s$。ODE 解唯一，就不能在接續時換成另一條路。因此
+
+$$
+\psi_{t\to s}(x)
+=\psi_{u\to s}\big(\psi_{t\to u}(x)\big),
+\qquad t\le u\le s.
+$$
+
+這叫合成或 semigroup property。另有恆等條件 $\psi_{t\to t}(x)=x$：不經過時間就不移動。這兩條都很自然，但還沒有指定「我們要走哪一條 ODE」。
 
 <Question id="Q1">
-不看任何論文，只從「$\psi_{t\to s}(x)$ 是軌跡上的位置」這個定義出發：**一個網路 $\psi_\theta$ 想當合格的 flow map，必須滿足哪些條件？** 請至少列出三個，並說出每一個對應前幾個單元的哪個物件。
-
+如果一個網路對所有時間都回傳輸入 $G(x,t,s)=x$，它滿足恆等與合成。為什麼仍不一定是我們要的 flow map？
 <Answer>
-最先想到的通常是「不跳就不能動」，接著是「跳到終點要等於上一個單元的 $f$」；半群性質要換個角度想「分兩段跳」才會浮現，而與速度場的關係最容易被漏掉。四個條件整理如下。
-
-**一、恆等。** $\psi_{t\to t}(x)=x$。從 $t$ 跳到 $t$ 就是原地不動。這是 consistency function 邊界條件 $f(x,\varepsilon)=x$ 的推廣（<Ref to="dma-consistency-function"/> 的乾淨端是 $\varepsilon=0.002$ 而不是 $0$）；<Ref to="dma-consistency-function"/> 用 $c_{\text{skip}}(t)\,x+c_{\text{out}}(t)\,F_\theta$ 的參數化讓它自動成立，這個單元的參數化也會這麼做。
-
-**二、端點。** $\psi_{t\to1}$ 就是 consistency function——跳到資料端。（在 <Ref week="dma-week-consistency"/> 的慣例裡資料在 $t=0$，寫成 $f(\cdot,t\to0)$；只是慣例不同。）所以 consistency model 是 flow map 把第二個時間釘死的特例。
-
-**三、半群。** 從 $t$ 跳到 $s$、再從 $s$ 跳到 $r$，必須等於直接從 $t$ 跳到 $r$：
+因為它對應零速度的 ODE。若資料與噪聲不同，原地不動通常不會完成 transport。我們還需要局部速度相容：
 
 $$
-\psi_{s\to r}\big(\psi_{t\to s}(x)\big)=\psi_{t\to r}(x).
+\left.\partial_s\psi_{t\to s}(x)\right|_{s=t}=v_t(x).
 $$
 
-這是「軌跡上的位置」這個定義的直接後果：中途停一下不會換到另一條軌跡。它的力量在於**多步取樣不再需要重新加噪**——$\psi_{0\to0.5}$ 接 $\psi_{0.5\to1}$ 就是一條合法的兩步路，而且理論上與一步 $\psi_{0\to1}$ 落在同一點。<Ref to="dma-multistep-limit"/> 的交叉問題就是在這一條被拆掉的。
-
-**四、與速度場相容。** 沿著 $s$ 微分，位置的變化率就是那一點的速度：
-
-$$
-\partial_s\,\psi_{t\to s}(x)=v_s\big(\psi_{t\to s}(x)\big),\qquad\text{因此}\quad \psi_{t\to t+h}(x)=x+h\,v_t(x)+O(h^2).
-$$
-
-第二式說：flow matching 學的速度場，是 flow map 在 $s\to t$ 時的**無窮小極限**。<Ref week="dma-week-flow-matching"/> 學的是這個物件的一階 Taylor 項，<Ref week="dma-week-consistency"/> 學的是它在 $s=1$ 的切片，這個單元要學整張表。
-
-四個條件不獨立：三推得一（取 $s=t=r$），三加四可以推得一切（無窮多個小跳接起來）。Boffi、Albergo 與 Vanden-Eijnden 的 Flow Map Matching [2] 把這套條件系統化；拆成四條的好處是——下一篇會看到，**每一條都可以變成一個損失函數**，而且對應到一個已知的方法。
+這條條件把資料所決定的動力學放進來。反過來，只有合成也不能推出恆等：令所有 maps 都是同一個 projection $P$，只要 $P^2=P$ 就有合成，卻可能 $P(x)\ne x$。每個條件的角色必須分開檢查。
 </Answer>
 </Question>
 
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/week-9/w9-0-1.html" class="demo-frame" title="任意兩個時間之間的 flow map 與半群：互動 demo" style="height: 930px; width: 100%; border: none;"></iframe>
+## 沒有中途真值，能不能把一段交給 teacher？
 
-**互動 demo：任意 $t\to s$ 的 flow map。** 兩個時間滑桿控制起點與終點；半群模式比較直接跳與分段跳，多步 consistency 對照則把「回資料端再重加噪」造成的換軌畫出來。
+Kim 等人的 **Consistency Trajectory Models（CTM）** [1] 將目的時間也交給網路，訓練 $G_\theta(x_t,t\to s)\approx\psi_{t\to s}(x_t)$。最直接的監督是讓 teacher 解完整 $t\to s$，但遠距離 target 仍然很貴。
 
-<Details summary="CTM 的 teacher 可以換成網路自己的對角線">
-CTM 的損失裡 teacher 出現在「先走一段」那裡：$\tilde x_u$ 是用 teacher 的速度場解 ODE 得到的。沒有 teacher，我們就不知道 $x_t$ 的軌跡往哪裡走。
+合成規則提供另一個構造。選 $u\in(t,s]$，先用固定 teacher 的 solver 計算 $\tilde x_u$，再請 target map 從那裡跳到 $s$：
 
-但 Q1 的條件四已經給了出路：$\partial_s\psi_{t\to s}$ 在 $s=t$ 取值就是 $v_t$——**flow map 網路自己的對角線就是一個速度場**。CTM 原文正是這樣用它的：把 $G_\theta$ 寫成「輸入 ＋ 殘差」的形式，讓殘差在 $s=t$ 時退化成「一步猜出乾淨資料」的那個量，也就是 denoiser；於是那條對角線可以用 <Ref to="dma-denoising-regression"/> 的 loss 直接監督，一個字都不用改。對角線訓得動之後，就拿它解出一條**自己誘導的 ODE**，$\tilde x_u$ 從那裡來——外部 teacher 換成自己的 stop-gradient 版本，半群那一條損失完全不動。
+$$
+\begin{aligned}
+\tilde x_u&=\operatorname{Solver}_{t\to u}(x_t;\phi),\\
+y^-&=G_{\theta^-}(\tilde x_u,u\to s),\\
+\mathcal L&=\mathbb E\left[
+\|G_\theta(x_t,t\to s)-\operatorname{sg}(y^-)\|^2\right].
+\end{aligned}
+$$
 
-所以「CTM 需要 teacher」是實作上的選擇，不是定義上的必要。代價只是換了位置：目標現在 bootstrap 在自己的對角線上，對角線有多準，$\tilde x_u$ 就有多準。<Ref to="dma-cd-vs-ct"/> 的 consistency training 是另一條拿掉 teacher 的路——用同一組 $(x_0,x_1)$ 重新插值，靠 **conditional trick**，代價是 $O(\Delta t)$ 的 Euler acceleration bias。
+期望平均 reference 配對造出的輸入與時間三元組 $(t,u,s)$。左邊直接跳，右邊先走一段再跳；這是 soft consistency 的核心。$u$ 靠近 $t$ 時 teacher 段短；$u=s$ 時 target 的最後一跳是恆等，就回到完整 teacher 落點監督。
 
-兩條路都還停在「拿一個近似的東西當目標」。接下來三篇問的是更強的一件事：有沒有辦法寫出一條**精確**的恆等式，讓目標不再是近似？
-</Details>
+原始 CTM 還會將兩個中途結果送到乾淨端，在 feature discrepancy 下比較，並加入 diffusion 與可選的 adversarial loss。這裡的平方距離先呈現合成機制，不能將它當成完整重現原論文的 loss。
 
-## 先消化一下
+## 模型怎麼同時保留局部速度？
+
+一個便於理解的恆等參數化是 $G_\theta(x,t\to s)=x+(s-t)u_\theta(x,s,t)$。在對角線 $s=t$，map 自動等於輸入，而平均速度的連續極限應等於 $v_t(x)$。所以我們可用資料給出的條件速度，在對角線上作 flow-matching 監督。
+
+<Remark label="原文對照" summary="CTM 在 VE 座標的 residual 為什麼像 denoiser？">
+CTM 常以 U5 的 VE 座標說明。這個框暫用 $\tau$ 為起始 noise level、$\rho\le\tau$ 為目的 noise level，原文形式是
+
+$$
+G_\theta(x,\tau\to\rho)
+=\frac{\rho}{\tau}x+
+\left(1-\frac{\rho}{\tau}\right)g_\theta(x,\tau,\rho).
+$$
+
+由精確 map 的短步展開，$g(x,\tau,\tau)=x-\tau v_\tau(x)$；在 VE PF-ODE 中，右邊正是 denoiser $\mathbb E[x_0\mid x_\tau=x]$。因此這個對角線可直接用資料去噪 loss 監督。不要把有限距離的 $g(x,\tau,\rho)$ 也全部稱為 posterior mean。
+</Remark>
+
+對角線若已有可用的局部 velocity，就能用模型自己的停止梯度版本短暫解 ODE，取代外部 teacher 產生 $\tilde x_u$。這就是書 §11.4 的 **self-induced teacher**。它不是只要求模型和自己相等：資料的局部監督用來選定動力學，self-consistency 才把它延伸到長跳。對角線與短段 solver 不準時，監督也會跟著偏。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/fast-maps-gaussian.html?topic=6-0" class="demo-frame" title="U6.0：解析 Gaussian 互動檢查" style="height: 900px; width: 100%; border: none;"></iframe>
+
+**互動 demo：解析 Gaussian 檢查。** 調整起始時間、區間與位置，直接計算本篇的關係；偏差控制是明示的 surrogate，沒有使用預設的品質曲線。
+
+## 消化一下
 
 <QuizBlock id="w9-0-a">
-多步 consistency model 的增益很快變小。這一篇把病根歸到哪一個動作？
-<Option>網路容量不足以同時學所有 $t$。</Option>
-<Option correct>每一步都要跳回資料端再重新加噪——重新加噪是一次新的獨立配對，把軌跡交叉請回來，而且跳回終點是多餘的。</Option>
-<Option>ODE 軌跡本身太彎。</Option>
-<Explanation>
-軌跡彎不彎是有限步 Euler 的問題，consistency model 的一步本身沒有離散化誤差；容量是另一個獨立的誤差來源。結構性的原因是「回到終點再加噪」這個動作：多步 flow map 不需要它。
-</Explanation>
+Semigroup property 保證精確 flow 的哪件事？
+<Option>學出的網路在更多 steps 下品質必定更好。</Option>
+<Option correct>沿同一條 ODE 分段接續與直接走到目的時間，落點相同。</Option>
+<Option>只要滿足合成，就已選定資料分布。</Option>
+<Explanation>它是精確 flow 的結構；實際學習與資料動力學仍需額外監督。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w9-0-b">
-半群條件 $\psi_{s\to r}\circ\psi_{t\to s}=\psi_{t\to r}$ 對取樣的直接意義是：
-<Option>一步生成的品質一定比多步好。</Option>
-<Option>flow map 可以取代速度場，不需要再學 $v_t$。</Option>
-<Option correct>把 $0\to1$ 拆成 $0\to s\to1$ 是合法的多步路徑，中途不需要重新加噪，理論上落在與一步相同的點。</Option>
-<Explanation>
-半群說的是「中途停一下不會換軌」，所以多步不需要加噪；它沒有說一步比多步好（實務上恰好相反：多步吸收網路誤差）。速度場沒有被取代——條件四說 $v_t$ 是 $\psi$ 的無窮小極限，兩者是同一個物件的不同尺度。
-</Explanation>
+CTM target 在 $u=s$ 時退成什麼？
+<Option correct>完整 teacher transition 的落點，因為最後 $s\to s$ 為恆等。</Option>
+<Option>零向量。</Option>
+<Option>資料的 marginal mean。</Option>
+<Explanation>這可直接代入 soft consistency 的 target 檢查。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w9-0-c">
-Flow matching 學的速度場 $v_t$ 與 flow map $\psi_{t\to s}$ 的關係是：
-<Option correct>$\psi_{t\to t+h}(x)=x+h\,v_t(x)+O(h^2)$，速度場是 flow map 在兩個時間靠近時的一階項。</Option>
-<Option>兩者無關，flow map 是另一種生成模型。</Option>
-<Option>$v_t$ 是 $\psi_{t\to1}$ 對 $x$ 的 Jacobian。</Option>
-<Explanation>
-條件四：$\partial_s\psi_{t\to s}=v_s(\psi_{t\to s})$，在 $s=t$ 取值就是 $v_t(x)$。Jacobian 是空間方向的導數，與速度無關。這也是為什麼 flow matching 訓好的網路可以當 flow map 的 teacher。
-</Explanation>
-</QuizBlock>
-
-<QuizBlock id="w9-0-d">
-CTM 的損失把 $G_\theta(x_t,t\to s)$ 對到 $G_{\theta^-}(\tilde x_u,u\to s)$，其中 $\tilde x_u$ 由 teacher 從 $t$ 走到 $u$。取 $u=s$ 時，這個損失變成：
-<Option>consistency distillation。</Option>
-<Option correct>直接回歸 teacher 走出來的軌跡點 $\tilde x_s$。</Option>
-<Option>flow matching。</Option>
-<Explanation>
-$u=s$ 時右邊是 $G_{\theta^-}(\tilde x_s,s\to s)=\tilde x_s$（恆等條件），學生只是在回歸 teacher 的軌跡點。$u$ 貼近 $t$ 時才是 consistency distillation 的推廣；flow matching 對應的是兩個時間無限靠近的極限，不在這個損失裡。
-</Explanation>
+Self-induced teacher 為何還需要資料的局部監督？
+<Option>因為兩份網路不能使用相同架構。</Option>
+<Option>因為所有 ODE 都必須有外部 teacher。</Option>
+<Option correct>因為單靠自我合成無法區分正確動力學與原地不動等其他解。</Option>
+<Explanation>局部 loss 指定要走的速度，合成規則指定如何把短段接成長段。</Explanation>
 </QuizBlock>
 
 <Bridge to="dma-flow-map-matching">
-CTM 先示範了一種任意 $t\to s$ 的訓練方式；把它抽象成 flow map 後，我們才看見還有別的走法。<Ref to="dma-flow-map-matching"/> 會把四個條件改寫成三條可微分的恆等式；速度場要在哪裡取得，將決定每一條路需不需要 teacher。
+CTM 利用合成規則建立了一種長跳 target。若不只看「分兩段」，而是移動起始時間或目的時間，還會得到哪些可訓練關係？<Ref to="dma-flow-map-matching"/> 逐一從同一條 trajectory 推出它們。
 </Bridge>
 
 ## 參考文獻
 
-1. Kim, D., Lai, C.-H., Liao, W.-H., Murata, N., Takida, Y., Uesaka, T., He, Y., Mitsufuji, Y., Ermon, S. [*Consistency Trajectory Models: Learning Probability Flow ODE Trajectory of Diffusion.*](https://arxiv.org/abs/2310.02279) ICLR 2024.（在這條 generative-model 發展線上，率先把任意起訖時間的 traversal 做成單一可訓練模型；soft consistency matching。）
-2. Boffi, N. M., Albergo, M. S., Vanden-Eijnden, E. [*Flow Map Matching.*](https://arxiv.org/abs/2406.07507) 2024.（flow map 的系統性定義與三種損失，下一篇的主角。）
-3. Song, Y., Dhariwal, P., Chen, M., Sutskever, I. [*Consistency Models.*](https://arxiv.org/abs/2303.01469) ICML 2023.（條件二對應的物件。）
+主要理論參考：[The Principles of Diffusion Models](https://arxiv.org/abs/2510.21890)，§11.4 的參數化、soft consistency、自誘導動力學與 auxiliary diffusion loss；合成規則見 §11.2。正文的符號沿用本課程；方法實作細節再對照下列原始論文。
+
+1. [Kim et al., Consistency Trajectory Models (ICLR 2024)](https://arxiv.org/abs/2310.02279)。
+2. [Boffi, Albergo & Vanden-Eijnden, Flow Map Matching (2024)](https://arxiv.org/abs/2406.07507)。
+3. [Song, Dhariwal, Chen & Sutskever, Consistency Models (ICML 2023)](https://arxiv.org/abs/2303.01469)。

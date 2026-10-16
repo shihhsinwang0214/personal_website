@@ -1,0 +1,362 @@
+---
+slug: "dma-w4-3-linear-path"
+label: "dma-linear-path"
+prereqs:
+  - math-tweedie
+  - math-conditional-expectation
+lang: "en"
+title: "Gaussian Sources: Where DDIM and Flow Matching Meet"
+category: "courses"
+group: "Unit 2 · Flow Matching"
+status: "available"
+updated: 2026-10-16
+summary: "Convert denoising predictions into velocity on the same VP interpolation, derive DDIM's probability-flow limit, and identify the additional path and pairing choices of Flow Matching."
+demos: []
+references:
+  - label: "Song, Meng & Ermon, Denoising Diffusion Implicit Models (ICLR 2021)"
+    href: "https://arxiv.org/abs/2010.02502"
+  - label: "Song et al., Score-Based Generative Modeling through SDEs (ICLR 2021)"
+    href: "https://arxiv.org/abs/2011.13456"
+  - label: "Lipman et al., Flow Matching for Generative Modeling (ICLR 2023)"
+    href: "https://arxiv.org/abs/2210.02747"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Ask from '../../../components/Ask.astro';
+import Remark from '../../../components/Remark.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# Gaussian Sources: Where DDIM and Flow Matching Meet
+
+<Objectives title="After reading, you can">
+- **Derive the VP interpolation velocity** as a combination of conditional data and noise means.
+- **Convert noise, score, and velocity predictions** on the same probability path.
+- **Relate DDIM to Flow Matching.** Their continuous dynamics agree on the corresponding VP path.
+- **Identify additional design freedom:** the source distribution, reference path, and endpoint pairing.
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+We asked whether a Gaussian-source Flow Matching field relates to DDIM's deterministic dynamics.
+
+A denoiser predicts data or noise; a Flow Matching network predicts velocity. On the same noisy distribution, can these quantities be converted?
+
+<Ask>
+Can the denoiser from Unit 1 supply a Flow ODE's velocity?
+</Ask>
+
+## Rewrite the diffusion path in Flow Matching notation
+
+Here $t=0$ is noise and $t=1$ is data, opposite to the forward-corruption direction of Unit 1.
+
+Use $\tau$ for data-to-noise time and $t$ for noise-to-data time. The earlier state was
+
+$$
+x_\tau=\sqrt{\bar\alpha_\tau}\,x_0+\sigma_\tau\epsilon.
+$$
+
+Reverse its interpretation and choose endpoints
+
+$$
+X_0=\epsilon\sim\mathcal N(0,I),\qquad X_1\sim p_{\mathrm{data}},
+$$
+
+to write the interpolation as
+
+$$
+I_t=\alpha_tX_1+\sigma_tX_0
+=\alpha_tX_1+\sigma_t\epsilon,\qquad
+\alpha_0=0, \sigma_0=1, \alpha_1=1, \sigma_1=0.
+$$
+
+The coefficients have these meanings:
+
+- $\alpha_t$ is the **signal amplitude**, corresponding to $\sqrt{\bar\alpha}$ in Unit 1. It is not the earlier one-step retention factor $\alpha_s=1-\beta_s$.
+- $\sigma_t$ is the noise amplitude.
+- A VP path satisfies $\alpha_t^2+\sigma_t^2=1$.
+
+In this reversed direction, signal increases while noise decreases. Exact zero/one endpoints describe an ideal limiting path; finite diffusion schedules can retain a small prior mismatch.
+
+Let us derive the velocity corresponding to this interpolation.
+
+For fixed endpoint data and noise, differentiate the reference position:
+
+$$
+\dot I_t=\dot\alpha_tX_1+\dot\sigma_t\epsilon.
+$$
+
+The optimal marginal field is its conditional average:
+
+$$
+v_t^\star(x)
+=\mathbb E[\dot I_t\mid I_t=x]
+=\mathbb E[\dot\alpha_tX_1+\dot\sigma_t\epsilon\mid I_t=x].
+$$
+
+## Connect this field to the denoiser
+
+Condition on the current position:
+
+$$
+x=\alpha_tX_1+\sigma_t\epsilon.
+$$
+
+For $\alpha_t>0$, solve for clean data:
+
+$$
+X_1=\frac{x-\sigma_t\epsilon}{\alpha_t}.
+$$
+
+Substitute into the reference velocity:
+
+$$
+\begin{aligned}
+\dot I_t
+&=\dot\alpha_tX_1+\dot\sigma_t\epsilon\\
+&=\frac{\dot\alpha_t}{\alpha_t}x
++\left(
+\dot\sigma_t-
+\frac{\dot\alpha_t}{\alpha_t}\sigma_t
+\right)\epsilon.
+\end{aligned}
+$$
+
+Then average over compatible origins:
+
+$$
+v_t^\star(x)
+=\frac{\dot\alpha_t}{\alpha_t}x
++\left(
+\dot\sigma_t-
+\frac{\dot\alpha_t}{\alpha_t}\sigma_t
+\right)
+\mathbb E[\epsilon\mid I_t=x].
+$$
+
+The conditional noise mean therefore determines velocity. At the matching noise level, the denoiser estimates
+
+$$
+\epsilon_\theta(x,t)
+\approx\mathbb E[\epsilon\mid I_t=x]
+=-\sigma_t\nabla_x\log p_t(x),
+$$
+
+Tweedie's identity gives the last equality. Substitution produces the conversion
+
+$$
+\boxed{
+v_\theta(x,t)
+=\frac{\dot\alpha_t}{\alpha_t}x
++\left(
+\dot\sigma_t-
+\frac{\dot\alpha_t}{\alpha_t}\sigma_t
+\right)\epsilon_\theta(x,t).
+}
+$$
+
+or, in score coordinates,
+
+$$
+v_t^\star(x)
+=\frac{\dot\alpha_t}{\alpha_t}x
+-\sigma_t\left(
+\dot\sigma_t-
+\frac{\dot\alpha_t}{\alpha_t}\sigma_t
+\right)\nabla_x\log p_t(x).
+$$
+
+This is an algebraic conversion of an existing predictor, rather than training another network.
+
+> **On the same VP interpolation, noise, score, and velocity encode convertible conditional-mean information.**
+
+## What happens when a DDIM step becomes infinitesimal?
+
+We have converted outputs. We still need to check whether this field is DDIM's underlying deterministic dynamics.
+
+Return to data-to-noise time $\tau$. Deterministic DDIM [1] reconstructs a new level using the current clean and noise predictions:
+
+$$
+x_s
+=\sqrt{\bar\alpha_s}\,\widehat x_0(x_\tau,\tau)
++\sigma_s\epsilon_\theta(x_\tau,\tau),
+\qquad s<\tau.
+$$
+
+where
+
+$$
+\widehat x_0(x_\tau,\tau)
+=\frac{x_\tau-\sigma_\tau\epsilon_\theta(x_\tau,\tau)}
+{\sqrt{\bar\alpha_\tau}}.
+$$
+
+The current state also satisfies
+
+$$
+x_\tau
+=\sqrt{\bar\alpha_\tau}\,\widehat x_0(x_\tau,\tau)
++\sigma_\tau\epsilon_\theta(x_\tau,\tau).
+$$
+
+Subtract the two times:
+
+$$
+\begin{aligned}
+x_s-x_\tau
+&=\left(\sqrt{\bar\alpha_s}-\sqrt{\bar\alpha_\tau}\right)
+\widehat x_0(x_\tau,\tau)\\
+&\quad+(\sigma_s-\sigma_\tau)\epsilon_\theta(x_\tau,\tau).
+\end{aligned}
+$$
+
+Divide by $s-\tau$ and take $s\to\tau$:
+
+$$
+\begin{aligned}
+\frac{\mathrm dx_\tau}{\mathrm d\tau}
+&=\frac{\mathrm d\sqrt{\bar\alpha_\tau}}{\mathrm d\tau}
+\widehat x_0(x_\tau,\tau)
++\dot\sigma_\tau\epsilon_\theta(x_\tau,\tau)\\
+&=\frac{\mathrm d}{\mathrm d\tau}
+\log\sqrt{\bar\alpha_\tau}\,x_\tau
++\left(
+\dot\sigma_\tau-
+\frac{\mathrm d}{\mathrm d\tau}
+\log\sqrt{\bar\alpha_\tau}\,\sigma_\tau
+\right)
+\epsilon_\theta(x_\tau,\tau).
+\end{aligned}
+$$
+
+This is the same velocity conversion, expressed in the opposite time direction. Infinitesimal deterministic DDIM follows the corresponding Flow ODE.
+
+## Which ODE does the VP schedule produce?
+
+Use $\dot{\bar\alpha}_\tau=-\beta(\tau)\bar\alpha_\tau$ to differentiate the signal amplitude:
+
+$$
+\frac{\mathrm d}{\mathrm d\tau}\log\sqrt{\bar\alpha_\tau}
+=-\frac12\beta(\tau).
+$$
+
+Differentiating the noise variance gives
+
+$$
+2\sigma_\tau\dot\sigma_\tau
+=\beta(\tau)\bar\alpha_\tau.
+$$
+
+Substitute the noise-score relation. The score coefficient becomes
+
+$$
+\begin{aligned}
+-\sigma_\tau\left(
+\dot\sigma_\tau+\frac12\beta(\tau)\sigma_\tau
+\right)
+&=-\frac12\beta(\tau)
+\left(\bar\alpha_\tau+\sigma_\tau^2\right)\\
+&=-\frac12\beta(\tau).
+\end{aligned}
+$$
+
+and the continuous equation is
+
+$$
+\boxed{
+\frac{\mathrm dx_\tau}{\mathrm d\tau}
+=-\frac12\beta(\tau)x_\tau
+-\frac12\beta(\tau)\nabla\log p_\tau(x_\tau).
+}
+$$
+
+This is the **probability-flow ODE** [2]. Generation integrates $\tau$ from the noisy end toward the data end.
+
+DDPM and DDIM share denoising supervision. Its conditional mean converts into the VP field; deterministic DDIM supplies a finite-step approximation to that continuous rule.
+
+<Remark label="Caution" summary="Changing coordinates is not changing the path">
+The conversion coefficients must match the interpolation used in training. Combining a VP-trained denoiser with arbitrary linear-path coefficients generally evaluates it on different intermediate distributions.
+
+**Output conversion can avoid retraining; an arbitrary change of probability path cannot.**
+</Remark>
+
+## What additional freedom does Flow Matching provide?
+
+DDIM already defines a deterministic flow. On the corresponding path, both constructions have the form
+
+$$
+\frac{\mathrm dX_t}{\mathrm dt}=v_t(X_t),
+$$
+
+Flow Matching additionally lets us choose
+
+- The source distribution $p_0$.
+- The reference path $I_t$.
+- The joint pairing of source and target endpoints.
+
+The simplest first choice is straight interpolation:
+
+$$
+I_t=(1-t)X_0+tX_1,\qquad
+\dot I_t=X_1-X_0.
+$$
+
+Its reference velocity is constant. If generation followed a known reference line, one Euler step would suffice. Whether the averaged field has this property is a separate question.
+
+| Choice | DDPM/DDIM setup | Flow Matching |
+|---|---|---|
+| Source | Gaussian prior | A chosen $p_0$ |
+| Reference path | Noise schedule | Chosen interpolation |
+| Pairing | Independent noise and data | Chosen endpoint joint |
+| Output | Commonly noise or score | Commonly velocity, with other parametrizations possible |
+
+Changing the path or endpoint coupling generally changes both intermediate distributions and the optimal field. Output-coordinate equivalence alone does not preserve the trained model.
+
+<Remark label="Supplement" summary="Velocity MSE changes weights in noise coordinates">
+For the linear path,
+
+$$
+\epsilon=I_t-t\dot I_t,\qquad
+v_\theta(x,t)=\frac{x-\epsilon_\theta(x,t)}{t}.
+$$
+
+we obtain
+
+$$
+\|v_\theta-\dot I_t\|^2
+=\frac1{t^2}\|\epsilon_\theta-\epsilon\|^2.
+$$
+
+Uniform-time velocity MSE therefore carries a $1/t^2$ weight when expressed as noise error. It is not identical to DDPM's uniform noise MSE.
+</Remark>
+
+## Check your understanding
+
+<QuizBlock id="w4-3-a">
+On a fixed VP path, does a trained noise predictor require another network to obtain velocity?
+<Option>Yes, because noise and velocity are unrelated.</Option>
+<Option correct>No, the interpolation relation gives an algebraic conversion.</Option>
+<Option>Only at the midpoint.</Option>
+<Explanation>The observed position and noise mean determine the clean mean and hence velocity at nondegenerate times.</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w4-3-b">
+Which statement about DDIM and Flow Matching is accurate?
+<Option>Every Flow Matching model is DDIM.</Option>
+<Option correct>On the corresponding VP interpolation, their deterministic continuous dynamics agree.</Option>
+<Option>DDIM must be trained through a continuity equation.</Option>
+<Explanation>The matching-path assumption is essential.</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-unified-equation">
+Source, path, and endpoint pairing are now design choices. Next we represent random endpoint pairing as a joint distribution and the resulting random path as a stochastic interpolant.
+</Bridge>
+
+## References
+
+1. Song, J., Meng, C., Ermon, S. [*Denoising Diffusion Implicit Models.*](https://arxiv.org/abs/2010.02502) ICLR 2021.
+2. Song, Y., et al. [*Score-Based Generative Modeling through Stochastic Differential Equations.*](https://arxiv.org/abs/2011.13456) ICLR 2021.
+3. Lipman, Y., et al. [*Flow Matching for Generative Modeling.*](https://arxiv.org/abs/2210.02747) ICLR 2023.

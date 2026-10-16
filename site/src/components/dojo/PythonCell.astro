@@ -1,0 +1,146 @@
+---
+import { langFromUrl } from '../../lib/noteRefs';
+const zh = langFromUrl(Astro.url) === 'zh';
+interface Props { id: string; code: string; syncOnOpen?: boolean }
+const { id, code, syncOnOpen = false } = Astro.props;
+---
+
+<details class="dojo-python" data-python-cell data-lang={zh ? 'zh' : 'en'} data-python-sync-on-open={syncOnOpen ? 'true' : undefined}>
+  <summary>{zh ? '換你改程式，執行同一個實驗' : 'Edit Python and run the experiment yourself'}</summary>
+  <p class="dojo-python-intro">{zh ? '可以改參數，也可以改抽樣規則。按執行時才載入 Python；運算在你的瀏覽器進行。每次執行從這段程式重新開始，文字不會存檔。' : 'Change the parameters or the sampling rule. Python loads when you press Run and executes in your browser. Each run starts fresh; your edits are not saved.'}</p>
+  {syncOnOpen && <p class="dojo-python-intro">{zh ? '首次展開會帶入上方的控制項設定；之後重開會保留你改過的程式。帶入的是條件，不包含上方累積訓練的參數或生成樣本，因此兩邊的有限抽樣圖不必完全相同。' : 'The first opening imports the controls above; reopening preserves your edits. Settings are imported, not accumulated trained parameters or samples, so finite-sample plots need not match exactly.'}</p>}
+  <slot />
+  <label for={`${id}-code`}>{zh ? '實驗程式（Python）' : 'Experiment code (Python)'}</label>
+  <textarea id={`${id}-code`} class="dojo-python-code" data-python-code rows="13" spellcheck="false" autocapitalize="off" autocomplete="off">{code.trim()}</textarea>
+  <pre class="dojo-python-static"><code>{code.trim()}</code></pre>
+  <div class="dojo-python-actions" data-python-controls hidden>
+    <button type="button" class="dojo-btn" data-python-run>{zh ? '執行 Python' : 'Run Python'}</button>
+    <button type="button" class="dojo-btn dojo-btn-ghost" data-python-stop hidden>{zh ? '停止' : 'Stop'}</button>
+    <button type="button" class="dojo-btn dojo-btn-ghost" data-python-reset>{zh ? '還原程式' : 'Reset code'}</button>
+    <button type="button" class="dojo-btn dojo-btn-ghost" data-python-sync>{zh ? '套用上方的實驗條件' : 'Use the experiment settings above'}</button>
+  </div>
+  <p class="dojo-python-status" data-python-status role="status" aria-live="polite"></p>
+  <pre class="dojo-python-output" data-python-output tabindex="0" aria-label={zh ? 'Python 執行結果' : 'Python output'} hidden></pre>
+  <details class="dojo-python-diagnostics" data-python-diagnostics hidden>
+    <summary>{zh ? '套件訊息與警告' : 'Package messages and warnings'}</summary>
+    <pre class="dojo-python-output" data-python-diagnostic-output></pre>
+  </details>
+  <div class="dojo-python-figures" data-python-figures hidden></div>
+</details>
+
+<style>
+  .dojo-python { margin-top: 22px; border-top: 1px solid var(--border); padding-top: 14px; }
+  summary { cursor: pointer; font-weight: 600; line-height: 1.6; }
+  .dojo-python-intro, .dojo-python-status { font-size: .85rem; line-height: 1.7; color: var(--text-muted); }
+  label { display: block; font-size: .85rem; font-weight: 600; margin: 12px 0 8px; }
+  .dojo-python-code, .dojo-python-static, .dojo-python-output {
+    box-sizing: border-box; width: 100%; min-width: 0; margin: 0; padding: 14px;
+    border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--surface-2);
+    font-family: var(--font-mono); font-size: .8rem; line-height: 1.7; tab-size: 4;
+  }
+  .dojo-python-code { display: none; resize: vertical; white-space: pre; }
+  .dojo-python.is-ready .dojo-python-code { display: block; }
+  .dojo-python.is-ready .dojo-python-static { display: none; }
+  .dojo-python-static, .dojo-python-output { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .dojo-python-static code { padding: 0; background: transparent; color: inherit; font: inherit; }
+  .dojo-python-output { max-height: 360px; overflow: auto; }
+  .dojo-python-figures { display: grid; gap: 14px; margin-top: 14px; }
+  /* Worker results insert images without Astro's generated scope attribute. */
+  .dojo-python-figures :global(img) { display: block; box-sizing: border-box; width: 100%; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; background: white; }
+  .dojo-python-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  textarea:focus-visible, pre:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .dojo-python-status:empty { display: none; }
+  @media print { .dojo-python-code, .dojo-python-actions { display: none !important; } .dojo-python-static { display: block !important; } }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLElement>('[data-python-cell]').forEach((root) => {
+    const code = root.querySelector<HTMLTextAreaElement>('[data-python-code]')!;
+    const original = code.value;
+    let resetSource = original;
+    const run = root.querySelector<HTMLButtonElement>('[data-python-run]')!;
+    const stop = root.querySelector<HTMLButtonElement>('[data-python-stop]')!;
+    const reset = root.querySelector<HTMLButtonElement>('[data-python-reset]')!;
+    const sync = root.querySelector<HTMLButtonElement>('[data-python-sync]')!;
+    const status = root.querySelector<HTMLElement>('[data-python-status]')!;
+    const output = root.querySelector<HTMLElement>('[data-python-output]')!;
+    const figures = root.querySelector<HTMLElement>('[data-python-figures]')!;
+    const diagnostics = root.querySelector<HTMLDetailsElement>('[data-python-diagnostics]')!;
+    const diagnosticOutput = root.querySelector<HTMLElement>('[data-python-diagnostic-output]')!;
+    const zh = root.dataset.lang === 'zh';
+    let worker: Worker | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let busy = false;
+    let opened = false;
+    let edited = false;
+    function idle() { busy = false; run.disabled = false; reset.disabled = false; sync.disabled = false; stop.hidden = true; clearTimeout(timer); }
+    function terminate() { worker?.terminate(); worker = undefined; idle(); }
+    root.classList.add('is-ready');
+    root.querySelector<HTMLElement>('[data-python-controls]')!.hidden = false;
+    code.addEventListener('input', () => { edited = true; });
+    root.addEventListener('toggle', () => {
+      if (!root.hasAttribute('open') || opened) return;
+      opened = true;
+      if (root.dataset.pythonSyncOnOpen !== 'true' || edited) return;
+      const applied = root.dispatchEvent(new CustomEvent('dojo:python-sync', { bubbles: true, cancelable: true }));
+      if (applied) {
+        resetSource = code.value;
+        status.textContent = zh ? '已帶入上方設定；整份執行會從初始模型開始。關閉再展開會保留你的程式。' : 'Settings imported. A full run starts from the initial model. Closing and reopening preserves your code.';
+      } else {
+        status.textContent = zh ? '上方設定尚未有效，目前保留原始範例；修正後可按「套用上方的實驗條件」。' : 'The controls are not valid yet. The original example is retained; correct them and apply the settings.';
+      }
+    });
+    run.addEventListener('click', () => {
+      if (busy) return;
+      if (code.value.length > 30000) { status.textContent = zh ? '請把這個小實驗保留在 30,000 字元以內。' : 'Keep this small experiment under 30,000 characters.'; return; }
+      busy = true; run.disabled = true; reset.disabled = true; sync.disabled = true; stop.hidden = false;
+      output.hidden = true; output.textContent = ''; figures.hidden = true; figures.replaceChildren(); diagnostics.hidden = true; diagnostics.open = false; diagnosticOutput.textContent = '';
+      status.textContent = zh ? '正在準備 Python，第一次需要下載執行環境。你也可以隨時停止。' : 'Preparing Python. The first run downloads the runtime; you can stop at any time.';
+      try {
+        worker ??= new Worker(new URL('../../lib/dojoPython.worker.ts', import.meta.url), { type: 'module' });
+        const active = worker;
+        const timeout = (ms: number) => {
+          clearTimeout(timer);
+          timer = setTimeout(() => { if (worker !== active) return; terminate(); status.textContent = zh ? '這次執行花太久，已停止。可以縮小實驗或再試一次。' : 'This run took too long and was stopped. Try a smaller experiment or run again.'; }, ms);
+        };
+        timeout(90000);
+        worker.onmessage = ({ data }) => {
+          if (worker !== active) return;
+          if (data.kind === 'packages') { status.textContent = zh ? '正在準備程式需要的套件；第一次繪圖可能需要稍候。' : 'Preparing the packages needed by your code. The first plot may take a moment.'; timeout(90000); return; }
+          if (data.kind === 'running') { status.textContent = zh ? '正在執行你的程式…' : 'Running your code…'; timeout(15000); return; }
+          if (data.fatal) terminate(); else idle();
+          output.hidden = false;
+          const images = Array.isArray(data.images) ? data.images.slice(0, 3).filter((s: unknown) => typeof s === 'string' && s.length < 2800000 && /^[A-Za-z0-9+/=]+$/.test(s)) : [];
+          images.forEach((base64: string, i: number) => {
+            const img = document.createElement('img'); img.src = `data:image/png;base64,${base64}`;
+            img.alt = zh ? `你的 Python 程式產生的圖 ${i + 1}` : `Figure ${i + 1} generated by your Python code`;
+            figures.append(img);
+          });
+          figures.hidden = images.length === 0;
+          diagnosticOutput.textContent = data.diagnostics || '';
+          diagnostics.hidden = !diagnosticOutput.textContent;
+          output.textContent = `${data.output || ''}${data.error || ''}` || (images.length ? (zh ? '程式已產生下方的圖。' : 'Your code generated the figure below.') : (zh ? '程式已執行。用 print() 顯示想看的結果。' : 'Run complete. Use print() to display a result.'));
+          status.textContent = data.fatal ? (zh ? 'Python 環境載入失敗，檢查連線後可以重試。上方的互動實驗仍可使用。' : 'Python could not load. Check your connection and retry; the interactive experiment above still works.') : data.kind === 'error' ? (zh ? '程式需要調整；修改後可以再執行。' : 'The code needs a change. Edit it and run again.') : (zh ? '執行完了。改一個條件，再看看結果怎麼變。' : 'Run complete. Change one condition and compare.');
+          if (data.kind === 'done') root.dispatchEvent(new CustomEvent('dojo:python-complete', { bubbles: true }));
+        };
+        worker.onerror = () => { if (worker !== active) return; terminate(); status.textContent = zh ? 'Python 載入失敗，可以重試。上方的互動實驗仍可使用。' : 'Python could not load. You can retry; the interactive experiment above still works.'; };
+        worker.postMessage({ code: code.value });
+      } catch {
+        terminate(); status.textContent = zh ? '目前無法啟動 Python，可以重試。' : 'Python could not start. Try again.';
+      }
+    });
+    stop.addEventListener('click', () => { terminate(); status.textContent = zh ? '已停止。程式還在，可以修改後重新執行。' : 'Stopped. Your code is still here; edit it and run again.'; });
+    reset.addEventListener('click', () => { code.value = resetSource; edited = false; output.hidden = true; figures.hidden = true; diagnostics.hidden = true; status.textContent = zh ? '已還原這份範例的程式。' : 'This example code is restored.'; });
+    sync.addEventListener('click', () => {
+      const applied = root.dispatchEvent(new CustomEvent('dojo:python-sync', { bubbles: true, cancelable: true }));
+      if (!applied) { status.textContent = zh ? '先修正上方的實驗條件，再套用到程式。' : 'Correct the experiment settings above before applying them.'; return; }
+      output.hidden = true;
+      figures.hidden = true;
+      diagnostics.hidden = true;
+      edited = false;
+      if (root.dataset.pythonSyncOnOpen === 'true') resetSource = code.value;
+      status.textContent = zh ? '已套用上方條件。可以接著改程式，或直接執行。' : 'Settings applied. Edit the code or run it as it is.';
+    });
+    window.addEventListener('pagehide', terminate);
+  });
+</script>

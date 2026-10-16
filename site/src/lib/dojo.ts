@@ -26,12 +26,18 @@ export function dojoThemeOf(entry: DojoEntry | undefined): DojoTheme {
  * `step` is the furthest main-line node reached, `total` the number of main-line
  * nodes when it was written. Never a score; cleared by 「從頭開始」.
  */
-export interface DojoProgress { version: string; step: number; total?: number }
+export interface DojoProgress {
+  version: string;
+  step: number;
+  total?: number;
+  /** Reading positions in complete method paths; no answers or model state. */
+  paths?: Record<string, number>;
+}
 export const dojoStorageKey = (slug: string) => `slam:dojo:${slug}`;
 
 export const dojoTitle: Record<Lang, string> = { en: 'Knowledge Realms (Beta)', zh: '知識秘境（Beta）' };
 export const dojoTagline: Record<Lang, string> = {
-  en: 'Take a question, try the next step, and compare the reasoning together.',
+  en: 'Trace how ideas connect through questions and reasoning.',
   zh: '從問題與思考中，梳理出知識的脈絡。',
 };
 export const skillManualLabel: Record<Lang, string> = { en: 'Skill manual', zh: '技能書' };

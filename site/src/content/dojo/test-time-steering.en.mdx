@@ -1,0 +1,513 @@
+---
+slug: "test-time-steering"
+lang: "en"
+title: "The model is trained. Now the user wants a dog in a red hat."
+note: "dma-test-time-steering"
+summary: "Predict, plot, and interpret evidence within each complete method route, then derive the details. Review the table last and reason about combined methods and new requirements."
+status: "available"
+updated: 2026-10-16
+minutes: 55
+progressVersion: "9"
+series: "dma-guidance"
+order: 0
+---
+import Say from '../../components/dojo/Say.astro';
+import Talk from '../../components/dojo/Talk.astro';
+import Choose from '../../components/dojo/Choose.astro';
+import Explore from '../../components/dojo/Explore.astro';
+import ToyOverview from '../../components/dojo/ToyOverview.astro';
+import MethodPath from '../../components/dojo/MethodPath.astro';
+import DistributionExperiment from '../../components/dojo/DistributionExperiment.astro';
+import Option from '../../components/dojo/Option.astro';
+import Judge from '../../components/dojo/Judge.astro';
+import Think from '../../components/dojo/Think.astro';
+import Reveal from '../../components/dojo/Reveal.astro';
+import Sort from '../../components/dojo/Sort.astro';
+import Card from '../../components/dojo/Card.astro';
+import Figure from '../../components/dojo/Figure.astro';
+import Ref from '../../components/notes/Ref.astro';
+import requestScene from './imgs/steering-new-request.en.png';
+import obstacleScene from './imgs/steering-new-obstacle.en.png';
+
+<Say partner="nori" pose="welcome" id="scene" label="A new request arrives" next="Prepare the shared toy data first">
+Suppose we spent two weeks training a diffusion model to generate dog photos. It can draw dogs with different coats, poses, and backgrounds, sometimes even wearing hats. After looking at the results, the user says: **“This time, I want a dog in a red hat.”**
+
+<Figure src={requestScene} eager alt="On the left, varied dog photos from an already trained model. On the right, a request for a dog in a red hat, received only at use time. The right panel illustrates the request, not a generated answer.">
+The model might draw a red-hat dog, but it has not received this request. Our model has no text or class input, so we cannot simply supply “wearing a red hat” as a prompt.
+</Figure>
+
+You spread a few results on the workbench and invite three learning partners to help: **Lumi**, a winged deer; **Mugi**, a corgi with a Shiba face; and **Nori**, a polar bear in an orca hat. Each has a proposal.
+
+**What would you try first to make red-hat dogs appear more often?** Prepare the data, then choose a method to explore fully. Each route reaches a training or generation implementation and a distribution plot before returning to compare another method.
+</Say>
+
+<Say id="toy-data" partner="nori" label="Look at the data before choosing a route" next="Choose the first complete method to explore">
+Replace two distinguishable appearances with one-dimensional data $x_0$: the left class is centered at $-2$, the right at $2$, both with standard deviation $\sigma=0.55$. The right class represents the current preference. Variation within a class remains meaningful; larger $x_0$ is not defined to mean better.
+
+<ToyOverview />
+
+The original data-generating distribution gives each class half the mass:
+
+$$
+p_{\mathrm{base}}(x_0)=\tfrac12\mathcal N(x_0;-2,\sigma^2)+\tfrac12\mathcal N(x_0;2,\sigma^2).
+$$
+
+$\mathcal N(x_0;\mu,\sigma^2)$ is a Gaussian density centered at $\mu$, with spread set by $\sigma$. The gray dashed curve always shows this reference base; the solid curve shows the current model or returned density.
+
+**Track the data, input $c$, parameters $\theta$, and return rule: which does this operation change?** First operate a directly sampleable toy generator, then connect the evidence to the full diffusion / Flow Matching training objectives. Complete each route's derivations and observation checks before marking it explored.
+</Say>
+
+<Explore id="e-methods" label="Choose a method and explore it fully" next="All three routes are complete. Review them together"
+  done="You have completed each method's explanation and implementation. Review the comparison table, then choose methods for new requirements.">
+Choose your starting method. Each route includes the definitions, training or generation procedure, and a distribution-plotting implementation. Only reaching its ending marks it fully explored. You can return early and continue later.
+<Option goto="p-conditional">Learn to read a class: explore conditional training.</Option>
+<Option goto="p-finetune">Keep learning from preferred data: explore fine-tuning.</Option>
+<Option goto="p-steering">Keep the model and change generation or selection: explore steering.</Option>
+</Explore>
+
+<MethodPath id="p-conditional" back="e-methods" title="Conditional training: learn to use descriptions">
+
+<Talk partner="lumi" pose="suggest" id="conditional-plan" label="Teach the model to read descriptions" next="Predict, then inspect both conditional distributions">
+> “We could collect photos with descriptions. For a dog in a red hat, give the model both the photo and those words. If it practices reading descriptions during training, we can tell it what we want during generation.”
+
+Lumi wants to add an input: besides the image, the model should read a general condition, such as a class or text prompt, denoted by $c$. Write a clean image as $x_0$. Training data then consists of pairs $(x_0,c)$, and the model learns how images are distributed given a description:
+
+$$
+p_\theta(x_0\mid c).
+$$
+
+Here $\theta$ denotes the generative model’s parameters. For continuous images, $p_\theta$ is a probability density, not the probability of drawing one exact image. Given “a dog in a red hat,” images matching that description should receive higher density.
+
+**Providing the condition during training so the model learns to generate accordingly is called conditional training.** This does not mean retraining for every new prompt: a model that has learned text inputs may combine descriptions it has never seen together. Our original model, however, lacks that input and needs to acquire this ability first.
+
+
+Try the operation on a plot first. There are $256$ labelled samples per class. This toy model uses input $c$ to choose a Gaussian mean $\mu_c$; its learnable parameters $(\mu_0,\mu_1)$ both start at zero and the spread stays fixed. Learn the means, then change only $c$ and inspect the plot and parameters.
+
+</Talk>
+
+<DistributionExperiment id="toy-conditional" method="conditional" partner="lumi" label="Conditional training: two inputs, one parameter set" next="Check the interpretation against the plot and parameters">
+Predict before running A/B. Inspect which density changes location and whether μ₀ and μ₁ update. Then use the controls to try one training step and inspect incomplete learning.
+</DistributionExperiment>
+
+<Choose id="c-read-conditional" partner="lumi" label="Which evidence supports generation without retraining?">
+A/B first learns both means, then changes only $c$. The density centers differ. **Which evidence supports one model answering two inputs?**
+<Option correct why="Neither learned mean nor the update count changed; c selects a different learned mean." reply="The curve moved, but the parameter record stayed fixed. Now derive what the model learned.">A and B have identical $(\mu_0,\mu_1)$ and total update counts; only $c$ differs.</Option>
+<Option why="Different samples can come from fixed parameters. Inspect parameters and update counts directly.">Different histograms prove another update occurred.</Option>
+<Option why="Changing an input can change a generated distribution without updating parameters. A curve alone does not identify what changed.">A moved curve necessarily means changed parameters.</Option>
+</Choose>
+
+<Say id="conditional-toy" partner="lumi" label="Train a model that actually reads a class" next="Connect the same operation to diffusion">
+Label the left group $c=0$ and the right group $c=1$, with $m=256$ training examples per class. The toy conditional generator is $p_\theta(x_0\mid c)=\mathcal N(x_0;\mu_c,\sigma^2)$ with learned parameters $\theta=(\mu_0,\mu_1)$. Both means start at zero, so merely supplying $c$ does not yet separate its outputs.
+
+With fixed variance, maximizing Gaussian likelihood is equivalent to minimizing squared error:
+
+$$
+\mathcal L_{\mathrm{toy}}=\frac{1}{2m}\sum_{c=0}^{1}\sum_{i=1}^{m}\frac12(x_0^{(i,c)}-\mu_c)^2.
+$$
+
+The derivative for $\mu_c$ is $\tfrac12(\mu_c-\bar x_c)$, where $\bar x_c$ is that class's sample mean. The code updates both means using this gradient; generation then selects one by $c$. **This is a directly sampleable Gaussian model. Next, return to diffusion and Flow Matching: what must change in noise or velocity regression when a network also reads $c$?**
+</Say>
+
+<Choose partner="lumi" pose="question" id="c-label" label="Does a new input require a new target?">
+Lumi wants to keep U1’s noise-prediction exercise. Draw an image-description pair $x_0,c$, choose noise level $t$, and add known noise $\epsilon$ to obtain $x_t$. The network now also sees $c$. **Which quantity should remain the regression target?**
+<Option correct reply="The description is a new input; the target remains the noise actually added. Next, write this exercise as a loss." why="Keeping noise-prediction regression means keeping the added noise as the label; the condition is an extra input.">The noise $\epsilon$ actually added.</Option>
+<Option why="The description is information for the network to read, not the answer to this noise-prediction exercise.">The text or class $c$.</Option>
+<Option why="The exercise predicts noise. A clean-image predictor is another possible design, but that changes more than just the condition input.">Replace the target with the clean image $x_0$.</Option>
+</Choose>
+
+<Talk partner="lumi" pose="explain" id="p-conditional-diff" label="Add the description, keep the target?" next="What about velocity prediction?">
+> “It was practicing noise prediction. Could we keep that exercise and just let it read the description too?”
+
+Yes. Draw $(x_0,c)$, choose a noise level $t$, and add known noise $\epsilon$ to form $x_t$. The network now sees $x_t,t,c$ and outputs $\epsilon_\theta(x_t,t,c)$. We still compare it with the noise $\epsilon$ actually added.
+
+The prediction error to minimize is therefore
+
+$$
+\begin{gathered}
+\mathcal L_{\mathrm{diff,cond}}(\theta)\\
+=\mathbb E_{x_0,c,t,\epsilon}\Big[\\
+\|\epsilon-\epsilon_\theta(x_t,t,c)\|^2\Big].
+\end{gathered}
+$$
+
+The expectation averages over training images and descriptions, sampled times, and added noise. Squared error measures how far the prediction is from the known noise. Updating $\theta$ with this loss lets the model learn different predictions for different descriptions.
+
+We keep diffusion’s time convention: larger $t$ means more noise, and generation moves toward the clean end at $t=0$. **The new element is the input $c$. The regression target becomes neither text nor a finished image.**
+</Talk>
+
+<Talk partner="lumi" pose="explain" id="p-conditional-fm" label="Can velocity prediction read descriptions too?" next="Check whether the target changed">
+For Flow Matching, the original target is a reference path’s velocity. Write the noise endpoint as $X_0$ and data endpoint as $X_1$, with condition $c$ attached to the data endpoint. Here time runs from the source at $t=0$ to data at $t=1$, separately from diffusion’s convention above.
+
+For example, choose a straight reference path:
+
+$$
+\begin{gathered}
+I_t=(1-t)X_0+tX_1,\\
+\partial_t I_t=X_1-X_0.
+\end{gathered}
+$$
+
+Training endpoints are known, so this velocity label can be computed. Give $I_t,t,c$ to the velocity network and compare its prediction $v_\theta(I_t,t,c)$ with the same original target:
+
+$$
+\begin{gathered}
+\mathcal L_{\mathrm{FM,cond}}(\theta)\\
+=\mathbb E_{t,(X_0,X_1,c)}\Big[\\
+\|v_\theta(I_t,t,c)-\partial_t I_t\|^2\Big].
+\end{gathered}
+$$
+
+This expectation averages over sampled endpoints, conditions, and times along the path. During generation, the data endpoint is unknown; we follow the learned velocity step by step. The reference path constructs training examples rather than assigning each generated sample a known endpoint or route in advance.
+
+Lumi makes the same modification for both models: **keep the original regression target and let the network also read $c$.** The condition affects $\theta$ during training. That is conditional training.
+</Talk>
+
+<Choose partner="lumi" pose="question" id="c-fm-label" label="What stays when both models read descriptions?">
+Diffusion practices noise prediction; Flow Matching practices reference-velocity prediction. **Does Lumi make the same kind of modification to both?**
+<Option correct reply="Yes: add the condition input and keep each model’s own regression target. The condition affects θ through training." why="The networks predict different quantities, but both can read a condition while retaining their original targets.">Yes: add $c$ and keep their respective targets.</Option>
+<Option why="Flow Matching’s target is reference velocity, not diffusion’s added noise. Adding a condition does not make those targets identical.">Yes: change both targets to noise.</Option>
+<Option why="Known training endpoints allow construction of reference velocity. During generation, the endpoint and entire trajectory remain unknown.">No: Flow Matching must receive the true endpoint during generation.</Option>
+</Choose>
+
+<Say id="conditional-wrap" partner="lumi" label="Route complete: learned capability and generation-time input" next="Complete this route and return to the methods">
+The two means have learned from labelled data. With $\theta$ fixed, switching $c$ selects another conditional distribution. Return to the plot to try changing only the input.
+
+Conditional training needs data associating observations with conditions, updates parameters during learning, and supplies that input at generation. A model that already understands text need not retrain for every comprehensible prompt; our original model first needs to acquire that input capability.
+
+
+Learning means was a toy-model choice. Conditional training establishes the ability to use $c$; it does not restrict learnable parameters to means.
+</Say>
+
+</MethodPath>
+
+<MethodPath id="p-finetune" back="e-methods" title="Fine-tuning: update the original model on new data">
+
+<Talk partner="mugi" pose="suggest" id="finetune-plan" label="Continue learning from photos we like" next="Predict, then compare a change of data">
+> “We already have a model that draws dogs. Let it draw a batch, then pick the red-hat photos we like. If it keeps practicing on those photos, might it draw what we prefer more often?”
+
+Mugi wants to change the training data: start from the existing model and continue training on newly collected preferred images. This is **fine-tuning**. Since the original model does not read descriptions, this approach need not add a text input first.
+
+The request arrives after the original training, but training still writes the preference into $\theta$. Next time, we use the updated model. In a moment, we will write out which parts of the original exercise stay and how the parameters change.
+
+
+First compare two operations on the original equal-mixture toy model. This version fixes centers and spread and lets parameter $\theta$ determine the right-mode weight; its parameterization and loss come afterward. Learn once from preferred data, then change only the data without updating. Does the model automatically forget its learned preference?
+
+</Talk>
+
+<DistributionExperiment id="toy-finetune" method="finetune" partner="mugi" label="Fine-tuning: does changing data update the model?" next="Check the interpretation against the plot and parameters">
+Predict what happens when data and model updates are separated, then run A/B. The displayed loss evaluates the model on the current data; inspect it alongside the parameters before deriving its calculation.
+</DistributionExperiment>
+
+<Choose id="c-read-finetune" partner="mugi" label="Why can the loss change while model densities overlap?">
+The A/B data changes from roughly $90\%$ right to $10\%$ right. $\theta$, model weight, and update count stay identical, but B has a higher loss. **Which explanation agrees with that evidence?**
+<Option correct why="Loss also depends on the evaluation data. A model retaining its right-class preference can have higher negative log-likelihood on left-heavy data." reply="The evaluation data changed; the model did not. Now write how data enters the loss.">The evaluation data changed; the same model can have a different loss on new data.</Option>
+<Option why="The recorded parameters and update counts are identical. A changed loss alone does not establish another update.">Higher loss proves the program secretly trained again.</Option>
+<Option why="Finite histograms fluctuate while the exact density and weight remain fixed. Sampling variation is not forgetting.">Any histogram difference means the model forgot its previous preference.</Option>
+</Choose>
+
+<Say id="finetune-toy" partner="mugi" label="Actually update the original mixture's weight" next="Connect this to the diffusion preference objective">
+Keep the component means and standard deviation fixed, and learn the original model's mixture weight. Parameter $\theta$ specifies right-mode weight $w_\theta=1/(1+e^{-\theta})$:
+
+$$
+p_\theta(x_0)=(1-w_\theta)\mathcal N(x_0;-2,\sigma^2)+w_\theta\mathcal N(x_0;2,\sigma^2).
+$$
+
+Originally $\theta=0$, giving equal weights. Collect $512$ preferred examples, initially about $90\%$ from the right group. No $c$ is supplied. Update the same parameter using negative log-likelihood:
+
+$$
+\mathcal L_{\mathrm{toy,FT}}(\theta)=-\frac1m\sum_{i=1}^m\log p_\theta(x_0^{(i)}).
+$$
+
+The code computes $r_i=w_\theta\mathcal N(x_0^{(i)};2,\sigma^2)/p_\theta(x_0^{(i)})$, the current model's posterior responsibility for the right group. The gradient is $w_\theta-\frac1m\sum_i r_i$. After updating $\theta$, generate from the new $p_\theta$ and inspect whether mass moved toward the preferred data.
+
+
+Fixing centers and learning only a weight is a choice made for this toy plot. Fine-tuning can also update centers, other network weights, or a full parameter set; the defining operation is continuing to learn from new data in the original model.
+</Say>
+
+<Talk partner="mugi" pose="explain" id="p-finetune-loss" label="How do selected photos become practice?" next="Inspect the parameter update">
+Write Mugi’s selected preferred data as $\mathcal D_{\mathrm{pref}}$. The original model does not read $c$, so this dataset contains clean images $x_0^{(i)}$ without adding descriptions it cannot use.
+
+Draw $x_0$ from these images, choose $t$, and add $\epsilon$ to form $x_t$. We still compare predicted noise with the noise actually added; only the image source changes:
+
+$$
+\begin{gathered}
+\mathcal L_{\mathrm{align}}
+(\theta;\mathcal D_{\mathrm{pref}})\\
+=\mathbb E_{\substack{x_0\sim\mathcal D_{\mathrm{pref}}\\t,\epsilon}}\Big[\\
+\|\epsilon-\epsilon_\theta(x_t,t)\|^2\Big].
+\end{gathered}
+$$
+
+This loss measures noise-prediction error on preferred images, averaging over images drawn from that dataset, times, and noise. The preferred data changes, while the regression exercise stays the same.
+
+For an already conditional model, collect $(x_0,c)$ and also supply $c$ to the prediction. Flow Matching can likewise retain velocity regression and practice on preferred data. In each case, the data distribution used to update the model changes.
+</Talk>
+
+<Talk partner="mugi" pose="explain" id="p-finetune-update" label="A late request can still update parameters" next="Differentiate with respect to what?">
+With this loss, gradient descent can continue the model’s learning:
+
+$$
+\begin{gathered}
+\theta\leftarrow\theta\\
+-\eta\nabla_\theta
+\mathcal L_{\mathrm{align}}
+(\theta;\mathcal D_{\mathrm{pref}}).
+\end{gathered}
+$$
+
+We differentiate with respect to $\theta$ because the learned parameters are what we want to change. The gradient points toward increasing loss, so the minus sign moves toward lower error; the learning rate $\eta$ sets the update size.
+
+Mugi’s request arrives after the original training, but this update still writes it into $\theta$. Tomorrow, even without the image-selection program, we would be using an updated model.
+
+Other alignment methods may use pairwise comparisons or reward weighting. Here we chose a directly computable regression loss on preferred data. **To identify the boundary, check whether the original $\theta$ changed, not just when the request arrived.**
+</Talk>
+
+<Choose partner="mugi" pose="question" id="c-update" label="What is Mugi trying to change?">
+The update contains $\nabla_\theta\mathcal L_{\mathrm{align}}$. **For which object does this gradient provide an update direction?**
+<Option correct reply="It provides a parameter-update direction; the minus sign reduces the loss. Since θ changes, this is fine-tuning." why="The derivative’s subscript is θ, the learnable network parameters.">The generative model’s parameters $\theta$.</Option>
+<Option why="This derivative is with respect to θ, not the current image input. Those are different objects to modify.">Only the image $x_t$ currently being generated.</Option>
+<Option why="Preferred photos construct training examples. The update changes network parameters rather than repainting the collected photos.">The collected preferred photos $x_0^{(i)}$ themselves.</Option>
+</Choose>
+
+<Choose id="c-parameter-family" partner="mugi" label="Must fine-tuning only change mixture weights?">
+This toy exposes only the mixing weight for learning to keep its plot easy to read. Now also make the Gaussian means learnable and continue updating the original model on preferred data. **Is this still fine-tuning?**
+<Option correct why="Fine-tuning means continuing to update the original model on new data, not restricting which parameter type can learn." reply="Yes. Moving peaks or changing weights reflects the chosen model family, not the definition of the three methods.">Yes; the original model still updates $\theta$ using new data.</Option>
+<Option why="Conditional training establishes the use of input c. Having learnable means does not establish that input.">No; moving a mean necessarily means conditional training.</Option>
+<Option why="Steering preserves generative parameters. Updating means explicitly changes those parameters.">No; moving a peak makes it steering.</Option>
+</Choose>
+
+<Say id="finetune-wrap" partner="mugi" label="Route complete: preference has entered the original parameters" next="Complete this route and return to the methods">
+After fine-tuning, generation uses the updated mixture weight even without preferred data or a scoring helper. The model's $p_\theta$ has changed. Adapting to another dataset requires more parameter updates.
+
+This toy uses density likelihood directly; the earlier diffusion example used noise regression on preferred data. Their common boundary is **continued learning on new data that changes the original $\theta$**.
+</Say>
+
+</MethodPath>
+
+<MethodPath id="p-steering" back="e-methods" title="Steering: preserve the model and change this generation">
+
+<Talk partner="nori" pose="suggest" id="steering-plan" label="Keep the model and bring in a helper">
+> “Keep the model that already draws dogs. For this red-hat request, find a helper that can recognize red hats. It can help select results; if it also understands unfinished images, perhaps it can offer suggestions along the way.”
+
+Nori wants this request to affect the generation or selection computation while preserving the generative model’s parameters $\theta$. This is **test-time steering**. The helper may have its own preparation and training cost, but using it here does not overwrite the original model.
+
+Steering includes intermediate adjustments and final selection. Adding an extra direction at each step is also often called guidance. Today the signal concerns red hats; tomorrow it could concern another task, while the original $\theta$ stays fixed.
+</Talk>
+
+<Talk partner="nori" pose="suggest" id="last-pick" label="Can selecting only at the end still steer?" next="Predict, then compare one and thirty-two candidates">
+> “Back to the red-hat dog: if the helper only understands finished photos, could we generate several, then keep the highest-scoring one?”
+
+Yes. Independently generate $N$ candidates from the original model, score them, and return only the highest-scoring one. This is **Best-of-$N$**. Each candidate’s generation is unchanged, but final selection changes the distribution of returned results, so it is still steering.
+
+It needs no reward gradient or model-internal changes. But if the model rarely draws red-hat dogs, how much generation computation will selection require?
+
+
+Use $R(x_0)=x_0$, a preference for larger coordinates. The original model stays equally weighted, and selection occurs after candidates are complete. Inspect whether this scoring rule also preserves the within-class variation we want.
+</Talk>
+
+<DistributionExperiment id="toy-steering" method="steering" partner="nori" label="Steering: how do more candidates change the returned distribution?" next="Check the interpretation against the plot and parameters">
+Predict the change from N = 1 to N = 32, then run A/B. The histogram contains each batch's returned sample. Inspect the right-class share, peak location, and cost in complete candidates.
+</DistributionExperiment>
+
+<Choose id="c-read-steering" partner="nori" label="Does the shifted peak mean the original model learned?">
+A and B both use a base right weight of $0.5$, yet the returned peak for $N=32$ sits beyond the original right center. **Which interpretation fits both the parameters and plot?**
+<Option correct why="Candidates still come from the same model; taking a maximum favors the right tail and changes the returned density." reply="Separate where candidates come from from which one is returned. Now derive the selection distribution.">The model retains its parameters; selecting maxima changes returned locations and shape.</Option>
+<Option why="Both the parameter record and candidate model are fixed. A shifted returned peak does not establish training.">The model learns the preference during those 32 generations.</Option>
+<Option why="The plotted peak has shifted toward a tail. Selecting high scores does not automatically preserve the original right-class shape.">It exactly samples the original right class and must preserve its internal shape.</Option>
+</Choose>
+
+<Say id="steering-toy" partner="nori" label="Write the selection operation explicitly" next="Derive the density from its cumulative distribution">
+Each batch independently generated $x_0^{(1)},\ldots,x_0^{(N)}\sim p_{\mathrm{base}}$, then computed
+
+$$
+i^*=\arg\max_{i=1,\ldots,N}R(x_0^{(i)}),\qquad x_{\mathrm{return}}=x_0^{(i^*)}.
+$$
+
+For $R(x_0)=x_0$, this selects the maximum; $-x_0$ selects the minimum. The code repeats this for $1,000$ batches, returning one per batch. The histogram contains $1,000$ outputs, but the cost is $1,000N$ complete candidates. The original centers, spread, and weight never update.
+
+Why can the returned density differ from the candidate density? Start with the event that a maximum stays below a chosen location.
+</Say>
+
+<Say id="steering-density" partner="nori" label="Why does choosing a maximum concentrate on the tail?" next="Inspect helpers and intermediate adjustments">
+Let $F(x)=P(X\le x)$ be the base cumulative distribution and $f(x)$ its density. The returned maximum is at most $x$ exactly when all $N$ candidates are at most $x$. Independence gives
+
+$$
+P(X_{\max}\le x)=F(x)^N,\qquad f_{\max}(x)=Nf(x)F(x)^{N-1}.
+$$
+
+The plot numerically evaluates this density and compares it with actual generated outputs. Increasing $N$ changes the returned distribution and can concentrate it in the tail, which differs from simply drawing from one original component.
+</Say>
+
+<Judge partner="nori" pose="question" id="j-helper" answer={true} label="Can an extra helper preserve the original model?" yes="Still meets the constraint" no="Does not meet it"
+  replyYes="Yes. The helper may have been trained separately, but using it here does not update the original generative θ."
+  replyNo="Check whose parameters change. Another network adds computation, but asking for its judgment does not update the original model.">
+Nori finds a network that already recognizes red hats. During generation, both networks stay fixed, and its scores only select results. **Does this still count as test-time steering with fixed generative parameters?**
+</Judge>
+
+<Talk partner="nori" pose="explain" id="steering-direction" label="Which direction could Nori use?" next="Does every task provide the same signal?">
+To preserve $\theta$, change the sampler’s computation for this generation. For example, a score-based sampler uses $s_\theta(x_t,t)$, an estimate of the gradient of log image density with respect to the current image $x_t$.
+
+Suppose this request supplies an additional direction $g_t(x_t)$. Sampling can temporarily use
+
+$$
+\begin{gathered}
+\widetilde s_t(x_t)\\
+=s_\theta(x_t,t)+g_t(x_t),\\
+\theta\ \text{fixed}.
+\end{gathered}
+$$
+
+The first term retains the model’s information; the second aims to make results better match the request. This only describes a possible direction. We still need to determine how to obtain $g_t$ and whether adding it corresponds to the distribution we want. Naming the request inside a formula does not solve those questions.
+
+The original network does not learn again; the sampler uses a combined prediction this time. The image $x_t$ keeps changing while the generative parameters $\theta$ can stay fixed.
+</Talk>
+
+<Talk partner="nori" pose="explain" id="signals" label="What should the helper answer for a different request?" next="Try another setting">
+> “A helper can recognize red hats. But what if the user gives us a blurry photo to restore, or just prefers a particular composition? Is the helper still answering the same question?”
+
+These requests provide different information. A **condition** specifies desired content, such as “a dog in a red hat.” An **observation** is an acquired measurement, such as the blurry photo to restore. A **reward** is a scoring criterion that tells us which results better match a preference.
+
+The blurry measurement can check whether generated results agree with what was observed; a scoring program can compare compositions. The original model does not automatically know this new information. It must enter generation or selection to affect the result.
+</Talk>
+
+<Judge partner="nori" pose="question" id="j-obstacle" answer={false} label="Does a new obstacle enter the computation by itself?" yes="It does" no="It does not"
+  replyYes="More steps refine the original generation computation but provide no box location. Every step still has only the information already supplied."
+  replyNo="Supply the new scene, obstacle location, or collision score before expecting the result to respond. More steps alone add no new information.">
+<Figure src={obstacleScene} alt="Two warehouse views with identical start, goal, and blue route. The right view adds a red obstacle; the old route still passes through it.">
+The blue line is the robot’s route through the warehouse. Diffusion generates that entire route; physical travel time and diffusion time are different.
+</Figure>
+
+When the route model was trained, the aisle was empty. Today a box blocks the original route. We **supply neither the new scene nor a collision score**, and only double the sampling steps. Does that introduce the box’s location into generation as new information?
+</Judge>
+
+<Think partner="nori" pose="question" id="t-misses" label="How often do both attempts miss?">
+Suppose each independent base-model generation has probability $p$ of producing a matching red-hat dog. One attempt misses with probability $1-p$.
+
+Now generate two images. **What is the probability that both miss?** Then extend to $N$: compute the probability of all failures and subtract it from $1$ to obtain the probability of at least one hit.
+</Think>
+
+<Reveal partner="nori" pose="explain" id="best-of-n" label="More candidates change both success and cost" next="Read the route's final reflection">
+Independence lets us multiply the miss probabilities. All $N$ candidates miss with probability $(1-p)^N$; at least one hit is the complementary event:
+
+$$
+\begin{gathered}
+P(\text{at least one hit})\\
+=1-(1-p)^N.
+\end{gathered}
+$$
+
+For $p=0.01$, $10$ candidates give about a $9.6\%$ chance of at least one hit, and $100$ give about $63.4\%$. Even a hundred candidates do not guarantee a hit.
+
+Fix a desired success probability $0<a<1$, with $0<p<1$. We need $(1-p)^N\le 1-a$, hence
+
+$$
+N\ge\frac{\log(1-a)}{\log(1-p)}.
+$$
+
+For small $p$, $\log(1-p)\approx-p$, so the required $N$ scales like $1/p$. Success becomes more likely at the cost of generating more complete candidates. The helper only scores at the end; it has not redirected nearly successful images along the way.
+</Reveal>
+
+<Say id="steering-wrap" partner="nori" label="Route complete: changed return rule and generation computation" next="Complete this route and return to the methods">
+We generated actual candidates from the same base, scored them, and selected results without updating generative parameters. The changed curve describes returned outputs. More complete candidates cost more generation computation.
+
+Steering can also add intermediate directions; we located that computation above, and the next unit asks how a helper reads noisy images. Here we established that **fixed $\theta$ can still let a task signal influence outputs, while higher scores need not produce the user's complete desired distribution**.
+</Say>
+
+</MethodPath>
+
+<Say partner="nori" pose="explain" id="boundary" label="If the model stays fixed, why does the image change?" next="Review all three routes in the comparison table">
+All three proposals are worth trying. Lumi teaches the model to read descriptions, Mugi continues training on preferred photos, and Nori brings a helper into generation or selection.
+
+But the model keeps turning noise into an image. How can Nori say “the parameters stay fixed”? The learned parameters $\theta$ and the changing image $x_t$ are different objects. **Changing how we generate this $x_t$ does not necessarily update $\theta$.**
+
+You have now completed each route and its plotted implementation. Use the table to review when requests enter, whether parameters change, and what computation generation uses.
+</Say>
+
+<Sort partner="nori" pose="question" id="s-methods" label="Final review: place the operations under each method"
+  columns={["Conditional training", "Fine-tuning", "Test-time steering"]}
+  rows={["When does the request enter?", "Are the generative parameters updated for it?", "What is used during generation?"]}
+  rowReplies={["Both Mugi and Nori receive the request after a model exists. Timing alone is insufficient; next, inspect the parameters.", "Lumi and Mugi both change θ through training. Nori preserves θ but may add generation and evaluation computation.", "Learning text inputs, writing preferences into parameters, and bringing in a helper are different ways to prepare and use a model."]}
+  done="Distinguish the approaches by when the request enters, whether θ changes, and what generation uses. No proposal is better simply because of who suggested it; the choice depends on the task’s conditions."
+  intro="Review the operations you have tried. You can return to the method list above to reread any complete route.">
+<Card col={0} row={0} context="Lumi · When the request enters" hint="Lumi pairs images with descriptions so the network learns to read them during training.">Give the network images and descriptions during training.</Card>
+<Card col={1} row={0} context="Mugi · When the request enters" hint="Mugi begins with an existing model, then continues learning from newly acquired preferred images.">Start with a model, then select preferred images for further training.</Card>
+<Card col={2} row={0} context="Nori · When the request enters" hint="Nori uses the helper’s judgments during this generation or final selection.">Use a helper’s judgment during generation or selection.</Card>
+<Card col={0} row={1} context="Lumi · Parameter updates" hint="Teaching the model to use a condition requires updating parameters during training.">Yes: update parameters using described training examples.</Card>
+<Card col={1} row={1} context="Mugi · Parameter updates" hint="The regression loss on new preferred images still updates the original model.">Yes: update the original parameters on preferred data.</Card>
+<Card col={2} row={1} context="Nori · Parameter updates" hint="Changing this sampler’s computation differs from changing the model’s parameters.">No: keep the original parameters and adjust generation or selection.</Card>
+<Card col={0} row={2} context="Lumi · Generation" hint="After the model practices reading descriptions, we can give the request through that input.">Give a description to the model that learned to read it.</Card>
+<Card col={1} row={2} context="Mugi · Generation" hint="Parameter updates already encode the preference; a description need not be supplied again.">Use the model already updated on preferred images.</Card>
+<Card col={2} row={2} context="Nori · Generation" hint="The helper’s judgment must enter this computation to affect what is returned.">Use the helper’s signal to adjust sampling or select results.</Card>
+</Sort>
+
+<Choose partner="lumi" id="c-scenario-conditional" label="New requirement: specify a class on every future call">
+We can prepare labelled training data and want the deployed model to accept $c$ directly for left or right outputs, without extra scoring or candidate selection. Which proposal establishes that capability?
+<Option correct why="Labelled training teaches the model to use c, which can then be changed at deployment." reply="We accept preparation and training now so generation can later use c directly.">Lumi: train a conditional model that reads $c$.</Option>
+<Option why="Fine-tuning an unconditional model on one preferred dataset changes its overall distribution without adding a switchable c input.">Mugi: fine-tune the original unconditional model only on preferred images.</Option>
+<Option why="This adds generation-time scoring and selection, unlike directly supplying c to the deployed model.">Nori: generate many candidates and ask a helper to select.</Option>
+</Choose>
+
+<Choose partner="mugi" id="c-scenario-finetune" label="Another requirement: retain a new preference in the original model">
+We may update the original $\theta$, have only newly collected preferred data, and want to keep the model architecture. Deployment supplies no descriptions and performs no scoring or selection. Which operation fits?
+<Option why="This prepares paired data and adds an input rather than updating the original architecture directly on the available preferred data.">Build new photo-description pairs and add a $c$ input.</Option>
+<Option correct why="Training writes the preference into θ, so deployment uses the updated model directly." reply="Parameter updates are allowed, and the change should remain in the model: fine-tuning fits.">Continue updating the original model on preferred data.</Option>
+<Option why="Final selection keeps θ fixed and still needs deployment-time scoring and selection.">Fix the model and select results by score after generation.</Option>
+</Choose>
+
+<Choose partner="nori" pose="question" id="c-boundary" label="Now add this task’s constraint">
+The user wants to try red hats today and scarves tomorrow, while **keeping the original generative model’s parameters fixed**. Which proposal meets this constraint?
+<Option why="Lumi makes the condition part of training, which changes learned parameters. Here we want to preserve the original θ.">Lumi: train on images and descriptions to add text inputs.</Option>
+<Option why="Although Mugi receives the request later, preferred-data training still updates the original model.">Mugi: continue training on selected red-hat images.</Option>
+<Option correct reply="The request acts through generation and selection, so the original θ can stay fixed. Different constraints could favor a different proposal."
+  why="Extra evaluation or sampler adjustments do not necessarily update the generative parameters.">Nori: use the helper’s judgment to adjust generation or the image returned.</Option>
+</Choose>
+
+<Choose id="c-existing-condition" partner="lumi" label="If the model already reads descriptions, must a new prompt retrain it?">
+Change the premise: this model already learned a text input from paired data. Today we supply a new description combination within its capabilities and generate with the same $\theta$, without external scoring or extra guidance. **Which account fits?**
+<Option correct why="An established conditional input can be reused during generation. A new description combination is not a new, unlearned input type." reply="Fixed θ may simply mean using an established conditional model. Check its existing capabilities and which computations were added.">Use the learned $p_\theta(x_0\mid c)$; changing the prompt does not itself require retraining.</Option>
+<Option why="Conditional training establishes the ability to use c. It does not update θ every time a different c is supplied.">Every changed description requires conditional training again.</Option>
+<Option why="The model already accepts c, and the task adds no scoring or guidance. Fixed θ alone does not establish Best-of-N.">Fixed $\theta$ necessarily means an additional Best-of-N step was used.</Option>
+</Choose>
+
+<Choose id="c-combined-methods" partner="mugi" label="Can one workflow combine two methods?">
+In the morning, update the original model on preferred data. In the afternoon, fix those updated parameters, generate $16$ candidates per request, and return the highest reward. **Classify the operations in their actual order.**
+<Option correct why="The morning data updates θ: fine-tuning. The afternoon keeps that θ fixed and changes the return rule: Best-of-N steering." reply="The operations can be combined. Fixed parameters in the later stage do not erase earlier training.">Fine-tune first, then apply Best-of-N steering to the fine-tuned model.</Option>
+<Option why="The afternoon parameters are fixed, but the morning explicitly updated the original model.">The entire workflow is steering because afternoon parameters are fixed.</Option>
+<Option why="Afternoon selection adds no parameter update. More candidates do not turn selection into fine-tuning.">The entire workflow is fine-tuning because the candidates come from a fine-tuned model.</Option>
+</Choose>
+
+<Think id="t-distribution-evidence" partner="nori" label="The requirement is more than a high score: cite the plot" next="Compare distribution evidence, not just method names">
+The user now says: “Return the right class more often, **while preserving its original within-class distribution shape**.” You can use only the earlier $R(x_0)=x_0$. Someone proposes continually increasing $N$.
+
+Recall the $N=1$ and $N=32$ comparison. Would you accept that proposal immediately? Cite one feature of the plot and identify an assumption that needs checking. You can revisit the steering route above.
+</Think>
+
+<Reveal id="distribution-evidence" partner="nori" label="Check reward and the requested distribution separately" next="Return to two superficially similar selection operations">
+Do not accept it merely because right-class returns increase. At $N=32$, the returned peak moves into the original right tail and the within-class shape changes, while the generative model's right weight stays $0.5$. This is the distribution of selected maxima, not direct sampling from the unchanged right component.
+
+Recheck **whether $R(x_0)=x_0$ represents the full requirement** and which distribution the selection rule produces. More candidates can increase maximum reward without guaranteeing the requested within-class shape. A target distribution must be designed and checked; a higher average score alone is insufficient evidence.
+</Reveal>
+
+<Choose partner="mugi" pose="question" id="c-pick-or-learn" label="Both select photos. What happens afterward?">
+Mugi and Nori may both generate a batch of red-hat photos. **Which operation is final selection with the original parameters fixed?**
+<Option correct reply="Selection changes which image is returned this time without writing preferences into θ. Training on the selected images would instead be Mugi’s fine-tuning."
+  why="Both involve selecting photos. The distinction is whether they are returned directly or used to update the model.">Nori returns only the highest-scoring image in this batch.</Option>
+<Option why="Continuing training on selected images updates the original parameters. That is fine-tuning.">Mugi updates the model on selected images, then generates again.</Option>
+<Option why="Independent extra candidates add generation and evaluation cost, not a parameter update.">Generating more than one candidate already updates the parameters.</Option>
+</Choose>
+
+<Choose partner="lumi" pose="question" id="c-quality" label="If the helper likes it, is the image good?">
+The red-hat scorer loves large patches of red: a red pattern that does not resemble a dog scores highly. Another batch repeats the same dog and pose. **Is a higher average reward enough to evaluate steering?**
+<Option correct reply="We also need plausible data and varied answers. Satisfying the scoring program does not automatically meet the user’s complete needs."
+  why="High scores can coexist with implausible images and excessive concentration. Check data fidelity and diversity too.">No: check plausibility and diversity as well.</Option>
+<Option why="The red pattern demonstrates that the program can score an implausible input highly.">Yes: high reward means the complete request is satisfied.</Option>
+<Option why="Even a plausible repeated image loses the different results the user may want.">One plausible high-scoring image is enough; return it every time.</Option>
+</Choose>
+
+<Say partner="nori" pose="explain" id="bridge" label="Could we offer suggestions along the way?" next="Look at unfinished images next">
+We can now distinguish the proposals: learn descriptions during training, fine-tune on new data, or preserve parameters and use this task’s signal during generation and selection. A late request can still enter; the key is which computation makes it affect results.
+
+Final selection works, but rare targets require many complete candidates, and nearly successful images receive no intermediate correction. **Could we tell whether a blurry outline is heading toward a red-hat dog or a corgi before it is finished?** Next, we will examine what the helper can see and how to obtain a direction.
+
+Read the same concepts, losses, and comparisons continuously in <Ref to="dma-test-time-steering" mode="full"/>.
+</Say>

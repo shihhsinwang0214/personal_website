@@ -42,6 +42,7 @@ for (const [g] of groups) {
   planned.set(g, withCode);
 }
 const groupHref = (items: typeof resolved) => items[0]?.note?.href;
+const sourceLanguageLabel = (href?: string) => lang === 'en' && /\/zh\//.test(href ?? '') ? ' (Chinese)' : '';
 
 const t = lang === 'zh'
   ? {
@@ -54,7 +55,10 @@ const t = lang === 'zh'
       empty: '第一個問題正在準備中。', minutes: (m: number) => `約 ${m} 分鐘`, lang: (l: Lang) => (l === 'zh' ? '' : 'EN'),
     }
   : {
-      intro: ['What would you try in this situation? Each lesson begins with a question. Make a guess, compare possible approaches, then work through the reasoning and equations. When an idea gets stuck, bring the missing condition back and try the next step together.'],
+      intro: [
+        'Explore knowledge through a series of conversations. The task board offers different situations and questions: choose one, try an approach, and follow the responses and clues to think it through.',
+        'Different answers may reveal different clues. Even a path that gets stuck can show what your reasoning missed. Ideas and equations emerge through these attempts, questions, and deductions. Let us discover how they connect.',
+      ],
       manual: 'Read the note continuously →', start: 'Start with the situation →', resume: 'Continue thinking →', again: 'Think it through again', progress: 'Reading', done: 'Read through', notYet: 'Interactive version in preparation', rulesTitle: 'How to read together',
       rules: ['You can start here before reading the note.', 'Think before opening the explanation. You can revisit other options too.', 'Drag cards, or select a card and then a cell. Enter and Space work with the keyboard.', 'Only your reading position stays in this browser. Your written thoughts are not saved or uploaded.', 'Follow the links to the note for continuous reading or to look up equations.'],
       empty: 'The first question is in preparation.', minutes: (m: number) => `~${m} min`, lang: (l: Lang) => (l === 'en' ? '' : '中文'),
@@ -85,7 +89,7 @@ const t = lang === 'zh'
       <section class="dojo-group">
         <div class="dojo-group-head">
           <span class="dojo-sign"><span class="dojo-sign-mono">{skillManualLabel[lang]}</span><span class="dojo-group-name">{group}</span></span>
-          {groupHref(items) && <a class="dojo-sign dojo-sign-link" href={groupHref(items)}>{t.manual}</a>}
+          {groupHref(items) && <a class="dojo-sign dojo-sign-link" href={groupHref(items)}>{t.manual}{sourceLanguageLabel(groupHref(items))}</a>}
         </div>
         <ul class="dojo-cards">
           {items.map(({ e, note }, i) => (
@@ -101,7 +105,7 @@ const t = lang === 'zh'
                 <p class="dojo-card-summary">{e.data.summary}</p>
                 <span class="dojo-btn dojo-card-cta" data-cta>{t.start}</span>
               </a>
-              {note?.href && <a class="dojo-card-note" href={note.href}>{skillManualLabel[lang]}: {note.shortTitle}</a>}
+              {note?.href && <a class="dojo-card-note" href={note.href}>{skillManualLabel[lang]}: {note.shortTitle}{sourceLanguageLabel(note.href)}</a>}
             </li>
           ))}
           {(planned.get(group) ?? []).map((n, i) => (

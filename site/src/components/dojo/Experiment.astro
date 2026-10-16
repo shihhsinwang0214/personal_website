@@ -1,0 +1,189 @@
+---
+import { langFromUrl } from '../../lib/noteRefs';
+import { experimentPython, type ExperimentMode } from '../../lib/dojoExperiments';
+import Partner from './Partner.astro';
+import PythonCell from './PythonCell.astro';
+import type { DojoPartnerId } from '../../lib/dojoPartners';
+interface Props { id: string; mode: ExperimentMode; label: string; partner?: DojoPartnerId; next?: string }
+const { id, mode, label, partner = 'nori', next } = Astro.props;
+const zh = langFromUrl(Astro.url) === 'zh';
+const candidates = mode === 'candidates';
+---
+
+<section class="dojo-node dojo-experiment" data-node data-kind="experiment" data-experiment={mode} data-lang={zh ? 'zh' : 'en'} id={id} data-next={next}>
+  <span class="dojo-tag">{label}</span>
+  <Partner partner={partner} pose="question" reactive />
+  <div class="dojo-body"><slot /></div>
+  <div data-experiment-ui hidden>
+    <form data-experiment-form>
+      <fieldset class="experiment-settings">
+        <legend>{zh ? '這次你想怎麼試？' : 'What would you try?'}</legend>
+        <div class="experiment-inputs">
+          <label for={`${id}-p`}>
+            <span>{candidates ? (zh ? '單張符合要求的機率 p（%）' : 'Single-candidate success p (%)') : (zh ? '原本抽到 B 的機率（%）' : 'Original probability of B (%)')}</span>
+            <input id={`${id}-p`} name="probability" type="number" min="0" max="100" step="0.1" value={candidates ? '1' : '50'} required />
+          </label>
+          {candidates ? <label for={`${id}-n`}>
+            <span>{zh ? '每組生成幾張 N' : 'Candidates per batch N'}</span>
+            <input id={`${id}-n`} name="candidates" type="number" min="1" max="500" step="1" value="10" required />
+          </label> : <label for={`${id}-strength`}>
+            <span>{zh ? '偏好強度 λ' : 'Preference strength λ'}</span>
+            <input id={`${id}-strength`} name="strength" type="number" min="0" max="4" step="any" value={Math.log(3)} required />
+          </label>}
+        </div>
+        {!candidates && <fieldset class="experiment-rules">
+          <legend>{zh ? '由你決定怎麼回傳圖片' : 'Choose how to return a photo'}</legend>
+          <label><input type="radio" name="rule" value="base" checked /> <span>{zh ? '照原本比例抽' : 'Sample the original proportions'}</span></label>
+          <label><input type="radio" name="rule" value="best" /> <span>{zh ? '每次只取最高 reward 的結果' : 'Always choose the highest-reward result'}</span></label>
+          <label><input type="radio" name="rule" value="tilt" /> <span>{zh ? '先乘 reward 倍率，再按新權重抽' : 'Reweight by reward, then sample'}</span></label>
+        </fieldset>}
+      </fieldset>
+      <label class="experiment-prediction" for={`${id}-prediction`}>
+        <span>{candidates ? (zh ? '先猜：有至少一張符合要求的組數，大約占幾 %？' : 'Predict: what percentage of batches contain a hit?') : (zh ? '先猜：你的規則會讓 B 占幾 %？' : 'Predict: what percentage of your outputs will be B?')}</span>
+        <input id={`${id}-prediction`} name="prediction" type="number" min="0" max="100" step="any" placeholder={zh ? '還不確定也可以先試' : 'You can try without a prediction'} />
+      </label>
+      <div class="experiment-actions">
+        <button type="submit" class="dojo-btn">{candidates ? (zh ? '用這個條件試 1,000 組' : 'Try 1,000 batches') : (zh ? '照我的規則抽 1,000 次' : 'Draw 1,000 times with my rule')}</button>
+        <button type="button" class="dojo-btn dojo-btn-ghost" data-experiment-example>{zh ? '先看一組示範' : 'See a worked example first'}</button>
+      </div>
+    </form>
+    <p class="experiment-change" data-experiment-change role="status" aria-live="polite"></p>
+    <section class="experiment-result" data-experiment-result aria-label={zh ? '這次的實驗結果' : 'Results of this run'} hidden>
+      <h3>{zh ? '這次發生了什麼？' : 'What happened this time?'}</h3>
+      <p class="experiment-snapshot" data-experiment-snapshot></p>
+      <div class="experiment-bars" data-experiment-bars></div>
+      <div class="experiment-samples" data-experiment-samples aria-hidden="true"></div>
+      <p class="experiment-caption" data-experiment-caption></p>
+      <p class="experiment-response" data-experiment-response role="status" aria-live="polite"></p>
+      <p class="experiment-question" data-experiment-question></p>
+    </section>
+    <section class="experiment-history" data-experiment-history hidden>
+      <h3>{zh ? '把剛才的嘗試放在一起看' : 'Compare your recent attempts'}</h3>
+      <ul data-experiment-history-list></ul>
+    </section>
+  </div>
+  <div class="experiment-example dojo-body" data-experiment-fallback>
+    <p class="experiment-example-label">{zh ? '一組可對照的示範' : 'A worked example to compare'}</p>
+    {candidates ? <p>{zh ? '假設每張獨立生成，符合要求的機率都是 1%。每組畫 10 張，至少出現一張符合要求的機率約為 9.6%；改成每組 100 張，約為 63.4%。兩者都沒有保證命中，而每組需要的完整生成數從 10 張增加到 100 張。' : 'With independent candidates and a 1% chance of a hit each, a batch of 10 has about a 9.6% chance of at least one hit. A batch of 100 has about a 63.4% chance. Neither guarantees a hit, and the number of complete generations per batch rises from 10 to 100.'}</p>
+      : <p>{zh ? 'A、B 原本各占一半，reward 分別為 0、1。取 λ = log 3，新權重是 1/2 與 3/2，目標比例為 A：25%、B：75%。原樣抽仍是各半，每次取最高 reward 則只回傳 B；依新權重抽，才在這個兩結果例子中得到目標比例。' : 'A and B initially have equal probability, with rewards 0 and 1. At λ = log 3, their weights are 1/2 and 3/2, giving target proportions A: 25%, B: 75%. Original sampling stays at 50/50; always maximizing reward returns only B. Sampling the new weights gives the target in this two-outcome example.'}</p>}
+  </div>
+  <p class="experiment-model-note">{candidates ? (zh ? '這是獨立抽樣的機率模型；每格代表一組候選有沒有符合要求的圖片，沒有即時生成狗照片。這裡先不加入評分器判錯的情況。' : 'This is an independent-sampling probability model, not live photo generation. A cell represents whether a batch contains a matching image. Scorer mistakes are outside this example.') : (zh ? '這是只有 A、B 的離散模型，假設能直接按指定權重抽樣。選最高 reward 是在可出現的結果中取最大值，與有限候選的 Best-of-N 分開。' : 'This is a discrete A/B model with direct weighted sampling. Reward maximization chooses from the support; it is separate from finite-candidate Best-of-N.')}</p>
+  <PythonCell id={id} code={experimentPython(mode)} syncOnOpen />
+</section>
+
+<style is:global>
+  .dojo .dojo-experiment { border: 1px solid var(--border); border-left: 4px solid var(--accent); background: var(--bd-paper, var(--surface)); }
+  .dojo-experiment .experiment-settings { margin: 20px 0 14px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; }
+  .dojo-experiment legend { padding: 0 6px; font-size: .9rem; font-weight: 600; }
+  .dojo-experiment .experiment-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .dojo-experiment label { display: grid; gap: 7px; min-width: 0; font-size: .85rem; line-height: 1.6; }
+  .dojo-experiment input[type="number"] { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; font-size: 1rem; }
+  .dojo-experiment input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .dojo-experiment .experiment-rules { margin: 16px 0 0; padding: 12px 0 0; border: 0; border-top: 1px solid var(--border); display: grid; gap: 10px; }
+  .dojo-experiment .experiment-rules label { display: flex; align-items: baseline; gap: 8px; cursor: pointer; }
+  .dojo-experiment input[type="radio"] { accent-color: var(--accent); }
+  .dojo-experiment .experiment-prediction { margin: 12px 0; }
+  .dojo-experiment .experiment-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .dojo-experiment .experiment-result { margin-top: 20px; padding: 18px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); }
+  .dojo-experiment h3 { margin: 0 0 10px; font-size: 1rem; line-height: 1.6; }
+  .dojo-experiment .experiment-snapshot, .dojo-experiment .experiment-caption, .dojo-experiment .experiment-model-note, .dojo-experiment .experiment-change { font-size: .8rem; color: var(--text-muted); line-height: 1.7; }
+  .dojo-experiment .experiment-change:empty { display: none; }
+  .dojo-experiment .experiment-bars { display: grid; gap: 12px; margin: 18px 0; }
+  .dojo-experiment .experiment-bar-label { display: flex; justify-content: space-between; gap: 12px; font-size: .85rem; margin-bottom: 5px; }
+  .dojo-experiment .experiment-bar-track { height: 9px; border-radius: 6px; background: var(--border); overflow: hidden; }
+  .dojo-experiment .experiment-bar-fill { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+  .dojo-experiment .experiment-bar-reference .experiment-bar-fill { opacity: .5; }
+  .dojo-experiment .experiment-samples { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 4px; margin-top: 20px; }
+  .dojo-experiment .experiment-sample { padding: 4px 0; text-align: center; border: 1px solid var(--border); border-radius: 4px; font-family: var(--font-mono); font-size: .68rem; color: var(--text-muted); background: var(--surface); }
+  .dojo-experiment .experiment-sample.is-hit { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .dojo-experiment .experiment-response { font-size: .9rem; line-height: 1.8; }
+  .dojo-experiment .experiment-question { margin-bottom: 0; font-weight: 600; font-size: .9rem; line-height: 1.8; }
+  .dojo-experiment .experiment-history { margin-top: 20px; }
+  .dojo-experiment .experiment-history ul { padding-left: 1.3em; font-size: .8rem; color: var(--text-muted); line-height: 1.8; }
+  .dojo-experiment .experiment-example { border-left: 3px solid var(--border); margin-top: 20px; padding: 2px 0 2px 14px; }
+  .dojo-experiment .experiment-example-label { font-weight: 600; }
+  .dojo-experiment .experiment-model-note { margin-top: 16px; }
+  @media (max-width: 460px) { .dojo-experiment .experiment-inputs { grid-template-columns: 1fr; gap: 12px; } .dojo-experiment .experiment-settings { padding: 12px; } .dojo-experiment .experiment-result { padding: 14px 12px; } }
+  @media print { .dojo-experiment [data-experiment-ui] { display: none !important; } .dojo-experiment [data-experiment-fallback] { display: block !important; } }
+</style>
+
+<script>
+  import { simulateCandidates, simulateRule, experimentPython, type ExperimentMode, type ReturnRule } from '../../lib/dojoExperiments';
+  document.querySelectorAll<HTMLElement>('[data-experiment]').forEach((root) => {
+    const mode = root.dataset.experiment as ExperimentMode;
+    const candidates = mode === 'candidates';
+    const zh = root.dataset.lang === 'zh';
+    const form = root.querySelector<HTMLFormElement>('[data-experiment-form]')!;
+    const fallback = root.querySelector<HTMLElement>('[data-experiment-fallback]')!;
+    const result = root.querySelector<HTMLElement>('[data-experiment-result]')!;
+    const bars = root.querySelector<HTMLElement>('[data-experiment-bars]')!;
+    const samples = root.querySelector<HTMLElement>('[data-experiment-samples]')!;
+    const change = root.querySelector<HTMLElement>('[data-experiment-change]')!;
+    const history: string[] = [];
+    const percent = (p: number) => `${(p * 100).toFixed(1)}%`;
+    function settings() {
+      const data = new FormData(form);
+      return { p: Number(data.get('probability')) / 100, n: Number(data.get('candidates') || 10), strength: Number(data.get('strength') || 0), rule: String(data.get('rule') || 'tilt') as ReturnRule, prediction: data.get('prediction') === '' ? null : Number(data.get('prediction')) / 100 };
+    }
+    function complete() {
+      root.dataset.experimentComplete = 'true';
+      root.dispatchEvent(new CustomEvent('dojo:experiment-complete', { bubbles: true }));
+    }
+    function bar(label: string, p: number, reference = false) {
+      const row = document.createElement('div');
+      row.className = reference ? 'experiment-bar-reference' : '';
+      const heading = document.createElement('div'); heading.className = 'experiment-bar-label';
+      const name = document.createElement('span'); name.textContent = label;
+      const value = document.createElement('strong'); value.textContent = percent(p);
+      heading.append(name, value);
+      const track = document.createElement('div'); track.className = 'experiment-bar-track'; track.setAttribute('aria-hidden', 'true');
+      const fill = document.createElement('span'); fill.className = 'experiment-bar-fill'; fill.style.width = `${p * 100}%`;
+      track.append(fill); row.append(heading, track); bars.append(row);
+    }
+    root.querySelector<HTMLElement>('[data-experiment-ui]')!.hidden = false;
+    fallback.hidden = true;
+    form.addEventListener('input', () => {
+      if (!result.hidden) change.textContent = zh ? '條件已改。下方保留上一次的結果，再執行一次就能比較。' : 'Settings changed. The last result stays below; run again to compare.';
+    });
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      const { p, n, strength, rule, prediction } = settings();
+      bars.replaceChildren(); samples.replaceChildren(); fallback.hidden = true; change.textContent = '';
+      const observed = candidates ? simulateCandidates(p, n, 1000) : simulateRule(p, strength, rule, 1000);
+      const actual = observed.hits / observed.trials;
+      const ruleNames = zh ? { base: '原本比例', best: '最高 reward', tilt: '新權重抽樣' } : { base: 'original sampling', best: 'reward maximization', tilt: 'reweighted sampling' };
+      const snapshot = candidates ? `p = ${percent(p)} · N = ${n} · ${zh ? '完整生成' : 'complete generations'} ${n * 1000}` : `${zh ? '原本 B' : 'Base B'} = ${percent(p)} · λ = ${strength.toFixed(3)} · ${ruleNames[rule]}`;
+      root.querySelector<HTMLElement>('[data-experiment-snapshot]')!.textContent = snapshot;
+      if (prediction !== null) bar(zh ? '你剛才的預測' : 'Your prediction', prediction, true);
+      if (!candidates) bar(zh ? '目標分布中 B 的比例' : 'B in the target distribution', (observed as ReturnType<typeof simulateRule>).target, true);
+      bar(candidates ? (zh ? '至少命中一次的理論機率' : 'Theory: at least one hit') : (zh ? '你的規則中 B 的理論機率' : 'Theory: B under your rule'), observed.expected, true);
+      bar(candidates ? (zh ? '這 1,000 組實際命中的比例' : 'Observed hits in 1,000 batches') : (zh ? '這 1,000 次實際抽到 B 的比例' : 'Observed B in 1,000 draws'), actual);
+      observed.preview.forEach((hit) => {
+        const sample = document.createElement('span'); sample.className = `experiment-sample${hit ? ' is-hit' : ''}`;
+        sample.textContent = candidates ? (hit ? '✓' : '·') : (hit ? 'B' : 'A'); samples.append(sample);
+      });
+      root.querySelector<HTMLElement>('[data-experiment-caption]')!.textContent = candidates ? (zh ? `顯示前 40 組；✓ 表示該組至少命中一次。全部 1,000 組中有 ${observed.hits} 組命中。` : `First 40 batches; ✓ means at least one hit. ${observed.hits} of all 1,000 batches contained a hit.`) : (zh ? `顯示前 40 次回傳；全部 1,000 次中有 ${1000 - observed.hits} 張 A、${observed.hits} 張 B。` : `First 40 returns. All 1,000 draws contained ${1000 - observed.hits} A and ${observed.hits} B.`);
+      const predicted = prediction === null ? '' : (zh ? `你原先估計 ${percent(prediction)}，這次觀察到 ${percent(actual)}。` : `You predicted ${percent(prediction)} and observed ${percent(actual)}. `);
+      let explanation: string;
+      if (candidates) explanation = zh ? `每組有 ${n} 次獨立機會，單張的 p 與一整組的命中機率不同。有限組數會有抽樣波動；再跑一次，實驗比例可能變，理論機率不變。` : `Each batch has ${n} independent opportunities. A single candidate's p differs from the chance for a whole batch. Finite trials fluctuate: another run may change the observed proportion, but not the theoretical probability.`;
+      else if (rule === 'best') explanation = zh ? '每次選最高 reward，會把機會集中到可出現的最高分結果。增加回傳次數，也不會自動把這條規則變成目標分布。' : 'Always maximizing reward concentrates on the best result in the support. More returns do not turn that rule into the target distribution.';
+      else if (rule === 'base') explanation = zh ? '照原本比例抽，保留了變化，但這次 reward 沒有改變出現比例。除非目標剛好與原本相同，多跑幾次也補不上這個差別。' : 'Original sampling retains variation, but reward has not changed the proportions. More draws cannot fix that difference unless the target already equals the base.';
+      else explanation = zh ? '這裡直接按 A、B 的新權重抽，理論比例就是目標；有限次觀察仍有波動。這個離散例子能直接抽，不代表高維圖片也已經有了相同的 sampler。' : 'Direct sampling of the two new weights has the target proportions, with finite-sample fluctuation. This discrete example does not supply a sampler for high-dimensional images.';
+      root.querySelector<HTMLElement>('[data-experiment-response]')!.textContent = predicted + explanation;
+      root.querySelector<HTMLElement>('[data-experiment-question]')!.textContent = candidates ? (zh ? '如果單張機率降到 0.1%，同樣的 N 還夠嗎？改一個條件再試，再用「全部都沒命中」解釋結果。' : 'What if single-candidate success falls to 0.1%? Change one condition and retry, then explain the result through “no hits in the batch.”') : (zh ? '把原本 B 的機率改成 10%，或把 λ 設成 0，再比較三種回傳規則。哪些差別來自目標，哪些來自你選的規則？' : 'Set original B to 10%, or λ to 0, and compare the three rules. Which differences come from the target, and which from your rule?');
+      history.unshift(`${snapshot} → ${zh ? '觀察' : 'observed'} ${percent(actual)}`); history.splice(3);
+      const list = root.querySelector<HTMLElement>('[data-experiment-history-list]')!; list.replaceChildren();
+      history.forEach((text) => { const li = document.createElement('li'); li.textContent = text; list.append(li); });
+      root.querySelector<HTMLElement>('[data-experiment-history]')!.hidden = history.length < 2;
+      result.hidden = false; complete();
+    });
+    root.querySelector('[data-experiment-example]')!.addEventListener('click', () => { fallback.hidden = false; complete(); });
+    root.addEventListener('dojo:python-complete', complete);
+    root.addEventListener('dojo:python-sync', (event) => {
+      if (!form.reportValidity()) { event.preventDefault(); return; }
+      const s = settings();
+      root.querySelector<HTMLTextAreaElement>('[data-python-code]')!.value = experimentPython(mode, s.p, s.n, s.strength, s.rule);
+    });
+  });
+</script>

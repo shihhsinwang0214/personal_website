@@ -1,0 +1,844 @@
+---
+slug: "gradient-free-steering"
+lang: "en"
+title: "The evaluator only gives scores. How should these drafts continue?"
+note: "dma-gradient-free-steering"
+summary: "Explore completed-output selection, intermediate SMC, and source MCMC/SPT in your chosen order. Sample, trace ancestry and chains, then build the final comparison."
+status: "available"
+updated: 2026-10-16
+minutes: 85
+progressVersion: "3"
+series: "dma-guidance"
+order: 3
+---
+import Say from '../../components/dojo/Say.astro';
+import Talk from '../../components/dojo/Talk.astro';
+import Extra from '../../components/dojo/Extra.astro';
+import Choose from '../../components/dojo/Choose.astro';
+import Option from '../../components/dojo/Option.astro';
+import Judge from '../../components/dojo/Judge.astro';
+import Think from '../../components/dojo/Think.astro';
+import Reveal from '../../components/dojo/Reveal.astro';
+import Derivation from '../../components/dojo/Derivation.astro';
+import DeriveStep from '../../components/dojo/DeriveStep.astro';
+import Sort from '../../components/dojo/Sort.astro';
+import Card from '../../components/dojo/Card.astro';
+import Figure from '../../components/dojo/Figure.astro';
+import Ref from '../../components/notes/Ref.astro';
+import blackBox from './imgs/black-box-score.en.png';
+import candidates from './imgs/steering-candidates.en.png';
+import overview from './imgs/gradient-free-overview.en.png';
+
+import SteeringExperiment from '../../components/dojo/SteeringExperiment.astro';
+import Explore from '../../components/dojo/Explore.astro';
+import MethodPath from '../../components/dojo/MethodPath.astro';
+
+<Say partner="nori" pose="welcome" id="scene" label="The evaluator only returns scores" next="Hear Mugi’s proposal">
+The user still wants varied dog photos and prefers certain hats, lighting, and compositions. Their scoring program accepts a finished image and returns a number, but cannot say which pixel to change or how. Keep the generative parameters $\theta$ fixed. **Can scores alone make preferred results appear more often?**
+
+Write a finished image as $x_0$ and its reward as $R(x_0)$. A scorer that we can query without obtaining usable derivatives is a **black-box reward**. External simulators, collision checks, and human evaluators can provide such signals. The reward need not be a probability or differentiable.
+
+<Figure src={blackBox} eager alt="One finished photo of a corgi in a red hat enters a scoring program. It returns a score of 7 with no revision clues. There are no other candidates, rankings, selection steps, or modification procedures.">
+The score 7 is hypothetical, not a probability or model measurement. Arrows only mean submitting an image and receiving its score. The program provides no direction for revision. What could we do with this number?
+</Figure>
+</Say>
+
+<Talk partner="mugi" pose="suggest" id="p-finish" study="black-box-plans" label="Mugi: draw several, then decide what to keep">
+“If we do not know how to revise, generate a few images as before. After the evaluator scores them, select one to return. At least we do not need revision directions.”
+
+Mugi keeps each image’s generation unchanged and applies the preference through **selection after completion**. We could choose the best, or make high scores more likely to be sampled. Do these rules produce the same proportions?
+</Talk>
+
+<Talk partner="lumi" pose="suggest" id="p-drafts" study="black-box-plans" label="Lumi: keep more copies of promising drafts">
+“Finishing every image before scoring might be expensive. If we could guess a draft’s future, could we keep more copies of promising drafts and spend less time on the others?”
+
+Lumi wants to change **which drafts receive the remaining generation computation**. The evaluator still understands only finished images, so intermediate judgments must estimate the future rather than treat noise as a finished photo. Estimates can be wrong; discarding every alternative immediately is risky.
+</Talk>
+
+<Talk partner="nori" pose="suggest" id="p-source" study="black-box-plans" label="Nori: what if the same draft always yields the same image?" next="Confirm the target distribution">
+“If the same start always generates the same image, copying a draft only repeats an answer. Could we try different starts and find ones that tend to draw results we like?”
+
+Nori preserves the generation rule and changes **which starting points we use**. Every new start still requires generation and scoring. Finding a high-scoring start after a few trials does not yet mean sampling a specified distribution.
+</Talk>
+
+<Say partner="lumi" pose="explain" id="target" label="Which output proportions do we want?" next="Choose a method route">
+Picking the best is reasonable if we want one high-scoring photo. But the user also wants alternatives. Our question is whether repeated outputs approach this reward tilt:
+
+$$
+\begin{gathered}
+p_R(x_0)=\frac{p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}}{Z_R},\\
+Z_R=\mathbb E_{x_0\sim p_{\mathrm{data}}}
+\big[e^{\lambda R(x_0)}\big].
+\end{gathered}
+$$
+
+Here $p_{\mathrm{data}}$ is the base distribution, $\lambda>0$ controls reward influence, and $Z_R$ averages the reward multiplier over base-generated finished images. Assume $0<Z_R<\infty$; dividing by it restores total mass to $1$. Discrete results use probabilities and continuous images use densities. An exact point in the latter need not have a nonzero probability of being sampled.
+
+This target raises high-reward relative weights while retaining base proportions. <Ref to="dma-reward-tilting"/> derived its motivation and optimality. **Today we ask how to sample, without updating the model.** First assume the base sampler exactly produces $p_{\mathrm{data}}$; we will return to actual model error later.
+</Say>
+
+<Say partner="nori" id="shared-toy" label="Data and target shared by all routes">
+Reuse one executable base: $\frac12\mathcal N(-2,0.55^2)+\frac12\mathcal N(2,0.55^2)$. $x_0$ is a completed datum and $x_t$ a noisy state. Numbers on the axis are toy data, not live dog photographs. Every route actually samples this distribution and compares it with a numerical reward-tilt reference.
+</Say>
+
+<Explore partner="nori" id="e-methods" label="Explore a complete method, then return for the next" next="After reading every route, build the final comparison">
+Choose the order. Each route includes prediction, actual sampling plots, full derivations, and limitations. Only returning from its final step marks it fully explored. You may return early and resume later.
+<Option goto="path-finish">Select completed outputs: Best-of-N and IW</Option>
+<Option goto="path-smc">Resample drafts: SMC and the full FK derivation</Option>
+<Option goto="path-source">Change the source: MCMC and SPT</Option>
+</Explore>
+
+<MethodPath id="path-finish" back="e-methods" title="Select completed outputs: Best-of-N and IW">
+
+<Talk partner="mugi" pose="explain" id="best" label="Keep the highest-scoring image in a batch" next="What do repeated runs reveal?">
+“Generate $N$ images and pick the highest score. We can already do that, right?”
+
+<Figure src={candidates} alt="Six independently completed dog photos with different breeds and hat colors. An empty frame on the right will return only one; no winner is selected. These are not denoising steps of one image.">
+Now that Mugi has proposed generating more images, consider this scene. The left side contains separate candidates; only one is returned on the right. Every candidate must be finished and scored.
+</Figure>
+
+Independently generate $x_0^{(1)},\ldots,x_0^{(N)}$ from the base. Score them, find the highest-scoring index $i^\star$, and return that image:
+
+$$
+\begin{gathered}
+i^\star=\arg\max_{1\le i\le N}R(x_0^{(i)}),\\
+\widehat x_0=x_0^{(i^\star)}.
+\end{gathered}
+$$
+
+This is **Best-of-$N$**. The $\arg\max$ selects an index; it updates neither pixels nor parameters. Ties can use a fixed or random rule. No reward gradient is needed, and each candidate’s original sampling path is unchanged.
+
+Generate a fresh batch of $N$, select one, and independently repeat the whole run $n$ times to collect $n$ outputs. **$N$ is the candidates compared per run; $n$ is the number of collected outputs.** Increasing $n$ reveals this rule’s proportions, which still need to be checked against $p_R$.
+</Talk>
+
+<SteeringExperiment id="best-practice" mode="best" partner="nori" label="Generate candidates and inspect Best-of-N">
+Actually draw each batch from the mixture and select by reward. Observe rank versus multiplier before calculating the discrete example.
+</SteeringExperiment>
+
+<Think partner="mugi" pose="question" id="t-best" label="If either candidate is C, does C win?">
+Simplify results to $A,B,C$, each with base probability $1/3$. Applying $e^{\lambda R}$ to the scores gives multipliers $1,2,7$. These are **multipliers, not raw rewards**, and $C$ has the highest reward. The desired target probabilities are $1/10,2/10,7/10$.
+
+Generate only two candidates each run: Best-of-$2$. **What is the probability of returning $C$?** Compute the probability that neither is $C$, then take the complement. Does the result equal the target’s $7/10$?
+</Think>
+
+<Reveal partner="mugi" pose="explain" id="best-proportions" label="Calculate the actual output proportions" next="Can more repetitions correct them?">
+The candidates are independent, and $C$ wins whenever present. Thus
+
+$$
+\begin{gathered}
+\Pr(\widehat x_0=C)\\
+=1-(2/3)^2=5/9,\\
+\Pr(\widehat x_0=A)\\
+=(1/3)^2=1/9,\\
+\Pr(\widehat x_0=B)\\
+=(2/3)^2-(1/3)^2=3/9.
+\end{gathered}
+$$
+
+Returning $A$ requires two copies of $A$. Returning $B$ requires no $C$ but at least one $B$. These probabilities sum to $1$ but do not have the desired ratio $1:2:7$. **Best-of-$N$ depends on beating other candidates; reward tilting depends on base weights times multipliers.**
+
+Even changing multiplier $7$ to $70$ leaves Best-of-$2$ unchanged if the ranking stays the same. The target ratio would become $1:2:70$. A ranking-only rule cannot generally preserve multiplier information.
+</Reveal>
+
+<Choose partner="nori" pose="question" id="c-repeat" label="Where do repeated runs lead?">
+Keep Best-of-$2$, generate fresh batches every day, and collect one hundred thousand outputs. **Which quantity will the frequency of $C$ approach?**
+<Option correct reply="Repetition reveals this sampler’s own proportions. To use target multipliers, we must change the selection rule." why="Each run still returns C with probability five ninths. More collected outputs do not change that rule.">$5/9$, the Best-of-$2$ output probability.</Option>
+<Option why="Seven tenths is the specified target. Repeating a different output distribution does not turn it into that target.">$7/10$, because there are enough outputs.</Option>
+<Option why="Each run still compares only two candidates, sometimes without C. We increased repetitions, not candidates per run.">$1$, because $C$ scores highest.</Option>
+</Choose>
+
+<Talk partner="mugi" pose="suggest" id="p-weighted" study="terminal-rules" label="Mugi: what if we do not always pick first place?" next="Find the missing multiplier">
+“If the table happens to contain one $A$, one $B$, and one $C$, could we select them with probabilities $1/10,2/10,7/10$? $C$ would remain common while the others still have a chance.”
+
+This samples by weight **conditional on a fixed batch**. Real base-generated batches need not contain one of each. Where are the base proportions already represented, and which multiplier should each candidate receive?
+</Talk>
+
+<Think partner="lumi" pose="question" id="t-ratio" label="Candidates already came from the base. What is missing?" review="terminal-rules">
+Common base results are already more likely to enter the batch. To represent $p_R$, we need the target’s relative increase over the sampling source. Where the base is positive, simplify
+
+$$
+\begin{gathered}
+\frac{p_R(x_0)}{p_{\mathrm{data}}(x_0)}\\
+=\frac{p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}}
+{Z_R\,p_{\mathrm{data}}(x_0)}.
+\end{gathered}
+$$
+
+**What cancels? What is shared by every candidate?** If we will divide by the batch’s total weight, must that shared constant be computed first?
+</Think>
+
+<Reveal partner="lumi" pose="explain" id="importance" label="Correct candidate contributions toward new proportions" next="Calculate for one batch">
+The base cancels, leaving $e^{\lambda R(x_0)}/Z_R$. The shared $Z_R$ cancels when normalizing, so candidate $i$ only needs positive weight
+
+$$
+\begin{aligned}
+\omega^{(i)}&=e^{\lambda R(x_0^{(i)})},\\
+\bar\omega^{(i)}
+&=\frac{\omega^{(i)}}{\sum_{\ell=1}^N\omega^{(\ell)}}.
+\end{aligned}
+$$
+
+Here $\omega^{(i)}$ is a relative multiplier; $\bar\omega^{(i)}$ is the probability of selecting candidate $i$ given this batch. **Candidate frequencies already represent the base; selection supplies the reward multiplier.** We do not multiply by base probability again.
+
+Correcting contributions by the target-to-source ratio is the core of **importance sampling**. Here we perform **importance weighting (IW)**, then sample an index with normalized weights and return its finished image.
+
+<Extra label="To estimate a target average, must we select an image?">
+Let $f(x_0)$ be a quantity to average, such as a class indicator, with finite absolute expectation under the target. Multiply and divide the expectation’s integrand by the base density:
+
+$$
+\begin{aligned}
+\mathbb E_{p_R}[f]
+&=\mathbb E_{p_{\mathrm{data}}}
+\left[\frac{p_R}{p_{\mathrm{data}}}f\right]\\
+&=\frac{\mathbb E_{p_{\mathrm{data}}}[e^{\lambda R}f]}
+{\mathbb E_{p_{\mathrm{data}}}[e^{\lambda R}]}.
+\end{aligned}
+$$
+
+Both expectations average base-generated images. The numerator also multiplies by $f$, and the denominator is $Z_R$. Estimate both means with the same $N$ independent candidates; their factors $1/N$ cancel:
+
+$$
+\mathbb E_{p_R}[f]
+\approx\sum_{i=1}^N\bar\omega^{(i)}f(x_0^{(i)}).
+$$
+
+This is **self-normalized importance sampling**. Compute a weighted average directly, without selecting another image. Finite-sample ratios are generally biased. With independent candidates and the relevant integrability, increasing $N$ makes both sample means converge to their expectations, and their ratio to the target average.
+</Extra>
+</Reveal>
+
+<SteeringExperiment id="importance-practice" mode="importance" partner="nori" label="Sample candidates by their multipliers">
+Replace argmax with sampling a normalized-weight index in each fresh batch. Compare N = 1 and larger N and inspect the target approximation.
+</SteeringExperiment>
+
+<Choose partner="mugi" pose="question" id="c-batch" label="What chance does C have in this batch?">
+This run produced $A,A,C$, with multipliers $1,1,7$. **Given this batch, what is the probability of returning $C$?**
+<Option correct reply="Each candidate has its own weight, totaling 9. Both copies of A contribute to the denominator; C receives seven ninths." why="Normalization uses this batch’s total weight. There is no B in this run to add to the denominator.">$7/9$.</Option>
+<Option goto="d-finite">$7/10$, because that is the target proportion.</Option>
+<Option why="Weighted sampling can still select A. Only maximization would always select C from this batch.">$1$, because $C$ scores highest.</Option>
+</Choose>
+
+<Say partner="nori" pose="explain" id="d-finite" detour back="c-batch" label="Target proportions versus this batch" next="Return to the three candidates">
+$7/10$ is the proportion of $C$ in the whole target. Our table contains only $A,A,C$, with total weight $9$, and no weight from $B$. Selection given this batch can only choose among its members.
+
+The extreme case is $N=1$: regardless of weight, there is only one candidate, so the output remains the base. **Weighted sampling approximates the target with finite candidates; it does not exactly reproduce $p_R$ in every batch.**
+</Say>
+
+<Say partner="nori" pose="explain" id="cost" label="The selection changed. Which costs remain?" next="Review the limits of completed-output selection">
+Each run now independently generates $N$ base images, scores them, computes multipliers, normalizes, and samples one. More repetitions $n$ reveal the fixed-$N$ output law. More candidates $N$ can improve base coverage and the finite-candidate approximation.
+
+But every candidate must still be completed and scored. If each matches the request with probability $p$, the chance of at least one hit among $N$ independent candidates is $1-(1-p)^N$. For $p=0.001$ and $N=1000$, it is only about $0.632$. This concerns a hit somewhere in the batch, **not the probability that the weighted selection succeeds**.
+
+Mugi has put scores into selection, but Lumi’s cost question remains: **could later computation go to another draft when one already looks unpromising halfway through?**
+</Say>
+
+<Say partner="nori" pose="explain" id="finish-done" label="Completed-output selection explored" next="Return and mark this route fully explored">
+You implemented Best-of-N and IW and read candidate weights, finite-N output laws, repeated runs, and generation cost. Return to explore intermediate computation or source sampling.
+</Say>
+
+</MethodPath>
+
+<MethodPath id="path-smc" back="e-methods" title="Resample drafts: SMC and the full FK derivation">
+
+<Talk partner="lumi" pose="suggest" id="p-estimate" study="draft-plans" label="Lumi: first estimate its eventual score">
+“Ask the denoiser for a predicted finished image, then show the evaluator. Or complete the same draft independently several times and average the resulting multipliers. Could we compare drafts before finishing?”
+
+We can try, while separating estimates from outcomes. The current noisy state is $x_t$, its denoised estimate is $\hat x_0(x_t,t)$, and only reaching the endpoint gives $x_0$. In the VP representation, for $\bar\alpha_t>0$,
+
+$$
+\hat x_0(x_t,t)
+=\frac{x_t-\sigma_t\epsilon_\theta(x_t,t)}
+{\sqrt{\bar\alpha_t}}.
+$$
+
+Here $\epsilon_\theta$ is predicted noise and $\sigma_t=\sqrt{1-\bar\alpha_t}$ is its amplitude. Subtract predicted noise and divide out the signal scale to get a clean estimate. **This is not an already determined future image.**
+
+Estimating future weight with $e^{\lambda R(\hat x_0)}$ only queries reward, without differentiation. With multiple independent completions, compute each $e^{\lambda R}$ first, then average. Those trial completions also cost generation. Both are intermediate estimates, not guaranteed exact future averages.
+</Talk>
+
+<Choose partner="nori" pose="question" id="c-estimate" label="What does the intermediate number tell us?" review="draft-plans">
+Lumi shows a denoised estimate to the evaluator and receives a high score. **How can we use that number now?**
+<Option correct reply="Use it as an estimate for allocating computation, while checking error and whether accumulated weighting retains the target." why="The scored input is a predicted completion. This avoids gradients but retains uncertainty about the future.">Estimate the future and help decide which drafts continue.</Option>
+<Option why="The scored input is an estimate, not the image actually reached at the endpoint. They may differ greatly at high noise.">It is already the draft’s guaranteed final reward.</Option>
+<Option why="Returning a score does not imply a derivative with respect to the noisy image. We are comparing candidates.">The score directly supplies a reward gradient with respect to $x_t$.</Option>
+</Choose>
+
+<Think partner="lumi" pose="question" id="t-resample" label="How should three places be allocated?">
+Suppose the positive incremental weights for three drafts are $1,2,7$, normalizing to $0.1,0.2,0.7$. We want three candidates for the next segment, drawing a draft with these probabilities each time, **allowing repeated selections**.
+
+Across three draws, how many copies does the third draft receive on average? Must every run contain exactly that number? Separate expected copies from actual copies.
+</Think>
+
+<Reveal partner="lumi" pose="explain" id="resample" label="Draw indices, then continue those drafts" next="Connect the intermediate loop">
+Each draw selects the third draft with probability $0.7$, giving expected count $3\times0.7=2.1$. The first two have expected counts $0.3,0.6$, but actual counts are integers. One run might draw $(A,C,C)$ or three copies of $C$. These are possible outcomes, **not prescribed copying lists**.
+
+Drawing candidates again by probability is **resampling**. Afterward, each copy receives equal weight $1/3$. Higher-weight drafts have more descendants on average and receive more future computation; the total remains three. Neither model nor scorer is retrained.
+
+For now, $1,2,7$ were assumed incremental multipliers for this segment. We still need to derive how future estimates give those incremental weights.
+</Reveal>
+
+<Talk partner="lumi" pose="explain" id="smc" label="Compare again after each segment" next="What if we copy only the champion?">
+Call an in-progress candidate a **particle** and keep $M$ simultaneously. Diffusion generates from high noise toward $t=0$. Choose checkpoints $T=t_K>\cdots>t_0=0$, where $K$ counts segments and $x_{t_k}^{(i)}$ is draft $i$ at time $t_k$.
+
+From $t_k$ to $t_{k-1}$, first move each draft with the original reverse sampler: **propagate**. Compute its incremental weight $\omega_{k-1}^{(i)}$: **weight**. Normalize over the batch to get $\bar\omega_{k-1}^{(i)}$, then draw $M$ indices with those probabilities: **resample**.
+
+Repeating “propagate → weight → resample” is the basic operation of **Sequential Monte Carlo (SMC)**. Here every checkpoint resamples, resetting weights to $1/M$. At $t=0$, uniformly select one of the final $M$ images to return. **We change which candidates have descendants, not $\theta$.**
+</Talk>
+
+<SteeringExperiment id="smc-practice" mode="smc" partner="nori" label="Step through which drafts leave descendants">
+Each particle has a position and ancestor. Step through one population, then draw one return from each of 300 independent populations. Deliberately misestimate H and inspect whether terminal reward correction can restore a lost mode. The full ratio derivation follows.
+</SteeringExperiment>
+
+<Choose partner="mugi" pose="question" id="c-champion" label="What does copying only the best overlook?">
+Mugi says, “To spend time on good drafts, why not keep only the highest-scoring one and copy it $M$ times?” **What does this overlook?**
+<Option goto="d-deterministic">Making $M$ copies guarantees $M$ different results.</Option>
+<Option correct reply="Early estimates may be wrong. Giving every descendant one ancestor loses other possible futures. Weighted resampling can also degenerate; inspect ancestor concentration." why="Finite candidates need exploration. We score an estimated future, not a known best final path.">Early judgments may be wrong, and all descendants may share one ancestor.</Option>
+<Option why="Parameters remain fixed. Keeping one ancestor changes candidates and computation allocation, not model training.">Copying drafts necessarily retrains the model.</Option>
+</Choose>
+
+<Say partner="nori" pose="explain" id="d-deterministic" detour back="c-champion" label="Which rule follows the copied draft?" next="Return to the purpose of copying">
+With fresh sampler randomness, copies of one draft may reach different results. Along the same deterministic ODE, however, identical states follow the same route. Ten copies still give one answer.
+
+Shrinking to a few ancestors and narrowing exploration is **particle degeneracy**. Random normalized-weight resampling can also cause it, especially with concentrated weights. Any added exploration or perturbation must be checked for target preservation; copy count alone does not establish diversity.
+</Say>
+
+<Talk partner="nori" pose="question" id="increment" label="Would multiplying future scores every time overcount?" next="Work through one example together">
+Having only a few ancestors and narrowing exploration is **particle degeneracy**. Random resampling can still cause it when weights concentrate. Copies need later randomness to separate; under the same deterministic rule, more copies do not create different answers.
+
+“We know how to resample. But suppose a draft’s future multiplier is first estimated as $2$, then is $6$ at completion. Multiplying by both $2$ and $6$ gives $12$, although we only wanted a factor of $6$. What was counted twice?”
+
+Let $H_k(x_{t_k})$ be a positive estimate at checkpoint $t_k$. It may be a cheap estimate, not U7.2’s exact posterior average. Set $H_K\equiv1$ at the start and $H_0(x_0)=e^{\lambda R(x_0)}$ at completion, with positive intermediate values.
+
+Each complete base path should receive the terminal multiplier only once. We are checking **the accumulated product**, not how high each separate estimate is. First follow a worked example, then choose the next operation yourself.
+</Talk>
+
+<Reveal partner="nori" pose="explain" id="increment-example" label="Watch how we choose the next mathematical operation" next="Try another set of numbers">
+Split this path into two segments: $H_2=1$, $H_1=2$, and $H_0=6$. Open one operation at a time and see how the goal determines the tool.
+
+<Derivation label="From cumulative multipliers to each segment’s increase">
+<DeriveStep title="Bring the cumulative multiplier to the intermediate estimate" goal="At the first checkpoint, the cumulative multiplier should be 2." tool="Divide the new estimate by the multiplier already accumulated." reason="We start at 1 and need the missing factor that brings it to 2.">
+Solve “$1$ times what equals $2$?” The first multiplier is
+
+$$
+\frac{H_1}{H_2}=\frac21=2.
+$$
+
+Here $H_1,H_2$ are the same path’s estimates at its two checkpoints. It has already accumulated a factor of $2$; the next segment cannot pretend otherwise.
+</DeriveStep>
+
+<DeriveStep title="Supply only the factor still missing in the second segment" goal="We already have a factor of 2 and want a final factor of 6." tool="Solve the multiplication relation by dividing 6 by 2." reason="We need a multiplicative factor, not an additive increase in score.">
+Solve “$2$ times what equals $6$?” The increment is
+
+$$
+\frac{H_0}{H_1}=\frac62=3.
+$$
+
+Multiplying directly by $6$ would give $12$; the difference $4$ is not the missing factor either. **We divide because the unknown is a factor in a product.**
+</DeriveStep>
+
+<DeriveStep title="Multiply both segments and check for double counting" goal="The entire path should receive only the final factor of 6." tool="Multiply and cancel the shared intermediate estimate." reason="The intermediate 2 appears in one numerator and the next denominator.">
+Connect the segments:
+
+$$
+\frac{H_1}{H_2}\frac{H_0}{H_1}
+=\frac21\frac62=6.
+$$
+
+The intermediate estimate helps allocate computation, then cancels against the next ratio. Reward is not ignored; the same terminal preference accumulates only once.
+</DeriveStep>
+</Derivation>
+</Reveal>
+
+<Choose partner="nori" pose="question" id="c-increment-tool" label="Choose the next mathematical tool">
+Try another path: its previous checkpoint has accumulated a factor of $3$, and the new estimate calls for $12$. **Which multiplier should this segment add? First identify the missing multiplicative factor, then choose a tool.**
+<Option correct reply="Multiplying the existing 3 by 4 reaches 12. We divide because the unknown is a missing factor." why="The new-to-old ratio supplies only what the cumulative product lacks, without recounting the previous part.">Divide new by old: $12/3=4$.</Option>
+<Option why="The difference 9 is additive. Multiplying the existing 3 by it gives 27 rather than the desired 12.">Subtract old from new: $12-3=9$.</Option>
+<Option why="An existing factor of 3 times 12 accumulates to 36, counting the earlier contribution again.">Use the new $12$ directly as this segment’s multiplier.</Option>
+</Choose>
+
+<Think partner="nori" pose="question" id="t-telescope" label="Given the framework, can you fill in the cancellation?">
+Now split one path into three segments. Its positive estimates from start through two intermediate checkpoints to finish are $H_3,H_2,H_1,H_0$. For now these denote values along that one path; we will restore state inputs shortly.
+
+Each segment uses new divided by old, giving the product
+
+$$
+\frac{H_2}{H_3}\frac{H_1}{H_2}\frac{H_0}{H_1}.
+$$
+
+**Which terms cancel, and what remains?** With start value $1$ and the true terminal reward multiplier, explain why intermediate estimates need not be exact to preserve the ideal full-path multiplier.
+</Think>
+
+<Reveal partner="nori" pose="explain" id="potentials" label="Each segment adds only the new ratio" next="Why is the terminal proportion still the one we want?">
+In the three-segment product, $H_2,H_1$ each appear once above and below the fraction bar, leaving $H_0/H_3$. Restore the segment states and check the needed conditions.
+
+<Derivation label="From ratios along one path to the terminal multiplier">
+<DeriveStep title="Compare consecutive states on the same path" goal="Define the multiplier for the segment from t_k to t_{k−1}." tool="Take the ratio of the new estimate to the old one." reason="The new candidate must be paired with its actual predecessor to correct the same path’s cumulative weight.">
+Call this segment’s multiplier function a **potential**:
+
+$$
+\begin{gathered}
+G_{k-1}(x_{t_{k-1}},x_{t_k})\\
+=\frac{H_{k-1}(x_{t_{k-1}})}{H_k(x_{t_k})}.
+\end{gathered}
+$$
+
+The numerator is the estimate after the segment, and the denominator is the estimate before it. Dividing by another draft’s old estimate would destroy the matching values needed for cancellation.
+</DeriveStep>
+
+<DeriveStep title="Substitute candidate i’s states" goal="Compute this draft’s sampling weight for the segment." tool="Evaluate the potential at the candidate’s consecutive states." reason="The potential describes the rule; resampling needs a numerical value for each candidate.">
+Our main construction uses the original sampler for this segment, so candidate $i$ has incremental weight
+
+$$
+\begin{gathered}
+\omega_{k-1}^{(i)}\\
+=G_{k-1}(x_{t_{k-1}}^{(i)},x_{t_k}^{(i)}).
+\end{gathered}
+$$
+
+Normalize by the sum of this batch’s $\omega$ values to obtain selection probabilities. A different proposal also requires correcting the sampling source; an extra section below expands that ratio.
+</DeriveStep>
+
+<DeriveStep title="Multiply along one ancestral path" goal="Check the multiplier accumulated over every segment." tool="Cancel matching factors in the product." reason="Each intermediate H appears in adjacent segments’ numerator and denominator.">
+Multiply segment ratios along the same ancestral path. As in the three-segment example, intermediate values cancel, leaving
+
+$$
+\begin{gathered}
+\prod_{k=1}^K G_{k-1}(x_{t_{k-1}},x_{t_k})\\
+=\frac{H_0(x_0)}{H_K(x_T)}.
+\end{gathered}
+$$
+
+This checks a product along one path, not an average across particles. Different paths have their own intermediate states and estimates.
+</DeriveStep>
+
+<DeriveStep title="Insert the start and endpoint conditions" goal="Leave only the finished image’s true reward multiplier." tool="Substitute H_K=1 and the terminal exponential weight." reason="Cancellation gives H_0/H_K; matching the desired multiplier depends on how those endpoints are chosen.">
+Set $H_K\equiv1$ and $H_0(x_0)=e^{\lambda R(x_0)}$. Then
+
+$$
+\frac{H_0(x_0)}{H_K(x_T)}
+=e^{\lambda R(x_0)}.
+$$
+
+**Intermediate estimates allocate computation; endpoint choices determine the accumulated multiplier.** Positive estimates make the ratios defined. This construction preserves the ideal terminal tilt, but finite-$M$ drafts may have been discarded already, so actual approximation still depends on those estimates.
+</DeriveStep>
+</Derivation>
+</Reveal>
+
+<Choose partner="lumi" pose="question" id="c-path-tool" label="How do path multipliers give finished-image proportions?">
+Each path now receives only $e^{\lambda R(x_0)}$. Yet multiple paths may reach the same finished result. **What mathematical operation gives that result’s probability in the new distribution?**
+<Option correct reply="Add the path masses reaching the same result to obtain its terminal probability. Continuous spaces use the corresponding integral." why="Every compatible path can contribute, retaining its original path probability.">Accumulate all paths’ contributions to that result, then normalize.</Option>
+<Option why="Keeping only the most likely path removes contributions from other paths to the same endpoint. That selects a path rather than calculating total probability.">Keep only the most likely path leading to it.</Option>
+<Option why="Base paths need not be equally likely. Equally averaging multipliers while discarding path probabilities loses the base proportions.">Ignore original path probabilities and average reward multipliers equally.</Option>
+</Choose>
+
+<Say partner="nori" pose="explain" id="fk-four-paths" label="First add the contributions of four paths" next="Write the general path distribution">
+Try a four-path base example: two paths reach $A$ with probabilities $0.1,0.2$; two reach $B$ with probabilities $0.3,0.4$. Terminal multipliers are $1$ for $A$ and $3$ for $B$. The weighted masses are
+
+$$
+\begin{aligned}
+A:&\,0.1\cdot1+0.2\cdot1=0.3,\\
+B:&\,0.3\cdot3+0.4\cdot3=2.1.
+\end{aligned}
+$$
+
+A shared terminal multiplier can leave the sum. Equivalently, first add base path probabilities to obtain $p_{\mathrm{data}}(A)=0.3$ and $p_{\mathrm{data}}(B)=0.7$, then multiply by $1,3$. The normalizing total is $2.4$, giving probabilities $1/8,7/8$.
+
+This is why we chose “accumulate all paths.” Keeping one path would omit the other’s mass.
+</Say>
+
+<Reveal partner="lumi" pose="explain" id="fk" label="Specify path proportions before actually sampling" next="How does this target differ from our finite drafts?">
+Use the original sampler’s path distribution $P$ to connect full-path multipliers with finished-image proportions. Write the checkpoint sequence as $x_{t_K:0}$. First define a path target $P_R$, then check its endpoint distribution.
+
+<Derivation label="Weight paths, then accumulate intermediate possibilities">
+<DeriveStep title="Reweight each base path" goal="Define the desired relative weight of a generation path." tool="Multiply original path mass by segment potentials and normalize." reason="Multipliers alone are not probabilities. Preserve original contributions and restore total mass to 1.">
+$$
+\begin{gathered}
+P_R(\mathrm d x_{t_K:0})\\
+=\frac{1}{Z_R}P(\mathrm d x_{t_K:0})
+\prod_{k=1}^K G_{k-1}.
+\end{gathered}
+$$
+
+Here $P(\mathrm d x_{t_K:0})$ denotes the base probability measure on these paths. The product uses the state inputs defined above. The total weighted base-path mass $Z_R$ is assumed finite and nonzero.
+</DeriveStep>
+
+<DeriveStep title="Insert the accumulated multiplier we already checked" goal="Identify which reward a complete path ultimately depends on." tool="Replace the potential product with its telescoped result." reason="Intermediate H values already canceled along this path. They should not be multiplied in again.">
+$$
+\begin{gathered}
+P_R(\mathrm d x_{t_K:0})\\
+=\frac{e^{\lambda R(x_0)}}{Z_R}
+P(\mathrm d x_{t_K:0}).
+\end{gathered}
+$$
+
+The new multiplier depends only on endpoint $x_0$. Any two paths reaching the same result receive the same terminal weight, while retaining their original relative probabilities.
+</DeriveStep>
+
+<DeriveStep title="Include every path to the same result" goal="Calculate terminal proportions from the path distribution." tool="Sum over intermediate states, or integrate in continuous spaces." reason="An endpoint does not tell us which path was taken. All compatible contributions must be included.">
+The four paths gave weighted masses 0.3 for A and 2.1 for B. At a fixed endpoint every compatible path receives the same terminal multiplier, so factor it out of the sum over intermediate states. Continuous spaces use an integral while retaining each base path’s contribution.
+</DeriveStep>
+
+<DeriveStep title="Read back the general terminal target" goal="Verify that endpoint proportions equal the specified reward tilt." tool="Factor out the endpoint-only multiplier and retain the base terminal law." reason="At a fixed endpoint, the multiplier does not vary with intermediate states. Accumulating them leaves the original sampler’s terminal distribution.">
+If the base sampler ends at $p_{\mathrm{data}}$, accumulating all paths for each endpoint, just as in the four-path example, gives
+
+$$
+p_R(x_0)
+=\frac{e^{\lambda R(x_0)}}{Z_R}
+p_{\mathrm{data}}(x_0).
+$$
+
+This denotes probabilities for discrete results and densities for continuous ones. **We defined path weighting, then derived its terminal target.** No particle count $M$ appears in the definition, and no image has yet been sampled.
+
+This potential-weighted path framework is a **Feynman–Kac (FK) model**. SMC is the finite-particle sampling algorithm approximating it. The derivation specifies an ideal target; finite-draft error and degeneracy require separate checks.
+</DeriveStep>
+</Derivation>
+
+<Extra label="How do FK steering and DAS relate to these two layers?">
+Singhal and colleagues’ **FK steering** applies this construction to diffusion guidance: choose intermediate estimates, potentials, proposals, and resampling times, then sample with particle methods. Kim, Kim, and Park’s **DAS (Diffusion Alignment as Sampling)** also uses SMC, gradually increasing intermediate-target preference through reward tempering.
+
+Relate these names to two layers: how targets and potentials are constructed, and how they are sampled. FK and SMC are not mutually exclusive methods.
+</Extra>
+
+<Extra label="With a different proposal, does weight still equal potential?">
+Our main construction propagates with the original sampler, so proposal and base transition coincide. If another transition density $\tau_{k-1}$ proposes states while the base density is $p_{\mathrm{base}}$, the weight must also correct their ratio. With resampling each segment and equal previous weights,
+
+$$
+\begin{aligned}
+\omega_{k-1}^{(i)}
+&=G_{k-1}(x_{t_{k-1}}^{(i)},x_{t_k}^{(i)})\\
+&\quad\cdot\frac{p_{\mathrm{base}}(x_{t_{k-1}}^{(i)}\mid x_{t_k}^{(i)})}
+{\tau_{k-1}(x_{t_{k-1}}^{(i)}\mid x_{t_k}^{(i)})}.
+\end{aligned}
+$$
+
+The first factor is the target’s increase over the base path. The second compensates for drawing from the proposal rather than the base transition, for the same reason as finished-image IW. The proposal must cover regions with target mass for this ratio to work.
+
+Only when $\tau_{k-1}=p_{\mathrm{base}}$ does the ratio become $1$, recovering $\omega=G$. Here $G_{k-1}$ is an incremental weight function; below, $G(z)$ is a deterministic generator. Their inputs and subscripts distinguish the roles.
+</Extra>
+</Reveal>
+
+<Choose partner="lumi" pose="question" id="c-bad-estimate" label="Which layer suffers from a poor intermediate estimate?">
+An intermediate $H_k$ is poor but remains positive. We keep same-path ratios, $H_K=1$, and the true terminal reward for $H_0$. **Which claim follows from the construction?**
+<Option correct reply="The product still telescopes to the terminal multiplier, while estimates affect survival among finite candidates. Both layers matter." why="Accumulated multipliers determine the path target; actual sampling produces finite-particle error and degeneracy.">The ideal terminal target is unchanged, but finite-particle approximation may worsen.</Option>
+<Option why="Poor estimates can eliminate drafts that would later be good. A correct product does not establish sufficient finite-M exploration.">Estimates cancel, so intermediate estimates are irrelevant.</Option>
+<Option goto="d-endpoints">Scoring each segment guarantees $p_R$, regardless of the final weight.</Option>
+</Choose>
+
+<Say partner="nori" pose="explain" id="d-endpoints" detour back="c-bad-estimate" label="Is the remaining factor really the intended one?" next="Check the endpoint conditions">
+Cancellation leaves $H_0/H_K$. If the last reward still scores a predicted image instead of true $e^{\lambda R(x_0)}$, the remaining terminal weight may be different.
+
+Likewise, a nonconstant $H_K(x_T)$ without a matching initial correction leaves an extra $1/H_K(x_T)$. **More particles can improve approximation, but cannot automatically repair a changed FK target.**
+</Say>
+
+<Say partner="lumi" pose="explain" id="smc-output" label="Bring the finite drafts to completion" next="Which error do more runs address?">
+Lumi’s complete procedure is now clear. Draw $M$ original-sampler starts. At each segment, retain old states, propagate, and divide each new $H$ by its own predecessor’s old $H$. Normalize and independently resample $M$ indices with replacement. Equal-weight copies enter the next segment. At completion, $H_0$ uses the finished image’s true reward.
+
+The final $M$ images define an empirical distribution:
+
+$$
+\begin{gathered}
+\widehat p_R^{(M)}(\mathrm d x_0)\\
+=\frac1M\sum_{i=1}^M\delta_{x_0^{(i)}}(\mathrm d x_0).
+\end{gathered}
+$$
+
+Here $\delta_{x_0^{(i)}}$ puts a point mass at image $i$. Estimate a category’s frequency by counting its members and dividing by $M$. Equal weights **do not imply independent samples**, since particles may share ancestors. Uniformly selecting one returns this run’s output.
+
+<Extra label="How do more particles M differ from more fixed-M runs n?">
+Let $f(x_0)$ be a bounded image statistic, such as the indicator of $C$. With fixed checkpoints, correct weights, and the corresponding integrability conditions, SMC consistency states
+
+$$
+\begin{gathered}
+\frac1M\sum_{i=1}^M f(x_0^{(i)})\\
+\xrightarrow[M\to\infty]{\text{in probability}}\\
+\mathbb E_{x_0\sim p_R}[f(x_0)].
+\end{gathered}
+$$
+
+The left side averages $M$ particles in one run; the right side is the target average. “In probability” means the probability of exceeding any fixed positive error tolerance tends to $0$. It does not require independent particles within the run.
+
+Increasing $M$ improves each run’s FK-target approximation. Independently repeating a fixed-$M$ sampler $n$ times only clarifies its output proportions, which may remain biased. This limit also does not repair an incorrectly specified terminal weight.
+</Extra>
+
+<Extra label="Must every segment resample?">
+No. **Effective sample size (ESS)** describes concentration of normalized weights:
+
+$$
+\mathrm{ESS}=\frac{1}{\sum_{i=1}^M(\bar\omega^{(i)})^2}.
+$$
+
+With equal weights, the squared sum is $M/M^2=1/M$, giving ESS $M$. If one weight approaches $1$, the squared sum approaches $1$, giving ESS near $1$. This measures weight concentration, not independent ancestor count.
+
+We can resample only when ESS falls below a threshold. If a segment skips resampling, retain the old weights and multiply by the next incremental potential. Skipping resampling cannot be combined with assuming equal weights at the next segment.
+</Extra>
+</Say>
+
+<Judge partner="nori" pose="question" id="j-repeat-smc" answer={false} label="Three particles per run, but ten thousand runs?" yes="Enough to remove it" no="Bias may remain"
+  replyYes="Repetition reveals the fixed-M=3 output law. Each run still has three particles, so early elimination and finite-approximation bias may persist."
+  replyNo="Bias may remain. Improving each run requires considering M, estimates, proposals, and resampling. Increasing repetitions does not automatically change them.">
+Every run uses only $M=3$ particles, but we repeat independently many times. **Is increasing only $n$ enough to eliminate finite-$M$ sampling bias?**
+</Judge>
+
+<Say partner="nori" pose="explain" id="smc-done" label="The operations and full derivation are complete" next="Return and mark this route fully explored">
+You observed resampling and ancestry and read incremental ratios, telescoping potentials, the FK endpoint law, and finite-M error and degeneracy. Check ideal target construction separately from finite sampling performance.
+</Say>
+
+</MethodPath>
+
+<MethodPath id="path-source" back="e-methods" title="Change the source: MCMC and SPT">
+
+<Talk partner="nori" pose="suggest" id="source-target" label="The same start always draws the same image" next="How do source proportions give image proportions?">
+“Back to my proposal: if copied drafts always produce the same image, could we preserve the generation rule and try new starts?”
+
+Write the deterministic generator as $G$: start $z$ produces $x_0=G(z)$. It includes the fixed generation computation; the same $z$ yields the same result. Originally the source has density $p_Z$, so we draw $z\sim p_Z$.
+
+Every start has a queryable score $R(G(z))$. To favor high-scoring outputs, put the multiplier on the source:
+
+$$
+p_Z^R(z)\propto p_Z(z)e^{\lambda R(G(z))}.
+$$
+
+The factor $p_Z$ retains original relative source densities, while the exponential raises weights for starts yielding high scores. **The generation rule stays fixed; the desired source distribution changes.** Writing this target does not yet supply a sampler.
+</Talk>
+
+<Think partner="nori" pose="question" id="t-source" label="What if different starts draw the same result?">
+Use three discrete starts $z_a,z_b,z_c$, each originally of probability $1/3$, with $G(z_a)=A$ and $G(z_b)=G(z_c)=B$. The output multipliers are $1$ for $A$ and $3$ for $B$.
+
+The source weights become $1/3,1,1$. **After normalization, what are the probabilities of generating $A,B$?** Add the probabilities of starts producing the same result, then compare with image-space base times reward.
+</Think>
+
+<Reveal partner="nori" pose="explain" id="source-push" label="Add all starts that draw the same result" next="How can we move between starts?">
+Total source weight is $7/3$, giving source probabilities $1/7,3/7,3/7$. Only one start produces $A$, so its probability is $1/7$. Two produce $B$, totaling $6/7$.
+
+The original output probabilities were $1/3,2/3$. Multiplying by $1,3$ gives weights $1/3,2$, again normalizing to $1/7,6/7$. **$G$ need not be one-to-one; include every source producing the same result.**
+
+More generally, also write the source normalizer as $Z_R=\mathbb E_{z\sim p_Z}[e^{\lambda R(G(z))}]$, the mean reward multiplier of base-generated outputs. Sampling from $p_Z^R$ and applying the same $G$ gives any integrable image statistic $f$ the average
+
+$$
+\begin{gathered}
+\mathbb E_{z\sim p_Z^R}[f(G(z))]\\
+=\frac1{Z_R}\mathbb E_{z\sim p_Z}\big[\\
+e^{\lambda R(G(z))}f(G(z))\big].
+\end{gathered}
+$$
+
+The original $z\sim p_Z$ followed by $G$ produces the base output law. This equation is exactly its reward-weighted average. Source tilting therefore reweights **the generator’s actual output law**, without needing image-space density or eliminating original model error.
+</Reveal>
+
+<Talk partner="nori" pose="explain" id="chains" label="Try a new start, then decide whether it stays" next="Must a lower score be rejected?">
+“We have a source target. Could we propose $z'$ from the current $z$, generate $G(z')$, score it, and decide whether to move there?”
+
+Yes, but always accepting only higher scores again finds high-scoring points rather than specified proportions. A sequence of current and subsequent starts is a **chain**. Acceptance moves to $z'$; rejection stays at $z$. Staying still is also a step.
+
+Using target-preserving Markov transitions to collect samples is **Markov chain Monte Carlo (MCMC)**. First consider a symmetric proposal, equally likely in either direction. The acceptance probability is
+
+$$
+\begin{gathered}
+P_{\mathrm{accept}}(z,z')\\
+=\min\big\{1,\\
+\frac{p_Z(z')}{p_Z(z)}\\
+\cdot e^{\lambda_j[R(G(z'))-R(G(z))]}\big\}.
+\end{gathered}
+$$
+
+Here $\lambda_j$ is chain $j$’s reward strength. Normalizing constants cancel. The ratio compares **prior density times reward multiplier**. Draw $U\sim\mathrm{Uniform}(0,1)$; move to $z'$ if $U<P_{\mathrm{accept}}$, otherwise keep $z$. No reward gradient is needed.
+
+<Extra label="Why does this acceptance probability preserve the target?">
+Denote the chain target by $\pi(z)=p_Z^{\lambda_j}(z)$ and proposal density by $a(z'\mid z)$. Symmetry means $a(z'\mid z)=a(z\mid z')$. Forward probability flow is
+
+$$
+\begin{gathered}
+\pi(z)a(z'\mid z)\\
+\cdot\min\{1,\pi(z')/\pi(z)\}\\
+=a(z'\mid z)\\
+\cdot\min\{\pi(z),\pi(z')\}.
+\end{gathered}
+$$
+
+Exchanging $z,z'$ gives the same reverse flow by symmetry. Including rejection probability at the current state prevents net target mass from flowing to one side. This equal-flow condition is **detailed balance**, giving target invariance.
+
+An asymmetric proposal needs the additional ratio $a(z\mid z')/a(z'\mid z)$. The prior-and-reward-only version no longer suffices. Target preservation is a transition property; sufficient finite-run exploration is a separate question.
+</Extra>
+</Talk>
+
+<SteeringExperiment id="source-practice" mode="source" partner="nori" label="Run a source chain and retain rejected moves">
+A fixed quantile generator maps standard-Normal sources to the same mixture base. Change only source acceptance and inspect lower-reward accepts, repeated positions, and the actual output histogram.
+</SteeringExperiment>
+
+<Choose partner="mugi" pose="question" id="c-accept" label="Could a slightly lower score still be accepted?">
+The proposal is symmetric, old and new starts have equal prior density, and the new reward weight is half the old one. **How should we decide?**
+<Option correct reply="The target ratio is one half, so accept with probability one half. This samples proportions rather than maximizing every step." why="Allowing lower-scoring candidates preserves the forward and reverse probability flows.">Accept the new candidate with probability $1/2$.</Option>
+<Option why="Always rejecting lower scores changes the rule into score climbing and loses the target-preservation argument.">Always reject a lower score.</Option>
+<Option why="The proposal is symmetric, not the target. Reward weights still affect acceptance.">Always accept because the proposal is symmetric.</Option>
+</Choose>
+
+<Talk partner="lumi" pose="suggest" id="tempering" label="Could another chain help escape one composition?" next="Can starts be swapped arbitrarily?">
+“If high-scoring starts lie in distant regions, one chain may keep finding the same composition. Could several reward strengths search together and exchange what they find?”
+
+Let chain $j$ use strength $\lambda_j$, targeting
+
+$$
+p_Z^{\lambda_j}(z)
+\propto p_Z(z)e^{\lambda_jR(G(z))}.
+$$
+
+A smaller $\lambda_j$ is less influenced by reward and can be paired with larger proposal steps to explore other base-supported regions. A larger $\lambda_j$ favors high scores and can be paired with smaller steps for refinement. **Strength does not automatically determine proposal step size**; they are separate design choices.
+
+Each chain first tries local proposals with the acceptance rule, then proposes cross-chain swaps to bring exploratory results to the desired strength. This is Wang and colleagues’ **Source Parallel Tempering (SPT)**: sample several source-space targets at different strengths, with swaps also subject to acceptance. Collect $z$ from the chain at desired strength $\lambda$, then output $G(z)$.
+</Talk>
+
+<Think partner="lumi" pose="question" id="t-swap" label="Which factors cancel before and after a swap?">
+Two chains have strengths $\lambda_i,\lambda_j$ and starts $z_i,z_j$. Their joint target is the product of their targets. Swapping the starts gives this reward-dependent new-to-old ratio:
+
+$$
+\frac{e^{\lambda_iR(G(z_j))}e^{\lambda_jR(G(z_i))}}
+{e^{\lambda_iR(G(z_i))}e^{\lambda_jR(G(z_j))}}.
+$$
+
+Both sides contain the same $p_Z(z_i)p_Z(z_j)$, so prior factors cancel. **Combine the exponential’s exponents. Which differences in strengths and rewards multiply together?**
+</Think>
+
+<Reveal partner="lumi" pose="explain" id="swap" label="Swaps must preserve each chain’s proportions too" next="Observe swaps and their additional cost">
+Subtract denominator exponents from numerator exponents, then factor common terms:
+
+$$
+\begin{gathered}
+P_{\mathrm{swap}}=\min\big\{1,\\
+\exp\!\left[\begin{gathered}
+(\lambda_i-\lambda_j)\\
+\cdot\big(R(G(z_j))\\
+-R(G(z_i))\big)
+\end{gathered}\right]\big\}.
+\end{gathered}
+$$
+
+With symmetric selection of swap pairs, this rule preserves the product of chain targets. We cannot simply import another chain’s higher score: that may change the target as well as exploration speed.
+
+One SPT round proposes local starts, generates and scores, accepts or stays using $P_{\mathrm{accept}}$, then decides a pair’s swap using $P_{\mathrm{swap}}$. Swap the start and its already computed reward together; do not pair a start with another image’s score.
+
+Every fresh proposal costs generation and scoring. Samples in the desired chain may remain correlated, and we must check coverage of distinct high-reward regions. **A target-preserving rule does not establish that finite search has reached the target.**
+</Reveal>
+
+<SteeringExperiment id="tempering-practice" mode="tempering" partner="nori" label="Run three strengths and probabilistic swaps">
+Compare complete single-chain and three-chain records. Equal iterations per chain cost more G and reward calls with three chains. Inspect traces and coverage of both modes instead of treating higher mean reward as convergence.
+</SteeringExperiment>
+
+<Judge partner="nori" pose="question" id="j-source-fixed" answer={true} label="Does each new start require learning again?" yes="Parameters can stay fixed" no="Parameters must update"
+  replyYes="Yes. The same fixed G maps each new start to an image, which reward then scores. Starts and acceptance decisions change; original parameters can stay fixed."
+  replyNo="Generating new images uses the model without training it. SPT’s local proposals and swaps can both use fixed generation rules.">
+SPT generates and scores again for each new proposed start. **Can all these operations preserve the generative parameters $\theta$?**
+</Judge>
+
+<Say partner="nori" pose="explain" id="source-done" label="Source targets, acceptance, and swaps explored" next="Return and mark this route fully explored">
+You implemented MCMC and SPT and read how source tilting yields output laws, acceptance and swap derivations, finite-search limits, and generation cost. Return before comparing all methods under different constraints.
+</Say>
+
+</MethodPath>
+
+<Sort partner="nori" pose="question" id="s-methods" label="Back at the workbench: what does each approach change?"
+  columns={["Final selection / IW", "Intermediate SMC", "Source-space SPT"]}
+  rows={["When do scores act?", "How is retention decided?", "What matters when adding computation?"]}
+  rowReplies={["Final selection and IW finish candidates first. SMC uses future estimates to allocate the next segment. SPT scores completed images to decide which starts stay. Next, compare the rules.", "All use scores, but differently. Target approximation requires checking normalized weights, accumulated potentials, or acceptance rules.", "Computation may improve approximation, but average reward or total calls alone cannot establish the target. Candidate coverage, ancestry, and chain exploration are different issues."]}
+  intro="The method names are now familiar. Place each action and limitation where it belongs. Read each row’s explanation before continuing."
+  done="Final argmax finds the highest score; IW and SMC approximate targets with weights; SPT searches with source-target-preserving acceptance. Each still needs sufficient and suitable computation.">
+<Card col={0} row={0} context="Final selection · Scoring" hint="Both begin with complete candidates; their final selection rules differ.">Score a batch of finished images, then decide which to return.</Card>
+<Card col={1} row={0} context="Intermediate SMC · Scoring" hint="Current drafts are unfinished. Estimate their future, then compute segment weights.">Estimate future multipliers from drafts to decide which descendants continue.</Card>
+<Card col={2} row={0} context="Source SPT · Scoring" hint="SPT scores G(z) to decide acceptance and swaps of starts.">Generate from a proposed start, score, then decide whether to change starts.</Card>
+<Card col={0} row={1} context="Final selection · Rule" hint="Argmax and normalized-weight sampling on the same batch give different output laws.">Pick the highest score, or normalize exponential weights and sample one.</Card>
+<Card col={1} row={1} context="Intermediate SMC · Rule" hint="Random resampling determines copy counts; the potential construction checks the accumulated target.">Resample M copies with corrected incremental weights, allowing shared ancestors.</Card>
+<Card col={2} row={1} context="Source SPT · Rule" hint="It does not simply retain all high scores. Local moves and swaps both use acceptance probabilities.">Accept starts using target ratios and swap using acceptance probabilities.</Card>
+<Card col={0} row={2} context="Final selection · Computation" hint="Every complete candidate costs generation and scoring. More fixed-N runs do not automatically correct proportions.">Rare targets need many candidates; finite-N IW still has approximation error.</Card>
+<Card col={1} row={2} context="Intermediate SMC · Computation" hint="Copies may share ancestors, and H estimates affect which drafts survive.">Check estimates and ancestor concentration; larger M cannot fix a wrong target.</Card>
+<Card col={2} row={2} context="Source SPT · Computation" hint="Every new start needs generation; correct acceptance does not imply sufficient finite-chain exploration.">Every proposal needs completion and scoring; finite search may stay local.</Card>
+</Sort>
+
+<Choose partner="nori" id="c-intermediate-access" label="What if generation can pause at checkpoints?">
+You can save noisy states, advance each by a segment, and cheaply estimate future multipliers. Which operation directly reallocates computation before completion?
+<Option correct reply="These are SMC’s interface prerequisites; estimator quality and degeneracy still require checks." why="These are SMC’s interface prerequisites; estimator quality and degeneracy still require checks.">Resample by incremental weights and continue the descendants.</Option>
+<Option why="This spends every candidate’s full generation cost before choosing.">Finishing every candidate and taking a maximum reallocates intermediate work.</Option>
+<Option why="This overcounts the preference; use incremental ratios consistent with the target.">Multiply the full terminal multiplier at every stage; more is more accurate.</Option>
+</Choose>
+
+<Choose partner="mugi" pose="question" id="c-transfer" label="Finally, try a different generator">
+This generator is deterministic: the same draft always yields the same future. You want to keep its generation rule and explore different answers. **Which approach fits?**
+<Option why="Identical states following the same deterministic rule yield the same image, regardless of copy count.">Copy the best draft a hundred times and continue along the same route.</Option>
+<Option correct reply="This explores starts while retaining the generation rule. Acceptance and swaps must match the target, and exploration still needs checking." why="Fixed G does not require fixed z. Source sampling can change while preserving a specified source target.">Try different starts using target-ratio acceptance and swaps.</Option>
+<Option why="One high-scoring point establishes neither the proportions of other results nor coverage of other high-scoring regions.">Find one high-scoring start and declare the whole $p_R$ sampled.</Option>
+</Choose>
+
+<Say partner="mugi" pose="explain" id="extension" label="Could other drafts refer to the current best?" next="Return to the evaluator’s original limitation">
+So far, scores decide which candidates stay. Another extension **keeps every draft and adjusts its next prediction toward the best candidate’s predicted completion**. It also avoids differentiating reward, but differs from SMC resampling.
+
+<Extra label="BoNG: how can candidate differences give a direction?">
+At time $t$, retain $M$ states $x_t^{(i)}$, compute their denoised estimates $\hat x_0^{(i)}$, score them, and select
+
+$$
+i^\star=\arg\max_{1\le i\le M}R(\hat x_0^{(i)}).
+$$
+
+We score **predicted completions**, not endpoint images $x_0$. For candidate $i$, the vector $\hat x_0^{(i^\star)}-\hat x_0^{(i)}$ points from its prediction toward the reference prediction. Kim and colleagues call guidance of other particles by the best candidate **Best-of-$N$ Guidance (BoNG)**. Here we keep $M$ for the intermediate candidate count.
+
+How does that displacement convert to noise prediction? Fix current $x_t^{(i)}$ and use VP denoising:
+
+$$
+\begin{gathered}
+\hat x_0^{(i)}\\
+=\frac{x_t^{(i)}-\sigma_t\epsilon_\theta(x_t^{(i)},t)}
+{\sqrt{\bar\alpha_t}},\\
+\widetilde{\hat x}_0^{(i)}-\hat x_0^{(i)}\\
+=-\frac{\sigma_t}{\sqrt{\bar\alpha_t}}\\
+\cdot\big(\widetilde\epsilon_\theta^{(i)}
+-\epsilon_\theta(x_t^{(i)},t)\big).
+\end{gathered}
+$$
+
+Subtracting the two denoised estimates cancels fixed $x_t^{(i)}$. To make the left-hand displacement equal $w_{\mathrm B}(\hat x_0^{(i^\star)}-\hat x_0^{(i)})$, rearrange, assuming $\sigma_t>0$ and $\bar\alpha_t>0$:
+
+$$
+\begin{gathered}
+\widetilde\epsilon_\theta^{(i)}
+=\epsilon_\theta(x_t^{(i)},t)\\
+-w_{\mathrm B}\frac{\sqrt{\bar\alpha_t}}{\sigma_t}
+\big(\hat x_0^{(i^\star)}-\hat x_0^{(i)}\big).
+\end{gathered}
+$$
+
+Here $w_{\mathrm B}\ge0$ controls displacement strength. At $w_{\mathrm B}=0$, the original prediction remains. At $w_{\mathrm B}=1$, the new denoised estimate at the fixed current state equals the reference, **without implying the same next state or final image**. The original sampler must use the combined prediction to advance to a lower noise level.
+
+At each reverse step, estimate clean images, score and choose a reference, modify every prediction, and continue. The best index may change. The reference candidate’s own displacement is zero. Candidate differences supply directions without computing $\nabla R$ or updating $\theta$.
+
+Unlike FK, this has not established terminal weighting equal to $e^{\lambda R(x_0)}$, so it does not directly prove exact tilted sampling. The source note also treats it as an extension. This VP conversion retains $\sqrt{\bar\alpha_t}$; do not mix it with a schedule whose signal amplitude is $1$.
+</Extra>
+
+<Extra label="Where can I compare the source studies and full algorithms?">
+The main text gives terminal IW, SMC’s segment loop, and SPT’s acceptance and swap rules. The source skill manual additionally writes them as mathematical pipelines and pseudocode for stepwise reference.
+
+- Singhal and colleagues’ <a href="https://proceedings.mlr.press/v267/singhal25b.html">FK steering</a>: intermediate estimates, potentials, and particle sampling.
+- Kim, Kim, and Park’s <a href="https://arxiv.org/abs/2501.05803">DAS</a>: reward tempering and SMC.
+- Wang and colleagues’ <a href="https://proceedings.mlr.press/v306/wang26da.html">SPT</a>: proposals and swaps in a deterministic generator’s source space.
+- Kim and colleagues’ <a href="https://arxiv.org/abs/2610.05108">BoNG</a>: guide other particles using the best predicted completion; a recent preprint listed in the source note.
+</Extra>
+</Say>
+
+<Say partner="nori" pose="explain" id="bridge" label="Which choices remain when we only have scores?" next="Read the continuous note">
+An evaluator that only gives scores can still steer: sample completed candidates by weight, resample drafts with incremental weights, or keep a deterministic generator and change source sampling. **Finding a high-scoring image and approximating specified proportions require different checks.** More computation does not automatically make them equivalent.
+
+<Figure src={overview} alt="Three mechanisms: Best-of-N finishes candidates and retains the highest score; SMC resamples by weight while keeping the particle count fixed; SPT proposes and swaps among source chains with different reward strengths. Curves illustrate mechanisms, not measured model trajectories.">
+This overview connects terminal selection, intermediate resampling, and source search. SPT rows are reward strengths, not diffusion time. Its generator $G_\theta$ is our fixed $G$, while FK’s $G_{k-1}$ is a different incremental weight function. The mechanism drawing does not establish exact finite-computation sampling of $p_R$.
+</Figure>
+
+<Extra label="What if the model has not learned the data distribution exactly?">
+To examine sampling rules, we assumed a base of $p_{\mathrm{data}}$. If the model actually outputs $p_\theta$, the same terminal weighting approximates the normalized distribution with weights
+
+$$
+p_\theta(x_0)e^{\lambda R(x_0)}.
+$$
+
+With a finite-step sampler, the base is more precisely its actual output law, including discretization error. More candidates, particles, or chain exploration can improve approximation relative to that base, **without automatically correcting it to $p_{\mathrm{data}}$**.
+
+A result with no base support cannot appear through finite-reward reweighting. Even amplified low-probability regions may remain unseen by finite candidates. Model error, sampling approximation, reward, plausibility, and diversity therefore remain distinct checks.
+</Extra>
+
+Next, consider a more concrete request: the user supplies a blurry photo and wants a sharp image truly compatible with it. **How should the evaluator score restoration of that photo, rather than simply a nice-looking dog?** <Ref to="dma-guidance-applications"/> continues from the measurement process.
+
+Read the same proportions, FK/SMC derivation, SPT acceptance rules, and BoNG extension continuously in <Ref to="dma-gradient-free-steering" mode="full"/>.
+</Say>

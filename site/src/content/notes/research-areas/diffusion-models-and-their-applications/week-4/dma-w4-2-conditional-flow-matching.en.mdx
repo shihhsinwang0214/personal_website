@@ -1,0 +1,267 @@
+---
+slug: "dma-w4-2-conditional-flow-matching"
+label: "dma-conditional-flow-matching"
+prereqs:
+  - math-continuity-equation
+  - math-divergence
+  - math-conditional-expectation
+lang: "en"
+title: "Why Does the Average Crowd Transport the Whole Distribution?"
+category: "courses"
+group: "Unit 2 · Flow Matching"
+status: "available"
+updated: 2026-10-16
+summary: "Use probability flux and the continuity equation to prove that conditional-average velocities generate the prescribed marginal path, while keeping reference paths distinct from ODE trajectories."
+demos: []
+references:
+  - label: "Lipman, Chen, Ben-Hamu, Nickel & Le, Flow Matching for Generative Modeling (ICLR 2023)"
+    href: "https://arxiv.org/abs/2210.02747"
+  - label: "Chen, Rubanova, Bettencourt & Duvenaud, Neural Ordinary Differential Equations (NeurIPS 2018)"
+    href: "https://arxiv.org/abs/1806.07366"
+---
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Try from '../../../components/Try.astro';
+import Remark from '../../../components/Remark.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+
+# Why Does the Average Crowd Transport the Whole Distribution?
+
+<Objectives title="After reading, you can">
+- **Explain flux and divergence through inflow and outflow.** Relate density change to velocity.
+- **Prove the marginal-path guarantee.** Integrate the conditional conservation equations.
+- **Separate reference paths from ODE trajectories.** One supplies labels; the other follows the averaged field.
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+## How do we know the field transports the right distribution?
+
+Our reference paths connect the intended endpoint distributions. Generation, however, follows their learned average field rather than an individual reference path.
+
+Why should that field still transport $p_0$ to $p_1$?
+
+**How does a velocity field change a distribution?**
+
+Density describes how crowded a neighborhood is, rather than the location of one particular person.
+
+We should ask whether motion increases or decreases the mass inside a small region.
+
+## Divergence describes net outward flow
+
+The divergence of velocity describes local expansion or compression. To track density, we must also account for how much mass occupies that location.
+
+<Remark label="Supplement" summary="Why sum directional derivatives?">
+Divergence adds the outward changes in velocity along each coordinate direction.
+
+In two dimensions,
+
+$$
+\nabla\cdot v
+=\frac{\partial v_1}{\partial x_1}
++\frac{\partial v_2}{\partial x_2}.
+$$
+
+The two terms measure horizontal and vertical expansion:
+
+- $\nabla\cdot v>0$: local volume expansion.
+- $\nabla\cdot v<0$: local compression.
+- $\nabla\cdot v=0$: no net local volume change.
+
+In $d$ dimensions, sum $\partial v_i/\partial x_i$ over coordinates. See <Ref to="math-divergence"/> for flux and the divergence theorem.
+</Remark>
+
+A crowded corridor with slow movement need not carry many people per second. Nor does an almost empty corridor with fast movement. Throughput depends on both density and speed.
+
+Their product is
+
+$$
+p_t(x)v_t(x)
+$$
+
+**probability flux**. In one dimension, density is probability per unit length and velocity is length per unit time:
+
+$$
+\left(\frac{\text{probability}}{\text{meter}}\right)
+\left(\frac{\text{meter}}{\text{second}}\right)
+=\frac{\text{probability}}{\text{second}}.
+$$
+
+The product is probability crossing a location per unit time.
+
+For a small interval, compare incoming flux at the left boundary with outgoing flux at the right. More outflow decreases the enclosed mass.
+
+Net outward flux per unit volume is the divergence of flux:
+
+$$
+\nabla\cdot\bigl(p_t(x)v_t(x)\bigr).
+$$
+
+Positive net outflow requires falling density:
+
+$$
+\partial_t p_t(x)
+=-\nabla\cdot\bigl(p_t(x)v_t(x)\bigr),
+$$
+
+or equivalently,
+
+$$
+\boxed{
+\partial_t p_t(x)+\nabla\cdot\bigl(p_t(x)v_t(x)\bigr)=0.
+}
+$$
+
+This is the **continuity equation**: mass changes through movement across boundaries, without appearing or disappearing.
+
+<Try label="Try it" summary="Derive the one-dimensional inflow-minus-outflow equation">
+A short interval $[x,x+\Delta x]$ has mass approximately $p_t(x)\Delta x$. Its change per unit time is
+
+$$
+\partial_t p_t(x)\Delta x
+=p_t(x)v_t(x)-p_t(x+\Delta x)v_t(x+\Delta x).
+$$
+
+Divide by $\Delta x$ and take the limit:
+
+$$
+\partial_t p_t(x)=-\partial_x\bigl(p_t(x)v_t(x)\bigr).
+$$
+
+In higher dimensions, replace endpoints by a closed boundary and the derivative by divergence.
+</Try>
+
+## Add the conservation laws for the conditional groups
+
+Let $Z=(X_0,X_1)$ denote an endpoint pair. Given $Z=z$, consider a conditional probability path $p_t(x\mid z)$ with velocity $u_t(x\mid z)$.
+
+Mixing the pairs gives the intended marginal path:
+
+$$
+p_t(x)=\int p_t(x\mid z)p(z)\,\mathrm dz.
+$$
+
+The crowd average can be written as
+
+$$
+v_t(x)
+=\int u_t(x\mid z)
+\frac{p_t(x\mid z)p(z)}{p_t(x)}\,\mathrm dz
+=\mathbb E[u_t(x\mid Z)\mid X_t=x].
+$$
+
+Its posterior weights select paths compatible with the current location and time.
+
+Substitute the marginal density and flux into the continuity equation:
+
+$$
+\begin{aligned}
+\partial_t p_t+\nabla\cdot(p_tv_t)
+&=\int
+\left[
+\partial_t p_t(x\mid z)
++\nabla\cdot\bigl(p_t(x\mid z)u_t(x\mid z)\bigr)
+\right]p(z)\,\mathrm dz\\
+&=0.
+\end{aligned}
+$$
+
+Each conditional path conserves mass, so the integrated expression vanishes.
+
+> **Average the conditional fluxes, and the resulting velocity transports the correct marginal path.**
+
+This justifies Conditional Flow Matching [1]. Generated particles need not retrace individual training paths; they solve the ODE driven by the marginal field, using the neural-ODE viewpoint [2]:
+
+$$
+\frac{\mathrm d x_t}{\mathrm dt}=v_t(x_t),\qquad X_0\sim p_0.
+$$
+
+Under the regularity and uniqueness conditions below, the terminal distribution is $p_1$.
+
+<Remark label="Supplement" summary="A weak proof that also handles singular conditional paths">
+We can prove the result directly from random reference paths, without assuming each conditional law has a density.
+
+Let $X_t=I_t(Z)$, define its law $p_t$, and set
+
+$$
+v_t(x)=\mathbb E[\dot X_t\mid X_t=x].
+$$
+
+For a smooth compactly supported test function $\phi$,
+
+$$
+\begin{aligned}
+\frac{\mathrm d}{\mathrm dt}\mathbb E[\phi(X_t)]
+&=\mathbb E[\nabla\phi(X_t)\cdot\dot X_t]\\
+&=\mathbb E[\nabla\phi(X_t)\cdot v_t(X_t)]\\
+&=\int \nabla\phi(x)\cdot v_t(x)p_t(x)\,\mathrm dx.
+\end{aligned}
+$$
+
+Use the chain rule followed by conditional expectation. Integration by parts gives the weak continuity equation:
+
+$$
+\partial_t p_t+\nabla\cdot(p_tv_t)=0.
+$$
+
+This also covers deterministic conditional paths represented by Dirac measures. If the resulting field is regular enough to uniquely determine the transported law, its ODE marginals equal the reference marginals.
+</Remark>
+
+<Remark label="Supplement" summary="How do CFM and ideal FM losses differ?">
+If the marginal velocity were available, we could train with
+
+$$
+\mathcal L_{\mathrm{FM}}
+=\mathbb E\|v_\theta(X_t,t)-v_t(X_t)\|^2.
+$$
+
+CFM uses conditional labels instead. Expanding the square and conditioning gives
+
+$$
+\mathcal L_{\mathrm{CFM}}
+=\mathcal L_{\mathrm{FM}}
++\mathbb E\,\mathrm{tr}\,\mathrm{Var}
+\bigl[u_t(X_t\mid Z)\mid X_t\bigr].
+$$
+
+The extra variance term is independent of $\theta$, so the gradients and minimizers agree. It measures conflicting reference labels at the same input.
+</Remark>
+
+<Remark label="Supplement" summary="Does a density path determine a unique velocity?">
+No. If $\nabla\cdot(p_tw_t)=0$, then $v_t+w_t$ gives the same density evolution. A circular crowd can rotate without changing its density.
+
+The continuity equation determines distribution evolution without uniquely fixing sample trajectories. This freedom becomes a sampling-efficiency issue in the next unit.
+</Remark>
+
+## Check your understanding
+
+<QuizBlock id="w4-2-a">
+What happens where $\nabla\cdot(p_tv_t)>0$?
+<Option>Density increases.</Option>
+<Option correct>Density decreases.</Option>
+<Option>Density stays fixed.</Option>
+<Explanation>Positive net outflow gives $\partial_t p_t<0$.</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w4-2-b">
+Why does posterior-averaged velocity preserve the marginal path?
+<Option>Every ODE trajectory matches one reference path.</Option>
+<Option correct>Conditional fluxes add linearly in the conservation equation.</Option>
+<Option>The source must be Gaussian.</Option>
+<Explanation>The conservation argument does not require a Gaussian source.</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-linear-path">
+The averaged velocity generates the same probability path as the references, under suitable regularity.
+
+What happens if the source is Gaussian? Next we examine how its velocity relates to the deterministic diffusion dynamics from Unit 1.
+</Bridge>
+
+## References
+
+1. Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., Le, M. [*Flow Matching for Generative Modeling.*](https://arxiv.org/abs/2210.02747) ICLR 2023. Theorems 1 and 2.
+2. Chen, R. T. Q., Rubanova, Y., Bettencourt, J., Duvenaud, D. [*Neural Ordinary Differential Equations.*](https://arxiv.org/abs/1806.07366) NeurIPS 2018.

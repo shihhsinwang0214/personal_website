@@ -1,0 +1,520 @@
+---
+slug: "condition-guidance"
+lang: "en"
+title: "Before the image is finished, how do we remind it to draw a corgi?"
+note: "dma-classifier-guidance"
+summary: "Run classifier guidance and CFG on the same mixture. Read both complete routes, then compare prerequisites and interpret new scenarios."
+status: "available"
+updated: 2026-10-16
+minutes: 50
+progressVersion: "4"
+series: "dma-guidance"
+order: 1
+---
+import Say from '../../components/dojo/Say.astro';
+import Talk from '../../components/dojo/Talk.astro';
+import Extra from '../../components/dojo/Extra.astro';
+import Choose from '../../components/dojo/Choose.astro';
+import Option from '../../components/dojo/Option.astro';
+import Judge from '../../components/dojo/Judge.astro';
+import Think from '../../components/dojo/Think.astro';
+import Reveal from '../../components/dojo/Reveal.astro';
+import Sort from '../../components/dojo/Sort.astro';
+import Card from '../../components/dojo/Card.astro';
+import Figure from '../../components/dojo/Figure.astro';
+import Ref from '../../components/notes/Ref.astro';
+import scene from './imgs/corgi-steering-intuition.en.png';
+import twoQuestions from './imgs/guidance-two-questions.en.png';
+
+import SteeringExperiment from '../../components/dojo/SteeringExperiment.astro';
+import Explore from '../../components/dojo/Explore.astro';
+import MethodPath from '../../components/dojo/MethodPath.astro';
+
+<Say partner="nori" pose="welcome" id="scene" label="What might the image become?" next="Hear Lumi’s proposal">
+Consider a concrete task. Our model is already trained, and we want **a corgi snowboarding in snowy mountains**. Even if it accepts text, does supplying those words guarantee the image we want?
+
+Perhaps the dog is snowboarding in the mountains but turns out to be a husky. Perhaps the corgi and mountains are right, but the dog merely stands in the snow. We want to keep the model’s parameters and offer clues while the image is still unfinished.
+
+<Figure src={scene} eager alt="A person draws an unfinished sketch while a friend offers suggestions. Completed alternatives on the right vary in breed, action, or setting.">
+The same sketch can develop into different results. For now, we only address “is it a corgi?” Snowy mountains and snowboarding remain separate requirements.
+</Figure>
+</Say>
+
+<Talk partner="lumi" pose="suggest" id="p-classifier" study="guidance-plans" label="Lumi: ask a helper that understands drafts">
+“If the dog’s legs keep getting longer halfway through drawing, could a friend check how much this image still resembles a corgi?”
+
+Lumi wants **a model that recognizes breeds in noisy images**. Show it the current image, then find small changes that increase its probability of calling the image a corgi. This is **classifier guidance**: the classifier provides the judgment, and guidance connects that judgment to generation.
+</Talk>
+
+<Talk partner="mugi" pose="suggest" id="p-two-answers" study="guidance-plans" label="Mugi: could the model answer twice?">
+“If the model already reads descriptions, could we ask about the same draft twice? Once say ‘draw a corgi,’ and once leave the breed unspecified. How do the answers differ?”
+
+Mugi wants to compare **the same generative model’s predictions with and without a description**, then strengthen what the request adds. This is **classifier-free guidance (CFG)**. It needs no separate classifier, but the model must actually have learned both kinds of input.
+</Talk>
+
+<Talk partner="nori" pose="question" id="p-readiness" study="guidance-plans" label="Nori: check what our tools can answer" next="Put the proposals away and think">
+“We can describe both ideas. But if the helper has only seen clean photos, can it understand all this noise? If the model always received a description, how will it answer without one?”
+
+Nori wants to check **what was learned before generation**. At each step, ask: **Whose answer do we need now? Has it learned to handle this input?** Then examine how Lumi’s and Mugi’s proposals connect to the image in front of us.
+</Talk>
+
+<Choose partner="lumi" pose="question" id="c-picture" label="What should the helper see now?" review="guidance-plans">
+We want a suggestion **at the current step**, rather than waiting to select a finished image. What should we give the helper first?
+<Option correct reply="Then the helper sees the image we can actually change now. Next, ask what it can answer from this noisy input." why="An intermediate adjustment must use the current state. The helper must understand noisy images before its judgment is useful at this step.">The current image, which still contains noise.</Option>
+<Option why="A finished photo is useful for final selection, but it does not exist yet. Intermediate guidance must use an input available now.">Wait until completion and show only the final photo.</Option>
+<Option why="The fraction of corgis in the dataset does not describe this particular image. The judgment needs to inspect it.">Only tell it how many corgi photos are in the data.</Option>
+</Choose>
+
+<Talk partner="nori" pose="explain" id="helper" label="Can we find clues in the draft?" next="Ask a question it can answer">
+Imagine drawing a few blurry lines. The animal looks vaguely like a dog, but its breed is unclear. A friend suggests, “Would shorter legs make it look more like a corgi?” We can try changing the draft rather than finishing the whole image and starting over.
+
+In diffusion, our actual input is a noisy image $x_t$. The desired “corgi” is the condition $c$. Keep U1’s time convention: larger $t$ means more noise, and sampling moves toward clean images at $t=0$. The noisy image is formed as
+
+$$
+x_t=\sqrt{\bar\alpha_t}\,x_0+\sigma_t\epsilon.
+$$
+
+Here $x_0$ is the original clean photo, $\bar\alpha_t$ is the retained signal fraction, $\epsilon\sim\mathcal N(0,I)$ is added noise, and $\sigma_t=\sqrt{1-\bar\alpha_t}$ sets its amplitude. We therefore find a judgment model trained at different noise levels and ask it a class question.
+</Talk>
+
+<Choose partner="lumi" pose="question" id="c-probability" label="Which question is it answering?">
+Show the helper $x_t$ and ask: **“How likely is this noisy image to have come from a corgi photo?”** Which quantity answers that question?
+<Option goto="d-density">$p_t(x_t\mid c)$: specify corgis first, then evaluate the density of their noisy images.</Option>
+<Option correct reply="The fixed information is the image we see; the unknown is its class. How can this judgment help generate corgis?" why="The observed image is on the conditioning side; the class we want to infer is on the other side.">$p_t(c\mid x_t)$: the probability of class $c$ given the current image.</Option>
+<Option why="Changing the image leaves the dataset’s corgi fraction unchanged. This quantity has not inspected the image.">$p(c)$: the original fraction of corgi photos.</Option>
+</Choose>
+
+<Say partner="nori" pose="explain" id="d-density" detour back="c-probability" label="Which comes first: image or breed?" next="Read the question again">
+$p_t(x_t\mid c)$ means “specify corgis, then describe their distribution after adding noise.” By contrast, $p_t(c\mid x_t)$ means “see this image, then infer its class.” We gave the helper an image, so it directly answers the latter.
+
+We want to generate the images described by the former. These quantities are related, but we need to derive that connection rather than swap the notation.
+</Say>
+
+<Reveal partner="lumi" pose="explain" id="bayes" label="How does judgment connect to generation?" next="Check what changes with the image">
+Imagine selecting the corgi photos in the data, then adding noise with the original forward process. Their noisy density is $p_t(x_t\mid c)$, the distribution we want for this breed.
+
+Yes, it is time for Bayes’ rule again:
+
+$$
+\begin{gathered}
+p_t(x_t\mid c)\\
+=\frac{p_t(x_t)\,p_t(c\mid x_t)}{p(c)}.
+\end{gathered}
+$$
+
+The base $p_t(x_t)$ includes all kinds of images. Multiplying by the probability of “came from a corgi” gives relatively more weight to images likely to be corgis. The denominator $p(c)$ restores total mass to $1$. The helper’s judgment now connects to the images we want to generate.
+
+<Extra label="How does the starting distribution enter this relationship?">
+The $p_t(x_t\mid c)$ above is a whole family of noisy distributions: draw clean $x_0$ from the specified breed, then apply the same noising rule. Larger $t$ usually obscures more of the original image.
+
+If $\bar\alpha_T$ is very small, conditional $x_T$ is also close to a standard Gaussian, so reverse sampling can start from approximate noise. Finite noising need not erase all breed information, however: $p_T(x_T\mid c)$ is not necessarily exactly Gaussian. The score identity, network estimation, starting approximation, and discretized sampler are separate steps.
+</Extra>
+</Reveal>
+
+<Sort partner="lumi" pose="question" id="s-changing" label="If only the image changes, what changes with it?"
+  columns={["May change with the image", "Fixed here"]}
+  intro="Fix the noise level, the corgi request, and the original data. Change only the image slightly. Classify the three quantities in Bayes’ rule by their dependence on that image."
+  done="The dataset’s corgi fraction does not change with this image. Its normalization term will therefore have zero derivative with respect to the image.">
+<Card col={0} context="Image-dependent · Base density" hint="Evaluating the original density at a different image location may change its value.">The current image’s base density.</Card>
+<Card col={0} context="Image-dependent · Class probability" hint="The helper reads this image. A different image may change its probability of being a corgi.">The probability of a corgi after seeing the image.</Card>
+<Card col={1} context="Fixed here · Class fraction" hint="This is the corgi fraction in the original data. Changing one current image does not change that fraction.">The fraction of corgis in the data.</Card>
+</Sort>
+
+<Think partner="lumi" pose="question" id="t-direction" label="Turn density into a direction for change">
+Having a density is not enough; we need a direction in which to change the image. Recall that a score differentiates log density with respect to the image. Taking logs first turns Bayes’ multiplication into addition:
+
+$$
+\begin{gathered}
+\log p_t(x_t\mid c)\\
+=\log p_t(x_t)\\
++\log p_t(c\mid x_t)\\
+-\log p(c).
+\end{gathered}
+$$
+
+Now differentiate with respect to $x_t$. The original-data term gives the base score; the fixed term has zero derivative. **Which term contributes the extra direction for corgis?** Try writing its gradient.
+</Think>
+
+<Reveal partner="lumi" pose="explain" id="direction" label="The extra direction from specifying a breed" next="Prepare the distribution shared by both routes">
+Denote the conditional score by $s_t(x_t\mid c)$ and the base score by $s_t(x_t)$. Termwise differentiation gives
+
+$$
+\begin{gathered}
+s_t(x_t\mid c)\\
+=s_t(x_t)\\
++\nabla_{x_t}\log p_t(c\mid x_t).
+\end{gathered}
+$$
+
+The last term points toward the fastest local increase in the log-probability of “came from a corgi” as we change $x_t$. **The directions add because Bayes’ product becomes a sum after taking logs.**
+
+This is a relationship between exact densities and scores. In practice, networks estimate them for a reverse-time sampler. The score itself is not the distance to move the image. Differentiating away $p(c)$ also does not mean we have computed its value.
+</Reveal>
+
+<Say partner="nori" pose="explain" id="guidance-toy" label="A one-dimensional draft we can actually generate" next="Choose a route">
+Reuse U7.0: $p_{\mathrm{base}}=\frac12\mathcal N(-2,0.55^2)+\frac12\mathcal N(2,0.55^2)$, with left/right labels $c=0,1$. Choosing a class stands in for choosing corgis; the horizontal axis is a scalar datum, not a generated dog photograph.
+
+This model has analytic noisy densities, class probabilities, and scores. First run an actual reverse sampler with ideal fixed tools. Each route then fully checks how real networks learn the required answers and how to express the result as noise prediction.
+</Say>
+
+<Explore partner="nori" id="e-methods" label="Explore a complete method, then return for the next" next="After reading every route, build the final comparison">
+Choose the order. Each route includes prediction, actual sampling plots, full derivations, and limitations. Only returning from its final step marks it fully explored. You may return early and resume later.
+<Option goto="path-classifier">Ask a noisy classifier for a direction</Option>
+<Option goto="path-cfg">Compare two predictions of the same model</Option>
+</Explore>
+
+<MethodPath id="path-classifier" back="e-methods" title="Ask a noisy classifier for a direction">
+
+<SteeringExperiment id="classifier-practice" mode="classifier" partner="lumi" label="Run first: which samples does classifier guidance change?">
+Use the ideal noisy classifier defined above. Compare the sampled A/B histograms, then inspect the directions and a sampler step at the same x_t.
+</SteeringExperiment>
+
+<Choose partner="nori" pose="question" id="c-input" label="What do we want to change?">
+Write the noisy classifier as $p_\phi(c\mid x_t,t)$, with parameters $\phi$; the generative parameters remain $\theta$. We want to keep the helper’s judgment rule and **change the image it sees** to increase the class log-probability. With respect to what should we differentiate?
+<Option goto="d-parameters">The classifier parameters $\phi$.</Option>
+<Option correct reply="To change the image, differentiate with respect to the image input. Both networks’ parameters can remain fixed." why="An input gradient describes how the judgment varies with the input; it is not a network-parameter update direction.">The current image $x_t$.</Option>
+<Option why="Updating generative parameters would teach the model this preference again. We want clues for modifying the current image.">The generative parameters $\theta$, and update them.</Option>
+</Choose>
+
+<Say partner="nori" pose="explain" id="d-parameters" detour back="c-input" label="If the judgment rule changes, did the image change?" next="Return to the image being judged">
+Imagine keeping the image and changing only classifier parameters $\phi$. Its judgment might change, but did the dog become a corgi? We want to preserve the judgment rule and change $x_t$ instead.
+
+We therefore need $\nabla_{x_t}\log p_\phi(c\mid x_t,t)$. Backpropagation can compute input gradients too. **Computing a derivative and updating parameters are different operations.**
+</Say>
+
+<Choose partner="lumi" pose="question" id="c-classifier-ready" label="Which helper is prepared for this image?">
+Two candidates are available. A learned breeds only from clean photos; B learned the same task at different noise levels. Generation still contains noise. **Which has at least the training preparation we need?**
+<Option correct reply="B has practiced this noisy input. Adding its input gradient to the base score for the sampler gives classifier guidance." why="Noise level changes what the image reveals. The helper needs to learn class judgments on these inputs.">B: trained to recognize breeds at different noise levels.</Option>
+<Option why="Accuracy on clean photos does not guarantee understanding of noisy inputs. Check what the helper actually practiced.">A: high clean-photo accuracy is sufficient.</Option>
+<Option why="They see different inputs. Equal network size or the same name cannot replace training on the relevant inputs.">Either: both are classifiers.</Option>
+</Choose>
+
+<Talk partner="lumi" pose="explain" id="classifier-training" label="How should this helper practice?" next="Connect its judgment to the sampler">
+“There are many levels of blur along the way. Let us add different amounts of noise to a breed-labeled photo. Even as the dog becomes hard to recognize, we still know its original breed, right?”
+
+Let $\phi$ denote the helper’s parameters. Draw $(x_0,c)$, a noise level $t$, and Gaussian noise $\epsilon$, then form $x_t$ with the same noising rule. Ask it to assign probability to the correct breed. Its training loss is
+
+$$
+\begin{aligned}
+&\mathcal L_{\mathrm{cls}}(\phi)\\
+&=\mathbb E_{(x_0,c),t,\epsilon}\big[\\
+&-\log p_\phi(c\mid x_t,t)\big].
+\end{aligned}
+$$
+
+Higher probability for the correct breed means smaller negative log-probability. This is the noisy classifier’s training exercise: directly noise training photos, without waiting for the generative model to draw them. At high noise, the photo may genuinely be unrecognizable, so a reasonable answer may be uncertain.
+
+Training changes $\phi$ using $\nabla_\phi\mathcal L_{\mathrm{cls}}$. To help change an image now, fix $\phi$ and use $\nabla_{x_t}\log p_\phi(c\mid x_t,t)$. Both are gradients, but the object to be changed differs.
+</Talk>
+
+<Reveal partner="lumi" pose="explain" id="classifier-score" label="Put the needed directions together" next="Examine the limitations">
+Estimate the base score with the trained model, then add the helper’s input gradient:
+
+$$
+\begin{gathered}
+\widetilde s_\theta(x_t,t,c)\\
+=s_\theta(x_t,t)\\
++w\nabla_{x_t}\log p_\phi(c\mid x_t,t).
+\end{gathered}
+$$
+
+Here $w$ sets the suggestion’s strength. Starting from an unconditional base, $w=0$ retains the base; if both estimates are exact, $w=1$ gives the conditional score derived above. In practice, the reverse sampler uses this combined score to determine the next image update. This is Lumi’s classifier-guidance proposal.
+
+<Extra label="What if the generative model already uses a condition?">
+We started from an unconditional base. Adding classifier guidance to an already conditional score is **extra strengthening beyond the original request**; an extra coefficient of $0$ retains the conditional prediction. The two starting points cannot both call $w=1$ “no strengthening.” First identify the base answer, then inspect the extra term’s coefficient.
+</Extra>
+</Reveal>
+
+<Think partner="lumi" pose="question" id="t-noise" label="What if the network predicts noise?">
+U1’s network usually outputs $\epsilon_\theta$. At a noisy time, with noise amplitude $\sigma_t=\sqrt{1-\bar\alpha_t}>0$, its score representation is
+
+$$
+s_\theta(x_t,t)=-\frac{\epsilon_\theta(x_t,t)}{\sigma_t}.
+$$
+
+First consider classifier guidance: add $w$ times the classifier’s input gradient to an unconditional base score. **What happens to the extra term’s sign and scale in noise-prediction form?** Multiply the whole score equation by $-\sigma_t$.
+</Think>
+
+<Reveal partner="lumi" pose="explain" id="noise-classifier" label="First convert the classifier’s direction" next="Check the limitations of estimating directions">
+Multiplying the score equation by $-\sigma_t$ gives
+
+$$
+\begin{gathered}
+\widetilde\epsilon_\theta(x_t,t,c)\\
+=\epsilon_\theta(x_t,t)\\
+-w\sigma_t\!\nabla_{x_t}\!\log p_\phi(c\mid x_t,t).
+\end{gathered}
+$$
+
+Both the minus sign and $\sigma_t$ come from the conversion. Here classifier guidance starts from an **unconditional base**, so $w=0$ means no guidance. CFG instead starts from a conditional answer and uses $w=1$ as its baseline.
+</Reveal>
+
+<Talk partner="nori" pose="question" id="classifier-limit" label="Does an accurate judgment imply an accurate direction?" next="Finish this route">
+We use the gradient of probability as the image changes. Two terrains can have similar heights but different local slopes. Likewise, accurate class probabilities do not automatically imply accurate input gradients.
+
+The generative model in this approach need not accept $c$; a separate noisy classifier supplies the request. Now suppose our available tool differs: **if the generative model already learned the condition, could its own answers reveal this direction?**
+
+<Extra label="What else should we check about the helper?">
+Classification accuracy checks answers. Guidance also uses local changes around an image, so ask whether tiny input perturbations cause stable judgments. A classifier may change its answer sharply under a small perturbation; clean-image accuracy alone does not establish the quality of intermediate input gradients. This motivates examining the direction, without claiming that stability guarantees successful generation. <a href="https://arxiv.org/abs/2208.08664">Kawar, Ganz, and Elad</a> study robust classifiers for guidance.
+</Extra>
+</Talk>
+
+<Say partner="nori" pose="explain" id="classifier-done" label="From the distribution to the complete formula" next="Return and mark this route fully explored">
+You generated samples with a fixed model, distinguished input derivatives from parameter updates, and read the noisy-classifier loss, score combination, noise conversion, and limitations. Return to explore the other signal source.
+</Say>
+
+</MethodPath>
+
+<MethodPath id="path-cfg" back="e-methods" title="Compare two predictions of the same model">
+
+<Choose partner="mugi" pose="question" id="c-difference" label="Which two answers should we compare?">
+For now, suppose the available model can also answer without a breed specification. Ask about **the same $x_t$ at the same $t$** twice, with and without “corgi.” How can we isolate what the request adds?
+<Option correct reply="The conditional score includes both the base and the request’s extra part. Subtract the shared base to isolate the extra direction." why="Bayes gave conditional = base + extra direction. Subtract the base from both sides; no need to repeat the full derivation.">Subtract the prediction without a condition from the prediction with it.</Option>
+<Option goto="d-whole-score">Treat the entire conditional prediction as the extra direction.</Option>
+<Option why="Averaging retains the shared base. We want to isolate the effect of specifying the breed.">Average the two predictions.</Option>
+</Choose>
+
+<Say partner="nori" pose="explain" id="d-whole-score" detour back="c-difference" label="Did we count the shared part twice?" next="Compare the answers again">
+We derived conditional score = base score + the condition’s extra direction. Adding the entire conditional score to the base counts that base a second time.
+
+To retain only the condition’s effect, subtract the shared base. We compare two answers for the same image, not two finished images.
+</Say>
+
+<Reveal partner="mugi" pose="explain" id="difference" label="Which term did we subtract?" next="Combine the two predictions and generate">
+Rearrange the exact score identity:
+
+$$
+\begin{gathered}
+\nabla_{x_t}\log p_t(c\mid x_t)\\
+=s_t(x_t\mid c)-s_t(x_t).
+\end{gathered}
+$$
+
+Subtracting the original direction from the requested direction leaves exactly what the condition adds. Mugi proposes estimating the two terms on the right with the generative model, then subtracting. **Use the same image at the same time** to compare requests; subtracting two generated images cannot replace this operation.
+</Reveal>
+
+<SteeringExperiment id="cfg-practice" mode="cfg" partner="mugi" label="Run first: how do two predictions change generation?">
+Use this toy’s analytic conditional and unconditional scores at the same x_t and t. Then check the training prerequisites for real networks to supply them.
+</SteeringExperiment>
+
+<Choose partner="mugi" pose="question" id="c-dropout" label="Is the other answer actually prepared?">
+<Figure src={twoQuestions} alt="The same noisy image is sent to the same model with two inputs: specify a corgi, or leave the breed unspecified. Both answers remain question marks.">
+The two lines represent two queries to one model, not two models or successive generation steps.
+</Figure>
+
+If every training example supplied a description, suddenly removing it may leave the model unprepared. **Which training exercise could give it a chance to answer both kinds of input?**
+<Option correct reply="Then training sometimes includes a description and sometimes does not. Both inputs appear during preparation." why="Dropping the condition independently of the data avoids selecting a different data distribution for the no-condition examples.">Replace some conditions with an empty input, with a data-independent probability.</Option>
+<Option why="That removes image information, while the description remains. It does not practice prediction without a description.">Randomly remove pixels from the noisy image.</Option>
+<Option goto="d-missing-condition">Change nothing during preparation; just remove the description at sampling time.</Option>
+</Choose>
+
+<Say partner="mugi" pose="explain" id="d-missing-condition" detour back="c-dropout" label="Does removing a hint teach an answer?" next="Return to model preparation">
+Practicing with a hint every time does not guarantee knowing what to do without it. The model learned prediction from $x_t,t,c$; omitting $c$ is a different input.
+
+Writing an unconditional score in a formula does not mean the network learned to estimate it. We need that input during model preparation, rather than retraining at every sampling run.
+</Say>
+
+<Reveal partner="mugi" pose="explain" id="dropout" label="One parameter set, two kinds of practice" next="Is learning still needed during generation?">
+This preparation is **conditioning dropout**. An empty condition $\varnothing$ means no breed or prompt is specified; **it does not mean “no corgis in the image.”** Keep the image, noise level, and added noise. The network still predicts that noise, but sometimes cannot read the description.
+
+Write the condition actually shown as $\widetilde c$, either the original $c$ or the empty condition. The training loss becomes
+
+$$
+\begin{aligned}
+&\mathcal L_{\mathrm{drop}}(\theta)\\
+&=\mathbb E_{(x_0,c),t,\epsilon,\widetilde c}
+\big[\|\epsilon_\theta(x_t,t,\widetilde c)\\
+&\hspace{5em}-\epsilon\|^2\big].
+\end{aligned}
+$$
+
+The expectation averages over data, times, noise, and the random decision to drop the condition. The target remains $\epsilon$. Dropping conditions only for certain breeds would make empty inputs describe selected data. Data-independent dropout instead practices the overall base answer.
+
+After preparation, sampling uses the same $\theta$ to obtain $s_\theta(x_t,t,c)$ and $s_\theta(x_t,t,\varnothing)$, estimating conditional and unconditional scores. Their difference estimates the request’s extra direction. This requires a model already trained on both inputs; it does not instruct us to retrain an unprepared model now.
+</Reveal>
+
+<Judge partner="nori" pose="question" id="j-prepared" answer={true} label="Do two queries update the parameters?" yes="They can stay fixed" no="They must change"
+  replyYes="Yes. Both inputs were practiced during preparation; now fixed parameters produce two predictions."
+  replyNo="Learning both input types happened during training. Once prepared, the two sampling queries can be predictions without parameter updates.">
+The model learned both descriptions and empty conditions during training. We now query both during generation. **Can these computations preserve the same $\theta$?**
+</Judge>
+
+<Choose partner="mugi" pose="question" id="c-baseline" label="Where does strengthening start?">
+The model can already generate from a condition. We are willing to lose some variation to try making breed features clearer, so we add more of the difference between its two answers. Denote strength by $w$ and start from the conditional prediction:
+
+$$
+\begin{gathered}
+\widetilde s_\theta(x_t,t,c)\\
+=s_\theta(x_t,t,c)\\
++(w-1)\big[s_\theta(x_t,t,c)\\
+-s_\theta(x_t,t,\varnothing)\big].
+\end{gathered}
+$$
+
+**Which $w$ keeps the original conditional prediction without extra strengthening?**
+<Option correct reply="The extra coefficient becomes zero, leaving the original conditional answer. This combination is classifier-free guidance (CFG)." why="This formula starts from the conditional prediction, and the extra coefficient is w−1. Its baseline is w=1.">$w=1$.</Option>
+<Option why="At w=0, subtracting the difference from the conditional answer leaves the unconditional answer. Even the original condition’s effect is removed.">$w=0$.</Option>
+<Option why="At w=2, an extra copy of the difference is added to the conditional answer. That already strengthens guidance.">$w=2$.</Option>
+</Choose>
+
+<Talk partner="mugi" pose="explain" id="cfg-combination" label="We can also start from the unspecified answer" next="Think about what strength changes">
+Expanding gives an equivalent expression:
+
+$$
+\begin{aligned}
+\widetilde s_\theta
+&=s_\theta^\varnothing+w(s_\theta^c-s_\theta^\varnothing)\\
+&=w s_\theta^c+(1-w)s_\theta^\varnothing.
+\end{aligned}
+$$
+
+Here $s_\theta^c$ and $s_\theta^\varnothing$ abbreviate answers for the same $(x_t,t)$, making the coefficients easier to inspect. At $w=0$ the result is unconditional; at $w=1$ it is conditional; $w>1$ extrapolates along the difference beyond the original conditional answer.
+
+<Extra label="Which density corresponds to the stronger score?">
+Fix one $t$ and assume exact scores. The combination is the log-gradient of these relative weights:
+
+$$
+\begin{gathered}
+p_t(x_t)\,p_t(c\mid x_t)^w\\
+\propto p_t(x_t)^{1-w}p_t(x_t\mid c)^w.
+\end{gathered}
+$$
+
+Products become sums under log, powers become coefficients, and normalization independent of $x_t$ differentiates to zero. If the total mass is finite, these weights can be normalized at this time.
+
+But writing such a density at every time does not establish that all of them arise from one forward process. This fixed-time equality alone cannot show that sampling with the combined scores ends exactly at $p_0(x_0\mid c)^w p_0(x_0)^{1-w}$.
+</Extra>
+
+<Extra label="Why do some papers use a different baseline number?">
+Some papers add $w_{\mathrm{paper}}$ copies of the difference to the conditional answer, writing $(1+w_{\mathrm{paper}})s^c-w_{\mathrm{paper}}s^\varnothing$. Our convention is $w=1+w_{\mathrm{paper}}$. The combination is the same, but the strength is measured from a different baseline. Substitute a number into the actual formula before interpreting it.
+</Extra>
+</Talk>
+
+<Judge partner="nori" pose="question" id="j-strength" answer={false} label="What does stronger guidance mean?" yes="More accurate estimation" no="A changed trade-off"
+  replyYes="The original conditional prediction already exists at w=1. Increasing w deliberately changes it and may amplify estimation errors; strength does not establish greater accuracy."
+  replyNo="It changes the trade-off. Desired quality may improve, but other plausible answers may disappear or unnatural results may arise. Evaluate these effects together.">
+Increasing $w$ above $1$ strengthens the condition’s influence. Does this estimate the original conditional score more accurately, or deliberately change sampling’s quality–diversity trade-off?
+</Judge>
+
+<Say partner="nori" pose="explain" id="cfg-noise-input" label="Convert both predictions to noise prediction" next="Check the coefficients">
+At the same $x_t,t$, both predictions use $s_\theta=-\epsilon_\theta/\sigma_t$, where $\sigma_t=\sqrt{1-\bar\alpha_t}>0$. Multiply the entire CFG identity by $-\sigma_t$, then check its common factors and coefficients.
+</Say>
+
+<Choose partner="mugi" pose="question" id="c-noise-cfg" label="Do CFG’s coefficients change sign too?">
+For the same $x_t$ and $t$, both predictions share the score-to-noise conversion factor. **What happens to CFG’s combination coefficients in noise-prediction form?**
+<Option correct reply="The common conversion factor cancels, so the combination coefficients stay the same. Next, write the expression to check." why="Both scores are multiplied by the same negative noise amplitude. We cannot change only the difference term’s sign.">Keep the coefficients: add $(w-1)$ times the difference of noise predictions.</Option>
+<Option why="Changing only the difference’s sign while keeping the other terms does not apply the same conversion to the entire equation.">Change only the difference’s coefficient to a minus sign.</Option>
+<Option why="The common scale cancels. We are changing representations, not redefining the strength convention.">Move the no-strengthening baseline to $w=0$.</Option>
+</Choose>
+
+<Reveal partner="mugi" pose="explain" id="noise-cfg" label="Give the sampler the combined noise prediction" next="Compare the tools each approach needs">
+CFG’s noise combination is therefore still
+
+$$
+\begin{gathered}
+\widetilde\epsilon_\theta(x_t,t,c)\\
+=\epsilon_\theta(x_t,t,c)\\
++(w-1)\big[\epsilon_\theta(x_t,t,c)\\
+-\epsilon_\theta(x_t,t,\varnothing)\big].
+\end{gathered}
+$$
+
+The original sampler uses this combined prediction to produce the next image at a lower noise level. Classifier parameters $\phi$ and generative parameters $\theta$ can both stay fixed. What changes is the prediction used by this sampler.
+</Reveal>
+
+<Talk partner="nori" pose="suggest" id="negative-prompt" label="What if the unspecified query also contains a description?" next="Finish this route">
+“If we do not want blurry photos, could we replace the empty input with ‘blurry,’ then push from ‘a sharp corgi’ away from ‘blurry’?”
+
+This is the idea of a negative prompt. Write the undesired description as $c_-$ and abbreviate noise predictions for the same $(x_t,t)$ by $\epsilon_\theta^c$ and $\epsilon_\theta^{c_-}$. A combination is
+
+$$
+\widetilde\epsilon_\theta
+=\epsilon_\theta^{c_-}
++w(\epsilon_\theta^c-\epsilon_\theta^{c_-}).
+$$
+
+A new sentence tomorrow may combine words already learned, without retraining sentence by sentence. An unseen condition type, however, does not become learned merely because we can write a formula. Classifier guidance can use a separately prepared helper; CFG relies on the generative model’s own conditioning abilities.
+
+This changes the comparison baseline. The model must also understand the input $c_-$. It does not set “the probability of blurry images” to zero, and it no longer directly has the unconditional-base Bayes interpretation.
+
+<Extra label="What if the model learns Flow Matching velocity?">
+Conditional training can also give a velocity model the input $c$. Practice on a known reference path $I_t$, such as $I_t=(1-t)X_0+tX_1$ from noise $X_0$ to data $X_1$, with label $\partial_t I_t=X_1-X_0$. Here $t=0\to1$, unlike diffusion’s denoising toward $t=0$.
+
+The conditioning-dropout loss is
+
+$$
+\begin{aligned}
+&\mathcal L_{\mathrm{drop}}^{\mathrm{FM}}(\theta)\\
+&=\mathbb E\big[\|v_\theta(I_t,t,\widetilde c)\\
+&\hspace{4em}-\partial_t I_t\|^2\big].
+\end{aligned}
+$$
+
+The expectation averages over reference endpoints, times, and whether the condition is dropped; the label remains reference velocity. After learning both inputs, we can combine
+
+$$
+\begin{gathered}
+\widetilde v_\theta(x,t,c)\\
+=v_\theta(x,t,\varnothing)\\
++w\big[v_\theta(x,t,c)\\
+-v_\theta(x,t,\varnothing)\big].
+\end{gathered}
+$$
+
+An ODE solver follows this learned field to obtain a generated trajectory. Common Gaussian affine interpolations have a velocity–score conversion connecting to the intuition above. For a general reference path, however, subtracting two velocities alone does not show that the difference is a classifier log-gradient.
+</Extra>
+</Talk>
+
+<Say partner="nori" pose="explain" id="cfg-done" label="Both inputs, the combination, and its limits" next="Return and mark this route fully explored">
+You ran CFG and read the conditioning-dropout loss, strength baseline, noise prediction, negative prompts, and Flow Matching correspondence. Producing an image does not make training prerequisites and computation costs identical.
+</Say>
+
+</MethodPath>
+
+<Sort partner="nori" pose="question" id="s-methods" label="Whom do we need to prepare?"
+  columns={["Lumi · Classifier guidance", "Mugi · CFG"]}
+  columnPartners={["lumi", "mugi"]} review="guidance-plans"
+  rows={["How is the extra direction obtained?", "What must be prepared before generation?", "What extra computation is needed each step?", "Who must understand a new request?", "What limitations matter?"]}
+  rowReplies={["One approach asks another network for a judgment; the other compares two answers from the generative model. Next, check whether those answers were prepared before generation.", "A formula does not imply that our models can answer the corresponding inputs. Once prepared, compare the generation computation too.", "Removing an external model does not remove the second prediction. Both approaches add computation; model count alone is insufficient.", "A new sentence may still be within learned inputs. An unseen condition type is a different matter. Check who must understand the request.", "Classifier guidance adds a replaceable helper; CFG shares the generative model, but both answers depend on its preparation. Strength still affects quality, diversity, and estimation error."]}
+  done="Both estimate the condition’s extra direction, but their training prerequisites and per-step computation differ. Before choosing, check what your available tools can actually answer."
+  intro="Lumi proposed classifier guidance and Mugi proposed CFG. Place each action under its partner; read each completed row’s explanation before continuing.">
+<Card col={0} row={0} context="Classifier guidance · Signal" hint="This approach starts with class probability and differentiates it with respect to the image being inspected.">Ask another network for class probability, then differentiate with respect to the image.</Card>
+<Card col={1} row={0} context="CFG · Signal" hint="Compare the same generative model’s answers for the same noisy image.">Query the same image with and without a condition, then subtract.</Card>
+<Card col={0} row={1} context="Classifier guidance · Preparation" hint="The helper sees noisy inputs during generation; clean-photo judgments alone are insufficient.">The helper learned class judgments at different noise levels.</Card>
+<Card col={1} row={1} context="CFG · Preparation" hint="Always supplying descriptions does not automatically teach reliable empty-condition answers.">The generative model practiced descriptions and empty conditions.</Card>
+<Card col={0} row={2} context="Classifier guidance · Per-step computation" hint="After obtaining the probability, compute its input gradient for the current image.">Compute the helper’s prediction and image input gradient.</Card>
+<Card col={1} row={2} context="CFG · Per-step computation" hint="Shared parameters still need conditional and unconditional predictions.">Obtain both generative-model predictions.</Card>
+<Card col={0} row={3} context="Classifier guidance · New requests" hint="An external helper supplies the request. It must read noisy images and judge that request.">Prepare a noisy classifier for the new request; the base need not read it.</Card>
+<Card col={1} row={3} context="CFG · New requests" hint="Both answers come from the generative model. New prompts need not require retraining, but the input type must be learned.">The request must fall within the generative model’s conditioning abilities.</Card>
+<Card col={0} row={4} context="Classifier guidance · Limitations" hint="A class probability need not provide a reliable local direction. The network and input gradient also cost computation.">A separate helper is possible; check noisy judgments, input gradients, and cost.</Card>
+<Card col={1} row={4} context="CFG · Limitations" hint="No external classifier is needed, but both input types must be prepared and both predictions computed.">No external classifier, but two prepared answers; high strength may reduce variation.</Card>
+</Sort>
+
+<Choose partner="nori" id="c-tools-cfg" label="Which route fits the available tools?">
+The model learned both text and empty inputs, and this class is within its capabilities. No external classifier is available. What would you try first?
+<Option correct reply="Both required inputs were learned; combine their predictions during sampling." why="Both required inputs were learned; combine their predictions during sampling.">Use CFG with the model’s two predictions.</Option>
+<Option why="Empty means unspecified, not forbidden.">Interpret the empty condition as “forbid corgis.”</Option>
+<Option why="Both inputs and this condition type were already learned.">Always retrain the whole model.</Option>
+</Choose>
+
+<Choose partner="nori" pose="question" id="c-transfer" label="How would you assess a different toolkit?">
+You have only a clean-photo classifier and a generative model always trained with descriptions. The latter never practiced an empty condition. **Which judgment about immediately applying these methods is reasonable?**
+<Option why="Clean-photo judgments do not provide reliable noisy-image class probabilities and input gradients.">Use classifier guidance immediately; a classifier already exists.</Option>
+<Option why="A conditional answer does not imply a learned no-condition answer. The second prediction needed for subtraction is unprepared.">Use CFG immediately; the model already reads descriptions.</Option>
+<Option correct reply="Each approach lacks a necessary answer. Formulas specify combinations; training prerequisites determine whether our tools can supply them." why="The first needs a noisy classifier; the second needs a generative model trained on empty conditions. Neither is prepared here.">Both still lack the ability to answer a required input.</Option>
+</Choose>
+
+<Choose partner="nori" id="c-shared-plot" label="What does agreement between the plots establish?">
+In this toy, classifier guidance and CFG with the same c, w, step count, and seed give nearly identical histograms. What explains this?
+<Option correct reply="Bayes equates the ideal signals without removing network prerequisites or the sampler." why="Bayes equates the ideal signals without removing network prerequisites or the sampler.">Ideal signals give the same combined score; real networks still have different prerequisites.</Option>
+<Option why="Analytic ideal predictions do not replace network training.">CFG need not learn empty conditions.</Option>
+<Option why="w changes the combined score, with finite-step and initialization error remaining.">Every w exactly samples the conditional distribution.</Option>
+</Choose>
+
+<Say partner="nori" pose="explain" id="bridge" label="What if the user provides only a scoring program?" next="Decide how often preferred results should appear">
+We can now connect a breed request to generation: identify the condition’s extra direction, then estimate it with available tools. We have addressed the corgi class, without guaranteeing the full snowy-mountain and snowboarding request.
+
+The user now says, “These breeds are right, but I prefer certain compositions and lighting.” Their program scores only finished images. We have no noisy classifier for it, and the model has not learned this new preference. **Before making high-scoring images more frequent, what should we decide?**
+
+Read Bayes’ rule, both guided noise predictions, and preparation details continuously in <Ref to="dma-classifier-guidance" mode="full"/>.
+</Say>

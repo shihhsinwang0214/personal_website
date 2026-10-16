@@ -5,14 +5,16 @@ prereqs:
   - math-euler-error
   - math-pushforward-flow-map
 lang: "zh"
-title: "Progressive Distillation：學生一步，等於老師兩步"
+title: "能不能先把兩小步，學成一大步？"
 category: "courses"
 group: "Unit 5 · Consistency Models"
 status: "available"
-updated: 2026-10-04
-summary: "讓學生一步模仿 teacher 兩步，再把學生升格為下一輪 teacher；步數逐輪減半，誤差也逐輪留下。"
+updated: 2026-10-16
+summary: "從 teacher 的兩步落點反解學生應預測的 pseudo-clean target，建立 progressive distillation，再追蹤誤差與計算成本。"
 demos: []
 references:
+  - label: "Lai, Song, Kim, Mitsufuji & Ermon, The Principles of Diffusion Models (v3, 2026)"
+    href: "https://arxiv.org/abs/2510.21890"
   - label: "Salimans & Ho, Progressive Distillation for Fast Sampling of Diffusion Models (ICLR 2022)"
     href: "https://arxiv.org/abs/2202.00512"
   - label: "Luhman & Luhman, Knowledge Distillation in Iterative Generative Models for Improved Sampling Speed (2021)"
@@ -20,152 +22,148 @@ references:
   - label: "Liu, Gong & Liu, Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow (ICLR 2023)"
     href: "https://arxiv.org/abs/2209.03003"
 ---
-import Objectives from '../../../components/Objectives.astro';
-import Prereq from '../../../components/Prereq.astro';
-import QuizBlock from '../../../components/QuizBlock.astro';
-import Option from '../../../components/Option.astro';
-import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
-import Details from '../../../components/Details.astro';
-import Bridge from '../../../components/Bridge.astro';
-import Ref from '../../../components/Ref.astro';
-import Question from '../../../components/Question.astro';
 import Answer from '../../../components/Answer.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Explanation from '../../../components/Explanation.astro';
+import Objectives from '../../../components/Objectives.astro';
+import Option from '../../../components/Option.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Ref from '../../../components/Ref.astro';
+import Remark from '../../../components/Remark.astro';
 
-# Progressive Distillation：學生一步，等於老師兩步
+# 能不能先把兩小步，學成一大步？
 
 <Objectives>
-- **寫出一次 progressive distillation。** 讓學生從 $x_t$ 走一步，對齊 teacher 從同一點走兩步的落點。
-- **追蹤步數與誤差如何逐輪傳遞。** 說明學生升格為 teacher 後，為什麼步數減半、上一輪誤差卻會留下。
-- **判斷它解決了什麼。** 分清即時造目標省下的資料成本，以及 teacher 上限與逐輪累積仍然存在。
+- **反解兩步合一的標籤。** 從學生一步的 affine update 推出 pseudo-clean target。
+- **說出逐輪減半保留了什麼。** 分清時間跨度、步數、網路呼叫與每輪 teacher 的角色。
+- **追蹤一步誤差如何傳遞。** 用 recurrence 分開學生的局部擬合誤差與輸入位置誤差。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 不要先造資料，邊走邊教
+## 不必第一天就學完整條路
 
-直接學終點的第一個問題是：每一筆訓練配對都要 teacher 跑完整條 ODE。Salimans 與 Ho [1] 的觀察是，這件事沒有必要一次做完。
+<Ref to="dma-learn-the-map"/> 的直接蒸餾要用完整 rollout 替每個起點標答案。若 teacher 原本需要 $N$ 步，做一筆標籤就可能要呼叫很多次網路。想像我們教人走一條長路，不一定要先要求他記住整條路；也可以先教他把相鄰兩段接起來。
 
-想像 teacher 是一個要走 $N$ 步的取樣器（本單元座標下，從 $t=T$ 走到 $t=0$，每步是 <Ref to="dma-lab-diffusion"/> 的 DDIM，也就是 PF-ODE 的一步 Euler）。我們不要求學生一口氣學會整條路，只要求：**學生走一步，要到 teacher 走兩步的地方。** 學好之後，學生是一個 $N/2$ 步的取樣器。然後把學生當成新的 teacher，再訓一個 $N/4$ 步的學生。重複 $\log_2 N$ 輪。
+於是我們先要求：**從同一個 noisy state 出發，學生一步的落點，要等於 teacher 兩步的落點。** 學會之後，原本 $N$ 步的路就能在 $N/2$ 步內完成。再把學生升格成 teacher，繼續減半。這就是 Salimans 與 Ho 的 **progressive distillation** [1]。
 
-每一輪的訓練資料是即時算出來的：抽一個 $x_0$、抽一個 $t$（在學生的時間網格上）、加噪聲得到 $x_t$，然後讓 teacher 從 $x_t$ **走兩步**得到 $\tilde x$。這只要兩次 teacher 的網路呼叫，不是幾十次。上一篇那個「要先用 teacher 生成整個資料集」的成本，被攤成每一輪每一筆兩次呼叫。
+這個方法不是省掉訓練，而是把完整跳躍拆成多輪較短的監督問題。下面先固定其中一輪，確定「學生到底在學哪個標籤」。
+
+## 往更乾淨的時間走，一步會落在哪裡？
+
+沿用 $x_t=x_0+t\epsilon$，本單元 $t$ 越小越乾淨。Teacher 的 denoiser 記成 $D_\phi(x,t)$，由它得到速度 $(x-D_\phi(x,t))/t$。固定輸入 $x_t$，從 $t$ 走到 $s<t$ 的 Euler update 是
+
+$$
+x_s=x_t+(s-t)\frac{x_t-D_\phi(x_t,t)}{t}.
+$$
+
+這個分數是 teacher 在起點估計的瞬時速度。將 $x_t$ 的係數合併後，得到
+
+$$
+x_s=\frac{s}{t}x_t+\left(1-\frac{s}{t}\right)D_\phi(x_t,t).
+$$
+
+在這個 affine-in-time 的 VE schedule 下，它也正是 deterministic DDIM update。這個相等不宜直接搬到任意 schedule 的原始時間座標。
+
+選 $t>u>s$，teacher 先從 $t$ 到 $u$，再從新位置到 $s$，得到 $\tilde x_s$。第二步要在新位置重新呼叫 teacher；不能把第一步的 prediction 重用兩次，假裝已經看過沿途的變化。
+
+## 學生該預測的，其實不是原始圖片
+
+學生仍輸出一個 denoiser 形式的 $D_\theta(x_t,t)$，但我們希望它在較大的 $t\to s$ update 中直接抵達 $\tilde x_s$。先把這個要求寫下來：
+
+$$
+\tilde x_s=\frac{s}{t}x_t+\left(1-\frac{s}{t}\right)x_0^{\mathrm{target}}.
+$$
+
+左邊已由 teacher 算好，右邊未知的只有學生應預測的 $x_0^{\mathrm{target}}$。先扣掉輸入保留項，再除以它的係數：
+
+$$
+x_0^{\mathrm{target}}
+=\frac{\tilde x_s-(s/t)x_t}{1-s/t}.
+$$
+
+這是讓學生大步落點正確的 **pseudo-clean target**，通常不等於當初拿來合成 $x_t$ 的資料 $x_0$。Teacher 第一輪的 prediction 可能近似 posterior mean；經過蒸餾後，學生輸出的同一個座標已被訓成「適合這個大步的 prediction」，不再有相同的 posterior-mean 解讀。
+
+<Remark label="例子" summary="用三個數字檢查反解">
+令 $t=2$、$s=1$、$x_t=4$，teacher 兩步抵達 $\tilde x_s=3$。Target 就是 $(3-2)/(1/2)=2$。把它放回學生 update：$(1/2)4+(1/2)2=3$，落點吻合。這裡只是在反解 affine update，沒有假設真實 ODE 是直線。
+</Remark>
+
+取得 target 後，抽資料 $x_0$、獨立 noise $\epsilon$ 與訓練網格上的三連點 $(t,u,s)$，合成 $x_t$，最小化
+
+$$
+\mathcal L_{\mathrm{PD}}
+=\mathbb E_{x_0,\epsilon,(t,u,s)}
+\left[w(t)\left\|D_\theta(x_t,t)
+-\operatorname{sg}(x_0^{\mathrm{target}})\right\|^2\right].
+$$
+
+$w(t)$ 決定不同起始時間的權重，$\operatorname{sg}$ 表示目標不回傳參數梯度。給定 $x_t$ 與本輪時間網格，teacher 的兩步結果是確定的；這是用 deterministic teacher 做逐點蒸餾的關鍵。
 
 <Question id="Q1">
-每一輪的老師都是上一輪的學生。**那為什麼不乾脆讓第一個學生直接學「teacher 的 $N$ 步」，一次到位？** 反正最後要的就是那個一步的映射。
-
+若我們把 $x_0^{\mathrm{target}}$ 換回真實資料 $x_0$，看起來更準確，為什麼反而沒有在做兩步合一？
 <Answer>
-「一次到位」就是 Luhman 與 Luhman 的直接回歸法 [2]——<Ref to="dma-learn-the-map"/> 已經分析過它，所以真正要問的是：逐輪減半到底換到了什麼？
+因為要對齊的是 teacher 的落點。給定 $x_t$，真實資料 $x_0$ 通常有許多可能，MSE 回歸它會得到 posterior mean；剛才反解的 target 則是 teacher 兩步的確定函數。兩種標籤都能用來訓練網路，但它們要求不同的輸出。
 
-**換到的第一件事是資料成本。** 直接回歸要 teacher 跑完整條 ODE 才生出一筆配對；PD 每一筆只要 teacher 走兩步。但這件事上面那一節已經說了。
-
-**換到的第二件事才是重點：每一輪要學的東西都只比上一輪難一點點。** 第一輪的學生要學的是「teacher 的兩小步」——那兩小步幾乎共線，所以那個映射幾乎就是一條直線，網路很好表達。學好之後它自己成為一個 $N/2$ 步的取樣器，下一輪再把兩步合成一步，又只是「比上一輪的映射彎一點」。難度被攤在 $\log_2 N$ 輪上。直接回歸沒有這個階梯：第一天就要網路表達整條 ODE 疊起來的那個映射。
-
-**代價是什麼？** 每一輪都在上一輪的輸出上訓練，所以上一輪的誤差進入這一輪的訓練資料——這和 <Ref to="dma-rectified-flow"/> 的 reflow 是同一種代價。下面把它寫成式子。
-
-順帶一提，這也解釋了為什麼 PD 蒸到 4 步品質還好、蒸到 1 步明顯下降 [1]：不是最後一輪比較不認真，是**最後那幾輪要跨的那一段本來就最難學**。
+若 teacher 含有額外隨機性，而這些 random draws 又沒有交給學生，標籤會再次變成多值。這時要額外設計 noise coupling 或改成 distributional supervision，不能照搬 deterministic 的逐點說法。
 </Answer>
 </Question>
 
-## 寫成式子
+## 減半的是步數，並沒有消除前一輪誤差
 
-用本單元的 VE 座標 $x_t=x_0+t\epsilon$。teacher 的一步 DDIM 從 $t$ 到 $t'<t$，寫成 denoiser $\hat x_0$ 的形式是
+固定偶數 $N$，學生使用 teacher 每隔一格的時間點；學好後，由 $N$ 步變成 $N/2$ 步。每輪完成後複製學生參數作為新 teacher，重新定義兩步標籤。**第二輪以後的 teacher transition 是上一輪學生定義的 update，不再等於原始 diffusion PF-ODE 的 Euler 一步。**
 
-$$
-x_{t'}=x_t+(t'-t)\,\frac{x_t-\hat x_0(x_t,t)}{t}
-=\frac{t'}{t}\,x_t+\Big(1-\frac{t'}{t}\Big)\hat x_0(x_t,t),
-$$
-
-（中間那個分數是 $\hat\epsilon=(x_t-\hat x_0)/t$，這一步就是上一篇 PF-ODE $\frac{dx}{dt}=\mathbb E[\epsilon\mid x_t]$ 的一步 Euler。）讀法：往 $t'$ 走，就是把 $x_t$ 與去噪結果 $\hat x_0$ 按 $t'/t$ 做線性混合。
-
-學生的時間網格是 teacher 的每隔一格：學生從 $t$ 一步到 $t''=t-2\Delta$，teacher 從 $t$ 走 $t\to t-\Delta\to t-2\Delta$ 得 $\tilde x$。我們想要學生的一步落在 $\tilde x$。學生的一步也是上面那個線性混合，只是用學生自己的 denoiser $\hat x_0^{\theta}$；要它落在 $\tilde x$，把上式反解，得到學生**該預測的 $x_0$**：
+即使只看一輪，局部擬合很好也要問誤差會怎麼累積。令 $A_k$ 是 teacher 的兩步合成，$B_k$ 是學生的大步；假設它們在比較區域滿足 $\|B_k(x)-A_k(x)\|\le\delta$，且 $A_k$ 為 $K$-Lipschitz。學生與 teacher 在第 $k$ 格的位置差記成 $e_k$，加減 $A_k$ 在學生位置的輸出，再用 triangle inequality：
 
 $$
-\boxed{\;x_0^{\text{target}}=\frac{\tilde x-\frac{t''}{t}\,x_t}{1-\frac{t''}{t}}\;},\qquad
-\mathcal L_{\text{PD}}=\mathbb E\Big[w(t)\,\big\|\hat x_0^{\theta}(x_t,t)-x_0^{\text{target}}\big\|^2\Big].
+e_{k+1}\le\delta+K e_k.
 $$
 
-**目標是確定的。** 給定 $(x_t,t)$，$\tilde x$ 是 teacher 兩步 DDIM 的結果，是 $x_t$ 的一個函數；$x_0^{\text{target}}$ 也是。回歸的目標是一個點，不是一個分佈，所以 <Ref to="dma-tweedie-and-score"/> 的 conditional expectation 沒有東西可以平均——與上一篇 Q1 的分析相同，來源仍是 DDIM（ODE）的確定性。這是「蒸餾」與「從頭訓練」最大的差別：從頭訓練時目標是 $x_0$，一個 $x_t$ 對應很多個 $x_0$，網路學到的是後驗平均；蒸餾時目標是 teacher 的輸出，一對一。
+第一項是本步擬合誤差，第二項是舊位置誤差經 reference map 傳遞。從相同起點開始，展開可得 $e_m\le\delta\sum_{j=0}^{m-1}K^j$。這是對固定 reference 的一個條件式上界；新學生下一輪變成 reference 時，它原有的偏差也會進入監督。
 
-**學生看過所有的 $t$。** 訓練時 $t$ 在整個網格上抽，學生學到的是「從任何一格跳兩格」，不是只有 $t=T$。所以每一輪的學生都是一個合法的多步取樣器；上一篇的第二個「不好」（只看過 $t=0$）在這裡被解掉一部分——但注意，學生只學會**固定步長**的跳法，不是任意步長。
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/fast-maps-gaussian.html?topic=5-1" class="demo-frame" title="U5.1：解析 Gaussian 互動檢查" style="height: 900px; width: 100%; border: none;"></iframe>
 
-**學生從 teacher 初始化。** 第一輪的學生就是 teacher 的權重複製一份；每一輪學的只是「把兩小步合成一大步」這個差量，訓練很快收斂。
+**互動 demo：解析 Gaussian 檢查。** 調整起始時間、區間與位置，直接計算本篇的關係；偏差控制是明示的 surrogate，沒有使用預設的品質曲線。
 
-<Details summary="為什麼把 target 寫在 x₀ 空間，以及 v-parametrization 從哪裡來">
-可以直接在 $x_{t''}$ 空間算 loss（$\|$學生一步$-\tilde x\|^2$），但學生的一步是 $\frac{t''}{t}x_t+(1-\frac{t''}{t})\hat x_0^\theta$，兩者只差一個 $(1-t''/t)$ 的縮放，所以等價於在 $x_0$ 空間算 loss 再乘上 $(1-t''/t)^2$ 的權重。Salimans 與 Ho [1] 選擇明確寫成 $x_0$ 空間、再自己選權重 $w(t)$——他們建議的權重是 $\max(\text{SNR}(t),1)$（「truncated SNR」），這是 <Ref to="dma-shared-techniques"/> 那個「選 $t$ 的權重＝選 $\log$SNR 上的權重函數」在蒸餾裡的樣子。
+<Remark label="計算成本" summary="每個標籤兩次呼叫，不等於總訓練成本只有兩次">
+本輪用單次網路求值的一步規則時，每個標籤需要兩次 teacher evaluation；總成本還要乘訓練樣本數與輪數，另加學生更新。若 coarse solver 本身含多個 stages，步數減半也不代表 NFE 同比減半。少步、大步通常更難擬合，但哪一輪品質下降最多仍是實驗結果，不是這條 recurrence 的結論。
+</Remark>
 
-另一個細節：當步數減到很少時，$t$ 很大的那一格 $\hat\epsilon=(x_t-\hat x_0)/t$ 幾乎不含資訊、而 $\hat x_0$ 又要從幾乎純噪聲裡直接猜整張圖，兩種 parametrization 各有一端不穩。他們因此提出 $v$-prediction（<Ref to="dma-denoising-regression"/> 已經介紹過的那個座標），它在兩端都有界。這是 $v$-parametrization 最早的出處。
-</Details>
-
-## 誤差怎麼累積
-
-每一輪，學生逼近的是 **teacher 的兩步**，不是真實的 PF-ODE。所以每一輪有兩種誤差進入學生：teacher 自己已經帶著的誤差，加上學生這一輪的逼近誤差。$\log_2N$ 輪之後，最終那個一步模型身上疊了每一輪的逼近誤差。
-
-這和 Liu、Gong 與 Liu 的 Rectified Flow [3] 中 reflow 的代價是同一件事：「第 $k$ 輪的配對來自第 $k-1$ 輪模型的 ODE 解，模型誤差與數值誤差一起進入下一輪的訓練資料」。兩者都是**一連串蒸餾**，每一輪的老師是上一輪的學生。差別是每一輪在學什麼——reflow 每輪學一個更直的速度場，PD 每輪學一個步長翻倍的跳躍。
-
-還有一個更細的觀察。前幾輪（$N$ 很大、$\Delta$ 很小）幾乎沒有東西要學：teacher 的兩小步本來就接近一大步，因為那一小段的 velocity 幾乎不變。真正困難的是**最後幾輪**：從 4 步到 2 步、從 2 步到 1 步，這時一步要跨過整條軌跡最難學的中段。<Ref to="dma-error-theory"/> 的問題在這裡以另一種形式回來——不再是 Euler 的離散誤差，而是「這一大步的 flow map 有多難用網路表達」。實務上 PD 蒸餾到 4 步左右品質仍好，1 步明顯下降 [1]。
-
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/week-8/w8-1-1.html" class="demo-frame" title="逐輪減半：學生的一步對齊老師的兩步：互動 demo" style="height: 900px; width: 100%; border: none;"></iframe>
-
-**互動 demo：逐輪減半。** 拖動輪次，看 32 步如何逐輪變成 1 步；切換理想學生與帶可控逼近誤差的 surrogate，可以分開看「兩步合一」本身與誤差沿輪次累積。
-
-## 解掉了什麼、留下什麼
-
-回到上一篇的三個「不好」：
-
-- **資料太貴**：解掉了。不用事先生成資料集，每筆訓練樣本兩次 teacher 呼叫。
-- **只看過 $t=0$**：解掉一半。學生看過所有網格點，能多步取樣；但只會固定步長，而且最終一步模型還是得一次跨過整條軌跡。
-- **上限是 teacher，而且多輪累積**：沒解，甚至更明顯了——每一輪都是一次蒸餾。
-
-下一篇換一個角度：不要把「一步」定義成「從網格上某一格跳到下一格」，而是定義成「從任何一點跳到終點」。這會讓多輪消失、時間網格的角色改變，並且——這是最意外的——為「不要 teacher」打開一條路。
-
-## 先消化一下
+## 消化一下
 
 <QuizBlock id="w8-1-a">
-Progressive distillation 每一輪的訓練樣本 $(x_t,\ x_0^{\text{target}})$ 是怎麼來的？
-<Option>事先用 teacher 跑完整條 ODE 生成一個配對資料集。</Option>
-<Option>從資料集裡抽 $x_0$，直接當目標。</Option>
-<Option correct>抽 $x_0$ 與 $t$ 加噪聲得 $x_t$，即時讓 teacher 從 $x_t$ 走兩步得 $\tilde x$，再反解出學生一步該預測的 $x_0^{\text{target}}$。</Option>
-<Explanation>
-不需要事先生成資料，這正是它相對於直接回歸終點的改進；也不是拿真實 $x_0$ 當目標——那是從頭訓練，目標是一個分佈、學到的是後驗平均。PD 的目標是 teacher 兩步的確定結果，一對一。
-</Explanation>
+Pseudo-clean target 是什麼？
+<Option>當初加噪前的原始資料。</Option>
+<Option correct>反解學生的一步 update，使它抵達 teacher 兩步落點所需的 prediction。</Option>
+<Option>teacher 在第一個位置的 score。</Option>
+<Explanation>它的定義來自落點對齊，而不是原圖重建。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w8-1-b">
-PD 的回歸目標是確定的（給定 $x_t$ 只有一個答案），這件事的來源是：
-<Option correct>teacher 的兩步是 DDIM（PF-ODE 的 Euler），是 $x_t$ 的確定函數。</Option>
-<Option>學生從 teacher 初始化。</Option>
-<Option>權重 $w(t)$ 選得好。</Option>
-<Explanation>
-如果 teacher 用 DDPM（$\eta>0$）那種帶噪聲的取樣，同一個 $x_t$ 走兩步會落在不同地方，回歸會把它們平均成糊。初始化與權重影響訓練的穩定與快慢，不影響目標是不是一個點。
-</Explanation>
+第二輪 teacher 的兩步，是否仍是原始 diffusion ODE 的兩個 Euler steps？
+<Option correct>不必是；teacher 已換成上一輪蒸餾過的學生。</Option>
+<Option>一定是，只是步長變大。</Option>
+<Option>一定變成 stochastic SDE。</Option>
+<Explanation>架構與 update 形式可以沿用，但 prediction 的訓練語意已改變。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w8-1-c">
-在 PD 的多輪流程裡，哪幾輪最困難、誤差最大？
-<Option>最前面幾輪（$N$ 很大），因為步數最多。</Option>
-<Option correct>最後幾輪（例如 $4\to2\to1$），因為一步要跨過整條軌跡最難學的中段，那個 flow map 最難用網路表達。</Option>
-<Option>每一輪一樣困難。</Option>
-<Explanation>
-$N$ 很大時相鄰兩小步的 velocity 幾乎不變，合成一大步幾乎不用學；越到後面，一步跨過的非線性越多。這裡談的是 flow map 的表達難度，不是 geometric curvature，也不是 Euler 的離散誤差。
-</Explanation>
-</QuizBlock>
-
-<QuizBlock id="w8-1-d">
-PD 與多輪 reflow 的共同結構是：
-<Option>兩者都不需要 teacher。</Option>
-<Option>兩者每一輪都學一個更直的速度場。</Option>
-<Option correct>兩者都是一連串蒸餾——每一輪的老師是上一輪的學生，每一輪的逼近誤差都進入下一輪。</Option>
-<Explanation>
-兩者都需要 teacher（reflow 的 teacher 是上一輪模型）。reflow 每輪學速度場，PD 每輪學步長翻倍的跳躍，學的物件不同；相同的是多輪累積誤差的結構。
-</Explanation>
+$e_{k+1}\le\delta+Ke_k$ 中的 $Ke_k$ 控制什麼？
+<Option>本步 teacher 呼叫次數。</Option>
+<Option>資料加噪的變異數。</Option>
+<Option correct>舊位置偏差經 reference transition 傳到下一步的影響。</Option>
+<Explanation>局部擬合誤差小，仍要看合成過程如何放大或收縮位置差。</Explanation>
 </QuizBlock>
 
 <Bridge to="dma-consistency-function">
-「學生一步等於 teacher 兩步」省掉了事先生成資料，卻仍要經過一輪輪蒸餾。若網路能從軌跡上的任何位置直接認出共同終點，就不必把路逐格壓短；這正是 <Ref to="dma-consistency-function"/> 要定義的物件。
+逐輪減半給出指定網格上的大步，但每輪仍在壓縮前一輪的 transition。能不能換一個任務：從軌跡上任何位置，都直接辨認共同終點？<Ref to="dma-consistency-function"/> 用這個要求定義新的學習物件。
 </Bridge>
 
 ## 參考文獻
 
-1. Salimans, T., Ho, J. [*Progressive Distillation for Fast Sampling of Diffusion Models.*](https://arxiv.org/abs/2202.00512) ICLR 2022.（逐輪減半、$x_0$ 空間的目標、truncated SNR 權重、$v$-parametrization。）
-2. Luhman, E., Luhman, T. [*Knowledge Distillation in Iterative Generative Models for Improved Sampling Speed.*](https://arxiv.org/abs/2101.02388) 2021.（上一篇的直接回歸法，PD 的對照。）
-3. Liu, X., Gong, C., Liu, Q. [*Flow Straight and Fast.*](https://arxiv.org/abs/2209.03003) ICLR 2023.（多輪 reflow 的誤差累積。）
+主要理論參考：[The Principles of Diffusion Models](https://arxiv.org/abs/2510.21890)，§10.3，特別是 pseudo-clean target 的式 10.3.2 與逐輪訓練流程。正文的符號沿用本課程；方法實作細節再對照下列原始論文。
+
+1. [Salimans & Ho, Progressive Distillation for Fast Sampling of Diffusion Models (ICLR 2022)](https://arxiv.org/abs/2202.00512)。
+2. [Luhman & Luhman, Knowledge Distillation in Iterative Generative Models for Improved Sampling Speed (2021)](https://arxiv.org/abs/2101.02388)。
+3. [Liu, Gong & Liu, Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow (ICLR 2023)](https://arxiv.org/abs/2209.03003)。

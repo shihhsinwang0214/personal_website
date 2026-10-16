@@ -6,195 +6,165 @@ prereqs:
   - math-pushforward-flow-map
   - ml-moving-targets-ema
 lang: "zh"
-title: "Consistency Function：同一條軌跡，同一個終點"
+title: "同一條路上的不同位置，能不能認出同一個終點？"
 category: "courses"
 group: "Unit 5 · Consistency Models"
 status: "available"
-updated: 2026-10-04
-summary: "同一條 PF-ODE 軌跡上的每個位置，都應認出同一個終點。這句話定義了 consistency function，也留下「相鄰點怎麼找」的問題。"
+updated: 2026-10-16
+summary: "先用終點標籤建立 consistency function，再由邊界條件與相鄰點一致性構造可訓練目標，分清它與 denoiser 的差別。"
 demos: []
 references:
+  - label: "Lai, Song, Kim, Mitsufuji & Ermon, The Principles of Diffusion Models (v3, 2026)"
+    href: "https://arxiv.org/abs/2510.21890"
   - label: "Song, Dhariwal, Chen & Sutskever, Consistency Models (ICML 2023)"
     href: "https://arxiv.org/abs/2303.01469"
   - label: "Karras, Aittala, Aila & Laine, Elucidating the Design Space of Diffusion-Based Generative Models (NeurIPS 2022)"
     href: "https://arxiv.org/abs/2206.00364"
 ---
-import Objectives from '../../../components/Objectives.astro';
-import Prereq from '../../../components/Prereq.astro';
-import QuizBlock from '../../../components/QuizBlock.astro';
-import Option from '../../../components/Option.astro';
-import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
-import Details from '../../../components/Details.astro';
-import Bridge from '../../../components/Bridge.astro';
-import Ref from '../../../components/Ref.astro';
-import Question from '../../../components/Question.astro';
 import Answer from '../../../components/Answer.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Explanation from '../../../components/Explanation.astro';
+import Objectives from '../../../components/Objectives.astro';
+import Option from '../../../components/Option.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Ref from '../../../components/Ref.astro';
+import Remark from '../../../components/Remark.astro';
 
-# Consistency Function：同一條軌跡，同一個終點
+# 同一條路上的不同位置，能不能認出同一個終點？
 
 <Objectives>
-- **定義 consistency function。** 說出邊界條件、自我一致性，以及少了邊界條件時為什麼常數函數也能過關。
-- **把邊界寫進網路。** 解釋 $c_{\text{skip}},c_{\text{out}}$ 如何讓 $f_\theta(x,\varepsilon)=x$ 對所有參數都成立。
-- **寫出相鄰時間的一致性損失。** 說明為什麼局部一致足以傳遍整條軌跡，以及 target 端為什麼要 stop-gradient。
+- **從終點定義 consistency function。** 用自我一致性與邊界條件說明它為何等於 ODE 的終點 map。
+- **把邊界寫進參數化。** 檢查 skip 與 output 係數在乾淨端的值。
+- **寫出相鄰點的監督問題。** 分清數學上的一致性、stop-gradient 與目標參數更新。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 先看一條軌跡
+## 沿路都會看到的共同答案
 
-畫一條 PF-ODE 的軌跡：從 $t=T$ 的一團噪聲出發，往 $t=0$ 走，落在一張乾淨的圖上。上一篇 Q1 的 $G$ 只管這條軌跡的**兩端**；progressive distillation 管的是**相鄰網格點**之間。現在換一個看法：這條軌跡上的**每一個點**，不管它在 $t=T$、$t=T/2$ 還是 $t=0.01$，它們有一個共同點——都會走到同一個終點。
+<Ref to="dma-progressive-distillation"/> 讓學生學指定網格上的大步。若我們不再要求「下一步走到哪裡」，而是每次都問「沿這條路最後到哪裡」，不同時間的任務就有了共同答案。
 
-把「這個點會走到哪裡」當成一個函數。給軌跡上任何一點 $(x_t,t)$，回答「它的終點是什麼」。這個函數在整條軌跡上是**常數**，換到另一條軌跡才換值。
+想像同一班車在不同站點報出它的總站。車還在移動，總站名稱卻不會跟著變；換到另一班車，總站才可能改變。這裡的車程對應一條 PF-ODE trajectory，站點是 $(x_t,t)$，我們要學的是它在乾淨端的實際位置。
 
-這就是 Song 等人 [1] 定義的 **consistency function**：
-
-$$
-f(x_t,t)=\text{該點所在 PF-ODE 軌跡在乾淨端的位置}.
-$$
-
-（原文把乾淨端放在一個很小的 $t=\varepsilon$（$\varepsilon=0.002$）而不是 $t=0$ 本身，因為 $t\to0$ 時 score 的數值行為不好；所以嚴格說 $f(x_t,t)=x_\varepsilon$。下面所有「終點」都指 $x_\varepsilon$，讀的時候當成 $x_0$ 即可。）
-
-用 <Ref to="dma-flows-and-continuity"/> 的 flow map 記號說，$f(\cdot,t)=\psi_{t\to\varepsilon}$：一端固定在乾淨端、另一端任意的 flow map。上一篇的 $G=\psi_{T\to\varepsilon}=f(\cdot,T)$ 是它在 $t=T$ 那一片的值。**所以「學 $f$」比「學 $G$」要求更多**——不只要會從純噪聲一步到終點，也要會從任何一個半噪聲的點一步到終點。這正是上一篇說 PD 只解掉一半的那件事：學生要看過所有的 $t$，而且不是固定步長，是直接到底。
-
-## 這個 $f$ 必須滿足什麼
-
-**邊界條件。** 在乾淨端，點就是它自己的終點：
+在 ODE 解存在且唯一的設定下，定義
 
 $$
-f(x,\varepsilon)=x .
+f(x,t):=\psi_{t\to0}(x).
 $$
 
-**自我一致性（self-consistency）。** 同一條軌跡上任兩點的輸出相同：
+這個函數接收目前位置與時間，回傳同一條 trajectory 在 $0$ 的終點。Song 等人 [1] 將它稱為 **consistency function**。它不是猜「哪張訓練圖片最可能產生這個 noisy input」；<Ref to="dma-learn-the-map"/> 的 Gaussian 例子已算出，終點 map 與 denoiser 是不同函數。
+
+## 只要求兩個回答相同，會不會什麼也沒學到？
+
+若 $x_t$ 與 $x_s$ 在同一條 ODE trajectory 上，兩者去乾淨端會抵達同一個位置，因此
 
 $$
-f(x_t,t)=f(x_{t'},t')\qquad\text{對同一條軌跡上的所有 }t,t' .
+f(x_t,t)=f(x_s,s).
 $$
 
-用 flow map 寫，就是 $f(x_t,t)=f\big(\psi_{t\to t'}(x_t),t'\big)$。
+這叫 self-consistency。但只看這條等式，令所有輸入都回傳常數 $c$ 也成立。我們還缺一個能把答案接到資料的位置：已經在乾淨端時，不必再移動，所以
 
-這兩條合起來**唯一決定** $f$：從任何 $(x_t,t)$ 出發，沿軌跡走到 $\varepsilon$，自我一致性說值不變，邊界條件說那裡的值就是 $x_\varepsilon$。少了任何一條都不行，而且缺邊界條件時壞得很明顯——**常數函數 $f\equiv c$ 滿足自我一致性**（任何兩點輸出當然相同），卻什麼都沒學到。邊界條件是把這個平凡解排除掉的東西。這件事馬上會影響參數化與損失的設計。
+$$
+f(x,0)=x.
+$$
 
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/week-8/w8-2-1.html" class="demo-frame" title="沿軌跡拖動，consistency function 輸出不動：互動 demo" style="height: 930px; width: 100%; border: none;"></iframe>
-
-**互動 demo：沿軌跡輸出不動。** 在解析 toy 上選一條軌跡並拖動時間；真值終點保持固定。三種明確標示的 surrogate 狀態展示輸出曲線如何由起伏變平，不使用或冒充真實 checkpoint。
+兩條要求合起來才決定正確答案。從 $(x_t,t)$ 沿同一條路走到 $(x_0,0)$，一致性讓值不變，邊界條件再把它定成 $x_0$。這是沿每條 trajectory 的論證；不是說整個函數都應該是同一個常數。
 
 <Question id="Q1">
-缺少邊界條件時，自我一致性有平凡解。最省事的補法似乎是在 loss 多加一項 $\|f_\theta(x,\varepsilon)-x\|^2$；另一種做法則把 $f_\theta(x,\varepsilon)=x$ **直接寫進架構**。
-
-**這兩種做法差在哪裡？**
-
+如果我們把「同一個資料 $x_0$ 加上不同強度的同一份 noise」當作同一條路，是否已經得到上面需要的 training pair？
 <Answer>
-差在**平凡解還在不在搜尋空間裡**。
+還沒有。$x_0+t\epsilon$ 是固定配對的 reference 直線，真正的 PF-ODE 使用 $\mathbb E[\epsilon\mid x_t]$，兩條路通常不同。同一條 reference 直線上的兩點不保證有相同的 ODE 終點。
 
-加一個損失項，等於讓兩個目標互相拉扯：一致性項把 $f_\theta$ 往「在每條軌跡上是常數」拉——那一族解裡包含常數映射——邊界項再把它往回拉。兩邊都不是硬約束，所以訓練可以停在中間的任何地方，而且停在哪裡取決於兩項的權重、學習率、初始化。更糟的是這個拉扯**不會隨訓練變小**：一致性項在平凡解上是嚴格的 0，它永遠有動機往那邊走。
-
-寫進架構之後，$f_\theta(x,\varepsilon)=x$ 對**每一組參數**都成立。平凡解不是被懲罰，是**根本不在參數空間裡**——沒有任何一組 $\theta$ 能讓 $f_\theta$ 是常數。剩下的損失就只做它該做的事：把乾淨端那個已經正確的值沿軌跡傳出去。
-
-這個對比值得記住，因為它在別的地方也成立：**一個條件如果是「答案的定義」的一部分，就寫進架構；如果只是「希望它大致成立」，才放進損失。** $c_{\text{skip}},c_{\text{out}}$ 那組係數不是為了漂亮，是在做這件事。
-
-（也因為這樣，<Ref to="dma-cd-vs-ct"/> 的 CT 才能完全不用 teacher：它手上沒有任何外部的正確答案，全部的訊號都從這個邊界長出來。錨要是軟的，就什麼都撐不住了。）
+這個區分不妨礙我們之後拿 reference pair 訓練，但必須再證明它如何近似所需的監督；不能用這裡的定義直接宣布兩點等價。<Ref to="dma-cd-vs-ct"/> 會把這個問題算出來。
 </Answer>
 </Question>
 
-## 參數化：讓邊界自動成立
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/fast-maps-gaussian.html?topic=5-2" class="demo-frame" title="U5.2：解析 Gaussian 互動檢查" style="height: 900px; width: 100%; border: none;"></iframe>
 
-現在用網路 $f_\theta$ 逼近 $f$。邊界條件 $f(x,\varepsilon)=x$ 既是精度問題、也是上面那個退化解的唯一防線，所以不能交給網路「學會」；要把它**寫進架構**。Song 等人沿用 Karras 等人的 EDM [2] 形式：
+**互動 demo：解析 Gaussian 檢查。** 調整起始時間、區間與位置，直接計算本篇的關係；偏差控制是明示的 surrogate，沒有使用預設的品質曲線。
 
-$$
-\boxed{\;f_\theta(x,t)=c_{\text{skip}}(t)\,x+c_{\text{out}}(t)\,F_\theta(x,t)\;},\qquad c_{\text{skip}}(\varepsilon)=1,\quad c_{\text{out}}(\varepsilon)=0 .
-$$
+## 能不能讓邊界在訓練前就成立？
 
-$F_\theta$ 是任意網路（原文用 U-Net），$c_{\text{skip}}$、$c_{\text{out}}$ 是兩個**只跟 $t$ 有關、我們自己選**的可微函數。在 $t=\varepsilon$ 處 $f_\theta(x,\varepsilon)=x$，不管 $F_\theta$ 輸出什麼——邊界條件對任何 $\theta$ 都成立，平凡解 $f\equiv c$ 從一開始就被排除。
-
-具體的選擇（原文的版本，$\sigma_d$ 是資料的標準差，取 $0.5$）：
+我們可以加一項 boundary loss，也可以直接把它寫進網路。後者的好處很具體：不必靠有限資料與有限權重，去近似一條已經知道的恆等式。令 $F_\theta$ 是一般網路，寫成
 
 $$
-c_{\text{skip}}(t)=\frac{\sigma_d^2}{(t-\varepsilon)^2+\sigma_d^2},\qquad
-c_{\text{out}}(t)=\frac{\sigma_d\,(t-\varepsilon)}{\sqrt{\sigma_d^2+t^2}} .
+f_\theta(x,t)=c_{\mathrm{skip}}(t)x
++c_{\mathrm{out}}(t)F_\theta(x,t).
 $$
 
-讀法：$t$ 接近 $\varepsilon$ 時 $c_{\text{skip}}\approx1$、$c_{\text{out}}\approx0$，$f_\theta$ 幾乎是恆等——這也符合真實的 $f$：噪聲很小時終點就在腳邊。$t$ 很大時 $c_{\text{skip}}\to0$、$c_{\text{out}}\to\sigma_d$，$f_\theta\approx\sigma_d F_\theta$——網路直接輸出（尺度正確的）終點，因為此時 $x$ 幾乎是純噪聲、沒什麼值得保留的。中間是兩者的混合。
-
-這個形式應該很眼熟。<Ref to="dma-denoising-regression"/> 說 $x_0$-、$\epsilon$-、$v$-prediction 是同一個 denoiser 的三個 affine 座標；EDM 的 denoiser $D(x,t)=c_{\text{skip}}x+c_{\text{out}}F$ 是同一組座標的另一種寫法——讓網路預測「$x$ 與 $x_0$ 之間、尺度被正規化過的那個差量」。consistency model **借用了 denoiser 的參數化來表示一個不是 denoiser 的東西**：denoiser 輸出 $\mathbb E[x_0\mid x_t]$（後驗平均、一個 $x_t$ 對很多 $x_0$），$f$ 輸出 ODE 軌跡的終點（一對一）。兩者在 $t\to\varepsilon$ 時都趨近恆等，所以同一組 $c_{\text{skip}},c_{\text{out}}$ 兩邊都合用；這也是為什麼 CM 的網路可以直接從訓好的 diffusion 模型初始化。
-
-![c_skip 從一降到零、c_out 從零升起，並在三個代表時刻混合輸入與網路輸出。](./imgs/w8-2-2.svg)
-
-**圖：參數化把邊界寫進架構。** 在 $t=\varepsilon$，$f_\theta=x$ 對任何參數都成立；噪聲變大後，輸出逐步交給 $F_\theta$。
-
-## 損失：相鄰兩點要一致
-
-邊界條件交給架構之後，剩下要學的只有自我一致性。最直接的想法是：抽同一條軌跡上的兩點 $(x_t,t)$、$(x_{t'},t')$，要求 $f_\theta$ 在兩處輸出相同。
-
-Song 等人 [1] 把時間切成網格 $\varepsilon=t_1<t_2<\cdots<t_N=T$，**只對相鄰的兩格**要求一致：
+只要 $c_{\mathrm{skip}}(0)=1$、$c_{\mathrm{out}}(0)=0$，代入就得到 $f_\theta(x,0)=x$，與參數值無關。例如資料尺度為 $\sigma_d>0$ 時，可以用
 
 $$
-\boxed{\;\mathcal L_{\text{CM}}=\mathbb E\Big[\lambda(t_n)\,d\Big(f_\theta\big(x_{t_{n+1}},t_{n+1}\big),\ f_{\theta^-}\big(\hat x_{t_n},t_n\big)\Big)\Big]\;}
+\begin{aligned}
+c_{\mathrm{skip}}(t)&=\frac{\sigma_d^2}{t^2+\sigma_d^2},\\
+c_{\mathrm{out}}(t)&=\frac{\sigma_dt}{\sqrt{t^2+\sigma_d^2}}.
+\end{aligned}
 $$
 
-逐項讀。$x_{t_{n+1}}=x_0+t_{n+1}\epsilon$ 是普通的加噪聲；$\hat x_{t_n}$ 是**同一條軌跡上、往乾淨端走一格的點**——它從哪裡來是下一篇的全部內容，這裡先當成已知。$d$ 是一個距離（原文用 $\ell_2$ 或 LPIPS），$\lambda$ 是時間權重（原文取 1）。$\theta^-$ 是**目標網路**的參數：原文用 $\theta$ 的 EMA，並對這一側 stop-gradient。
+第一項保留輸入，第二項讓網路補上需要的終點資訊。這只是表示函數的方式；借用 EDM denoiser 的外形，不會讓 $f_\theta$ 的訓練目標自動變成 posterior mean。
 
-兩個「為什麼」。
+<Remark label="實作" summary="若乾淨端取 ε，而不是 0">
+將邊界改成 $f_\theta(x,\varepsilon)=x$，並選在 $\varepsilon$ 處為 $1$、$0$ 的兩個係數。例如原始 CM 以 $t-\varepsilon$ 調整 skip 與 output 係數的分子。這時網路學到 $\psi_{t\to\varepsilon}$；輸出 law 是 $p_\varepsilon$，仍與 $p_0$ 有一個小的終止差距。
+</Remark>
 
-**為什麼只用相鄰點就夠？** 因為一致性會沿網格傳遞。$f_\theta(\cdot,t_1)$ 由架構保證是恆等，所以是對的。$(t_1,t_2)$ 那一項把 $f_\theta(\cdot,t_2)$ 拉向 $f(\cdot,t_1)$ 的值——也就是拉向真值。$(t_2,t_3)$ 再把 $t_3$ 拉向已經對了的 $t_2$。歸納下去，整條網格都被錨定到邊界。相鄰點的另一個好處是：從 $x_{t_{n+1}}$ 算 $\hat x_{t_n}$ 只需要走**一小步**，這一步的誤差是 $O(\Delta t^2)$（<Ref to="dma-error-theory"/> 的局部誤差）；如果要求任意兩點一致，就得走很多步，把 teacher 的整條 ODE 又搬回來。
+![在乾淨端保留輸入，隨時間改變輸入與網路輸出的混合。](./imgs/w8-2-2.svg)
 
-**為什麼目標那一側要 stop-gradient？** 如果兩側都讓梯度流過，網路最省事的辦法是把 $f_\theta(\cdot,t)$ 對 $t>\varepsilon$ 都壓成幾乎不隨 $x$ 變、只在 $t=\varepsilon$ 附近急轉回恆等——一致性項近乎零，但什麼也沒學到。stop-gradient 讓資訊只能**單向**流動：$t_n$ 那一側是「已經知道的答案」，$t_{n+1}$ 那一側是「要被教會的」；配合上一段的歸納，資訊從邊界一路往 $T$ 傳。用 EMA 做目標則是另一層平滑，它在對付什麼、該不該用，留到 <Ref to="dma-ict-scm"/>。
+*圖：原圖以 $\varepsilon$ 表示實作的乾淨端。邊界由係數保證，內部函數仍需訓練。*
 
-<Details summary="這個損失和 progressive distillation 的關係">
-PD 要求「學生一步到 t−2Δ 的位置 = teacher 兩步的位置」，比較的是**中間點**；CM 要求「兩個相鄰點各自跳到終點，落點要相同」，比較的是**終點**。兩者都只用相鄰的網格點、都需要「同一條軌跡上再一點」。差別是 CM 沒有輪次：$N$ 個網格點一次全部訓、學生從頭到尾學的都是「直接到終點」，不會有「最後兩輪最難」的問題，因為沒有輪。時間網格 $N$ 在 CM 裡的角色也不同——它不是取樣步數，而是訓練時「相鄰」的密度；<Ref to="dma-cd-vs-ct"/> 會看到 $N$ 同時控制 bias 與 variance。
-</Details>
+## 找不到完整終點，先比較相鄰兩點可以嗎？
 
-訓好之後，**一步生成**就是抽 $x_T\sim\mathcal N(0,T^2I)$、算 $f_\theta(x_T,T)$。也可以多步（跳到終點、加噪聲到某個 $t$、再跳），那是 <Ref to="dma-multistep-limit"/> 的題目。
+完整 target $\psi_{t\to0}(x_t)$ 很貴。可是同一條 trajectory 上，較近的兩點也應認出同一個終點。取網格 $0=t_0<t_1<\cdots<t_N=T$，令 $\hat x_{t_i}$ 近似從 $x_{t_{i+1}}$ 沿 ODE 回到 $t_i$ 的位置，考慮
 
-損失裡還有一個空格沒填：$\hat x_{t_n}$——「同一條軌跡上、往乾淨端走一格的點」——到底怎麼算？有 teacher 就走一步 Euler；沒有 teacher 呢？
+$$
+\begin{aligned}
+\mathcal L(\theta;\theta^-)
+=\mathbb E\big[\lambda_i\,
+\|f_\theta(x_{t_{i+1}},t_{i+1})
+&-\operatorname{sg}(f_{\theta^-}(\hat x_{t_i},t_i))\|^2\big].
+\end{aligned}
+$$
 
-## 先消化一下
+期望平均資料、noise 與相鄰時間對；$\lambda_i$ 是正權重。現在完整終點不在標籤裡，取而代之的是 target network 在較乾淨位置的回答。**尚未解決的部分是：$\hat x_{t_i}$ 從哪裡來？**
+
+先假設相鄰位置精確、同一個函數在所有相鄰對上都達到零差距。從邊界逐格使用等式，就能將 $f(x_{t_N},t_N)$ 一路等同到 $x_0$。這說明相鄰一致性在理想設定下為什麼足夠；實際 SGD 不會照時間格逐一完成這個歸納，也沒有「較乾淨一側早已正確」的保證。
+
+$\operatorname{sg}$ 只改變反向傳播：這次更新將 target 的數值視為固定。$\theta^-$ 可以是當前參數的停止梯度副本，也可以是另一份滯後參數；是否使用 EMA 是額外選擇。Boundary、stop-gradient 與 EMA 各自做不同的事，不能合起來當成必然收斂的保證。
+
+## 消化一下
 
 <QuizBlock id="w8-2-a">
-Consistency function $f(x_t,t)$ 與上一篇的一步生成器 $G(x_T)$ 的關係是：
-<Option correct>$G=f(\cdot,T)$；$f$ 額外要求在**每一個** $t$ 都能直接跳到終點，比 $G$ 要求更多。</Option>
-<Option>兩者是同一個函數，只是記號不同。</Option>
-<Option>$f$ 是 $G$ 的反函數。</Option>
-<Explanation>
-$G$ 只定義在純噪聲端；$f$ 定義在整個 $(x,t)$ 空間，$t=T$ 那一片才是 $G$。要求更多，換來的是能從任何中間點出發、能多步取樣、以及損失可以只用相鄰點來錨定。「反函數」是把時間倒過來的 flow map，不是 $f$。
-</Explanation>
+Consistency function 在哪裡保持常數？
+<Option correct>沿同一條 ODE trajectory；不同 trajectories 可以有不同終點。</Option>
+<Option>對所有位置與時間都是同一個值。</Option>
+<Option>沿每條固定 noise 的 reference 直線。</Option>
+<Explanation>函數的定義固定了 ODE 動力學，不能任意換成 reference path。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w8-2-b">
-為什麼邊界條件 $f(x,\varepsilon)=x$ 不能省？
-<Option>因為 $t=\varepsilon$ 的樣本最多。</Option>
-<Option>因為沒有它 $f$ 不連續。</Option>
-<Option correct>因為自我一致性本身有平凡解——常數函數在任何兩點輸出都相同——邊界條件是排除它、把 $f$ 錨定到真實終點的唯一依據。</Option>
-<Explanation>
-自我一致性只說「沿軌跡不變」，沒說變成什麼；常數函數完全滿足它。邊界條件說「在乾淨端就是自己」，兩條合起來才唯一決定 $f$。這也是為什麼要把它寫進參數化而不是當成 loss 去學。
-</Explanation>
+$f_\theta(x,0)=x$ 由哪一項保證？
+<Option>目標網路使用 EMA。</Option>
+<Option correct>skip 在 $0$ 為 $1$、output 係數在 $0$ 為 $0$。</Option>
+<Option>loss 已下降到足夠小。</Option>
+<Explanation>直接代入參數化即可檢查，與訓練進度無關。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w8-2-c">
-參數化 $f_\theta=c_{\text{skip}}(t)x+c_{\text{out}}(t)F_\theta$ 中，$c_{\text{skip}}(\varepsilon)=1$、$c_{\text{out}}(\varepsilon)=0$ 的作用是：
-<Option>讓網路在 $t$ 大時輸出零。</Option>
-<Option correct>讓 $f_\theta(x,\varepsilon)=x$ 對任何 $\theta$ 恆成立，邊界條件不必學、也沒有殘差。</Option>
-<Option>讓 loss 在 $t=\varepsilon$ 附近權重更大。</Option>
-<Explanation>
-這是在**架構**上寫死邊界，與 loss 權重無關。$t$ 大時是 $c_{\text{skip}}\to0$、$c_{\text{out}}\to\sigma_d$，網路的輸出被完整保留而非歸零。
-</Explanation>
-</QuizBlock>
-
-<QuizBlock id="w8-2-d">
-CM 損失只要求**相鄰**兩個網格點一致，卻能學到整條網格上的 $f$。理由是：
-<Option correct>$t_1=\varepsilon$ 處由架構保證正確，$(t_n,t_{n+1})$ 那一項把 $t_{n+1}$ 拉向已經正確的 $t_n$，歸納到 $T$；而目標側 stop-gradient 讓資訊只從邊界往外單向傳。</Option>
-<Option>因為網路夠大，相鄰一致就會自動推廣到任意兩點。</Option>
-<Option>因為相鄰點之間的距離是零。</Option>
-<Explanation>
-關鍵是**錨點**（邊界）與**方向**（stop-gradient）。沒有錨點，相鄰一致有平凡解；沒有方向，兩側互相拉會塌到那個平凡解附近。網路大小與此無關。相鄰點之間距離不是零，正因為不是零，下一篇才要談那一步怎麼走、走出多少 bias。
-</Explanation>
+相鄰一致性沿網格傳遞的論證，說明了什麼？
+<Option>SGD 必定先學好低 noise 再學高 noise。</Option>
+<Option>有限網格一定等於連續時間真值。</Option>
+<Option correct>在精確配對、邊界成立且每對一致的理想條件下，所有格點的輸出等於共同終點。</Option>
+<Explanation>函數的刻畫與訓練演算法是否收斂，是不同層級的問題。</Explanation>
 </QuizBlock>
 
 <Bridge to="dma-cd-vs-ct">
-Consistency function 的定義很乾淨，真正難的是訓練資料：給定 $x_{t_{n+1}}$，怎麼找到同一條軌跡上更乾淨的 $\hat x_{t_n}$？<Ref to="dma-cd-vs-ct"/> 會比較兩個答案：請 teacher 帶路，或用 conditional trick 把 teacher 拿掉。
+我們已把昂貴的完整終點換成相鄰位置的回答，但相鄰位置本身仍來自未知 ODE。<Ref to="dma-cd-vs-ct"/> 比較兩種取得方式：請 teacher 走一步，或直接沿資料與 noise 的 reference 配對重新合成。
 </Bridge>
 
 ## 參考文獻
 
-1. Song, Y., Dhariwal, P., Chen, M., Sutskever, I. [*Consistency Models.*](https://arxiv.org/abs/2303.01469) ICML 2023.（定義、邊界條件、自我一致性、參數化、相鄰點損失。）
-2. Karras, T., Aittala, M., Aila, T., Laine, S. [*Elucidating the Design Space of Diffusion-Based Generative Models.*](https://arxiv.org/abs/2206.00364) NeurIPS 2022.（$c_{\text{skip}}$、$c_{\text{out}}$ 的原始形式與 $\sigma_d$。）
+主要理論參考：[The Principles of Diffusion Models](https://arxiv.org/abs/2510.21890)，§11.2，特別是式 11.2.1–11.2.6 與附錄 D.6 的邊界參數化。正文的符號沿用本課程；方法實作細節再對照下列原始論文。
+
+1. [Song, Dhariwal, Chen & Sutskever, Consistency Models (ICML 2023)](https://arxiv.org/abs/2303.01469)。
+2. [Karras, Aittala, Aila & Laine, Elucidating the Design Space of Diffusion-Based Generative Models (NeurIPS 2022)](https://arxiv.org/abs/2206.00364)。

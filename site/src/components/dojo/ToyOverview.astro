@@ -1,0 +1,26 @@
+---
+import { langFromUrl } from '../../lib/noteRefs';
+import { TOY, conditionalData, densityPath, mixtureDensity } from '../../lib/dojoDistributions';
+const zh = langFromUrl(Astro.url) === 'zh';
+const points = conditionalData();
+const grid = Array.from({ length: 321 }, (_, i) => TOY.min + i / 320 * 10);
+---
+<figure class="dojo-toy-overview">
+  <svg viewBox="0 0 720 330" role="img" aria-label={zh ? '左右各半的雙峰密度，下面畫出各類三十二個實際訓練樣本' : 'An equal two-mode density, with 32 actual training samples from each class below'}>
+    <path d={densityPath(grid.map((x) => mixtureDensity(x)), 210, 0.5)} fill="none" stroke="currentColor" stroke-width="3" />
+    <line x1="52" x2="692" y1="210" y2="210" stroke="currentColor" opacity=".4" />
+    {[-4, -2, 0, 2, 4].map((x) => <text x={52 + (x + 5) * 64} y="234" text-anchor="middle">{x}</text>)}
+    {points.map((xs, c) => xs.slice(0, 32).map((x, i) => <circle cx={52 + (x + 5) * 64} cy={256 + c * 16 + (i % 3) * 3} r="3" fill={c ? 'var(--accent)' : 'currentColor'} opacity=".65" />))}
+    <text x="244" y="310" text-anchor="middle">{zh ? '左群 · c = 0' : 'Left · c = 0'}</text>
+    <text x="500" y="310" text-anchor="middle">{zh ? '右群 · c = 1' : 'Right · c = 1'}</text>
+    <text x="52" y="20">density</text>
+  </svg>
+  <figcaption>{zh ? '曲線是已知的資料生成分布；點是實際抽出的訓練資料（每類顯示 32／256 個）。右群作為這次偏好的外觀類別；x₀ 只是教學座標，並非從狗照片量出的特徵。' : 'The curve is the known data-generating density. The dots are sampled training observations (32 of 256 per class shown). The right class represents the preferred appearance; x₀ is a teaching coordinate, not a measured dog-image feature.'}</figcaption>
+</figure>
+<style>
+  .dojo-toy-overview { margin: 18px 0; padding: 14px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-muted); background: var(--surface); }
+  svg { display: block; width: 100%; height: auto; }
+  text { fill: currentColor; font: 16px var(--font-main); }
+  figcaption { font-size: .8rem; line-height: 1.7; margin-top: 8px; }
+  @media (max-width: 460px) { text { font-size: 22px; } }
+</style>

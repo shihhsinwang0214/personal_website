@@ -5,6 +5,72 @@
 同一個問題，換讀者試著往下推，再一起對照理由。
 這一頁是給之後維護練功房的人（含 agent）看的規則。目前已有 U7.0–U7.3 的連續練習；分工與圖片規格見 `docs/dojo-u7-sequence.md`。
 
+## 2026-10-16：U7.1–U7.3 的分布、posterior、粒子與 source 實作
+
+延續學生視角體驗的修改。U7.1 用兩條完整 `MethodPath` 探索 classifier guidance 與 CFG；U7.3 用三條完整路徑探索完成後 Best-of-N／IW、途中 SMC／FK、source MCMC／SPT。保留共同定義與完整必要推導，各路讀完才標記，全部完成才進最後比較表與新的限制情境。U7.3 開頭記角色提案的 Sort 改成自由選路；四條路徑的數值例子提前到一般 FK 路徑分布之前。中英文節點與 progressVersion 一致（U7.1：4、U7.2：5、U7.3：3）。
+
+`SteeringExperiment` 共九個模式：classifier、cfg、tilt、posterior、best、importance、smc、source、tempering。每個模式有預測、受控 A／B、自由改條件、原生 SVG 分布與真正樣本直方圖、計算紀錄、讀圖解釋及可編輯 NumPy／Matplotlib 程式。執行本身不開放外層繼續；讀者對照自己的判讀與解釋後才往下走。不計分、不儲存回答、控制項、樣本或程式。讀取舊位置不偽造舊數據。Python 只同步設定，修改後的程式結果不冒充原生圖。
+
+計算在 `dojoSteering.ts`，教學文字在 `dojoSteeringCopy.ts`，自足 Python 範例在 `dojoSteeringPython.ts`。所有模式沿用 μ = ±2、σ = 0.55 的 Gaussian mixture。它們是解析 toy model，沒有把 preset 曲線說成已訓練的神經網路，也沒有即時生成狗照片。
+
+- Guidance 真正用 Euler–Maruyama 積分 reverse VP SDE，ᾱ(t) = exp(−8t)，由精確 base p₁ 抽起點。Classifier 的 log-probability 導數與 CFG 的兩支 score 分開計算；score 箭頭與 sampler 一步含 drift／noise 的位移分開顯示。w = 1 的 conditional 曲線只是參考，有限時間／步數仍有近似；w > 1 不宣稱精確 terminal tilt。
+- Tilt 以 [−6,6]、Δx = 0.025 的網格積分正規化，再反查 CDF 抽樣。Posterior 用 Gaussian-mixture Bayes 條件分布真的抽可能來源；hₜ 使用解析 Gaussian 積分，plug-in 使用 posterior mean。下方權重函數的縱軸是 log₁₀(1+weight)，不是 density。沒有把高維圖片的抽樣問題說成已被網格解決。
+- Best-of-N 與 IW 各自真正抽 1,000 批，每批 N 個再回傳一個。顯示同一批候選的 reward、正規化倍率與選中的編號，區分條件機率與跨批次的 output law。
+- SMC 使用已知 mixture VP Markov process 的精確 reverse conditional，集中觀察有限粒子與 H 估計的影響。逐步模式分開 propagate、計算自己來路的 H_new/H_old、multinomial resampling；每段保留 M 份。色彩追蹤同一 population 的祖先，主直方圖另以 300 趟獨立 population 各回傳一個。中間 H 可選 posterior、plug-in 或故意偏右的正估計；H_K = 1、H₀ = exp(λR)，不把理想相消當成有限 M 的精確性。列出 transitions 與 H 呼叫，解析 H 不隱藏 rollout 成本。
+- Source 使用固定 G(z) = F_base⁻¹(Φ(z))，standard Normal prior 與對稱 Gaussian proposal；MCMC 含 prior × reward 的接受比。SPT 同時保留 0、λ/2、λ 三個 targets，依正確接受率交換 z、G(z)、reward，只從目標鏈取樣。拒絕留在原位也算樣本。Warm-up 400 步不是收斂保證。三鏈與單鏈的每鏈迭代數相同，明示三倍評分成本，不宣稱等預算優勢；proposal 步幅與 λ 分開設定。
+
+原有兩結果 `Experiment` 的 Python 現在也在首次展開時同步控制項，之後重開保留編輯。U7.3 有限粒子題的否定回饋直接以「仍可能有偏差」開頭，避免「是的」指涉相反結論。
+
+## 2026-10-16：完整方法路徑、分布實作，再統整與選擇
+
+學生體驗後調整：每條路先給必要模型設定，立即進入「先預測 → A／B 實驗 → 用圖和參數判讀」，再完整推導 toy objective 與 diffusion／Flow Matching 對應式；所有必要內容讀完才回列表標記。資料入口先畫真實抽出的帶類別樣本與 base density。實驗內的單一路徑角色表追蹤資料、c、θ 與回傳規則；跨方法的正式比較表仍只在三條路全部讀完後出現。
+
+`DistributionTask` 的預測與解釋不計分、不存檔，允許先在心裡想。`distributionComparison` 實際執行兩組受控觀察：條件訓練學好後只換 c；微調後只換評估資料；固定模型把 Best-of-N 從 1 改成 32。A／B 保留參數、loss／樣本平均與成本紀錄，圖以同一座標對照兩個 density。自由操作會收起舊 A／B 紀錄，不把舊實驗冒充新條件結果。執行後先開放讀圖解釋，再由讀者按「把我的判讀和解釋對照」取得外層繼續；Python 成功執行也只先開放這段判讀。
+
+模型只開放哪些參數是 toy 的設定，不是方法定義。微調路徑補「開放均值學習仍是微調」反例；最後加上既有 conditional model 換 prompt、微調後再 steering 的組合情境，以及要求保留右群內形狀時的開放讀圖題。中英文同步版本 9。
+
+分布實驗的 Python 首次展開會套用控制項，之後重開保留修改，不自動覆蓋程式。明示只同步設定、不匯入已訓練參數或樣本，每次整份執行由初始模型開始。程式分為資料／訓練（或固定模型）／生成／畫圖四段，編輯目標參數放在開頭。套件載入訊息與 stderr 警告放在可展開診斷；真正的執行錯誤仍直接顯示在主要結果。
+
+U7.0 的 Explore 現在選的是完整方法路徑。每條 `<MethodPath id back title>` 都包含必要定義、loss／更新對象、檢查題、實作與收口；只有走過最後一個節點才標記「已完整探索」。中途可回列表並稍後接著讀。三條路完整探索後，才開啟最後比較表；表格之後再給不同限制與需求，請讀者選方法。本決定取代先讀短提案就進比較表的順序。
+
+三條路使用相同的一維 Gaussian mixture。`DistributionExperiment` 的條件訓練用帶類別的資料學兩個平均值；微調以偏好資料的 likelihood 更新原模型的混合 logit；steering 固定原模型，實際生成 N 個候選、按 reward 留一個。圖中同時對照 base、訓練資料的目標密度（如有）、目前模型／回傳密度與 1,000 個生成樣本的直方圖。不要用預設曲線位移冒充學習；畫圖來自實際梯度更新或候選抽樣。明示這是能直接抽樣的 toy model，並連回 diffusion／Flow Matching 的對應式子。
+
+三份 Python 都使用 NumPy 與 Matplotlib，實際訓練或選候選並畫分布。按執行才載入所需套件；Worker 使用 Agg 擷取 `plt.show()` 與剩餘 figures，每次最多顯示三張圖片。原生互動不依賴 Python 套件下載。套件載入與程式執行分別有逾時，保留停止、還原與 fresh globals。
+
+有完整方法路徑時，存檔增加選填 `paths: { [pathId]: 已讀節點數 }`，仍只記閱讀位置，不記選項、對錯、參數、生成樣本或程式。`step/total` 保持主線語義，首頁與舊腳本相容。續讀能恢復方法完成標記與路徑內位置；圖表從初始模型重來，不偽造上次的訓練結果。
+
+## 2026-10-15：把嘗試與實驗放回問題鏈
+
+使用者要求新設計以提升互動性為主，讓學習與實驗直接在秘境內完成；設計不以搬入原有 lab 為起點。實驗必須讓讀者的條件或規則影響結果，再把觀察接回推理。運算結果與數學目標分開，toy model 明確交代假設，不把機率卡片說成真正生成的圖片。
+
+U7.0 開場改為由讀者選擇先探索哪個動作。三位夥伴的提案是必讀探索路徑，讀完回工作桌；必要定義仍完整提供。移除先記角色與方法名稱的分類，保留實際操作的比較。`Talk` 支援 `detour/back`，沿用既有 Explore 契約。
+
+`Experiment` 是一個主線節點，第一版包含獨立候選命中率（U7.0）與兩結果的目標比例／回傳規則（U7.2）。先預測、選條件與規則，執行後對照理論與有限抽樣，再換條件比較；預測可以留空，不判分。看一組示範也能接回主線，不要求猜對或湊操作次數。最近三次觀察只留在頁面記憶體。
+
+`PythonCell` 可展開編輯並真正執行同一個小實驗。按執行才從固定版本的 CDN 載入 Pyodide，Python 在 module Worker 中執行；只有程式傳給該瀏覽器的 Worker，不上傳作答或閱讀資料。每次以新 globals 執行，提供還原、套用上方條件、停止與逾時終止；主線往下走後仍能改程式。Python 載入失敗不影響原生互動與完整文字。範例使用標準函式庫，沒有預設下載大型模型或數值套件。
+
+實驗內的操作不是額外主線節點。`dojo:experiment-complete` 只表示試過或看過示範，Runner 才提供繼續；成功執行 Python 也可接回主線。儲存仍只有 `{version, step, total}`；重排與新增主線已同步遞增中英文 `progressVersion`。續讀已走過的實驗提供示範與重試，不虛構上次的預測、數據或程式。實驗節點不放進 `study` 提案複本。
+
+停用 JavaScript 時，條件、示範與 Python 原始碼仍可讀，操作控制項隱藏。鍵盤、手機、深淺色與 reduced motion 沿用網站設計；抽樣次數與機率是實驗的量，不是學生的分數或完成百分比。
+
+## 2026-10-15：Knowledge Realms 英文版
+
+使用者確認英文名稱為 **Knowledge Realms**，介面保留現有 Beta 標示。已完成的 U7.0–U7.3 各有 `<slug>.en.mdx`，英文主線、岔路、分類卡片、頁內補充與逐步推導對應中文版本，不以摘要代替教材。公式沿用中文版本的符號與運算；公式裡的說明文字翻成英文。
+
+共用元件沿用 `Ref` 的 `langFromUrl(Astro.url)` 判斷頁面語言，涵蓋預設提問、思考欄、提案回顧、圖片放大、夥伴介紹與推導標籤。Runner 的推導進度文字也放入既有 i18n。語言切換與下一篇由既有雙語路由產生；同 slug 的閱讀位置沿用共用進度鍵，因節點順序完全對應，英文 `progressVersion` 與中文一致。
+
+九張教學圖以 imagegen 製作英文文字版，作為 `imgs/*.en.png`，中文原圖保留；prompts 與產物對照在 `docs/dojo-english-assets.json`。U7.3 開場只有單張完成圖與黑箱分數，候選選擇圖仍在 Best-of-N 情境，方法總覽仍在結尾。來源技能書沒有英文正文時，沿用既有跨語言 fallback，秘境的連續閱讀入口明示 Chinese；來源翻譯完成後會自動使用英文連結。
+
+## 2026-10-15：逐步推導
+
+先以 U7.3「新舊估計的比值 → potentials 相消 → FK 的 terminal target」試作。逐步展開依據的是數學動作，不是一句話或一個等號：每步交代想算什麼、用哪個工具、為什麼選它，再給公式與結果。先完整示範一個例子，再讓讀者選工具、補關鍵步驟，最後檢查不同路徑如何接回終點比例。
+
+`<Derivation label>` 放在一個既有對話節點裡，內含 `<DeriveStep title goal tool reason>`；公式與結果寫在 step 的 MDX slot。第一次只露第一步，按「接著推」才展開下一步，已讀步驟仍可對照。「看完整推導」可一次展開，「從這段重看」可縮回第一步；看完整段後重看，不會重新鎖住主線。
+
+必要推導展開完才提供外層繼續，也可以選完整查看。`Extra` 裡的推導或 `optional` 推導不擋主線。子步驟不是 `data-node`，不加入 total、分數或額外儲存；續讀尚未完成的主線時，推導從第一步開始，已走過的主線還原完整推導。改動主線順序或增加題目仍需遞增 `progressVersion`。
+
+鍵盤可操作所有按鈕，展開後焦點落在新的步驟，捲動尊重 reduced motion。無 JavaScript 時所有步驟直接顯示，控制項隱藏。提案回顧中的推導是完整的唯讀文字，移除展開控制項，不重複保存進度。`goal/tool/reason` 是純字串，含公式的解釋放 slot；不把方法選擇藏在小標籤裡，工具與選它的理由都要有完整句子。
+
 ## 2026-10-14：獨立學習與學習夥伴
 
 使用者要求：不先看筆記，也能在知識秘境學到來源單元的知識。必要定義、數學角色、訓練前提、推導與限制須在秘境內說清楚。延伸內容可以放可展開的 `<Extra>`，但必須直接寫在頁內，不能只用來源連結代替；筆記仍是連續閱讀版。這個要求取代下文早期版本將完整 losses、Best-of-N 成功率或相關延伸全部移出秘境的決定。
@@ -82,6 +148,7 @@ site/src/content/dojo/<slug>.<lang>.mdx       腳本（collection `dojo`，schem
 site/src/components/dojo/Dialogue.astro       runner + 全部樣式（is:global，限 .dojo 之下）
 site/src/components/dojo/{Say,Explore,Choose,Option,Judge,Think,Reveal,Sort,Card}.astro
 site/src/components/dojo/{Talk,Partner,Review,Extra}.astro
+site/src/components/dojo/{Derivation,DeriveStep}.astro
 site/src/components/dojo/{DojoView,DojoIndex}.astro
 site/src/lib/dojo.ts                          路由、列表、筆記對照
 site/src/lib/dojoPartners.ts                  學習夥伴與未來 avatar
@@ -105,6 +172,7 @@ Frontmatter：`slug`、`lang`、`title`（用一句情境，不用筆記標題�
 | `<Judge answer={bool} replyYes replyNo>` | 是／非 | 新 |
 | `<Think>` | 先寫幾句（不存），再看整理 | `<Question>` |
 | `<Reveal>` | 作者的整理、公式、`<Ref>` | `<Answer>` |
+| `<Derivation><DeriveStep>` | 在一個主線節點內，逐步對照目標、工具、理由與結果 | 核心推導的 worked example |
 | `<Sort columns rows rowReplies done><Card col row>` | 分類實際動作，逐列比較後對照作者整理 | 筆記裡的比較表 |
 | `<Figure src alt>` | 先看情境，點圖可另開大圖 | 已驗收的教學圖 |
 

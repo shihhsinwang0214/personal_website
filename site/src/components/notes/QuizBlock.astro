@@ -12,15 +12,19 @@
  *
  * Styling mirrors Quiz.astro so both variants look identical on the page.
  */
+import { langFromUrl } from '../../lib/noteRefs';
+
 interface Props { id?: string }
 const { id } = Astro.props;
+const lang = langFromUrl(Astro.url);
+const isZh = lang === 'zh';
 ---
 
-<form class="quiz" data-quiz-block id={id ? `quiz-${id}` : undefined}>
-  <span class="quiz-tag">想一想</span>
+<form class="quiz" data-quiz-block data-lang={lang} id={id ? `quiz-${id}` : undefined}>
+  <span class="quiz-tag">{isZh ? '想一想' : 'Check your understanding'}</span>
   <div class="quiz-body"><slot /></div>
   <p class="quiz-feedback" role="status" aria-live="polite"></p>
-  <button type="button" class="quiz-reveal">看解答</button>
+  <button type="button" class="quiz-reveal">{isZh ? '看解答' : 'Show explanation'}</button>
 </form>
 
 <style>
@@ -94,7 +98,9 @@ const { id } = Astro.props;
           btn.classList.add(correct ? 'is-correct' : 'is-wrong');
           if (correct) opts.forEach((b) => { if (b.dataset.correct === 'true') b.classList.add('is-correct'); });
           if (feedback) {
-            feedback.textContent = correct ? pick(PRAISE) : pick(RETRY);
+            feedback.textContent = quiz.dataset.lang === 'zh'
+              ? (correct ? pick(PRAISE) : pick(RETRY))
+              : (correct ? 'Correct!' : 'Try again.');
             feedback.classList.toggle('ok', correct);
             feedback.classList.toggle('no', !correct);
           }

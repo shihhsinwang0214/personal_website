@@ -1,0 +1,61 @@
+---
+import { langFromUrl } from '../../lib/noteRefs';
+import type { ToyMethod } from '../../lib/dojoDistributions';
+interface Props { id: string; method: ToyMethod; phase: 'predict' | 'reflect' | 'code' }
+const { id, method, phase } = Astro.props;
+const zh = langFromUrl(Astro.url) === 'zh';
+const prompts = {
+  conditional: {
+    question: zh ? '兩個平均值學好後，只把 c 從 1 換成 0，密度與參數各會怎麼變？' : 'After learning both means, what changes in the density and parameters when only c switches from 1 to 0?',
+    plan: zh ? 'A：從初始平均值訓練 60 步，給 c = 1。B：保留同一組參數，只改成 c = 0 再生成。' : 'A: train the initial means for 60 steps and generate with c = 1. B: retain those parameters and generate with c = 0.',
+    evidence: zh ? '引用 A、B 的兩個平均值和曲線位置，說明「換輸入」和「重新訓練」的差別。若只訓練一步，兩個分布會完全分開嗎？' : 'Use the means and curve locations in A and B to distinguish changing an input from retraining. Would one training step fully separate the distributions?',
+    task: zh ? '先只改開頭的 c，再執行。程式分為資料、訓練、生成、畫圖四段；生成段使用訓練段剛學好的參數。整份重跑仍會從初始模型重新訓練。' : 'First change only c near the top and run. The four sections are data, training, generation, and plotting. Generation uses the just-trained parameters; rerunning the whole script starts training from the initial model again.',
+  },
+  finetune: {
+    question: zh ? '把偏好資料從右群 90% 換成 10%，但不更新模型：右峰權重、生成分布與目前資料的 loss，哪些會變？' : 'Change preferred data from 90% right to 10% right without updating the model. Which change: the model weight, generated density, or loss on the current data?',
+    plan: zh ? 'A：用右群約 90% 的資料更新 60 步。B：換成右群約 10% 的資料，只生成，不再更新。' : 'A: update for 60 steps on roughly 90% right data. B: switch to roughly 10% right data and generate without another update.',
+    evidence: zh ? '引用 A、B 的 θ、右峰權重與 loss。評估的資料換了，為什麼 loss 會變，模型曲線卻可以重疊？' : 'Use θ, the model weight, and loss in A and B. Why can the loss change while the model densities overlap when the evaluation data changes?',
+    task: zh ? '先只改開頭的 preferred_right，再重跑，觀察新偏好經過訓練後是否留在模型權重。每次整份重跑都從 logit = 0 開始；上方已訓練的參數不會帶入。' : 'First change preferred_right near the top and rerun. Inspect whether training writes the preference into the weight. Each full run starts from logit = 0; it does not import the trained state from the controls above.',
+  },
+  steering: {
+    question: zh ? '固定模型、用 R(x₀) = x₀ 挑選，N 從 1 增到 32：只是右群變多，還是右群內的位置與形狀也改了？' : 'With the model fixed and R(x₀) = x₀, does increasing N from 1 to 32 only favor the right class, or also change locations and shape within it?',
+    plan: zh ? 'A：每組只生成 1 個候選。B：同一個固定模型，每組生成 32 個，再各留最大值。' : 'A: generate one candidate per batch. B: use the same fixed model, draw 32 per batch, and retain each maximum.',
+    evidence: zh ? '引用 A、B 的固定權重、生成成本和密度峰位置。若要求「右群較多，但保留原本右群的形狀」，只增加 N 能保證符合嗎？' : 'Use the fixed weight, generation cost, and peak locations in A and B. If the requirement is more right-class results while preserving its original shape, does increasing N guarantee it?',
+    task: zh ? '先只改開頭的 N，對照候選成本與回傳密度；再改 direction 反轉 reward。模型權重始終固定。' : 'First change only N near the top and compare candidate cost and returned density. Then change direction to reverse the reward. The model weight stays fixed.',
+  },
+}[method];
+---
+{phase === 'predict' ? <div class="distribution-task">
+  <p class="distribution-task-title">{zh ? '先預測，再做一組對照' : 'Predict, then run a controlled comparison'}</p>
+  <p>{prompts.question}</p>
+  <div data-distribution-task-controls hidden>
+    <label for={`${id}-prediction`}>{zh ? '你的預測與理由（也可以先在心裡想）' : 'Your prediction and reasoning (or think first)'}</label>
+    <textarea id={`${id}-prediction`} data-distribution-prediction rows="2"></textarea>
+    <p class="distribution-task-plan">{prompts.plan}</p>
+    <button type="button" class="dojo-btn" data-distribution-compare>{zh ? '從初始模型執行 A／B 對照' : 'Run A/B from the initial model'}</button>
+    <p class="distribution-task-note">{zh ? '對照會重新設定這個 toy model。下方仍能自由改條件與重試；預測與解釋不計分、不存檔。' : 'This restarts the toy model. You can still change the controls below. Predictions and reasoning are neither scored nor saved.'}</p>
+  </div>
+</div> : phase === 'code' ? <p class="dojo-python-task">{prompts.task}</p> : <div class="distribution-task" data-distribution-reflect hidden>
+  <div class="distribution-observations" data-distribution-observations hidden>
+    <dl><dt>{zh ? '對照 A' : 'Observation A'}</dt><dd data-observation-before></dd></dl>
+    <dl><dt>{zh ? '對照 B（目前圖中的結果）' : 'Observation B (current plotted result)'}</dt><dd data-observation-after></dd></dl>
+  </div>
+  <p class="distribution-task-title">{zh ? '用圖和參數說明你的判斷' : 'Support your interpretation with the plot and parameters'}</p>
+  <label for={`${id}-reason`}>{prompts.evidence}</label>
+  <textarea id={`${id}-reason`} data-distribution-reason rows="3" placeholder={zh ? '哪個量保持不變？哪個觀察支持你的解釋？也可以先在心裡想。' : 'What stayed fixed? Which observation supports your explanation? You can also think first.'}></textarea>
+  <button type="button" class="dojo-btn dojo-btn-ghost" data-distribution-explain>{zh ? '把我的判讀和解釋對照' : 'Compare my reasoning with the explanation'}</button>
+</div>}
+<style is:global>
+  .dojo .distribution-task { margin: 16px 0; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: .9rem; line-height: 1.7; }
+  .distribution-task .distribution-task-title { font-weight: 650; margin: 0 0 8px; }
+  .distribution-task .distribution-task-plan { font-size: .85rem; }
+  .distribution-task .distribution-task-note { font-size: .78rem; color: var(--text-muted); margin-bottom: 0; }
+  .distribution-task textarea { display: block; box-sizing: border-box; width: 100%; resize: vertical; margin: 8px 0 14px; padding: 10px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 7px; font: inherit; }
+  .distribution-task textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .dojo-python-task { font-size: .85rem; line-height: 1.7; padding: 12px; border-left: 3px solid var(--accent); background: var(--surface-2); }
+  .distribution-observations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .distribution-observations dl { margin: 0; padding: 12px; background: var(--surface); border-radius: 8px; }
+  .distribution-observations dt { font-weight: 600; margin-bottom: 8px; }
+  .distribution-observations dd { margin: 0; white-space: pre-line; font-size: .8rem; }
+  @media (max-width: 460px) { .distribution-observations { grid-template-columns: 1fr; } }
+</style>

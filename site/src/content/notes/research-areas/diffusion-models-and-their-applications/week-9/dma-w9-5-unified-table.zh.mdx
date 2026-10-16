@@ -3,14 +3,16 @@ slug: "dma-w9-5-unified-table"
 label: "dma-unified-table"
 prereqs: []
 lang: "zh"
-title: "統一表與選擇指南"
+title: "讀到一個一步生成方法，先檢查哪幾件事？"
 category: "courses"
 group: "Unit 6 · Consistency Trajectory Model and Flow Map"
 status: "available"
-updated: 2026-10-04
-summary: "用學習物件、teacher、多步能力與結構性誤差四個問題，整理 Consistency Models 與 Flow Maps 的方法並判斷各自適用的情境。"
+updated: 2026-10-16
+summary: "用學習物件、監督來源與取樣誤差分開比較方法，再以兩個反例說明半群一致與輸出品質不能互相代替。"
 demos: []
 references:
+  - label: "Lai, Song, Kim, Mitsufuji & Ermon, The Principles of Diffusion Models (v3, 2026)"
+    href: "https://arxiv.org/abs/2510.21890"
   - label: "Boffi, Albergo & Vanden-Eijnden, Flow Map Matching (2024)"
     href: "https://arxiv.org/abs/2406.07507"
   - label: "Geng, Deng, Bai, Kolter & He, Mean Flows for One-step Generative Modeling (2025)"
@@ -18,148 +20,132 @@ references:
   - label: "Yin et al., Improved Distribution Matching Distillation for Fast Image Synthesis (NeurIPS 2024)"
     href: "https://arxiv.org/abs/2405.14867"
 ---
-import Objectives from '../../../components/Objectives.astro';
-import Prereq from '../../../components/Prereq.astro';
-import QuizBlock from '../../../components/QuizBlock.astro';
-import Option from '../../../components/Option.astro';
-import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
-import Bridge from '../../../components/Bridge.astro';
-import Ref from '../../../components/Ref.astro';
-import Question from '../../../components/Question.astro';
 import Answer from '../../../components/Answer.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Explanation from '../../../components/Explanation.astro';
+import Objectives from '../../../components/Objectives.astro';
+import Option from '../../../components/Option.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Ref from '../../../components/Ref.astro';
 
-# 統一表與選擇指南
+# 讀到一個一步生成方法，先檢查哪幾件事？
 
 <Objectives>
-- **用四個問題描述一個方法。** 判斷它學什麼、要不要 teacher、能否合法多步、主要誤差從哪裡來。
-- **把結構性誤差連回前面的工具。** 分清 Euler acceleration error、累積、交叉平均與 score 估計各在哪些方法出現。
-- **根據需求選擇方法。** 給定可用資源與取樣需求，說出適合的路線及其代價。
+- **辨認方法真正學到的物件。** 分清 instantaneous velocity、固定終點 map、一般 flow map 與 output law。
+- **對齊監督來源與成本。** 比較 teacher rollout、資料條件量、self-target 與即時 score 估計。
+- **分開結構與品質檢查。** 說明半群 residual、逐點誤差與分布距離分別能回答什麼。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 沿哪四個軸排這張表
+## 都說一步生成，為什麼不能只看步數？
 
-兩個單元看了十來個方法。它們不是十來個獨立的點子，而是在幾個獨立的選擇上各取一格。把選擇攤開：
+同樣是一個網路呼叫，<Ref to="dma-learn-the-map"/> 可以是 denoiser，<Ref to="dma-consistency-function"/> 可以是終點 map，<Ref to="dma-meanflow"/> 可以是整段平均速度。呼叫次數相同，輸出的數學角色卻不同。若先把它們全叫作「一步模型」，後面的優缺點很容易對不到真正的問題。
 
-**軸一：學什麼。** 速度場 $v_t$（一步是 Euler，多步才準）；終點 $\psi_{t\to1}$（consistency 家族，一步準、多步要回終點）；一般的 flow map $\psi_{t\to s}$ 或平均速度（一步與多步都是合法路徑）；分佈（學生是一步生成器，訓練訊號在分佈層面，多步要另外設計）。
+我們可以沿著整個生成流程問三件事：**網路在回答什麼？訓練答案從哪裡來？生成時又怎麼組合這些回答？** 這三問比方法名稱更適合拿來讀新論文。
 
-**軸二：要不要 teacher。** <Ref to="dma-flow-map-matching"/> 的判準：速度場是否只在我們自己造的點上被需要。不要 teacher 的方法能從頭訓練，代價是要靠條件→邊際的代換與 bootstrapping。CTM 是中間案例：它的 teacher 可以是外部模型，也可以是網路自己的對角線（<Ref to="dma-flow-map"/> 的展開框），後者就落回 bootstrapping 這一側。
+## 先看輸出物件，再看一步怎麼得到
 
-**軸三：能否多步、多步的路合不合法。** 「合法」指不需要回到終點重新加噪——<Ref to="dma-multistep-limit"/> 說過重新加噪就是新的獨立配對。
+| 學習物件 | 一次輸出代表什麼？ | 生成時還要做什麼？ |
+|---|---|---|
+| Instantaneous velocity $v_t$ | 當下變化率 | 使用數值積分 |
+| Consistency function $f$ | 固定乾淨端的位置 | 一步到終點；多步另設加噪程序 |
+| General flow map $\psi_{t\to s}$ | 指定時間的 trajectory 位置 | 可以直接合成中途跳躍 |
+| Mean velocity $u$ | 一段 trajectory 的平均速度 | 用時間差乘回位移 |
+| Generator output law | 所有輸出的統計分布 | 不必重現指定 latent coupling |
 
-**軸四：誤差從哪裡來。** 這是最值得記的一軸，因為每一種都對應前幾個單元的一個工具：
+終點位置與平均速度可以互換表示，oracle 平方誤差只差時間權重；但「表示同一物件」不代表「實作訓練完全一樣」。CM 只是一個固定目的時間的切片；一般 flow map 則多學了目的時間方向的資訊。
 
-- **Euler acceleration bias**：目標把某一段的 velocity 當成不變。consistency training 的 $O(\Delta t)$ 項（<Ref to="dma-cd-vs-ct"/>），Euler 取樣的每一步（<Ref to="dma-error-theory"/>）。連續時間版本把這個 finite-$\Delta t$ bias 消掉。
-- **累積**：小步的誤差被帶到大步。progressive distillation 的逐輪（<Ref to="dma-progressive-distillation"/>）、Shortcut 的階梯、reflow 的多輪（<Ref to="dma-rectified-flow"/>）、多步 ODE 取樣的逐步累積。
-- **交叉平均**：squared loss 回歸多值目標，輸出落在平均。<Ref to="dma-fm-vs-diffusion"/> Q1 的交叉，在蒸餾裡是模糊（<Ref to="dma-distribution-matching"/> Q1）。
-- **score 估計**：訓練訊號依賴一個要即時估計的 score。DMD 的 $s_{\text{fake}}$，以及任何 SDE 取樣器對 score 精度的依賴（<Ref to="dma-unified-equation"/>）。
+## 再問 target 的資訊從哪裡進來
 
-第五種——**網路本身的近似誤差**——每個方法都有，不列入表中；表只列方法**結構**上帶來的誤差。
+| 方法 | 主要監督來源 | 要另外計入的訓練成本 |
+|---|---|---|
+| Direct distillation | Teacher 完整 transition | 完整 rollout 或預生成配對 |
+| Progressive distillation | 本輪 teacher 的兩步 | 多輪訓練與 teacher 求值 |
+| CD | Teacher 短段與 target 終點函數 | Teacher 與 target evaluation |
+| CT／iCT | 資料、共用 noise 與 target 函數 | 相鄰配對、網格與 self-target |
+| Continuous-time CM | 局部 velocity 與 stopped tangent | JVP 與穩定化設計 |
+| CTM | 短 solver 段與 target map | 外部或自誘導動力學、局部監督 |
+| MeanFlow | 條件 velocity 與模型導數 | JVP、self-target、時間對抽樣 |
+| Shortcut | 局部 FM 與兩個模型短跳 | 短跳合成與步長條件化 |
+| Distribution distillation | Target 與 student 的 score 訊號 | Auxiliary score model 的追蹤 |
 
-## 每個方法住在哪一格
+「不需要外部 pretrained teacher」沒有消除訓練中的監督需求。CT 使用資料與配對 noise；MeanFlow 的導數來自當下模型；Shortcut 的大步由小步提供；CTM 的 self-induced 版本還需要資料把對角線接到正確 dynamics。
 
-把兩個單元的方法沿上面那四個軸排開，每一列就是四個選擇的一組組合。其中 flow map 的三種訓練訊號，沿用 Boffi、Albergo 與 Vanden-Eijnden 的 Flow Map Matching [1] 所整理的分類。
+## 半群 residual 很小，圖片就一定對嗎？
 
-| 方法 | 學什麼 | 訓練訊號 | teacher | 多步 | 結構性誤差 |
-|---|---|---|---|---|---|
-| Flow matching（<Ref to="dma-conditional-flow-matching"/>） | 速度 $v_t$ | 回歸 | 否 | 必須多步 | Euler acceleration error、累積 |
-| Reflow（<Ref to="dma-rectified-flow"/>） | 速度（新配對） | 回歸 | 上一輪的自己 | 少步 | 累積（逐輪）、多樣性 |
-| Progressive distillation（<Ref to="dma-progressive-distillation"/>） | 離散步的 flow map | 回歸 | 是 | 固定步數 | 累積（逐輪） |
-| Consistency distillation（<Ref to="dma-cd-vs-ct"/>） | 終點 $\psi_{t\to1}$ | 回歸 | 是 | 要重加噪 | teacher 誤差、Euler acceleration error |
-| Consistency training（<Ref to="dma-cd-vs-ct"/>） | 終點 | 回歸 | 否 | 要重加噪 | Euler acceleration bias $O(\Delta t)$、條件目標的 variance、Jensen gap；網格太粗時另加交叉平均 |
-| sCM（<Ref to="dma-ict-scm"/>） | 終點 | 回歸 | 否 | 要重加噪 | bootstrapping（$\tfrac{df}{dt}$ 的數值行為） |
-| CTM（<Ref to="dma-flow-map"/>） | flow map $\psi_{t\to s}$ | 回歸 | 是／可自誘導 | 合法 | teacher solver 的離散誤差；自誘導版換成對角線的 bootstrapping |
-| Geng 等人的 MeanFlow [2]（<Ref to="dma-meanflow"/>） | 平均速度 | 回歸 | 否 | 合法 | bootstrapping（$\tfrac{du}{dt}$） |
-| Shortcut（<Ref to="dma-shortcut-ayf"/>） | 平均速度（離散 $d$） | 回歸 | 否 | 合法，$d$ 在網格上 | 累積（階梯）、底層 FM 的 finite-step error |
-| Align Your Flow（<Ref to="dma-shortcut-ayf"/>） | flow map | 回歸 | 是 | 合法 | teacher 誤差 |
-| Yin 等人的 DMD / DMD2 [3]（<Ref to="dma-distribution-matching"/>） | 分佈（一步生成器） | 分佈匹配 | 是 | 另外設計 | score 估計、mode collapse |
-| IMM（<Ref to="dma-distribution-matching"/> 延伸） | flow map | 分佈匹配（moment） | 否 | 合法 | 分佈距離的估計 |
+<Ref to="dma-flow-map"/> 的半群是精確 ODE flow 的結構。我們可以比較直接 $0\to1$，與 $0\to s\to1$ 的模型落點，得到一個容易量的 residual：
 
-表上有兩條對角線。「不要 teacher」與「沒有 finite-$\Delta t$ bias」在早期方法上不能兼得（CT 有 bias、CD 要 teacher），連續時間的 sCM 與 MeanFlow 把這個矛盾解掉——靠的是 JVP 換掉差分。另一條是「回歸」與「交叉平均」幾乎總是一起出現；要擺脫交叉平均，目前唯一的辦法是換訓練訊號（分佈匹配），而那會把 score 估計的問題請進來。**沒有一格是全綠的。**
+$$
+\left\|G_\theta(x,0\to1)
+-G_\theta(G_\theta(x,0\to s),s\to1)\right\|.
+$$
 
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/week-9/w9-5-1.html" class="demo-frame" title="一步生成方法可篩選統一表：互動 demo" style="height: 820px; width: 100%; border: none;"></iframe>
-
-**互動 demo：依需求篩方法。** 勾選 teacher、一步、多步、finite-$\Delta t$ bias、階梯、交叉平均、score 與 JVP 等限制；不符合的方法保留但淡出，欄名可排序，格子可查看取捨說明。
-
-## 怎麼選
-
-把表翻成幾個問題：
-
-**手上有沒有訓好的 teacher？** 沒有——走從頭訓練那幾列：MeanFlow（任意 $(r,t)$、要 JVP）、Shortcut（不要 JVP、步長在網格上）、sCM（只要一步）。有——多了三條路：distillation 版的 flow map（CTM、AYF，一步與多步都合法）、DMD 家族（一步品質通常最好，但要訓第二個網路），或者最便宜的 progressive distillation。
-
-**要一步還是幾步？** 只要一步——consistency 家族與 DMD 都夠。要「一步能用、四步更好」——選學 flow map 的那幾列（CTM、MeanFlow、Shortcut、AYF），因為它們的多步是合法路徑；consistency 家族多步要重加噪，多走幾步不保證更好。
-
-**最怕哪一種錯？** 怕模糊、怕細節被平均掉——分佈匹配。怕訓練不穩、怕 mode collapse、沒有人力調第二個網路——回歸式。這是 <Ref to="dma-distribution-matching"/> Q1 的兩個失敗模式反過來讀。
-
-**算力在哪一邊？** JVP 讓每步訓練多一次前向；DMD 的 fake denoiser 讓每步多一整個網路的更新；progressive distillation 與 CTM 要 teacher 在訓練時跑 solver。取樣端則所有方法都是一到幾次前向，差別不大。
-
-最後一件事值得說清楚：**這張表上的每一列都建在前幾個單元的物件上。** 訓練訊號來自 <Ref to="dma-denoising-regression"/> 的 **conditional trick**（<Ref to="dma-concrete-score"/> 有一張把它各個版本列齊的表），誤差的分類來自 <Ref to="dma-error-theory"/> 的 acceleration-controlled finite-step error 與 <Ref to="dma-fm-vs-diffusion"/> 的交叉，「多步是否合法」來自 <Ref to="dma-flow-map"/> 的半群條件——學的物件本身能不能從任意 $t$ 走到任意 $s$。一個新方法出現時，先問它在四個軸上各取哪一格、主要在對付哪一種誤差——通常三分鐘就能把它放進表裡。
+它小，表示這份模型在所抽位置與切法下較一致；並沒有直接比較資料分布，也沒有確認局部 velocity 正確。
 
 <Question id="Q1">
-表上「結構性誤差」那一欄有一個名詞出現得特別頻繁：**交叉平均**。但它並不是每一列都有——CD、sCM、MeanFlow 那幾列就沒有。
-
-**一個方法什麼時候會吃到交叉平均，什麼時候不會？**
-
+一個模型的半群 residual 精確為零，但從 noise 出發生成的仍是 noise。它有可能嗎？
 <Answer>
-判準只有一句：**回歸的目標，在給定輸入之後是不是唯一的。**
+有。令所有時間 maps 都等於恆等，直接與分段都回傳相同輸入，residual 就是零。它只是在學零速度的 dynamics，若資料不同於 noise，生成 law 仍然錯。
 
-squared loss 的最小值是條件期望（<Ref to="dma-tweedie-and-score"/>）。目標唯一，回歸就學到它；目標多值，回歸就學到那些值的平均——那個平均通常不是任何一個合法的答案，這就是 <Ref to="dma-fm-vs-diffusion"/> Q1 的交叉在蒸餾裡的樣子（<Ref to="dma-distribution-matching"/> 展開過）。
-
-逐列看：
-
-- **CD**：teacher 是 ODE，一個 $x_t$ 對到一條軌跡、一個終點。目標唯一，**沒有**交叉平均——<Ref to="dma-learn-the-map"/> 正是拿這件事當「回歸不會糊」的範例。它的誤差是 teacher 本身的誤差加上 Euler 一步漏掉 velocity 變化的誤差。
-- **CT**：目標是同一條件直線上往前一格的點經過 $f_{\theta^-}$，對同一個 $x_{t_{n+1}}$ 而言它隨 $(x_0,\epsilon)$ 變——是多值的。但這個多值是**刻意的**，<Ref to="dma-cd-vs-ct"/> 證明它的後驗平均恰好是對的那一步，所以它是 variance 不是 bias。只有當時間網格粗到目標退化成「$x_t$ 對到哪個 $x_1$」時，平均掉的才變成終點本身——那時才真的糊。
-- **sCM／MeanFlow**：條件速度**線性**進入目標，期望精確（<Ref to="dma-ict-scm"/>、<Ref to="dma-meanflow"/> Q1）。連 CT 那個 Jensen gap 都沒有，更不會有交叉平均。它們付的是另一種代價：bootstrapping。
-- **Reflow**：目標唯一（上一輪模型的 ODE 解），但那個解本身帶著上一輪的誤差，所以問題是**累積**與多樣性，不是平均。
-
-所以「交叉平均」不是一個籠統的壞名聲，它有一個很窄的觸發條件。看到一個新方法時，先問：**它的回歸目標，給定輸入之後唯一嗎？** 不唯一的話，那個多值是像 CT 那樣會被正確平均掉的，還是像 SDE teacher 那樣會把終點平均掉的？
+反方向也可能：<Ref to="dma-distribution-matching"/> 的 $G(z)=-z$ 可在 Gaussian target 上輸出正確 law，卻不等於指定 flow 的逐點 map。因此要分開量局部速度、map accuracy、合成 residual 與 output distribution；不能拿其中一個數字替所有問題作答。
 </Answer>
 </Question>
 
-## 往應用
+## 增加步數，先檢查誤差是怎麼縮小的
 
-到這裡，這門課已經從 <Ref to="dma-what-are-we-learning"/> 把生成翻成學一個映射，再一路把那個映射壓到一步。但真正使用模型時，條件或目標常在 training 完成後才出現：影像編輯收到新的 prompt、inverse problem 收到一筆 observation、蛋白質設計收到新的 reward。<Ref to="dma-test-time-steering"/> 接著會問，如何保留這裡訓好的模型，只在 sampling 時把結果帶向新的目標。
+學 velocity 的模型，用更多 solver steps 可以在適當光滑條件下減少**固定 learned field 的積分誤差**；不會消除 field 本身的誤差。Learned flow map 的短跳則要檢查 local map error 如何依時間差縮小，以及各段如何傳遞輸入偏差。
 
-## 先消化一下
+例如每段 reference map 是 $K$-Lipschitz、每段模型差距至多 $\delta(h)$，就有 $e_{k+1}\le Ke_k+\delta(h)$。只有先知道 $K$ 與 $\delta(h)$ 的關係，才能推導整體對步數的依賴。**半群描述精確 map 如何合成，沒有替任意網路提供 $\delta(h)=O(h^2)$。**
+
+CM 的重加噪程序在精確 marginal 上也合法，但屬於另一個 transition，不能用「有沒有換軌」直接判斷分布對錯。Distribution matching 若只訓單一 generator，也不會憑空多出可任意合成的雙時間 map。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/fast-maps-gaussian.html?topic=6-5" class="demo-frame" title="U6.5：解析 Gaussian 互動檢查" style="height: 900px; width: 100%; border: none;"></iframe>
+
+**互動 demo：解析 Gaussian 檢查。** 調整起始時間、區間與位置，直接計算本篇的關係；偏差控制是明示的 surrogate，沒有使用預設的品質曲線。
+
+## 最後對齊比較資源
+
+要比較一步品質，至少列出 prior、資料、network、訓練預算與 teacher 資源。要比較 sampling 成本，計算 NFE 或實際時間，而不是只寫 steps；一次 step 可能含多次網路求值。要比較多步改善，固定同一個模型，再記錄每種 schedule 與新增隨機性。
+
+一個新的方法也可以同時使用不同訊號，例如回歸與 adversarial discrepancy。這不必硬塞進「只有回歸」或「只有分布」的分類；先寫出每個 loss 控制的量，再判斷實際實驗能回答什麼。
+
+## 消化一下
 
 <QuizBlock id="w9-5-a">
-一個新方法宣稱「不要 teacher、一步生成、沒有任何離散化誤差」。從表的結構判斷，它最可能住在哪一格，並帶著哪一種結構性誤差？
-<Option>Lagrangian 恆等式，帶 score 估計誤差。</Option>
-<Option correct>連續時間的 Eulerian 恆等式（sCM、MeanFlow 那一格），帶 bootstrapping 與回歸式的交叉平均。</Option>
-<Option>分佈匹配，帶 Euler acceleration bias。</Option>
-<Explanation>
-不要 teacher 排除 Lagrangian；沒有離散化排除 CT 與 Shortcut 的階梯；剩下連續時間 Eulerian。這一格的代價是自我目標的 bootstrapping，且它仍是回歸，交叉平均不會消失。分佈匹配沒有 finite-$\Delta t$ bias 的問題，但它需要 teacher。
-</Explanation>
+Oracle errors 只差已知時間權重，能推出什麼？
+<Option>兩種實際 training recipes 完全相同。</Option>
+<Option correct>在指定參數化下，它們對同一個精確 map 的誤差可互換表示。</Option>
+<Option>有限訓練品質必定相同。</Option>
+<Explanation>Surrogate target、time sampling 與 optimization 仍會改變實際結果。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w9-5-b">
-「多步合法」在表裡指的是：
-<Option>取樣步數可以任意增加。</Option>
-<Option correct>多步路徑 $0\to s_1\to\cdots\to1$ 不需要回到終點重新加噪——每一段都是同一條軌跡上的跳躍。</Option>
-<Option>每一步都用 teacher 驗證過。</Option>
-<Explanation>
-consistency 家族也能任意增加步數，但每步要重加噪，那是新的獨立配對，多走幾步不保證更好。學 flow map 的方法靠半群條件讓中途停留合法。teacher 與此無關。
-</Explanation>
+半群 residual 為零，還需要檢查什麼？
+<Option correct>動力學與生成 law 是否對應我們指定的資料。</Option>
+<Option>不需要，已經是正確生成器。</Option>
+<Option>只需要把 steps 再加倍。</Option>
+<Explanation>恆等 map 就是一個 residual 為零但可能生成錯誤 law 的反例。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w9-5-c">
-「回歸」與「交叉平均」在表上幾乎總是一起出現。要擺脫交叉平均，表上唯一的辦法是：
-<Option>用連續時間的恆等式。</Option>
-<Option>加大時間網格的密度。</Option>
-<Option correct>換訓練訊號——不要求逐點對應，改成分佈匹配；代價是 score（或分佈距離）要即時估計。</Option>
-<Explanation>
-連續時間與細網格消的是 finite-$\Delta t$ bias，不是交叉平均——只要訊號是 squared loss 回歸多值目標，平均就在。分佈匹配繞開它，但把 <Ref to="dma-distribution-matching"/> Q1 的另一半請進來。
-</Explanation>
+更多 solver steps 首先改善哪一項？
+<Option>所有模型誤差。</Option>
+<Option>教師資料的偏差。</Option>
+<Option correct>固定 learned field 的數值積分誤差，且仍要符合該 solver 的條件。</Option>
+<Explanation>模型精度、積分精度與分布品質不是同一個數字。</Explanation>
 </QuizBlock>
 
 <Bridge to="dma-lab-flow-maps">
-表格只能告訴我們應該看哪一種誤差，不能替代實測。<Ref to="dma-lab-flow-maps"/> 最後把 MeanFlow、consistency training、reflow 與 DMD 放在同一組 toy 上，分別量一步品質、多步斜率、半群誤差與交叉平均。
+比較框架已經立起來，接著要讓數字也分清楚。<Ref to="dma-lab-flow-maps"/> 在有解析答案的 flow 上，同時檢查 MeanFlow 的導數 target、map accuracy 與半群 residual，再實際量模型增加 steps 時的結果。
 </Bridge>
 
 ## 參考文獻
 
-1. Boffi, N. M., Albergo, M. S., Vanden-Eijnden, E. [*Flow Map Matching.*](https://arxiv.org/abs/2406.07507) 2024.（三條恆等式的分類，本表「訓練訊號」欄的骨架。）
-2. Geng, Z., Deng, M., Bai, X., Kolter, J. Z., He, K. [*Mean Flows for One-step Generative Modeling.*](https://arxiv.org/abs/2505.13447) 2025.
-3. Yin, T. et al. [*Improved Distribution Matching Distillation for Fast Image Synthesis.*](https://arxiv.org/abs/2405.14867) NeurIPS 2024.（分佈匹配那一列的多步版本。）
+主要理論參考：[The Principles of Diffusion Models](https://arxiv.org/abs/2510.21890)，§10.1、§11.1、§11.5.3 與 §11.6 的共同 flow-map 觀點。正文的符號沿用本課程；方法實作細節再對照下列原始論文。
+
+1. [Boffi, Albergo & Vanden-Eijnden, Flow Map Matching (2024)](https://arxiv.org/abs/2406.07507)。
+2. [Geng, Deng, Bai, Kolter & He, Mean Flows for One-step Generative Modeling (2025)](https://arxiv.org/abs/2505.13447)。
+3. [Yin et al., Improved Distribution Matching Distillation for Fast Image Synthesis (NeurIPS 2024)](https://arxiv.org/abs/2405.14867)。

@@ -1,0 +1,262 @@
+---
+import { langFromUrl } from '../../lib/noteRefs';
+import { TOY, densityPath, distributionPython, mixtureDensity, normalDensity, type ToyMethod } from '../../lib/dojoDistributions';
+import Partner from './Partner.astro';
+import PythonCell from './PythonCell.astro';
+import DistributionTask from './DistributionTask.astro';
+import type { DojoPartnerId } from '../../lib/dojoPartners';
+interface Props { id: string; method: ToyMethod; label: string; partner: DojoPartnerId; next?: string }
+const { id, method, label, partner, next } = Astro.props;
+const zh = langFromUrl(Astro.url) === 'zh';
+const training = method !== 'steering';
+const grid = Array.from({ length: 321 }, (_, i) => TOY.min + i / 320 * (TOY.max - TOY.min));
+const base = grid.map((x) => mixtureDensity(x));
+const initial = method === 'conditional' ? grid.map((x) => normalDensity(x, 0)) : base;
+const target = method === 'conditional' ? grid.map((x) => normalDensity(x, 2)) : grid.map((x) => mixtureDensity(x, 0.9));
+const ymax = 0.9;
+---
+<section class="dojo-node dojo-distribution" data-node data-kind="experiment" data-distribution-demo={method} data-lang={zh ? 'zh' : 'en'} id={id} data-next={next}>
+  <span class="dojo-tag">{label}</span>
+  <Partner partner={partner} pose="question" reactive />
+  <div class="dojo-body"><slot /></div>
+  <dl class="distribution-roles">
+    <div><dt>{zh ? '資料' : 'Data'}</dt><dd>{method === 'conditional' ? (zh ? '帶類別的左右兩群樣本' : 'Left/right samples with class labels') : method === 'finetune' ? (zh ? '新取得的偏好樣本' : 'New preferred samples') : (zh ? '固定模型生成的候選' : 'Candidates from the fixed model')}</dd></div>
+    <div><dt>{zh ? '輸入 c' : 'Input c'}</dt><dd>{method === 'conditional' ? (zh ? '生成時指定 0 或 1' : 'Choose 0 or 1 at generation') : (zh ? '這個模型沒有 c 輸入' : 'This model has no c input')}</dd></div>
+    <div><dt>{zh ? '模型參數 θ' : 'Model parameters θ'}</dt><dd>{method === 'conditional' ? (zh ? '此 toy 學 μ₀、μ₁；換 c 不更新它們' : 'This toy learns μ₀ and μ₁; switching c does not update them') : method === 'finetune' ? (zh ? '此 toy 只學混合權重的 logit' : 'This toy learns only the mixing logit') : (zh ? '中心、標準差、權重全部固定' : 'Centers, spread, and weights all fixed')}</dd></div>
+    <div><dt>{zh ? '回傳規則' : 'Return rule'}</dt><dd>{method === 'steering' ? (zh ? '每組 N 個，按 reward 留一個' : 'Keep the best reward from N candidates') : (zh ? '直接從目前模型抽樣' : 'Sample the current model directly')}</dd></div>
+  </dl>
+  <DistributionTask id={id} method={method} phase="predict" />
+  <div data-distribution-controls hidden>
+    <form class="distribution-form" data-distribution-form>
+      <div class="distribution-inputs">
+        {method === 'finetune' ? <label for={`${id}-preferred`}>
+          <span>{zh ? '偏好資料的右側比例（%）' : 'Right-mode share in preferred data (%)'}</span>
+          <input id={`${id}-preferred`} name="preferred" type="number" min="0" max="100" step="1" value="90" required />
+        </label> : <label for={`${id}-choice`}>
+          <span>{method === 'conditional' ? (zh ? '生成時給的類別 c' : 'Condition c at generation') : (zh ? '這次想選哪個方向？' : 'Which direction should the reward prefer?')}</span>
+          <select id={`${id}-choice`} name="choice">
+            <option value="1">{method === 'conditional' ? (zh ? '右側類別 c = 1' : 'Right class c = 1') : (zh ? '偏大：R(x₀) = x₀' : 'Larger: R(x₀) = x₀')}</option>
+            <option value="-1">{method === 'conditional' ? (zh ? '左側類別 c = 0' : 'Left class c = 0') : (zh ? '偏小：R(x₀) = −x₀' : 'Smaller: R(x₀) = −x₀')}</option>
+          </select>
+        </label>}
+        <label for={`${id}-steps`}>
+          <span>{training ? (zh ? '這次更新幾步？' : 'Gradient steps in this run') : (zh ? '每次生成的候選數 N' : 'Candidates per return N')}</span>
+          <input id={`${id}-steps`} name="steps" type="number" min="1" max={training ? '200' : '64'} step="1" value={training ? '60' : '8'} required />
+        </label>
+      </div>
+      <div class="distribution-actions">
+        <button type="submit" class="dojo-btn">{method === 'conditional' ? (zh ? '用標註資料訓練並生成' : 'Train on labelled data and generate') : method === 'finetune' ? (zh ? '用偏好資料更新並生成' : 'Update on preferred data and generate') : (zh ? '生成候選，再按 reward 挑選' : 'Generate candidates and select by reward')}</button>
+        {training && <button type="button" class="dojo-btn dojo-btn-ghost" data-distribution-sample>{zh ? '只生成，不更新參數' : 'Generate without updating parameters'}</button>}
+        <button type="button" class="dojo-btn dojo-btn-ghost" data-distribution-reset>{zh ? '重設這個 toy model' : 'Reset this toy model'}</button>
+      </div>
+    </form>
+  </div>
+  <figure class="distribution-figure">
+    <svg viewBox="0 0 720 310" role="img" aria-labelledby={`${id}-plot-title ${id}-plot-desc`} data-distribution-plot>
+      <title id={`${id}-plot-title`}>{zh ? '一維 toy distribution 的密度與生成樣本' : 'Toy probability densities and generated samples'}</title>
+      <desc id={`${id}-plot-desc`}>{zh ? `灰色虛線是原本左右各半的雙峰分布，${training ? '細點線是訓練資料的目標分布，' : ''}實線是目前模型或回傳結果的密度。執行後會加上生成樣本的直方圖。` : `The dashed curve is the original equal mixture; ${training ? 'the dotted curve is the training-data target; ' : ''}the solid curve is the current model or return density. Running adds a histogram of generated samples.`}</desc>
+      {[0, 0.5, 1].map((fraction) => <g>
+        <line x1="52" x2="692" y1={250 - fraction * 228} y2={250 - fraction * 228} class="distribution-grid" />
+        <text x="42" y={254 - fraction * 228} text-anchor="end" data-density-tick={fraction}>{(fraction * ymax).toFixed(2)}</text>
+      </g>)}
+      <g data-distribution-histogram></g>
+      <path d={densityPath(base, 250, ymax)} class="distribution-base" data-distribution-base />
+      <path class="distribution-before" data-distribution-before hidden />
+      {training && <path d={densityPath(target, 250, ymax)} class="distribution-target" data-distribution-target />}
+      <path d={densityPath(initial, 250, ymax)} class="distribution-model" data-distribution-model />
+      <line x1="52" x2="692" y1="250" y2="250" class="distribution-axis" />
+      {[-4, -2, 0, 2, 4].map((x) => <text x={52 + (x + 5) / 10 * 640} y="272" text-anchor="middle">{x}</text>)}
+      <text x="372" y="298" text-anchor="middle">x₀</text>
+      <text x="52" y="14">density</text>
+    </svg>
+    <figcaption class="distribution-legend">
+      <span class="distribution-key-base">{zh ? '原本的雙峰分布' : 'Original mixture'}</span>
+      {training && <span class="distribution-key-target">{zh ? '資料的目標分布' : 'Training-data target'}</span>}
+      <span class="distribution-key-model">{zh ? '目前模型／回傳密度' : 'Current model / return density'}</span>
+      <span class="distribution-key-before" data-distribution-before-key hidden>{zh ? '對照 A 的密度' : 'Observation A density'}</span>
+      <span class="distribution-key-histogram">{zh ? '實際生成的直方圖' : 'Generated histogram'}</span>
+    </figcaption>
+  </figure>
+  <p class="distribution-parameters" data-distribution-parameters>{method === 'conditional' ? 'μ₀ = 0 · μ₁ = 0 · σ = 0.55' : (zh ? '原本模型：左右各半 · μ = −2, 2 · σ = 0.55' : 'Original model: equal mixture · μ = −2, 2 · σ = 0.55')}</p>
+  <p class="distribution-status" data-distribution-status role="status" aria-live="polite">{zh ? '先比較圖中的曲線，再試著訓練或生成，觀察直方圖落在哪裡。' : 'Compare the curves, then train or generate and inspect where the histogram falls.'}</p>
+  <p class="distribution-resume" data-experiment-change></p>
+  <DistributionTask id={id} method={method} phase="reflect" />
+  <div class="dojo-body distribution-example" data-experiment-fallback>
+    <p><strong>{zh ? '標準 A／B 對照的解釋' : 'Explanation of the standard A/B comparison'}</strong></p>
+    <p>{method === 'conditional' ? (zh ? 'A、B 用的是同一組已學的 μ₀、μ₁，累計更新都是 60。A 用 c = 1，B 用 c = 0，因此曲線從右移到左；更新紀錄不變才是沒有重訓的證據。若只學一步，兩個均值仍靠近零，切換 c 也不表示已經學好。' : 'A and B use identical learned means and both record 60 updates. A uses c = 1 and B uses c = 0, moving the density from right to left. The unchanged update record supports no retraining. After only one step, both means remain near zero; switching c does not imply learning is complete.') : method === 'finetune' ? (zh ? 'A 更新模型後，B 只把評估資料換成左群較多，θ、模型右峰權重與更新次數都保留。所以兩條模型密度重疊；loss 卻還依賴評估資料，換了資料可以變高。Loss 改變本身不能證明 θ 改變。' : 'After A trains, B changes only the evaluation data to favor the left. θ, the model right weight, and update count stay fixed, so the model densities overlap. Loss also depends on evaluation data and can rise when that data changes. A changed loss alone does not establish changed θ.') : (zh ? '兩次候選都來自權重 0.5 的同一個模型；N = 32 多做了候選與挑選，沒有多做訓練。取最大值偏好右尾，峰的位置與形狀因而改變。這不保證保留原右群形狀，也不保證 reward 已代表完整需求。' : 'Both observations draw candidates from the same model with right weight 0.5. N = 32 adds candidates and selection, not training. Taking maxima favors the right tail and changes the peak and shape. It does not guarantee the original right-class shape or that reward represents the entire requirement.')}</p>
+    <p>{method === 'conditional' ? (zh ? '示範：用左右各 256 個帶類別的樣本更新兩個平均值後，μ₀ 會接近 −2、μ₁ 接近 2。生成時只換 c，就能選擇左峰或右峰，不必重新更新平均值。' : 'Example: train the two means on 256 labelled samples per class. μ₀ approaches −2 and μ₁ approaches 2. Changing c then selects a mode without updating either mean.') : method === 'finetune' ? (zh ? '示範：原本的右峰權重是 0.5。換成約 90% 在右峰的偏好資料，以 likelihood 更新混合權重後，生成的質量會往右峰集中。停止訓練後再生成，仍會使用更新後的權重。' : 'Example: the original right weight is 0.5. Likelihood updates on roughly 90% right-mode preferred data move generated mass toward the right. Later generations retain the updated weight.') : (zh ? '示範：固定左右各半的模型，獨立畫 8 個候選，只回傳 x₀ 最大的樣本。右側與右尾會更常被回傳；改成取最小值則偏向左側。原本模型的兩個平均值與混合權重都沒有更新。' : 'Example: draw eight independent candidates from the fixed equal mixture and return the largest x₀. The right mode and its upper tail become more frequent. Choosing the smallest favors the left, with the original model means and mixture weight unchanged.')}</p>
+    <p>{zh ? '若已自由改動條件或 Python，以你的實際圖與參數為準，不能把這組標準對照當成你的執行紀錄。' : 'After custom control or Python changes, use your actual plot and parameters; this standard comparison is not a record of that custom run.'}</p>
+  </div>
+  <p class="distribution-model-note">{zh ? '這裡真的從 Gaussian mixture 取資料、更新可學參數或選候選，並畫出 density 與 1,000 個生成樣本的直方圖。Toy generator 可以直接抽樣，沒有把它當成訓練完成的 diffusion network。' : 'This implementation samples Gaussian-mixture data, updates learnable parameters or selects candidates, and plots densities with 1,000 generated samples. This directly sampleable toy generator is not a trained diffusion network.'}</p>
+  <PythonCell id={id} code={distributionPython(method)} syncOnOpen>
+    <DistributionTask id={id} method={method} phase="code" />
+  </PythonCell>
+</section>
+
+<style is:global>
+  .dojo .dojo-distribution { border-left: 4px solid var(--accent); background: var(--bd-paper, var(--surface)); }
+  .dojo-distribution .distribution-roles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 16px 0; font-size: .8rem; line-height: 1.6; }
+  .distribution-roles > div { padding: 10px; background: var(--surface-2); border-radius: 7px; }
+  .distribution-roles dt { font-weight: 650; }
+  .distribution-roles dd { margin: 4px 0 0; }
+  .dojo-distribution .distribution-form { margin: 20px 0; }
+  .dojo-distribution .distribution-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .dojo-distribution label { display: grid; gap: 7px; font-size: .85rem; line-height: 1.6; }
+  .dojo-distribution input, .dojo-distribution select { box-sizing: border-box; min-width: 0; width: 100%; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 10px; font: inherit; font-size: 1rem; }
+  .dojo-distribution input:focus-visible, .dojo-distribution select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .dojo-distribution .distribution-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .dojo-distribution .distribution-figure { margin: 18px 0; padding: 14px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+  .dojo-distribution svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .dojo-distribution svg text { fill: var(--text-muted); font-size: 13px; font-family: var(--font-main); }
+  .dojo-distribution .distribution-grid { stroke: var(--border); stroke-width: 1; }
+  .dojo-distribution .distribution-axis { stroke: var(--text-muted); }
+  .dojo-distribution .distribution-base { fill: none; stroke: var(--text-muted); stroke-width: 2; stroke-dasharray: 7 5; }
+  .dojo-distribution .distribution-target { fill: none; stroke: var(--text); stroke-width: 2; stroke-dasharray: 2 5; opacity: .65; }
+  .dojo-distribution .distribution-model { fill: none; stroke: var(--accent); stroke-width: 3; }
+  .dojo-distribution .distribution-before { fill: none; stroke: #739fdd; stroke-width: 2.5; stroke-dasharray: 4 3; }
+  .dojo-distribution .distribution-histogram-bar { fill: var(--accent); fill-opacity: .22; }
+  .dojo-distribution .distribution-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 8px 12px 0; font-size: .75rem; line-height: 1.6; color: var(--text-muted); }
+  .dojo-distribution .distribution-legend span::before { content: ''; display: inline-block; vertical-align: middle; width: 18px; margin-right: 6px; border-top: 2px solid var(--accent); }
+  .dojo-distribution .distribution-key-base::before { border-top-style: dashed !important; border-color: var(--text-muted) !important; }
+  .dojo-distribution .distribution-key-target::before { border-top-style: dotted !important; border-color: var(--text) !important; }
+  .dojo-distribution .distribution-key-histogram::before { border-top-width: 7px !important; opacity: .3; }
+  .dojo-distribution .distribution-key-before::before { border-color: #739fdd !important; border-top-style: dashed !important; }
+  .dojo-distribution .distribution-parameters { font-size: .8rem; line-height: 1.8; padding: 10px 12px; background: var(--surface-2); border-radius: 7px; }
+  .dojo-distribution .distribution-status { font-size: .9rem; line-height: 1.8; }
+  .dojo-distribution .distribution-model-note, .dojo-distribution .distribution-resume { font-size: .8rem; color: var(--text-muted); line-height: 1.7; }
+  .dojo-distribution .distribution-resume:empty { display: none; }
+  .dojo-distribution .distribution-example { border-left: 3px solid var(--border); padding-left: 14px; }
+  @media (max-width: 460px) {
+    .dojo-distribution .distribution-inputs { grid-template-columns: 1fr; }
+    .dojo-distribution .distribution-figure { margin-left: -8px; margin-right: -8px; padding: 10px 0; }
+    .dojo-distribution svg text { font-size: 22px; }
+  }
+  @media print { .dojo-distribution [data-distribution-controls] { display: none !important; } .dojo-distribution [data-experiment-fallback] { display: block !important; } }
+</style>
+
+<script>
+  import { TOY, conditionalData, conditionalLoss, densityPath, distributionComparison, distributionPython, gaussian, histogram, mixtureDensity, mixtureNLL, mixtureSamples, normalDensity, observationDensity, seededRandom, selectedDensity, selectedSamples, sigmoid, trainConditional, trainMixture, type DistributionObservation, type ToyMethod } from '../../lib/dojoDistributions';
+  document.querySelectorAll<HTMLElement>('[data-distribution-demo]').forEach((root) => {
+    const method = root.dataset.distributionDemo as ToyMethod;
+    const zh = root.dataset.lang === 'zh';
+    const form = root.querySelector<HTMLFormElement>('[data-distribution-form]')!;
+    const plot = root.querySelector<SVGElement>('[data-distribution-plot]')!;
+    const status = root.querySelector<HTMLElement>('[data-distribution-status]')!;
+    const fallback = root.querySelector<HTMLElement>('[data-experiment-fallback]')!;
+    const labels = conditionalData();
+    const grid = Array.from({ length: 321 }, (_, i) => TOY.min + i / 320 * (TOY.max - TOY.min));
+    let means = [0, 0], logit = 0, totalSteps = 0, draws = 0, lastN = 1, lastDirection = 1;
+    let samples: number[] = [];
+    let comparison: [DistributionObservation, DistributionObservation] | undefined;
+    const reflection = root.querySelector<HTMLElement>('[data-distribution-reflect]')!;
+    const evidence = root.querySelector<HTMLElement>('[data-distribution-observations]')!;
+    function canReflect() {
+      reflection.hidden = false;
+      root.querySelector<HTMLElement>('[data-experiment-change]')!.textContent = '';
+    }
+    function clearComparison() { comparison = undefined; evidence.hidden = true; }
+    function settings() {
+      const data = new FormData(form);
+      return { choice: Number(data.get('choice') || 1), steps: Number(data.get('steps')), preferred: Number(data.get('preferred') ?? 90) / 100 };
+    }
+    const preferredData = () => mixtureSamples(512, settings().preferred, seededRandom(61));
+    function draw() {
+      const { choice } = settings();
+      const rng = seededRandom(31415 + draws++);
+      samples = method === 'conditional' ? Array.from({ length: 1000 }, () => gaussian(means[choice > 0 ? 1 : 0], rng)) : method === 'finetune' ? mixtureSamples(1000, sigmoid(logit), rng) : selectedSamples(1000, lastN, lastDirection, rng);
+    }
+    function render() {
+      const s = settings();
+      const base = grid.map((x) => mixtureDensity(x));
+      const target = grid.map((x) => method === 'conditional' ? normalDensity(x, s.choice > 0 ? 2 : -2) : mixtureDensity(x, s.preferred));
+      const model = grid.map((x) => method === 'conditional' ? normalDensity(x, means[s.choice > 0 ? 1 : 0]) : method === 'finetune' ? mixtureDensity(x, sigmoid(logit)) : selectedDensity(x, lastN, lastDirection));
+      const before = comparison ? grid.map((x) => observationDensity(method, comparison![0], x)) : [];
+      const bins = histogram(samples);
+      const ymax = Math.max(0.9, ...base, ...model, ...before, ...(method === 'steering' ? [] : target), ...bins.map((b) => b.density)) * 1.1;
+      const previous = plot.querySelector<SVGElement>('[data-distribution-before]')!;
+      previous.toggleAttribute('hidden', !comparison);
+      if (comparison) previous.setAttribute('d', densityPath(before, 250, ymax));
+      root.querySelector<HTMLElement>('[data-distribution-before-key]')!.hidden = !comparison;
+      plot.querySelector('[data-distribution-base]')!.setAttribute('d', densityPath(base, 250, ymax));
+      plot.querySelector('[data-distribution-model]')!.setAttribute('d', densityPath(model, 250, ymax));
+      plot.querySelector('[data-distribution-target]')?.setAttribute('d', densityPath(target, 250, ymax));
+      plot.querySelectorAll<SVGTextElement>('[data-density-tick]').forEach((el) => { el.textContent = (Number(el.dataset.densityTick) * ymax).toFixed(2); });
+      const bars = plot.querySelector('[data-distribution-histogram]')!; bars.replaceChildren();
+      bins.forEach((b) => {
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', String(52 + (b.x - TOY.min) / 10 * 640)); rect.setAttribute('width', String(b.width / 10 * 640 - 1));
+        const h = b.density / ymax * 228;
+        rect.setAttribute('y', String(250 - h)); rect.setAttribute('height', String(h)); rect.classList.add('distribution-histogram-bar'); bars.append(rect);
+      });
+      let parameters: string;
+      if (method === 'conditional') parameters = `μ₀ = ${means[0].toFixed(3)} · μ₁ = ${means[1].toFixed(3)} · ${zh ? '更新' : 'updates'} ${totalSteps} · loss = ${conditionalLoss(means, labels).toFixed(4)}`;
+      else if (method === 'finetune') parameters = `θ = ${logit.toFixed(3)} · ${zh ? '模型右峰權重' : 'model right weight'} = ${sigmoid(logit).toFixed(3)} · ${zh ? '更新' : 'updates'} ${totalSteps} · NLL = ${mixtureNLL(logit, preferredData()).toFixed(4)}`;
+      else parameters = `${zh ? '固定模型右峰權重' : 'fixed model right weight'} = 0.500 · μ = −2, 2 · N = ${lastN} · R(x₀) = ${lastDirection > 0 ? '' : '−'}x₀`;
+      root.querySelector<HTMLElement>('[data-distribution-parameters]')!.textContent = parameters;
+      plot.querySelector('desc')!.textContent = (comparison ? (zh ? '藍色虛線是 A 的密度，橘色實線與直方圖是 B 的結果。' : 'The blue dashed density is A; the orange density and histogram are B. ') : '') + (zh ? `目前顯示 ${samples.length} 個生成樣本的直方圖。` : `The histogram contains ${samples.length} generated outputs. `) + parameters;
+    }
+    function complete() { root.dataset.experimentComplete = 'true'; root.dispatchEvent(new CustomEvent('dojo:experiment-complete', { bubbles: true })); }
+    root.querySelector<HTMLElement>('[data-distribution-controls]')!.hidden = false; fallback.hidden = true;
+    root.querySelector<HTMLElement>('[data-distribution-task-controls]')!.hidden = false;
+    function describe(o: DistributionObservation) {
+      const mean = o.samples.reduce((sum, x) => sum + x, 0) / o.samples.length;
+      if (method === 'conditional') return `c = ${o.choice > 0 ? 1 : 0}\nμ₀ = ${o.means[0].toFixed(3)} · μ₁ = ${o.means[1].toFixed(3)}\n${zh ? '累計更新' : 'Total updates'} = ${o.updates}\n${zh ? '生成樣本平均' : 'Output sample mean'} = ${mean.toFixed(3)}`;
+      if (method === 'finetune') return `${zh ? '資料右群' : 'Data right share'} = ${Math.round(o.preferred * 100)}%\nθ = ${o.logit.toFixed(3)} · w = ${sigmoid(o.logit).toFixed(3)}\n${zh ? '累計更新' : 'Total updates'} = ${o.updates}\n${zh ? '目前資料的 loss' : 'Loss on current data'} = ${o.loss!.toFixed(4)}`;
+      return `N = ${o.candidates} · R(x₀) = x₀\n${zh ? '固定模型右峰權重' : 'Fixed model right weight'} = 0.500\n${zh ? '完整候選' : 'Complete candidates'} = ${o.candidates * 1000}\n${zh ? '回傳樣本平均' : 'Returned sample mean'} = ${mean.toFixed(3)}`;
+    }
+    root.querySelector('[data-distribution-compare]')!.addEventListener('click', () => {
+      comparison = distributionComparison(method);
+      const [a, b] = comparison;
+      means = b.means.slice(); logit = b.logit; totalSteps = b.updates; samples = b.samples.slice(); lastN = b.candidates; lastDirection = b.choice;
+      const choice = form.elements.namedItem('choice') as HTMLSelectElement | null;
+      if (choice) choice.value = String(b.choice);
+      const preferred = form.elements.namedItem('preferred') as HTMLInputElement | null;
+      if (preferred) preferred.value = String(b.preferred * 100);
+      (form.elements.namedItem('steps') as HTMLInputElement).value = String(method === 'steering' ? b.candidates : 60);
+      root.querySelector<HTMLElement>('[data-observation-before]')!.textContent = describe(a);
+      root.querySelector<HTMLElement>('[data-observation-after]')!.textContent = describe(b);
+      evidence.hidden = false; render(); canReflect(); fallback.hidden = true;
+      status.textContent = zh ? 'A、B 已使用上方列出的條件實際執行。先比較兩次的參數與密度，再寫下支持你判斷的證據。也可以改下方條件自由驗證。' : 'A and B ran with the stated conditions. Compare parameters and densities, then explain the evidence for your interpretation. You can also change the controls to investigate.';
+    });
+    root.querySelector('[data-distribution-explain]')!.addEventListener('click', () => {
+      fallback.hidden = false;
+      status.textContent = zh ? '把下方解釋和你的預測、圖與參數對照。接著會把剛才操作的量寫回完整訓練式或挑選分布。' : 'Compare the explanation with your prediction, plot, and parameters. Next, connect the operations to the full training objective or selected density.';
+      complete();
+    });
+    form.addEventListener('submit', (event) => {
+      event.preventDefault(); if (!form.reportValidity()) return;
+      clearComparison();
+      const s = settings();
+      if (method === 'conditional') { const trained = trainConditional(means, labels, s.steps); means = trained.means; totalSteps += s.steps; }
+      else if (method === 'finetune') { const trained = trainMixture(logit, preferredData(), s.steps); logit = trained.logit; totalSteps += s.steps; }
+      else { lastN = s.steps; lastDirection = s.choice; }
+      draw(); render(); fallback.hidden = true;
+      status.textContent = method === 'conditional' ? (zh ? '兩個平均值已從帶類別的資料學習，直方圖是指定 c 後生成的 1,000 個樣本。現在只換 c，觀察另一個類別；參數不會因此重訓。' : 'The two means have learned from labelled data. The histogram shows 1,000 outputs for c. Switch c to inspect the other class without retraining.') : method === 'finetune' ? (zh ? '混合權重已由偏好資料的 likelihood 更新。直方圖來自更新後的模型；按「只生成」仍保留這組新參數。改變偏好資料本身，還不會自動改動 θ。' : 'Likelihood updates changed the mixture weight. The histogram comes from the updated model; generating again retains those parameters. Changing the preferred data alone does not update θ.') : (zh ? `實際生成 ${1000 * lastN} 個候選，分成 1,000 組後各留一個。直方圖是回傳結果；模型仍是左右各半。候選越多，結果可能往尾端集中，並不等於只選到原本的右峰或左峰。` : `Generated ${1000 * lastN} actual candidates in 1,000 batches and selected one per batch. The histogram is the returned distribution; the base remains equally weighted. Larger batches can push results into a tail, rather than simply selecting a component.`);
+      canReflect();
+    });
+    root.querySelector('[data-distribution-sample]')?.addEventListener('click', () => {
+      if (!form.reportValidity()) return; clearComparison(); draw(); render(); canReflect();
+      status.textContent = zh ? '這次只抽樣，沒有執行參數更新。比較目前曲線與資料目標：只多生成幾張，不會把尚未學到的偏好寫進 θ。' : 'This run only sampled; no parameters were updated. Extra samples do not write an unlearned preference into θ.';
+    });
+    form.addEventListener('input', (event) => {
+      if (!form.checkValidity()) return;
+      if ((event.target as HTMLInputElement).name === 'steps' && method !== 'steering') {
+        status.textContent = zh ? '更新步數已改；按訓練或更新後，才會執行這些步驟。' : 'The step count changed. Train or update to execute those steps.';
+        return;
+      }
+      clearComparison();
+      if (method === 'conditional') { draw(); render(); status.textContent = zh ? '只換了生成時的 c，兩個平均值都保持原值。若還沒訓練，左右兩種輸入仍可能給出相同分布。' : 'Only c changed; both means stayed fixed. Before training, the two inputs may still produce the same distribution.'; }
+      else if (method === 'finetune') { render(); status.textContent = zh ? '偏好資料改了，目標點線隨之改變；原本 θ 與生成直方圖仍保留。執行更新，模型才會往新資料移動。' : 'Preferred data changed, so the dotted target moved. θ and the generated histogram remain unchanged until you train.'; }
+      else { render(); status.textContent = zh ? '候選規則改了；圖中保留上一次的 N 與結果。按生成候選，再觀察新分布。' : 'Candidate settings changed. The plot retains the last N and result; run again to observe the new distribution.'; }
+    });
+    root.querySelector('[data-distribution-reset]')!.addEventListener('click', () => {
+      clearComparison(); means = [0, 0]; logit = 0; totalSteps = 0; samples = []; lastN = 1; lastDirection = 1; render();
+      status.textContent = zh ? '已回到這條路原本的模型，可以重新比較訓練前後。' : 'The original model is restored. Compare before and after again.';
+    });
+    root.addEventListener('dojo:python-sync', (event) => {
+      if (!form.reportValidity()) { event.preventDefault(); return; }
+      const s = settings(); root.querySelector<HTMLTextAreaElement>('[data-python-code]')!.value = distributionPython(method, s.choice, s.steps, s.preferred, s.steps);
+    });
+    root.addEventListener('dojo:python-complete', canReflect);
+  });
+</script>

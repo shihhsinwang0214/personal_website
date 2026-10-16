@@ -1,0 +1,290 @@
+---
+import { langFromUrl } from '../../lib/noteRefs';
+import { BASE, defaults, type SteeringMode } from '../../lib/dojoSteering';
+import { steeringPython } from '../../lib/dojoSteeringPython';
+import { steeringCopy } from '../../lib/dojoSteeringCopy';
+import Partner from './Partner.astro';
+import PythonCell from './PythonCell.astro';
+import type { DojoPartnerId } from '../../lib/dojoPartners';
+interface Props { id: string; mode: SteeringMode; label: string; partner?: DojoPartnerId; next?: string }
+const { id, mode, label, partner = 'nori', next } = Astro.props;
+const zh = langFromUrl(Astro.url) === 'zh';
+const c = steeringCopy(mode, zh), s = defaults(mode);
+const guidance = mode === 'classifier' || mode === 'cfg';
+const posterior = mode === 'posterior';
+const chains = mode === 'source' || mode === 'tempering';
+const numberFields = [
+  { name: 'strength', label: guidance ? (zh ? '提醒強度 w' : 'Guidance strength w') : (zh ? '偏好強度 λ' : 'Reward strength λ'), min: 0, max: 4, step: .25 },
+  ...(guidance || posterior ? [{ name: 'time', label: zh ? '觀察的 noise level t' : 'Noise time t to inspect', min: .05, max: .95, step: .05 }, { name: 'point', label: zh ? '正在觀察的 xₜ' : 'Noisy observation x_t', min: -4, max: 4, step: .1 }] : []),
+  ...(['best', 'importance'].includes(mode) ? [{ name: 'candidates', label: zh ? '每趟候選數 N' : 'Candidates per batch N', min: 1, max: 64, step: 1 }] : []),
+  ...(mode === 'smc' ? [{ name: 'particles', label: zh ? '每趟粒子數 M' : 'Particles per population M', min: 4, max: 128, step: 1 }, { name: 'stages', label: zh ? '生成分段數 K（1 = 只在終點重抽）' : 'Stages K (1 = resample only at the endpoint)', min: 1, max: 10, step: 1 }] : []),
+  ...(guidance || chains ? [{ name: 'steps', label: guidance ? (zh ? 'Reverse SDE 步數' : 'Reverse SDE steps') : (zh ? '保留的 chain 迭代數' : 'Retained chain iterations'), min: guidance ? 100 : 200, max: guidance ? 1200 : 5000, step: 100 }] : []),
+  ...(chains ? [{ name: 'proposal', label: zh ? '目標鏈 proposal 標準差' : 'Target-chain proposal standard deviation', min: .05, max: 2, step: .05 }] : []),
+  { name: 'seed', label: zh ? '隨機種子（相同設定可重現）' : 'Random seed (reproducible settings)', min: 1, max: 999999, step: 1 },
+];
+const initialPath = BASE.map((y, i) => `${i ? 'L' : 'M'}${52+i/480*640},${250-y/.85*220}`).join(' ');
+---
+<section class="dojo-node dojo-steering" data-node data-kind="experiment" data-steering={mode} data-lang={zh ? 'zh' : 'en'} id={id} data-next={next}>
+  <span class="dojo-tag">{label}</span>
+  <Partner partner={partner} pose="question" reactive />
+  <div class="dojo-body"><slot /></div>
+  <div class="steering-task">
+    <p><strong>{zh ? '先預測，再觀察分布' : 'Predict, then inspect the distribution'}</strong></p>
+    <p>{c.question}</p>
+    <label for={`${id}-predict`}>{zh ? '你的預測與理由（也可以在心裡想）' : 'Your prediction and reason (or think first)'}</label>
+    <textarea id={`${id}-predict`} rows="2" data-prediction></textarea>
+    <p>{c.plan}</p>
+    <div data-steering-ui hidden>
+      <button type="button" class="dojo-btn" data-compare>{zh ? '執行 A／B 對照' : 'Run the A/B comparison'}</button>
+      <form data-steering-form>
+        <fieldset><legend>{zh ? '自由改一個條件，再執行' : 'Change a setting and run again'}</legend>
+          <div class="steering-inputs">
+            {numberFields.map((field) => <label for={`${id}-${field.name}`}><span>{field.label}</span><input id={`${id}-${field.name}`} name={field.name} type="number" min={field.min} max={field.max} step={field.step} value={s[field.name as keyof typeof s]} required /></label>)}
+            {guidance && <label for={`${id}-condition`}><span>{zh ? '指定類別 c' : 'Condition c'}</span><select name="condition" id={`${id}-condition`}><option value="1">{zh ? '右群 c = 1' : 'Right class c = 1'}</option><option value="0">{zh ? '左群 c = 0' : 'Left class c = 0'}</option></select></label>}
+            {!guidance && <label for={`${id}-reward`}><span>{zh ? '完成品的 reward' : 'Reward on completed outputs'}</span><select name="reward" id={`${id}-reward`}><option value="right" selected={s.reward === 'right'}>{zh ? '偏右：R(x₀) = x₀' : 'Right: R(x0) = x0'}</option><option value="two" selected={s.reward === 'two'}>{zh ? '兩側：R(x₀) = −(|x₀|−2.5)²' : 'Two modes: R(x0) = −(|x0|−2.5)²'}</option></select></label>}
+            {mode === 'smc' && <label for={`${id}-estimator`}><span>{zh ? '中途的 H 估計' : 'Intermediate H estimator'}</span><select name="estimator" id={`${id}-estimator`}><option value="posterior">{zh ? 'Posterior 平均倍率' : 'Posterior multiplier expectation'}</option><option value="plugin">{zh ? 'Plug-in：只看平均圖片' : 'Plug-in: score only the mean'}</option><option value="misleading">{zh ? '故意看錯：H = exp(4λxₜ)' : 'Misleading: H = exp(4λx_t)'}</option></select></label>}
+          </div>
+        </fieldset>
+        <div class="steering-actions"><button type="submit" class="dojo-btn" data-run>{zh ? '依目前設定執行並畫圖' : 'Run these settings and plot'}</button><button type="button" class="dojo-btn dojo-btn-ghost" data-reset>{zh ? '還原實驗條件' : 'Reset the experiment settings'}</button></div>
+      </form>
+      {mode === 'smc' && <div class="steering-stepper"><p>{zh ? '也可以先用一趟 population 逐步檢查。每次只做一個動作：走一段 → 算增量權重 → 重抽。' : 'You can inspect one population first. Each click performs one action: propagate → incremental weights → resample.'}</p><button type="button" class="dojo-btn dojo-btn-ghost" data-step>{zh ? '開始一趟：生成起點' : 'Start one population'}</button><p data-step-status role="status"></p></div>}
+    </div>
+  </div>
+  <p data-run-status role="status" aria-live="polite">{zh ? '灰線先畫出原本雙峰資料。執行後才會加上實際樣本；參考曲線不代表已經抽到了它。' : 'The gray curve shows the original mixture. Running adds actual samples; a reference curve does not establish that it was sampled.'}</p>
+  <div class="steering-records" data-records hidden><dl><dt>{zh ? 'A 的設定與觀察' : 'A: settings and observation'}</dt><dd data-record-a></dd></dl><dl><dt>{zh ? 'B 的設定與觀察' : 'B: settings and observation'}</dt><dd data-record-b></dd></dl></div>
+  <p class="steering-snapshot" data-snapshot></p>
+  <figure class="steering-figure">
+    <svg viewBox="0 0 720 310" role="img" aria-labelledby={`${id}-plot-title ${id}-plot-desc`} data-plot>
+      <title id={`${id}-plot-title`}>{zh ? 'Base、參考密度與實際樣本直方圖' : 'Base, reference density, and actual sample histogram'}</title>
+      <desc id={`${id}-plot-desc`}>{zh ? '灰色虛線為固定 base；黑色點線為標示的參考密度；金色為本次實際樣本，A／B 對照另用藍色輪廓表示 A。' : 'Gray dashes: fixed base. Black dots: the named reference density. Gold: actual samples. In A/B mode, blue outlines show observation A.'}</desc>
+      {[0,.5,1].map((f) => <g><line x1="52" x2="692" y1={250-f*220} y2={250-f*220} class="steering-grid"/><text x="49" y={254-f*220} text-anchor="end" data-y-tick={f}>{(f*.85).toFixed(2)}</text></g>)}
+      <g data-hist-a></g><g data-hist></g>
+      <path d={initialPath} class="steering-base" data-base/><path class="steering-reference" data-reference/>
+      <line x1="52" x2="692" y1="250" y2="250" class="steering-axis"/>
+      {[-6,-4,-2,0,2,4,6].map((x) => <text x={52+(x+6)/12*640} y="273" text-anchor="middle">{x}</text>)}
+      <text x="372" y="299" text-anchor="middle">x₀</text><text x="52" y="18">density</text>
+      <line data-mean-line y1="30" y2="250" class="steering-mean" hidden/>
+    </svg>
+    <figcaption><span class="key-base">{zh ? '固定 base' : 'Fixed base'}</span><span class="key-reference" data-reference-name>{zh ? '執行後標示參考密度' : 'Reference labelled after running'}</span><span class="key-samples">{zh ? '實際樣本' : 'Actual samples'}</span><span class="key-a" data-key-a hidden>{zh ? 'A 的直方圖輪廓' : 'A histogram outline'}</span></figcaption>
+  </figure>
+  <p data-statistics class="steering-statistics"></p>
+  <section data-details hidden class="steering-details" aria-label={zh ? '本次方法的計算與操作證據' : 'Evidence from this method'}>
+    <p data-detail-text></p>
+    <svg viewBox="0 0 720 300" role="img" aria-label={zh ? '此次執行的方向、權重函數或粒子／鏈軌跡' : 'Directions, weight functions, or particle / chain traces from this run'} data-detail-plot></svg>
+    <p data-detail-caption></p>
+    <div class="steering-table-wrap" tabindex="0"><table data-detail-table></table></div>
+  </section>
+  <div class="steering-task" data-reflect hidden>
+    <p><strong>{zh ? '用剛才的圖與數字說明' : 'Explain using the plot and numbers'}</strong></p>
+    <label for={`${id}-reason`}>{c.evidence}</label><textarea id={`${id}-reason`} rows="3" data-reason></textarea>
+    <button type="button" class="dojo-btn dojo-btn-ghost" data-explain>{zh ? '把我的判讀和解釋對照' : 'Compare my interpretation with the explanation'}</button>
+  </div>
+  <div class="dojo-body steering-explanation" data-experiment-fallback><p>{c.explanation}</p><p>{zh ? '這是標準對照的機制說明；自由改條件或 Python 後，以你實際執行的設定與圖為準。' : 'This explains the standard comparison. After changing controls or Python, use the settings and plots you actually ran.'}</p></div>
+  <p class="steering-note">{c.note}</p>
+  <p class="steering-note" data-experiment-change></p>
+  <PythonCell id={id} code={steeringPython(mode)} syncOnOpen><p class="steering-note">{zh ? '程式包含相同方法的完整計算與 Matplotlib 分布圖。首次展開套用目前控制項；每次執行重新抽樣。先改最上方一個參數，其他條件保持相同。原生圖不會假裝成你改過的 Python 結果。' : 'The code implements this method and plots its distribution with Matplotlib. The first opening imports current controls; every run samples afresh. Change one parameter at the top. The native plot is not a record of edited Python output.'}</p></PythonCell>
+</section>
+
+<style is:global>
+  .dojo .dojo-steering { border-left: 4px solid var(--accent); }
+  .dojo-steering [hidden] { display: none !important; }
+  .dojo-steering .steering-task { margin: 16px 0; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: .9rem; line-height: 1.75; }
+  .dojo-steering label { display: grid; gap: 7px; font-size: .85rem; min-width: 0; }
+  .dojo-steering input, .dojo-steering select, .dojo-steering textarea { box-sizing: border-box; min-width: 0; width: 100%; padding: 10px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 7px; font: inherit; }
+  .dojo-steering textarea { display: block; resize: vertical; margin: 8px 0 14px; }
+  .dojo-steering :is(input,select,textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .dojo-steering fieldset { min-width: 0; margin: 20px 0 12px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; }
+  .dojo-steering legend { padding: 0 6px; font-size: .85rem; }
+  .dojo-steering .steering-inputs { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+  .dojo-steering .steering-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .dojo-steering .steering-records { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+  .dojo-steering .steering-records dl { margin: 0; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+  .dojo-steering dt { font-size: .85rem; font-weight: 600; }
+  .dojo-steering dd { margin: 6px 0 0; white-space: pre-line; font-size: .8rem; line-height: 1.8; }
+  .dojo-steering .steering-figure { margin: 16px 0; padding: 10px 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+  .dojo-steering svg { display: block; width: 100%; height: auto; }
+  .dojo-steering svg text { fill: var(--text-muted); font: 13px var(--font-main); }
+  .dojo-steering figcaption { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: .76rem; line-height: 1.7; padding: 6px 10px; }
+  .dojo-steering figcaption span::before { content: ''; display: inline-block; width: 18px; margin-right: 6px; vertical-align: middle; border-top: 2px solid var(--accent); }
+  .dojo-steering .key-base::before { border-color: var(--text-muted); border-top-style: dashed; }
+  .dojo-steering .key-reference::before { border-color: var(--text); border-top-style: dotted; }
+  .dojo-steering .key-a::before { border-color: #739fdd; }
+  .dojo-steering .steering-grid { stroke: var(--border); stroke-width: 1; }
+  .dojo-steering .steering-axis { stroke: var(--text-muted); }
+  .dojo-steering .steering-base { fill: none; stroke: var(--text-muted); stroke-width: 2; stroke-dasharray: 7 5; }
+  .dojo-steering .steering-reference { fill: none; stroke: var(--text); stroke-width: 2; stroke-dasharray: 2 5; }
+  .dojo-steering .steering-mean { stroke: #739fdd; stroke-width: 2; stroke-dasharray: 6 3; }
+  .dojo-steering .steering-statistics { padding: 12px; background: var(--surface-2); border-radius: 8px; }
+  .dojo-steering .steering-statistics:empty, .dojo-steering .steering-snapshot:empty { display: none; }
+  .dojo-steering .steering-details { padding: 12px; border: 1px solid var(--border); border-radius: 9px; }
+  .dojo-steering .steering-table-wrap { overflow-x: auto; max-width: 100%; }
+  .dojo-steering table { border-collapse: collapse; width: 100%; font-size: .78rem; }
+  .dojo-steering th, .dojo-steering td { padding: 8px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .dojo-steering .steering-explanation { border-left: 3px solid var(--accent); padding-left: 14px; }
+  .dojo-steering .steering-note, .dojo-steering .steering-snapshot, .dojo-steering .steering-statistics, .dojo-steering .steering-details p, .dojo-steering .steering-stepper { font-size: .83rem; line-height: 1.8; }
+  .dojo-steering .steering-note { color: var(--text-muted); }
+  @media (max-width: 460px) { .dojo-steering .steering-inputs, .dojo-steering .steering-records { grid-template-columns: 1fr; } .dojo-steering svg text { font-size: 22px; } .dojo-steering .steering-task { padding: 12px; } }
+  @media print { .dojo-steering [data-steering-ui], .dojo-steering textarea, .dojo-steering [data-reflect] { display: none !important; } .dojo-steering [data-experiment-fallback] { display: block !important; } }
+</style>
+
+<script>
+  import { BASE, GRID, defaults, densityHistogram, guidedSamples, guidedScore, initializeSMC, normal, posterior, posteriorDensity, posteriorSamples, posteriorWeight, reward, runChains, runSMC, sampleGrid, scores, selectSamples, standardNormal, stepSMC, summarize, tiltedDensity, type SteeringMode, type SteeringSettings, type SMCState } from '../../lib/dojoSteering';
+  import { seededRandom } from '../../lib/dojoDistributions';
+  import { steeringPython } from '../../lib/dojoSteeringPython';
+  document.querySelectorAll<HTMLElement>('[data-steering]').forEach((root) => {
+    const mode = root.dataset.steering as SteeringMode, zh = root.dataset.lang === 'zh';
+    const text = (a: string, b: string) => zh ? a : b;
+    const q = <T extends Element = HTMLElement>(selector: string) => root.querySelector<T>(selector)!;
+    const form = q<HTMLFormElement>('[data-steering-form]'), status = q('[data-run-status]');
+    const fmt = (v: number) => Number.isFinite(v) ? (Math.abs(v) < .001 && v !== 0 ? v.toExponential(2) : v.toFixed(3)) : '—';
+    const pct = (v: number) => `${(100*v).toFixed(1)}%`;
+    let stepState: SMCState | undefined;
+    function resetStepper() {
+      stepState=undefined;const button=root.querySelector<HTMLElement>('[data-step]');
+      if(button){button.textContent=text('開始一趟：生成起點','Start one population');q('[data-step-status]').textContent='';}
+    }
+    function settings() {
+      const s = defaults(mode), data = new FormData(form);
+      for (const [key,value] of data) (s as any)[key] = ['reward','estimator'].includes(key) ? String(value) : Number(value);
+      return s;
+    }
+    function apply(s: SteeringSettings) { for (const [key,value] of Object.entries(s)) { const input = form.elements.namedItem(key) as HTMLInputElement | HTMLSelectElement | null; if (input) input.value = String(value); } }
+    const namespace = 'http://www.w3.org/2000/svg';
+    function svg(tag: string, attrs: Record<string,string|number>, label?: string) {
+      const el = document.createElementNS(namespace, tag);
+      for (const [key,value] of Object.entries(attrs)) el.setAttribute(key,String(value));
+      if (label !== undefined) el.textContent = label; return el;
+    }
+    function path(values: number[], ymax: number, height = 250, logarithmic = false) {
+      return values.map((v,i) => `${i ? 'L':'M'}${52+i/(values.length-1)*640},${height-(logarithmic ? Math.log10(1+v) : v)/ymax*(height-30)}`).join(' ');
+    }
+    function histogram(group: Element, samples: number[], ymax: number, outline = false) {
+      group.replaceChildren();
+      for (const bin of densityHistogram(samples)) group.append(svg('rect',{x:52+(bin.x+6)/12*640,y:250-bin.density/ymax*220,width:bin.width/12*640-.5,height:bin.density/ymax*220,fill:outline?'none':'var(--accent)', 'fill-opacity':.35,stroke:outline?'#739fdd':'none','stroke-width':outline?1.8:0}));
+    }
+    interface Run { mode: SteeringMode; s: SteeringSettings; samples: number[]; reference: number[]; referenceName: string; cost: string; data?: any }
+    function execute(m: SteeringMode, s: SteeringSettings): Run {
+      const reference = tiltedDensity(s.strength,s.reward), referenceName = text('Reward tilt（網格積分參考）','Reward tilt (grid quadrature reference)');
+      if (m === 'classifier' || m === 'cfg') {
+        const data = guidedSamples(m,s);
+        return { mode:m,s,samples:data.samples,reference:GRID.map((x)=>normal(x,s.condition?2:-2,.55**2)),referenceName:text('w = 1 的 conditional 參考','Conditional reference at w = 1'),cost:`${text('Sampler 更新','Sampler updates')} ${data.evaluations.toLocaleString()} · ${text('每步訊號','Signals per step')}: ${m==='cfg'?'conditional + unconditional':'base + classifier ∇x'}`,data };
+      }
+      if (m === 'tilt') return {mode:m,s,samples:sampleGrid(reference,1000,seededRandom(s.seed)),reference,referenceName,cost:text('1,000 次數值 CDF 反查；網格積分僅限這個一維例子','1,000 numerical CDF inversions; grid quadrature is specific to this 1D example')};
+      if (m === 'posterior') return {mode:m,s,samples:posteriorSamples(s),reference:posteriorDensity(s.point,s.time),referenceName:text('Base posterior p(x₀ | xₜ)','Base posterior p(x0 | xt)'),cost:text('1,000 個可能乾淨來源；posterior 與 h 使用解析 Gaussian 計算','1,000 possible clean sources; analytic Gaussian posterior and h')};
+      if (m === 'best' || m === 'importance') {const data=selectSamples(m,s);return {mode:m,s,samples:data.samples,reference,referenceName,cost:`${text('完整候選／reward 呼叫','Complete candidates / reward calls')} ${data.evaluations.toLocaleString()}`,data};}
+      if (m === 'smc') {const data=runSMC(s);return {mode:m,s,samples:data.samples,reference,referenceName,cost:`${text('獨立 population','Independent populations')} ${data.runs} · ${text('Reverse transitions','Reverse transitions')} ${data.transitions.toLocaleString()} · H ${data.evaluations.toLocaleString()}`,data};}
+      const data=runChains(m as 'source'|'tempering',s);
+      return {mode:m,s,samples:data.samples,reference,referenceName,cost:`G / reward ${data.evaluations.toLocaleString()} · ${text('不保存的 warm-up','warm-up excluded')} ${data.burn} · ${text('每鏈保留迭代','retained iterations per chain')} ${s.steps}`,data};
+    }
+    function snapshot(run: Run) {
+      const s=run.s;
+      return ['classifier','cfg'].includes(run.mode) ? `${run.mode} · c=${s.condition} · w=${s.strength} · steps=${s.steps} · seed=${s.seed}` : run.mode==='posterior' ? `xₜ=${s.point} · t=${s.time} · R=${s.reward} · λ=${s.strength} · seed=${s.seed}` : `${run.mode} · R=${s.reward} · λ=${s.strength} · ${run.mode==='smc'?`M=${s.particles}, K=${s.stages}, H=${s.estimator}`:['source','tempering'].includes(run.mode)?`steps=${s.steps}, proposal=${s.proposal}`:run.mode==='tilt'?'Δx=0.025':`N=${s.candidates}`} · seed=${s.seed}`;
+    }
+    function record(run: Run) {
+      const a=summarize(run.samples);
+      return `${snapshot(run)}\n${text('樣本數','Outputs')} ${run.samples.length} · ${text('右側比例','Right share')} ${pct(a.right)}\n${text('平均值','Mean')} ${fmt(a.mean)} · SD ${fmt(a.sd)}\n${run.cost}`;
+    }
+    function table(headers:string[],rows:(string|number)[][]) {
+      q<HTMLElement>('.steering-table-wrap').hidden=false;
+      const el=q('[data-detail-table]');el.replaceChildren();
+      const head=document.createElement('thead'),hr=document.createElement('tr');
+      headers.forEach((h)=>{const th=document.createElement('th');th.scope='col';th.textContent=h;hr.append(th);});head.append(hr);el.append(head);
+      const body=document.createElement('tbody');rows.forEach((row)=>{const tr=document.createElement('tr');row.forEach((value)=>{const td=document.createElement('td');td.textContent=String(value);tr.append(td);});body.append(tr);});el.append(body);
+    }
+    function lineage(state: SMCState) {
+      const plot=q('[data-detail-plot]');plot.replaceChildren();
+      const sx=(x:number)=>52+(Math.max(-6,Math.min(6,x))+6)/12*640;
+      const sy=(k:number)=>35+k/state.settings.stages*220;
+      state.history.forEach((frame,k)=>{
+        plot.append(svg('text',{x:3,y:sy(k)+4},`t=${frame.time.toFixed(2)}`));
+        if(k) frame.particles.forEach((p,i)=>{const parent=state.history[k-1].particles[frame.parents[i]];plot.append(svg('line',{x1:sx(parent.x),x2:sx(p.x),y1:sy(k-1),y2:sy(k),stroke:`hsl(${p.ancestor*137.5%360} 65% 58%)`,'stroke-opacity':.3}));});
+        frame.particles.forEach((p)=>plot.append(svg('circle',{cx:sx(p.x),cy:sy(k),r:3,fill:`hsl(${p.ancestor*137.5%360} 65% 58%)`})));
+      });
+      plot.append(svg('text',{x:360,y:290,'text-anchor':'middle'},text('xₜ（末列為 x₀）','x_t (last row: x0)')));
+      q('[data-detail-caption]').textContent=text('線段只連 checkpoints，不是連續軌跡。','Segments connect checkpoints, not continuous trajectories. ')+state.history.map((f)=>`t=${f.time.toFixed(2)}: ${new Set(f.particles.map((p)=>p.ancestor)).size} ${text('位祖先','ancestors')}`).join(' → ');
+      const hasProposals=state.phase==='weight'||state.phase==='resample'||state.oldH.length>0;
+      const particles=hasProposals?state.proposed:state.particles;
+      table([text('候選','Particle'),'xₜ',text('祖先','Ancestor'),'H old','H new',text('重抽機率','Resampling probability')],particles.slice(0,8).map((p,i)=>[i,fmt(p.x),p.ancestor,state.oldH[i]===undefined?'—':fmt(state.oldH[i]),state.newH[i]===undefined?'—':fmt(state.newH[i]),state.weights[i]===undefined?'—':pct(state.weights[i])]));
+    }
+    function details(run: Run) {
+      q('[data-details]').hidden=run.mode==='tilt';if(run.mode==='tilt')return;
+      const plot=q('[data-detail-plot]');plot.replaceChildren();q('[data-detail-table]').replaceChildren();q<HTMLElement>('.steering-table-wrap').hidden=true;q('[data-detail-caption]').textContent='';
+      const s=run.s;
+      if(run.mode==='classifier'||run.mode==='cfg') {
+        const sc=scores(s.point,s.time,s.condition),combined=guidedScore(s.point,s.time,s.condition,s.strength,run.mode),max=Math.max(1,Math.abs(sc.base),Math.abs(sc.classifierGradient),Math.abs(combined));
+        const values=[sc.base,sc.classifierGradient,combined],names=[text('base score','base score'),text('classifier gradient / conditional − base','classifier gradient / conditional − base'),text('合成 score','combined score')];
+        values.forEach((v,i)=>{const y=65+i*75,end=365+v/max*260;plot.append(svg('text',{x:52,y:y-15},`${names[i]} = ${fmt(v)}`),svg('line',{x1:365,x2:end,y1:y,y2:y,stroke:i===2?'var(--accent)':'#739fdd','stroke-width':4}),svg('path',{d:`M${end-(v>=0?9:-9)},${y-6} L${end},${y} L${end-(v>=0?9:-9)},${y+6}`,fill:'none',stroke:'var(--text)','stroke-width':2}));});
+        const dt=1/s.steps,noise=Math.sqrt(8*dt)*standardNormal(seededRandom(s.seed)),drift=(4*s.point+8*combined)*dt;
+        q('[data-detail-text]').textContent=`xₜ=${s.point} · t=${s.time} · p(c|xₜ)=${pct(sc.probability)} · sᶜ=${fmt(sc.conditional)}`;
+        q('[data-detail-caption]').textContent=`${text('在這個位置示範一步（非完整生成軌跡）','One illustrative step at this location (not a full trajectory)')}: Δt=${fmt(dt)}, drift Δx=${fmt(drift)}, noise Δx=${fmt(noise)}, x_next=${fmt(s.point+drift+noise)}. ${text('箭頭是 score，沒有直接拿它當位移。','Arrows are scores, not direct displacements.')}`;
+      } else if(run.mode==='posterior') {
+        const p=posterior(s.point,s.time),h=posteriorWeight(s.point,s.time,s.strength,s.reward),plugin=Math.exp(s.strength*reward(p.mean,s.reward));
+        const exact=GRID.map((x)=>posteriorWeight(x,s.time,s.strength,s.reward)),approx=GRID.map((x)=>Math.exp(s.strength*reward(posterior(x,s.time).mean,s.reward))),ymax=Math.max(.01,...exact.map((v)=>Math.log10(1+v)),...approx.map((v)=>Math.log10(1+v)));
+        plot.append(svg('path',{d:path(exact,ymax,250,true),fill:'none',stroke:'#739fdd','stroke-width':3}),svg('path',{d:path(approx,ymax,250,true),fill:'none',stroke:'var(--accent)','stroke-width':3}),svg('text',{x:52,y:18},'log₁₀(1 + weight)'),svg('text',{x:360,y:295,'text-anchor':'middle'},text('觀察的位置 xₜ：藍 hₜ／金 plug-in','Observation x_t: blue h_t / gold plug-in')));
+        [-4,-2,0,2,4].forEach((x)=>plot.append(svg('text',{x:52+(x+6)/12*640,y:273,'text-anchor':'middle'},String(x))));
+        [0,.5,1].forEach((f)=>plot.append(svg('text',{x:49,y:254-f*220,'text-anchor':'end'},(f*ymax).toFixed(2))));
+        const cursor=52+(s.point+6)/12*640;plot.append(svg('line',{x1:cursor,x2:cursor,y1:30,y2:250,stroke:'var(--text-muted)','stroke-dasharray':'4 4'}));
+        q('[data-detail-text]').textContent=`${text('Posterior mean','Posterior mean')}=${fmt(p.mean)} · hₜ=${fmt(h)} · plug-in=${fmt(plugin)}`;
+        q('[data-detail-caption]').textContent=text('上圖藍色直線標 posterior mean；下圖虛線標目前 xₜ，縱軸是 log₁₀(1+weight)，不是 density。把 xₜ 改成 0.5 再比較局部變化。兩側 reward 在零不可微，此處只比較權重；後文求 plug-in gradient 仍須檢查可微前提。','The blue line above marks the posterior mean; the lower dashed line marks the current x_t. The lower axis is log10(1+weight), not density. Try x_t = 0.5 to compare local changes. The two-mode reward is not differentiable at zero: this experiment compares weights; the later plug-in gradient still requires differentiability.');
+      } else if(run.mode==='best'||run.mode==='importance') {
+        plot.setAttribute('hidden','');const batch=run.data.first;
+        q('[data-detail-text]').textContent=text('第 1 趟真正抽出的候選（列前 12 個，另保留實際回傳的候選）；每一趟的候選都重新生成。','Actual candidates from the first batch (first 12 plus the returned candidate); every batch draws fresh candidates.');
+        const indices=Array.from({length:Math.min(12,batch.values.length)},(_,i)=>i);if(batch.selected>=12)indices.push(batch.selected);
+        table(['i','x₀','R(x₀)',text('倍率正規化','Normalized multiplier'),text('回傳','Returned')],indices.map((i:number)=>[i,fmt(batch.values[i]),fmt(reward(batch.values[i],s.reward)),pct(batch.weights[i]),i===batch.selected?'✓':'']));
+        q('[data-detail-caption]').textContent=text('Best-of-N 按排序挑選；IW 按這批的正規化倍率抽編號。表內機率不等於跨所有批次的結果比例。','Best-of-N selects by rank; IW samples an index by normalized multipliers in this batch. These conditional probabilities differ from proportions across all batches.');
+      } else if(run.mode==='smc') {
+        q('[data-detail-text]').textContent=text('第一趟 population 的實際祖先。主圖由 300 趟各回傳一個，包含這一趟，沒有把同祖先後代當作獨立。表列最後一段重抽前的候選與權重。','Actual ancestry of the first population. The main histogram uses 300 populations, including this one, each returning one sample; shared-ancestor descendants are not called independent. The table shows proposals and weights before the final resampling.');lineage(run.data.state);
+      } else {
+        const data=run.data;plot.removeAttribute('hidden');
+        data.strengths.forEach((lambda:number,j:number)=>{const stride=Math.max(1,Math.floor(data.trace.length/240));const points=data.trace.filter((_:unknown,k:number)=>k%stride===0).map((row:number[],i:number,rows:unknown[])=>`${52+i/Math.max(1,rows.length-1)*640},${145-Math.max(-3.5,Math.min(3.5,row[j]))/3.5*110}`).join(' ');plot.append(svg('polyline',{points,fill:'none',stroke:['#739fdd','#81bb98','var(--accent)'][j]||'var(--accent)','stroke-width':1.7}),svg('text',{x:52+j*200,y:18},`λ=${lambda} · σ=${data.proposals[j]}`));});
+        plot.append(svg('text',{x:360,y:290,'text-anchor':'middle'},text('保留的迭代 →（縱軸 z）','Retained iteration → (vertical: z)')));
+        q('[data-detail-text]').textContent=`${text('接受／拒絕','Accepted / rejected')} ${data.accepted}/${data.rejected} · ${text('接受較低 reward','Lower-reward accepts')} ${data.lowerAccepted} · ${text('交換接受／提出','Swap accepts / attempts')} ${data.swaps}/${data.swapAttempts}`;
+        q('[data-detail-caption]').textContent=text('軌跡抽點顯示，縱軸視窗為 z = −3.5 至 3.5；實際抽樣不截斷 z，拒絕的重複位置仍計入直方圖。只收最後一條 target 強度的鏈。表列最後幾次真實提案與交換，接受率包含 warm-up。','The trace subsamples retained iterations in a z display window of -3.5 to 3.5. Actual sampling does not truncate z, and repeated states after rejection enter the histogram. Only the last, target-strength chain is collected. The table shows recent actual proposals and swaps; acceptance counts include warm-up.');
+        table([text('動作','Action'),text('鏈','Chain'),'z → z′','P',text('接受','Accepted')],data.events.map((event:any)=>[event.kind,event.chain,`${fmt(event.from)} → ${fmt(event.to)}`,pct(event.probability),event.accepted?'✓':'—']));
+      }
+      if(!['best','importance'].includes(run.mode)) plot.removeAttribute('hidden');
+    }
+    function draw(run:Run,a?:Run) {
+      const ymax=Math.max(.85,...BASE,...run.reference,...densityHistogram(run.samples).map((b)=>b.density),...(a?densityHistogram(a.samples).map((b)=>b.density):[]))*1.08;
+      q('[data-base]').setAttribute('d',path(BASE,ymax));q('[data-reference]').setAttribute('d',path(run.reference,ymax));
+      histogram(q('[data-hist]'),run.samples,ymax);q('[data-hist-a]').replaceChildren();if(a)histogram(q('[data-hist-a]'),a.samples,ymax,true);
+      q('[data-key-a]').hidden=!a;q('[data-reference-name]').textContent=run.referenceName;
+      root.querySelectorAll<SVGTextElement>('[data-y-tick]').forEach((el)=>el.textContent=(Number(el.dataset.yTick)*ymax).toFixed(2));
+      q('[data-snapshot]').textContent=`${text('圖中結果使用','Plotted settings')}: ${snapshot(run)}`;
+      const summary=summarize(run.samples),meanReward=run.samples.reduce((sum,x)=>sum+reward(x,run.s.reward),0)/run.samples.length;
+      q('[data-statistics]').textContent=`${text('實際樣本','Actual outputs')} ${run.samples.length} · ${text('右側','Right')} ${pct(summary.right)} · ${text('平均','Mean')} ${fmt(summary.mean)} · SD ${fmt(summary.sd)}${['classifier','cfg','posterior'].includes(run.mode)?'':` · mean R=${fmt(meanReward)}`} · ${text('畫面外樣本','Outside plot')} ${summary.outside}\n${run.cost}`;
+      const meanLine=q<SVGElement>('[data-mean-line]');meanLine.toggleAttribute('hidden',run.mode!=='posterior');if(run.mode==='posterior'){const x=52+(posterior(run.s.point,run.s.time).mean+6)/12*640;meanLine.setAttribute('x1',String(x));meanLine.setAttribute('x2',String(x));}
+      details(run);q('[data-reflect]').hidden=false;q('[data-experiment-fallback]').hidden=true;
+    }
+    async function perform(compare=false) {
+      if(!form.reportValidity())return;
+      root.querySelectorAll<HTMLButtonElement>('[data-run],[data-compare]').forEach((b)=>b.disabled=true);
+      status.textContent=text('正在用這些條件計算與抽樣…','Computing and sampling with these settings…');
+      await new Promise((resolve)=>setTimeout(resolve,0));
+      try {
+        let s=settings(),a:Run|undefined;
+        if(compare){const as={...s};if(['classifier','tilt','source'].includes(mode))as.strength=0;else if(mode==='cfg')as.strength=1;else if(mode==='posterior')as.time=.08;else if(mode==='best'||mode==='importance')as.candidates=1;else if(mode==='smc'){as.estimator='posterior';s={...s,estimator:'misleading'};apply(s);}a=execute(mode==='tempering'?'source':mode,as);}
+        const b=execute(mode,s);resetStepper();
+        draw(b,a);q('[data-records]').hidden=!a;if(a){q('[data-record-a]').textContent=record(a);q('[data-record-b]').textContent=record(b);}
+        status.textContent=text('執行完了。先讀圖與計算紀錄，再對照你的解釋；預測與解釋不計分、不存檔。','Run complete. Read the plots and records, then compare your explanation. Predictions and explanations are neither graded nor saved.');
+      } catch(error){status.textContent=text('這組條件無法完成，請還原條件後重試。','These settings could not complete. Reset and retry.');console.error(error);}
+      finally{root.querySelectorAll<HTMLButtonElement>('[data-run],[data-compare]').forEach((b)=>b.disabled=false);}
+    }
+    q('[data-steering-ui]').hidden=false;q('[data-experiment-fallback]').hidden=true;
+    form.addEventListener('submit',(event)=>{event.preventDefault();void perform();});q('[data-compare]').addEventListener('click',()=>void perform(true));
+    form.addEventListener('input',()=>{resetStepper();status.textContent=text('條件已改，圖與紀錄仍標示上次執行的設定。再執行後才會更新。','Settings changed. Plots and records still label the previous run; run again to update.');});
+    q('[data-reset]').addEventListener('click',()=>{apply(defaults(mode));resetStepper();status.textContent=text('條件已還原，請再執行以產生新結果。','Settings reset. Run again to generate new results.');});
+    q('[data-explain]').addEventListener('click',()=>{q('[data-experiment-fallback]').hidden=false;root.dataset.experimentComplete='true';root.dispatchEvent(new CustomEvent('dojo:experiment-complete',{bubbles:true}));});
+    root.addEventListener('dojo:python-sync',(event)=>{if(!form.checkValidity()){event.preventDefault();return;}q<HTMLTextAreaElement>('[data-python-code]').value=steeringPython(mode,settings());});
+    root.addEventListener('dojo:python-complete',()=>{q('[data-reflect]').hidden=false;status.textContent=text('Python 已執行。請用 Python 實際產生的圖回答；上方原生圖沒有套用你改過的程式。','Python ran. Explain its actual output; the native plot above does not import your edited code.');});
+    q<HTMLButtonElement>('[data-step]')?.addEventListener('click',()=>{
+      if(!form.reportValidity())return;
+      if(!stepState||stepState.phase==='done'){stepState=initializeSMC(settings());q('[data-records]').hidden=true;q('[data-details]').hidden=false;q('[data-detail-text]').textContent=text('一趟 population 的逐步檢查；尚未取得 300 趟的輸出分布。','Step through one population; this is not the 300-population output distribution.');}
+      else stepSMC(stepState);
+      lineage(stepState);
+      const names={propagate:text('走一段','Propagate'),weight:text('算增量權重','Compute incremental weights'),resample:text('按機率重抽','Resample'),done:text('重新開始一趟','Start another population')};
+      q('[data-step]').textContent=names[stepState.phase];q('[data-step-status]').textContent=`${text('已完成段數','Completed stages')} ${stepState.stage}/${stepState.settings.stages} · ${text('下一個動作','Next action')}: ${names[stepState.phase]}`;
+      if(stepState.phase==='done') {status.textContent=text('一趟已完成；同祖先的 M 份不是 M 個獨立輸出。按完整執行看 300 趟直方圖，或用這趟祖先圖先對照解釋。','One population finished; M shared-ancestor descendants are not M independent outputs. Run the full experiment for the 300-population histogram, or explain this ancestry first.');q('[data-reflect]').hidden=false;}
+    });
+  });
+</script>

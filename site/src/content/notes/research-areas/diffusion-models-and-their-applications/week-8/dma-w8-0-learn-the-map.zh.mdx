@@ -6,14 +6,16 @@ prereqs:
   - math-euler-error
   - math-mse-conditional-expectation
 lang: "zh"
-title: "不走了，直接學那一步"
+title: "一步去噪，為什麼還不是一步生成？"
 category: "courses"
 group: "Unit 5 · Consistency Models"
 status: "available"
-updated: 2026-10-04
-summary: "把路拉直仍不等於一步走完。這一篇改問：能不能略過數值積分，直接學會把噪聲送到資料的 flow map？"
+updated: 2026-10-16
+summary: "從 denoiser 的條件平均與 ODE 終點的差別，建立直接學 flow map 的目標，再分清配對、模型與數值積分的誤差。"
 demos: []
 references:
+  - label: "Lai, Song, Kim, Mitsufuji & Ermon, The Principles of Diffusion Models (v3, 2026)"
+    href: "https://arxiv.org/abs/2510.21890"
   - label: "Luhman & Luhman, Knowledge Distillation in Iterative Generative Models for Improved Sampling Speed (2021)"
     href: "https://arxiv.org/abs/2101.02388"
   - label: "Liu, Gong & Liu, Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow (ICLR 2023)"
@@ -25,176 +27,186 @@ references:
   - label: "Karras, Aittala, Aila & Laine, Elucidating the Design Space of Diffusion-Based Generative Models (NeurIPS 2022)"
     href: "https://arxiv.org/abs/2206.00364"
 ---
+import Answer from '../../../components/Answer.astro';
+import Ask from '../../../components/Ask.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Explanation from '../../../components/Explanation.astro';
 import Objectives from '../../../components/Objectives.astro';
+import Option from '../../../components/Option.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Question from '../../../components/Question.astro';
-import Answer from '../../../components/Answer.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
-import Option from '../../../components/Option.astro';
-import Explanation from '../../../components/Explanation.astro';
-import VizPlan from '../../../components/VizPlan.astro';
-import Details from '../../../components/Details.astro';
-import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
+import Try from '../../../components/Try.astro';
+import Remark from '../../../components/Remark.astro';
 
-# 不走了，直接學那一步
+# 一步去噪，為什麼還不是一步生成？
 
 <Objectives>
-- **說出速度場路線的一步天花板。** 用加速度積分解釋：只要 velocity 沿 trajectory 仍會改變，一步 Euler 就仍有誤差。
-- **說出直接學 flow map 的做法與代價。** 分析 teacher 造 ODE 配對後回歸終點，並與 <Ref to="dma-rectified-flow"/> 的 reflow 對照。
-- **在兩套時間座標間翻譯。** 分清 FM 的「噪聲 $\to$ 資料」與本單元 $t=0$ 為資料、$t$ 大為噪聲的慣例。
+- **分清去噪估計與生成終點。** 用 Gaussian 例子算出 posterior mean 與 ODE flow map 的不同。
+- **寫出直接蒸餾的目標。** 說明 deterministic teacher 如何提供逐點配對，以及資料成本與誤差從哪裡進來。
+- **對齊本單元的時間方向。** 從 $x_t=x_0+t\epsilon$ 推出 PF-ODE，辨認 reference process 與 ODE trajectory。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 路已經拉直，為什麼一步還是不準？
+## 模型已經會去噪，為什麼還要呼叫很多次？
 
-<Ref to="dma-error-theory"/> 把三個單元的主線收在一條不等式上：Euler 取樣的全域誤差 $\lesssim C_L\,h\int_0^1\|a_t(x_t)\|\,dt$。步長 $h$ 是預算，積分量的是沿 trajectory 累積了多少 velocity 變化，包括方向改變、加速與減速。Liu、Gong 與 Liu 的 Rectified Flow [2] 和 <Ref to="dma-minibatch-ot"/> 接著做了一件事：改配對，把積分壓小。<Ref to="dma-lab-interpolants"/> 的圖 b 上，四個模型落在一條斜線上——積分小的，同樣步數誤差就小。
+<Ref to="dma-tweedie-and-score"/> 已經告訴我們，denoiser 可以從 noisy image 猜乾淨圖片。如果最後只想得到一張圖片，最自然的想法就是：**從一團噪聲開始，請它直接去噪一次，不就好了？**
 
-現在把這條斜線往左看到底。積分**恰好是零**只有一種情形：所有粒子沿等速直線走，$S(\pi)=0$。reflow 迭代的極限逼近它，但每一輪都在累積上一輪的模型誤差，實務上一到兩輪就停；停下來的時候積分還不是零。而只要它不是零，$h=1$——一步——就一定有誤差，不等式只告訴你誤差有多小，沒有辦法讓它消失。
+想像一張模糊到看不清楚的照片，同時可能來自幾張不同的原圖。若訓練要求平方誤差最小，最好的回答是這些原圖的條件平均。這是很好的「平均猜測」，卻未必像其中任何一張照片。生成時，我們想抽出一個合理結果；這和估計原圖的平均，是兩個不同的要求。
 
-這就像導航已經替你挑了一條很直的路，但你仍得沿路開過去；把彎道變少，不等於車子能瞬間出現在終點。前三個單元都是**先學速度場、再用數值方法積分它**，一步生成在這條路上只能逼近。既然真正要的是「從噪聲到資料」，問題應該反過來問：
+先把本單元的座標固定下來。沿用資料在 $t=0$ 的方向，從乾淨資料與獨立 Gaussian noise 合成
 
-> **能不能不學速度場，直接學那個映射？**
+$$
+x_t=x_0+t\epsilon,\qquad
+x_0\sim p_{\mathrm{data}},\quad\epsilon\sim\mathcal N(0,I).
+$$
 
-## 要學的物件叫什麼
+$t$ 就是 noise 的標準差，$p_t$ 是這個合成結果的 marginal density。這裡的 $x_t$ 先表示 reference process 的 snapshot；我們還沒有說，一組固定的 $(x_0,\epsilon)$ 畫出的直線就是生成時會走的軌跡。
 
-用 <Ref week="dma-week-flow-matching"/> 的語言說清楚要學的東西。速度場 $u_t$ 定義了一個 ODE，ODE 的解把時刻 $s$ 的點送到時刻 $t$ 的點，這個「送」的動作是一個映射，記成 $\psi_{s\to t}$：$\psi_{s\to t}(x_s)=x_t$。<Ref to="dma-flows-and-continuity"/> 叫它 **flow map**。生成一張圖，就是算一次 $\psi_{0\to1}$——把 $x_0\sim\mathcal N(0,I)$ 送到 $x_1$。
+## 先用一個能算到底的例子比較
 
-前三個單元從來沒有直接碰過 $\psi_{0\to1}$。我們學的是 $u_t$，然後靠 Euler 一步一步**近似**它：$N$ 步 Euler 就是 $N$ 個「假設這一小段是直線」的映射疊起來。誤差來自每一段其實不是直線。
+假設資料只有一維，而且 $x_0\sim\mathcal N(0,1)$。加噪後 $p_t=\mathcal N(0,1+t^2)$。Gaussian 的條件平均給出 denoiser
 
-所以新目標是：**用一個網路 $G_\theta$ 直接逼近 $\psi_{0\to1}$。** 它的輸入是一個噪聲，輸出是一張圖，中間不積分任何東西。這就是 <Ref to="dma-what-are-we-learning"/> 一開始想要的那個 $G$——只是這次我們已經知道它該等於什麼：一個具體的、由 PF-ODE 決定的映射，而不是無限多個合法 $G$ 中隨便一個。這一點很重要，馬上會用到。
+$$
+D(x,t)=\mathbb E[x_0\mid x_t=x]=\frac{x}{1+t^2}.
+$$
+
+<Try summary="這個條件平均怎麼算？">
+固定 $x_t=x$ 後，Bayes rule 讓 posterior 與 prior 乘 likelihood 成正比：
+
+$$
+p(x_0\mid x_t=x)\propto
+\exp\left[-\frac{x_0^2}{2}-\frac{(x-x_0)^2}{2t^2}\right].
+$$
+
+把指數裡與 $x_0$ 有關的平方項配方，得到 Gaussian 的中心 $x/(1+t^2)$，variance 為 $t^2/(1+t^2)$。Gaussian 的中心也是平均，所以得到正文的 $D(x,t)$。這裡固定的是 noisy input，平均的是與它相容的乾淨資料。
+</Try>
+
+它把輸入往中心縮。如果真的從 $x_t\sim p_t$ 抽樣，再輸出 $D(x_t,t)$，輸出的變異數是多少？縮放一個隨機變數時，變異數要乘上係數的平方，因此
+
+$$
+\operatorname{Var}(D(x_t,t))
+=\frac{1+t^2}{(1+t^2)^2}
+=\frac{1}{1+t^2}.
+$$
+
+原本想要的是變異數 $1$ 的資料，結果卻越縮越集中。**denoiser 即使完全正確，一次去噪也不等於從資料分布抽樣。** 問題在它被要求估計什麼，不是網路還沒訓好。
+
+<Ask>
+那原本多步生成做的事情，<br />
+能不能整個變成另一個網路的學習目標？
+</Ask>
+
+## 從一支方向，走到一個確定的終點
+
+在這條加噪路徑下，<Ref to="dma-reverse-process"/> 的 probability-flow ODE 可以寫成
+
+$$
+\frac{\mathrm dx_t}{\mathrm dt}=v_t(x_t),\qquad
+v_t(x)=-t\nabla_x\log p_t(x).
+$$
+
+$v_t$ 描述 $t$ 增加時的位置變化；生成時由 $T$ 往 $0$ 解同一條 ODE。Tweedie 公式還給出 $v_t(x)=\mathbb E[\epsilon\mid x_t=x]$：reference 直線的速度是單筆 $\epsilon$，ODE 使用的是經過當下位置的條件平均。兩者的 snapshots 可以有相同分布，單條路徑不必相同。
+
+<Remark label="推導" summary="VE 座標的速度為什麼是 −t 乘 score？">
+這個加噪 kernel 的變異數是 $t^2$，其變化率是 $2t$；相同 marginals 可由 forward SDE $\mathrm dx=\sqrt{2t}\,\mathrm dW_t$ 產生。將 drift $0$、diffusion coefficient 的平方 $2t$ 代入 PF-ODE 的 drift $\mu-\tfrac12g^2\nabla\log p_t$，便得到 $-t\nabla\log p_t$。
+
+另一方面，對 Gaussian kernel 微分再取條件平均，得到 $\nabla\log p_t(x)=-\mathbb E[\epsilon\mid x_t=x]/t$。因此兩個速度表示一致；這不是把固定 noise 的直線當成 ODE trajectory。
+</Remark>
+
+給定目前的 $x$ 與時間 $t$，在 ODE 解存在且唯一的區域，走到 $0$ 的位置是確定的。我們把這個對應記成 $\psi_{t\to0}(x)$，也就是 **flow map**。以剛才的 Gaussian 為例，score 是 $-x/(1+t^2)$，所以 $v_t(x)=tx/(1+t^2)$；沿解微分可檢查 $x_t/\sqrt{1+t^2}$ 不變，於是
+
+$$
+\psi_{t\to0}(x)=\frac{x}{\sqrt{1+t^2}}.
+$$
+
+現在輸出變異數是 $(1+t^2)/(1+t^2)=1$，正好回到資料分布。它與 $D(x,t)=x/(1+t^2)$ 的分母不同。**ODE 的終點映射不是 posterior mean。** 這個差別會一路決定後面的訓練目標。
+
+## 能不能用慢模型替快模型出題？
+
+想像導航已經知道怎麼沿路開到目的地。我們可以讓它先走完，把「起點、最後到哪裡」記下來，再訓另一個網路直接回答終點。Luhman 與 Luhman 的直接蒸餾 [1] 就使用這種逐點監督。
+
+令固定的 teacher 速度網路與指定 solver 合起來產生 $\operatorname{Solver}_{T\to0}(z)$。從起點分布抽 $z$，學生用
+
+$$
+\mathcal L_{\mathrm{KD}}(\theta)
+=\mathbb E_z\left[
+\left\|G_\theta(z)-\operatorname{Solver}_{T\to0}(z)\right\|^2
+\right]
+$$
+
+學會 teacher 的數值終點。固定 teacher 與 deterministic solver 後，每個 $z$ 都有一個確定標籤；MSE 的條件平均就是那個標籤，不會因為資料本身有多個 modes 就自動把它們平均在一起。實作可先存配對，也可以在訓練時即時計算；兩種都要付出完整 teacher rollout 的成本。
 
 <Question id="Q1">
-我們手上有一個訓好的 FM（或 diffusion）模型，可以跑 ODE。**最笨、最直接的做法是什麼？它哪裡好、哪裡不好？**
-
+既然學生不用積分，是否代表一步輸出已經沒有誤差？
 <Answer>
-最直覺的做法幾乎只有一個：用 teacher 跑 ODE，從 $x_0$ 算到 $x_1=\psi_{0\to1}(x_0)$，收集一大堆 $(x_0,x_1)$ 配對，然後訓一個網路做回歸 $G_\theta(x_0)\approx x_1$。Luhman 與 Luhman [1] 採用的就是這個做法；它把這個單元所有方法要解決的問題都攤在桌上了。
+沒有學生自己的逐步積分誤差，不代表沒有其他誤差。Teacher 的 learned field 可能已偏離理想 $v_t$；solver 只是近似 teacher ODE；學生又只是近似 solver 的輸出。將學生輸出與理想終點之間加上、減去這兩個中間量，再用 triangle inequality，就得到三者誤差之和的上界。
 
-**好的地方，而且比想像中好。** 回歸的目標是 MSE，<Ref to="dma-tweedie-and-score"/> 說 MSE 的最小值是 conditional expectation $\mathbb E[x_1\mid x_0]$。<Ref to="dma-what-are-we-learning"/> 提醒過，如果一個 $x_0$ 可以對到很多個 $x_1$，回歸會輸出它們的平均、變成一團糊。但這裡不會：**$\psi_{0\to1}$ 是 ODE 的解，一個起點對到一個終點**，$\mathbb E[x_1\mid x_0]$ 就是 $\psi_{0\to1}(x_0)$ 本身。沒有 mode averaging。這件事的來源是 <Ref to="dma-flows-and-continuity"/> 的「ODE 軌跡不交叉」，也是 <Ref to="dma-rectified-flow"/> 的第三個性質——同一個事實。
-
-**不好的地方一：資料太貴。** 每一筆訓練配對都要 teacher 跑幾十到上百步 ODE。想學好一個 $G_\theta$ 需要的配對數量和訓練一個生成模型差不多，等於要用 teacher 生成整個資料集一次。
-
-**不好的地方二：學生只看過 $t=0$。** 訓練資料只有 $(x_0,x_1)$，中間的 $x_t$ 完全沒出現。這在兩個地方付出代價：學生沒辦法多步取樣（它只會從純噪聲出發），而且它要學的映射是整條 ODE 疊起來的那個版本——<Ref to="dma-shared-techniques"/> 說中段 $t$ 是最難學的一段，直接回歸終點等於把整段都塞進一個網路裡。
-
-**不好的地方三：這只是蒸餾。** 學生的上限是 teacher；teacher 的誤差、teacher 用的取樣步數造成的離散誤差，全部進入配對。這個單元後面會問：能不能不要 teacher？
-
-把三個「不好」記下來。接下來三篇分別對付它們：<Ref to="dma-progressive-distillation"/> 用「逐輪減半」省掉事先生成資料；<Ref to="dma-consistency-function"/> 把要學的物件從「$t=0$ 到終點」改成「任何 $t$ 到終點」；<Ref to="dma-cd-vs-ct"/> 拿掉 teacher。
+因此，一步學生可能很準，也可能把 teacher 的偏差完整學下來。「省掉生成時的積分」說的是計算方式，沒有宣告終點必然正確。
 </Answer>
 </Question>
 
-## 這件事我們其實做過
+## 同一份配對，也可以拿去重訓速度
 
-停一下，回頭看 <Ref to="dma-rectified-flow"/>。reflow 的第一步是什麼？「用模型自己的 ODE 生成配對 $(X_0,Z_1)$」。這和 Q1 的做法**一模一樣**：都是 teacher 跑 ODE、收集起點與終點。差別只在拿到配對之後做什麼：
+<Ref to="dma-rectified-flow"/> 的 reflow 也會用舊 ODE 收集起點與終點。但拿到同一份配對後，兩種做法學的東西不同：
 
-| | 配對怎麼來 | 拿配對學什麼 | 產物 |
-|---|---|---|---|
-| Reflow（<Ref to="dma-rectified-flow"/>） | teacher 跑 ODE | 重訓 FM：$u_\theta(x_t,t)\approx x_1-x_0$，$x_t$ 是配對的直線插值 | 一個更直的速度場，還是要積分 |
-| 直接回歸終點 [1] | teacher 跑 ODE | $G_\theta(x_0)\approx x_1$ | 一個一步映射 |
+| 拿到配對後做什麼？ | 網路輸出 | 生成時怎麼用？ |
+|---|---|---|
+| Reflow：重新插值、回歸 reference velocity | 新的速度場 | 仍須積分 |
+| 直接蒸餾：從起點回歸 teacher 終點 | 終點位置 | 一次求值 |
 
-reflow 學的是**速度**，所以產物仍然是要積分的東西，只是軌跡直了、需要的步數少了；直接回歸學的是**終點**，產物本身就是一步。兩者的訓練資料完全相同。而 reflow 做兩輪就接近直線這件事，換到這個角度說就是：**一個配對不交叉的 FM，它的一步 Euler 就幾乎是 $\psi_{0\to1}$**。所以 reflow×2 本身就是一個不錯的一步生成器——<Ref to="dma-lab-consistency"/> 會把它和這個單元的方法放在同一張圖上比。
+Reflow 改變 coupling 後得到的新 ODE，也不必保留舊 teacher 每個起點的終點對應；保留 marginal 與保留逐點 map 是不同要求。U3 的誤差上界說 velocity 變化較小有助控制積分誤差，**不能反過來說只要 acceleration 不為零，一步誤差就一定非零**；積分中的誤差也可能抵消。
 
-這個對照給了一個很有用的座標：這個單元的所有方法，都可以問「配對從哪裡來、學速度還是學終點、要不要 teacher」三個問題。
+![同一份 teacher 端點配對，分別用來回歸速度或直接回歸終點。](./imgs/w8-0-1.svg)
 
-![同一份 teacher 配對，reflow 用它學沿途速度；直接回歸則用它學一步終點。](./imgs/w8-0-1.svg)
+*圖：配對來源可以相同，學習物件仍然不同。*
 
-**圖：同一份配對，兩種用法。** reflow 與直接回歸終點都用 teacher 的 ODE 造配對；前者在整條弦上學速度場，後者直接學起點到終點。差別不在資料，而在學的物件。
+<Remark label="符號" summary="本單元的乾淨端與實作上的小正數">
+本單元統一用 $t=0$ 表示資料、$t=T$ 表示高 noise；$v_t$ 是理想速度，$f_\theta$ 會用來表示終點映射。這與 U2–U3 的生成時間方向相反。數學上先寫到 $0$；實作若停在 $\varepsilon>0$，真正的 target 是 $p_\varepsilon$ 與 $\psi_{t\to\varepsilon}$，不能直接當成已精確到達 $p_{\mathrm{data}}$。同樣地，$\mathcal N(0,T^2I)$ 通常只是 $p_T$ 的近似。
+</Remark>
 
-## 切換時間方向
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/fast-maps-gaussian.html?topic=5-0" class="demo-frame" title="U5.0：解析 Gaussian 互動檢查" style="height: 900px; width: 100%; border: none;"></iframe>
 
-接下來三篇要跟著 Song 等人的 Consistency Models [4] 與 Karras 等人的 EDM [5] 使用的慣例走，那套慣例的時間方向和 <Ref week="dma-week-flow-matching"/>、<Ref week="dma-week-interpolants"/> **相反**：$t=0$ 是資料、$t$ 大是噪聲，和 <Ref week="dma-week-diffusion"/> 的 DDPM 方向相同。這是認知負荷不是數學難度，所以花半頁把它一次講清楚，之後不再回頭。
+**互動 demo：先用解析答案對照。** 每個數字由目前參數重新計算；實際訓練結果另見實作程式。
 
-**本單元的 forward process** 用 EDM 的 variance-exploding（VE）形式：
-
-$$
-x_t=x_0+t\,\epsilon,\qquad \epsilon\sim\mathcal N(0,I),\quad t\in[0,T],
-$$
-
-$x_0\sim p_{\text{data}}$ 是乾淨資料，噪聲的標準差**就是** $t$ 本身（沒有 $\sqrt{\bar\alpha_t}$ 這種縮放）。$T$ 取得夠大（原文用 $T=80$，資料標準化到單位尺度），使 $x_T\approx T\epsilon$ 幾乎是純噪聲；取樣時從 $\mathcal N(0,T^2I)$ 出發。這條路徑的好處是每個係數都是 $1$ 或 $t$，接下來所有式子裡不會有 schedule 的符號。
-
-**本單元的 PF-ODE。** 對這條路徑，probability-flow ODE 是
-
-$$
-\frac{dx_t}{dt}=-t\,\nabla\log p_t(x_t)=\mathbb E[\epsilon\mid x_t],
-$$
-
-第二個等號是 <Ref to="dma-tweedie-and-score"/> 的 Tweedie 公式在 VE 座標下的樣子——denoiser 預測的 $\mathbb E[\epsilon\mid x_t]$ 就是速度，方向是「往噪聲走」。生成是把這條 ODE 從 $t=T$ 解到 $t=0$。（推導放在下面的展開框。）
-
-**與 FM 座標的對照。** 把 FM 的時間記成 $s\in[0,1]$（$s=0$ 噪聲、$s=1$ 資料），線性路徑 $x^{\text{FM}}_s=s\,x_{\text{data}}+(1-s)\,\epsilon$。兩邊除以 $s$：$x^{\text{FM}}_s/s=x_{\text{data}}+\frac{1-s}{s}\,\epsilon$，右邊正是本單元的 $x_t$，只要令 $t=\frac{1-s}{s}$。所以兩套座標描述的是**同一族分佈**，只差一個時間重參數化與一個尺度——<Ref to="dma-linear-path"/> 說的「同一物件、不同座標」。
-
-| | <Ref week="dma-week-diffusion"/>（DDPM） | <Ref week="dma-week-flow-matching"/>–<Ref week="dma-week-interpolants"/>（FM） | 本單元（EDM / CM） |
-|---|---|---|---|
-| 資料在哪一端 | $t=0$ | $s=1$ | $t=0$ |
-| 噪聲在哪一端 | $t=T$ | $s=0$ | $t=T$（$T=80$） |
-| 中間點 | $\sqrt{\bar\alpha_t}\,x_0+\sigma_t\epsilon$ | $s\,x_1+(1-s)\,x_0$ | $x_0+t\,\epsilon$ |
-| ODE 的速度 | 由 $\epsilon_\theta$ 組成 | $u_s=\mathbb E[x_1-x_0\mid x_s]$ | $\mathbb E[\epsilon\mid x_t]=-t\nabla\log p_t$ |
-| 一步映射的目標 | — | $\psi_{0\to1}$：噪聲 $\to$ 資料 | $f(x_t,t)=x_0$：任何 $t$ $\to$ 資料 |
-| 對照 | — | $t=\tfrac{1-s}{s}$，$x_t=x^{\text{FM}}_s/s$ | — |
-
-最後一列先預告了下一篇要定義的物件：本單元學的映射寫成 $f(x_t,t)$，吃「任何一個時刻的任何一點」、吐「這條軌跡在 $t=0$ 的終點」。$\psi_{0\to1}$ 只是它在 $t=T$ 這一片的特例。
-
-**$\psi_{s\to t}$ 的下標沿用 FM 慣例**（$0$ 是噪聲、$1$ 是資料），本篇前半與下面的 quiz 都是這樣用；換到本單元慣例，同一個映射寫成 $f(\cdot,T)$。混用一個記號不理想，但改寫 flow map 的下標會和 <Ref to="dma-flows-and-continuity"/> 對不上，所以留著並在這裡標明。
-
-<Details summary="推導：VE 路徑的 PF-ODE 為什麼是 dx/dt = −t ∇log p_t = E[ε | x_t]">
-$x_t=x_0+t\epsilon$ 的邊際 $p_t$ 是 $p_{\text{data}}$ 與 $\mathcal N(0,t^2I)$ 的 convolution，其變異數以 $\frac{d}{dt}t^2=2t$ 的速率增加，對應的 forward SDE 是 $dx=\sqrt{2t}\,dW$（drift 為零）。<Ref to="dma-reverse-process"/> 的 PF-ODE 公式（那裡的 drift 記成 $\mu$，別和本單元的映射 $f$ 混在一起）$\frac{dx}{dt}=\mu-\tfrac12 g^2\nabla\log p_t$ 代入 $\mu=0$、$g^2=2t$，得 $\frac{dx}{dt}=-t\nabla\log p_t(x)$。
-
-Tweedie：對 $p_t(x)=\int\mathcal N(x;x_0,t^2I)\,p_{\text{data}}(x_0)\,dx_0$ 取 $\nabla_x\log$，得 $\nabla\log p_t(x)=-\frac{x-\mathbb E[x_0\mid x_t=x]}{t^2}$；而 $x-x_0=t\epsilon$，所以 $\nabla\log p_t(x_t)=-\frac{\mathbb E[\epsilon\mid x_t]}{t}$，即 $\mathbb E[\epsilon\mid x_t]=-t\nabla\log p_t(x_t)$。兩式合起來就是正文的 ODE。
-
-用 <Ref to="dma-linear-path"/> 的一般式也能到同一個地方：取 $\alpha_t=1$（$x_0$ 的係數）、$\sigma_t=t$，$u_t=\dot\alpha_t\,\mathbb E[x_0\mid x_t]+\dot\sigma_t\,\mathbb E[\epsilon\mid x_t]=\mathbb E[\epsilon\mid x_t]$。
-</Details>
-
-從下一篇起，「$x_0$」永遠是資料、「$t$ 小」永遠是乾淨端。如果讀到某個式子覺得方向怪，回來查這張表。
-
-## 先消化一下
+## 消化一下
 
 <QuizBlock id="w8-0-a">
-「直接學 flow map」與「先學速度場再積分」的根本差別是：
-<Option>前者不需要訓練資料。</Option>
-<Option correct>前者的輸出本身就是終點，不經過任何數值積分，所以沒有「一步內假設 velocity 不變」的離散誤差；後者即使軌跡是直線，只要速度大小仍會改變、加速度積分不是零，一步就有誤差。</Option>
-<Option>前者學到的映射比較多樣。</Option>
-<Explanation>
-兩者都要訓練資料。「多樣性」不是差別——ODE 誘導的映射是確定的，兩者學的都是同一個 $\psi_{0\to1}$。差別是有沒有離散化這一步：學速度場的路上，一步生成只能是加速度積分趨近零的極限；直接學映射則把離散誤差整個繞掉，代價換成別的（接下來幾篇會看到）。
-</Explanation>
+Gaussian 例子中，為什麼正確 denoiser 不能直接作為正確的一步生成器？
+<Option>因為它還沒有訓練到收斂。</Option>
+<Option correct>因為它輸出 posterior mean，輸出的變異數是 $1/(1+t^2)$，不是資料的變異數 $1$。</Option>
+<Option>因為所有 deterministic map 都無法生成 Gaussian。</Option>
+<Explanation>同一個 $p_t$ 經 $x/\sqrt{1+t^2}$ 就能得到正確資料分布；關鍵是 map 的定義。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w8-0-b">
-Q1 的直接回歸法用 MSE 訓練 $G_\theta(x_0)\approx x_1$，卻**不會**出現「多個答案被平均成一團糊」的問題。原因是：
-<Option>MSE 對這種問題本來就不會平均。</Option>
-<Option>teacher 用的是 SDE 取樣，樣本夠多樣。</Option>
-<Option correct>配對由 teacher 的 ODE 產生，一個 $x_0$ 只對到一個 $x_1$，$\mathbb E[x_1\mid x_0]$ 就是 $\psi_{0\to1}(x_0)$ 本身，沒有東西可以被平均掉。</Option>
-<Explanation>
-MSE 的最小值是 conditional expectation，這是通則；會不會糊取決於條件分佈是不是一個點。teacher 若用 SDE 取樣，同一個 $x_0$ 會對到不同的 $x_1$，那才會平均成糊——所以這個做法必須用 ODE 造配對。這是 ODE 軌跡不交叉的直接後果。
-</Explanation>
+Deterministic teacher 的終點標籤，給定起點後是什麼？
+<Option correct>一個確定結果；MSE 在理想情況下回歸這個結果。</Option>
+<Option>必須把所有 modes 的終點取平均。</Option>
+<Option>一個與起點無關的資料平均。</Option>
+<Explanation>資料分布多峰不代表這份起點到終點的監督配對多值。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w8-0-c">
-Reflow 與「直接回歸終點」的關係是：
-<Option correct>訓練資料完全相同（都是 teacher 的 ODE 配對），差別在拿配對學速度（產物仍要積分）還是學終點（產物是一步映射）。</Option>
-<Option>reflow 不需要 teacher，直接回歸需要。</Option>
-<Option>兩者學到的是不同的映射。</Option>
-<Explanation>
-reflow 的第一步就是用模型自己的 ODE 造配對，那個模型就是 teacher。兩者的配對一樣、極限上學到的映射也一樣（都是 ODE 誘導的耦合）；差別只在中間物件：速度場需要積分、終點映射不需要。
-</Explanation>
-</QuizBlock>
-
-<QuizBlock id="w8-0-d">
-本單元用 $x_t=x_0+t\epsilon$。在這套座標下，PF-ODE 的速度 $\frac{dx_t}{dt}$ 等於：
-<Option>$-\mathbb E[\epsilon\mid x_t]$，因為生成是往資料走。</Option>
-<Option correct>$\mathbb E[\epsilon\mid x_t]=-t\nabla\log p_t(x_t)$；生成時把 $t$ 從 $T$ 往 $0$ 解，走的是它的反方向。</Option>
-<Option>$\mathbb E[x_0\mid x_t]$。</Option>
-<Explanation>
-ODE 的速度定義是「$t$ 增加時 $x_t$ 怎麼變」，而 $t$ 增加是往噪聲走，方向是 $\epsilon$ 的條件平均。生成是把同一條 ODE 倒著解，不需要另外寫一個負號版本的方程。$\mathbb E[x_0\mid x_t]$ 是 denoiser 的另一個座標，與速度差一個 affine transformation，本身不是速度。
-</Explanation>
+直接蒸餾省下了哪一項？
+<Option>所有訓練成本。</Option>
+<Option>teacher 的模型誤差。</Option>
+<Option correct>學生生成時反覆積分的成本；完整 teacher target 仍有取得成本。</Option>
+<Explanation>計算可以由 sampling 移到 training，並沒有憑空消失。</Explanation>
 </QuizBlock>
 
 <Bridge to="dma-progressive-distillation">
-直接回歸 flow map 不必積分，而且 ODE 配對是一對一，不會被 MSE 平均成模糊答案；問題是每筆資料都要 teacher 先走完整條路。能不能別先走完全程，只讓學生一次模仿 teacher 的兩小步？Salimans 與 Ho 的 progressive distillation [3] 從這個問題出發。
+一步生成需要學的是終點映射；慢模型可以提供配對，但每個完整終點都很貴。若先只要求學生一步抵達 teacher 兩步的地方，能不能逐漸把整趟生成壓短？<Ref to="dma-progressive-distillation"/> 從這個較小的任務開始。
 </Bridge>
 
 ## 參考文獻
 
-1. Luhman, E., Luhman, T. [*Knowledge Distillation in Iterative Generative Models for Improved Sampling Speed.*](https://arxiv.org/abs/2101.02388) 2021.（Q1 的直接回歸法。）
-2. Liu, X., Gong, C., Liu, Q. [*Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow.*](https://arxiv.org/abs/2209.03003) ICLR 2023.（reflow 的配對來自 ODE。）
-3. Salimans, T., Ho, J. [*Progressive Distillation for Fast Sampling of Diffusion Models.*](https://arxiv.org/abs/2202.00512) ICLR 2022.（下一篇。）
-4. Song, Y., Dhariwal, P., Chen, M., Sutskever, I. [*Consistency Models.*](https://arxiv.org/abs/2303.01469) ICML 2023.（本單元時間方向與符號的來源。）
-5. Karras, T., Aittala, M., Aila, T., Laine, S. [*Elucidating the Design Space of Diffusion-Based Generative Models.*](https://arxiv.org/abs/2206.00364) NeurIPS 2022.（EDM：$x_t=x_0+t\epsilon$ 的 VE 形式與 $T=80$。）
+主要理論參考：[The Principles of Diffusion Models](https://arxiv.org/abs/2510.21890)，§10.1、§11.1；VE 座標另參照 §4.4 與附錄 D.6。正文的符號沿用本課程；方法實作細節再對照下列原始論文。
+
+1. [Luhman & Luhman, Knowledge Distillation in Iterative Generative Models for Improved Sampling Speed (2021)](https://arxiv.org/abs/2101.02388)。
+2. [Liu, Gong & Liu, Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow (ICLR 2023)](https://arxiv.org/abs/2209.03003)。
+3. [Salimans & Ho, Progressive Distillation for Fast Sampling of Diffusion Models (ICLR 2022)](https://arxiv.org/abs/2202.00512)。
+4. [Song, Dhariwal, Chen & Sutskever, Consistency Models (ICML 2023)](https://arxiv.org/abs/2303.01469)。
+5. [Karras, Aittala, Aila & Laine, Elucidating the Design Space of Diffusion-Based Generative Models (NeurIPS 2022)](https://arxiv.org/abs/2206.00364)。

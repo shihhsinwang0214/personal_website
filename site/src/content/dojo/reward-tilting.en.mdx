@@ -1,0 +1,584 @@
+---
+slug: "reward-tilting"
+lang: "en"
+title: "Both photos look plausible. Which should we draw more often?"
+note: "dma-reward-tilting"
+summary: "Move from preferred-photo proportions to continuous sampling. Plot posteriors, mean estimates, and h_t to inspect uncertainty lost by plug-in."
+status: "available"
+updated: 2026-10-16
+minutes: 55
+progressVersion: "5"
+series: "dma-guidance"
+order: 2
+---
+import Say from '../../components/dojo/Say.astro';
+import Talk from '../../components/dojo/Talk.astro';
+import Extra from '../../components/dojo/Extra.astro';
+import Choose from '../../components/dojo/Choose.astro';
+import Experiment from '../../components/dojo/Experiment.astro';
+import Option from '../../components/dojo/Option.astro';
+import Judge from '../../components/dojo/Judge.astro';
+import Think from '../../components/dojo/Think.astro';
+import Reveal from '../../components/dojo/Reveal.astro';
+import Figure from '../../components/dojo/Figure.astro';
+import Ref from '../../components/notes/Ref.astro';
+import photos from './imgs/reward-two-photos.en.png';
+import sources from './imgs/reward-possible-sources.en.png';
+
+import SteeringExperiment from '../../components/dojo/SteeringExperiment.astro';
+
+<Say partner="nori" pose="welcome" id="scene" label="The user has another preference" next="First think about what to return">
+After seeing corgis in snowy mountains, the user says, “These are all correct, but I prefer this lighting and composition. Could I have several different results?” They give us an aesthetic scoring program: input a finished image and receive a score.
+
+Write a clean, finished image as $x_0$ and its reward as $R(x_0)$. Higher scores better match this criterion. A reward can simply be an aesthetic score: it need not be a probability or differentiable. First specify how we want to sample; later, check the conditions for computing a direction. We have no noisy-image classifier for this preference, and the model has not learned it. **Before changing the sampler, how should the score affect returned results?**
+</Say>
+
+<Talk partner="mugi" pose="suggest" id="p-favorite" study="reward-plans" label="Mugi: keep the favorite">
+“If the program scores images, let us draw many and keep the highest-scoring one. When the user returns tomorrow, give them that same image?”
+
+This uses the score and can find a high-scoring result. But the user also wanted **several different results**. Does keeping only the highest-scoring image express that request?
+</Talk>
+
+<Talk partner="nori" pose="suggest" id="p-variety" study="reward-plans" label="Nori: just draw more as before?">
+“If we want to avoid returning the same image every time, sample as before. More draws will give different results.”
+
+Nori preserves the original variation. But the user specifically preferred certain lighting and composition. If frequencies stay exactly the same, has this score affected the results?
+</Talk>
+
+<Talk partner="lumi" pose="suggest" id="p-proportions" study="reward-plans" label="Lumi: could we change the frequencies?" next="Put the proposals away and compare">
+“Could preferred photos appear more often without taking every chance away from other plausible photos? Across several draws, perhaps we would see the preferred style more often, but occasionally another composition.”
+
+Lumi wants to change **the proportions in which images are sampled**. We want more than one highest-scoring image and more than the unchanged base proportions. What objective would express this idea?
+</Talk>
+
+<Choose partner="lumi" pose="question" id="c-return" label="Return the same favorite every time?" review="reward-plans">
+The user wants preferred results more often while retaining different plausible answers. Which approach better expresses both requirements?
+<Option why="It can find a high-scoring result, but repeating one image does not express the request for varied answers.">Mugi: return the same highest-scoring image every time.</Option>
+<Option correct reply="We need to choose how often different results appear. Next, test whether maximizing an average score expresses that goal." why="Making preferred results more frequent while retaining alternatives means choosing a new sampling distribution.">Lumi: increase preferred images’ frequency while keeping chances for other plausible images.</Option>
+<Option why="The original proportions retain variation, but the newly supplied scores have no effect.">Nori: preserve the original proportions and ignore the score.</Option>
+</Choose>
+
+<Talk partner="nori" pose="question" id="log-base" label="What does the base contribute besides preference?" next="Try a seemingly reasonable objective">
+“What if the scorer especially likes a bright white blob that is not a corgi? Do we want it to appear very often?”
+
+We also want the original data to matter. Let $p_{\mathrm{data}}(x_0)$ denote the base distribution: probabilities for discrete results, densities for continuous images. It tells us where the original data places more weight. It is not another aesthetic score, and it does not guarantee every high-density result is good.
+
+To combine original weights and reward in one objective, start with $\log p_{\mathrm{data}}(x_0)$. Log turns multiplication into addition; we will see how this connects to KL between distributions. With finite rewards, reweighting alone cannot create results outside the original support.
+
+<Extra label="Why use log probability? Think through model training">
+Switch briefly to training. We have independently drawn data $x_1,\ldots,x_n$ and change model parameters $\theta$. Here $i$ indexes data, not diffusion time. Likelihood and log-likelihood are
+
+$$
+\begin{gathered}
+L(\theta)=\prod_{i=1}^n p_\theta(x_i),\\
+\log L(\theta)=\sum_{i=1}^n\log p_\theta(x_i).
+\end{gathered}
+$$
+
+Log is strictly increasing, so taking the log of the same likelihood leaves its maximizing parameters unchanged. Replacing products of small numbers with sums also helps computation. Dividing by fixed $n$ preserves the maximizer too. Using the data average to estimate a population expectation gives $\mathbb E_{p_{\mathrm{data}}}[\log p_\theta(x_0)]$. When the relevant quantities are defined,
+
+$$
+\begin{aligned}
+&\mathbb E_{p_{\mathrm{data}}}[\log p_\theta]\\
+&=\mathbb E_{p_{\mathrm{data}}}[\log p_{\mathrm{data}}]\\
+&\quad-D_{\mathrm{KL}}(p_{\mathrm{data}}\|p_\theta).
+\end{aligned}
+$$
+
+The data distribution is fixed, so maximizing average log-likelihood minimizes KL in this direction. Training fixes the data and changes the model. We will instead fix the base and choose a new sampling distribution $\widetilde p$. Keep these settings distinct.
+
+Does “log preserves order” let us swap log and averaging? Suppose data probabilities for $A,B$ are $0.9,0.1$, while the model assigns $a,1-a$. Average probability is $0.9a+0.1(1-a)$, favoring $a=1$. Average log probability is
+
+$$
+0.9\log a+0.1\log(1-a).
+$$
+
+For $0<a<1$, its derivative is $0.9/a-0.1/(1-a)$, zero at $a=0.9$. The second derivative is negative, so this is the maximum. It retains the rarer $B$. **Taking a log after averaging and averaging logs optimize different objectives.**
+</Extra>
+</Talk>
+
+<Think partner="mugi" pose="question" id="t-average" label="Is maximizing the average score enough?">
+<Figure src={photos} alt="Two plausible corgi photos in snowy mountains, A and B. Each has base probability one half. Their assigned rewards are 0 and 1.">
+Both are plausible, with different lighting and poses. The example assumes the program prefers B. These probabilities and rewards are given toy values, not model measurements.
+</Figure>
+
+Simplify the possible results to $A,B$, originally equally likely, with rewards $0,1$. The new distribution we choose, $\widetilde p$, determines their future frequencies.
+
+To favor reward while retaining the data’s influence, score each image by $\lambda R(x_0)+\log p_{\mathrm{data}}(x_0)$. Here $\lambda>0$ sets reward influence, and $p_{\mathrm{data}}$ is the base. These are two discrete results, each with probability $1/2$; continuous images would use density.
+
+Imagine repeatedly drawing from $\widetilde p$ and averaging this score. **Will maximizing that average keep both photos, or choose $B$ every time?** Predict the result and explain why.
+</Think>
+
+<Reveal partner="mugi" pose="explain" id="collapse" label="Add the two results’ contributions" next="Check what the objective missed">
+Both log base probabilities equal $\log(1/2)=-\log2$; only the reward differs. The new probabilities $\widetilde p(A),\widetilde p(B)$ sum to $1$, so the average score is
+
+$$
+\begin{aligned}
+&\widetilde p(A)(-\log2)\\
+&+\widetilde p(B)(\lambda-\log2)\\
+&=-\log2+\lambda\widetilde p(B).
+\end{aligned}
+$$
+
+For any $\lambda>0$, assigning more probability to $B$ raises the average, eventually returning $B$ every time. Both images were plausible, but **this average score never requires retaining the other answer**.
+
+<Extra label="Does this happen with more than two photos?">
+For finitely many candidates, write each fixed image score as
+
+$$
+\begin{gathered}
+F(x_0)=\lambda R(x_0)\\
++\log p_{\mathrm{data}}(x_0).
+\end{gathered}
+$$
+
+The average $\sum_{x_0}\widetilde p(x_0)F(x_0)$ cannot exceed the largest $F$. Assigning all mass to a highest-scoring candidate attains that value. Ties allow mixing among maximizers, but still do not encourage retaining other answers.
+
+Continuous spaces need more care: an ordinary density may not attain a point-concentrated maximum; increasingly concentrated sequences might only approach it. The shared problem is averaging fixed per-image scores without separately measuring the new distribution’s concentration.
+</Extra>
+</Reveal>
+
+<Choose partner="lumi" pose="question" id="c-missing" label="Which requirement is missing?">
+The objective included both reward and log base probability, yet chose only $B$. Which original requirement still needs to enter?
+<Option correct reply="We need a quantity describing whether all probability crowds into one answer. Next, add that requirement to the objective." why="The original objective only averages per-image scores; it does not measure excessive concentration of the whole distribution.">Avoid concentrating every chance on a single image.</Option>
+<Option why="Reward already appears. Increasing it only favors B more here; it adds no requirement to retain alternatives.">Increase reward influence again.</Option>
+<Option why="The equal base probabilities already enter. What is missing is a measure of the new distribution’s concentration.">Add the same log base probability a second time.</Option>
+</Choose>
+
+<Talk partner="lumi" pose="explain" id="entropy" label="How can we express avoiding concentration?" next="Try combining the three terms">
+Entropy measures how spread out a distribution is: $H(\widetilde p)=-\mathbb E_{\widetilde p}[\log\widetilde p(x_0)]$. For our two photos, always choosing $B$ gives $0$, while equal probabilities give $\log2$. Adding entropy makes spreading probability across answers contribute too:
+
+$$
+\begin{aligned}
+&\max_{\widetilde p}\ \big\{\\
+&\quad\lambda\mathbb E_{\widetilde p}[R(x_0)]\\
+&+\mathbb E_{\widetilde p}[\log p_{\mathrm{data}}(x_0)]\\
+&+H(\widetilde p)\big\}.
+\end{aligned}
+$$
+
+Every expectation averages over $x_0$ drawn from the new $\widetilde p$. The scoring program, base, and $\lambda$ stay fixed. We change the frequencies of results.
+</Talk>
+
+<Think partner="lumi" pose="question" id="t-combine" label="Can you write one log ratio?">
+Expand entropy. All three terms average over the same $\widetilde p$, so the objective value becomes
+
+$$
+\begin{aligned}
+&\mathbb E_{\widetilde p}\big[\lambda R(x_0)\\
+&\quad+\log p_{\mathrm{data}}(x_0)\\
+&\quad-\log\widetilde p(x_0)\big].
+\end{aligned}
+$$
+
+Use $\lambda R=\log e^{\lambda R}$ and the product and quotient rules for log. **How would you write the three terms inside as one log ratio?** Start with its numerator and denominator.
+</Think>
+
+<Reveal partner="lumi" pose="explain" id="weighted" label="The numerator offers a clue" next="Check whether it is a probability">
+The added logs belong in the numerator, and the subtracted log in the denominator:
+
+$$
+\mathbb E_{\widetilde p}\!\left[
+\log\!\frac{p_{\mathrm{data}}(x_0)\!e^{\lambda R(x_0)}}{\widetilde p(x_0)}
+\right].
+$$
+
+Look at the numerator: the original weight is multiplied by $e^{\lambda R(x_0)}$, giving higher-reward results larger multipliers. This resembles the desired reweighting, but is it already a probability distribution?
+</Reveal>
+
+<Choose partner="nori" pose="question" id="c-normalize" label="Can weights exceed 1?">
+Keep base probabilities $1/2,1/2$ and rewards $0,1$. With $\lambda=\log3$, the multipliers are $1,3$, giving weights $1/2$ for $A$ and $3/2$ for $B$. How should we interpret them?
+<Option correct reply="These are relative weights, whose total is not yet 1. Dividing by the same total preserves their ratio and produces probabilities." why="Relative weights may exceed 1; probabilities may not. Normalization restores total mass to 1.">Keep their ratio, then divide by the total weight.</Option>
+<Option why="B’s value exceeds 1 and the total is 2, so these cannot yet be probabilities.">Treat $3/2$ directly as the probability of $B$.</Option>
+<Option why="A relative weight exceeding 1 does not invalidate the multiplier. Normalize rather than clip it.">Clip weights above $1$ down to $1$.</Option>
+</Choose>
+
+<Reveal partner="lumi" pose="explain" id="target" label="Restore total mass to 1" next="Plot and sample this distribution first">
+Write the sum or integral of weights as $Z_R$. Dividing by it defines a candidate distribution:
+
+$$
+\begin{gathered}
+p_R(x_0)\\
+=\frac{p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}}{Z_R}.
+\end{gathered}
+$$
+
+For two photos, $Z_R$ is a sum; for continuous images, it integrates over all $x_0$. Assume $0<Z_R<\infty$ and that relevant expectations are defined. We still need to check that this candidate maximizes our objective.
+</Reveal>
+
+<SteeringExperiment id="tilt-practice" mode="tilt" partner="nori" label="Plot the base reweighted by reward">
+Return from A/B outcomes to the continuous mixture from U7.0. Reward can favor the right or two regions. Inspect actual samples before proving why this candidate optimizes the objective.
+</SteeringExperiment>
+
+<Choose partner="nori" pose="question" id="c-optimum" label="Which part of the objective can change?">
+Substitute $p_{\mathrm{data}}e^{\lambda R}=Z_Rp_R$ into the log ratio. Separate the fixed $\log Z_R$. The remaining average of $\log(p_R/\widetilde p)$ is negative KL:
+
+$$
+\begin{gathered}
+\mathbb E_{\widetilde p}\left[
+\log\frac{Z_Rp_R(x_0)}{\widetilde p(x_0)}
+\right]\\
+=\log Z_R-D_{\mathrm{KL}}\!(\widetilde p\|p_R).
+\end{gathered}
+$$
+
+KL measures the difference between these distributions. It is nonnegative and zero when they coincide. **With base, reward, and $\lambda$ fixed, which $\widetilde p$ maximizes the objective?**
+<Option correct reply="Then KL is zero and the objective reaches the fixed log Z_R. The candidate p_R is optimal; this reweighting is called reward tilting." why="Subtracting a nonnegative quantity gives a maximum when that quantity is zero. We choose the new distribution, not the fixed scorer or base.">Choose $\widetilde p=p_R$ so KL is zero.</Option>
+<Option why="The objective subtracts KL. Larger KL lowers the value.">Make KL as large as possible.</Option>
+<Option why="Fixed base, reward, and strength already determine Z_R. Choosing a new distribution does not change it.">Increase $Z_R$ by adjusting only $\widetilde p$.</Option>
+</Choose>
+
+<Talk partner="nori" pose="explain" id="same-objective" label="Read the objective back into the situation" next="Calculate the two-photo proportions">
+“We now have new proportions that favor the user’s style while keeping the original distribution involved. Can ‘do not stray too far from the base’ appear directly in the objective?”
+
+Yes. Entropy plus expected log base equals negative KL. Divide the objective by positive $\lambda$, which preserves its maximizer:
+
+$$
+\begin{aligned}
+&\max_{\widetilde p}\ \big\{\\
+&\mathbb E_{\widetilde p}[R]\\
+&-\tfrac1\lambda
+D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}})
+\big\}.
+\end{aligned}
+$$
+
+To see why, expand the KL definition:
+
+$$
+\begin{gathered}
+D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}})\\
+=\mathbb E_{\widetilde p}[\log\widetilde p-\log p_{\mathrm{data}}]\\
+=-H(\widetilde p)\\
+-\mathbb E_{\widetilde p}[\log p_{\mathrm{data}}].
+\end{gathered}
+$$
+
+This KL direction differs from the earlier training example: now the expectation is over the $\widetilde p$ we choose.
+
+A larger $\lambda$ makes the penalty coefficient for departing from the base smaller. We allow preference more influence, but cannot conclude that images become more plausible.
+
+<Extra label="What if I specify a maximum departure instead of a penalty?">
+We could maximize $\mathbb E_{\widetilde p}[R]$ subject to $D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}})\le\delta$, where $\delta$ is the allowed departure.
+
+With positive multiplier $1/\lambda$, the Lagrangian is
+
+$$
+\begin{aligned}
+&\mathbb E_{\widetilde p}[R]\\
+&-\tfrac1\lambda\big[
+D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}})-\delta
+\big].
+\end{aligned}
+$$
+
+The final $\delta/\lambda$ is constant in $\widetilde p$. For a fixed multiplier, this has the same optimizer as the KL-penalized objective. But arbitrary choices of $\delta,\lambda$ do not make the constrained and penalized problems equivalent.
+
+For example, if $p_R$ has finite KL, choose $\delta=D_{\mathrm{KL}}(p_R\|p_{\mathrm{data}})$. Optimality of $p_R$ implies that any feasible $\widetilde p$ satisfies
+
+$$
+\begin{gathered}
+\mathbb E_{\widetilde p}[R]\\
+\le \mathbb E_{p_R}[R]\\
++\tfrac1\lambda\big[
+D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}})-\delta\big]\\
+\le\mathbb E_{p_R}[R].
+\end{gathered}
+$$
+
+Thus $p_R$ also solves the constrained problem for this matched $\delta$. This is the reason the two forms connect.
+</Extra>
+
+<Extra label="Can reweighting describe recovering an original from a blurry photo?">
+Suppose we observe $y$, such as an actually received blurry photo. Let $p(y\mid x_0)$ describe how likely an original image is to produce this observation, and choose $R(x_0)=\log p(y\mid x_0)$ and $\lambda=1$. Then
+
+$$
+\begin{gathered}
+p_R(x_0)\\
+\propto p_{\mathrm{data}}(x_0)p(y\mid x_0),\\
+Z_R=\int p_{\mathrm{data}}(x_0)\\
+\qquad\cdot p(y\mid x_0)\,\mathrm dx_0\\
+=p(y).
+\end{gathered}
+$$
+
+When $0<p(y)<\infty$, normalization gives the Bayes posterior $p(x_0\mid y)$. Here $y$ is an observation, unlike the desired condition “corgi.” It also differs from the base posterior given a sampling-time $x_t$ below. In this example, the observation enters as a log-likelihood reward.
+</Extra>
+
+<Extra label="Does preference learning for language models use this objective too?">
+Fix a prompt, view $x_0$ as an answer, and let $p_{\mathrm{ref}}$ be the original answer distribution. A common preference objective is
+
+$$
+\begin{aligned}
+\max_{\widetilde p}\ \big\{
+&\mathbb E_{\widetilde p}[R]\\
+&-\beta D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{ref}})
+\big\},
+\end{aligned}
+$$
+
+Here $\beta>0$ controls retention of the reference. For this ideal distribution-level problem, $\lambda=1/\beta$ and optimal relative weights are $p_{\mathrm{ref}}(x_0)e^{R(x_0)/\beta}$. This has the same structure as KL regularization in RLHF.
+
+Actual language-model training usually updates policy parameters and faces capacity and optimization limits; some full objectives also include pretraining terms. This ideal optimal distribution is therefore not the exact outcome of every RLHF algorithm. Here we instead preserve generative parameters and try to change sampling.
+</Extra>
+</Talk>
+
+<Experiment id="c-weights" mode="proportions" partner="mugi" label="Choose the return rule. What happens to the proportions?" next="Check the influence of the original proportions">
+Return to the two plausible photos. $A,B$ initially have equal probability and rewards $0,1$. At $\lambda=\log3$, the unnormalized weights are $1/2$ and $3/2$, totaling $2$.
+
+**We have specified the desired proportions. Will your return rule actually produce them?** Predict the share of $B$, then choose original sampling, reward maximization, or sampling the new weights. After one run, change the rule or the original proportions and compare.
+</Experiment>
+
+<Talk partner="nori" pose="explain" id="base" label="Does the original data still matter?" next="First inspect the clean-image direction">
+The new proportions use both base and reward. If the photos originally had unequal probabilities, multiply each original weight by its own reward multiplier rather than comparing rewards alone. Large multipliers can greatly amplify low-density regions; including a base does not guarantee every result is plausible.
+
+We use ideal $p_{\mathrm{data}}$ to define the target. Actual generation uses a learned model, whose errors still matter. Now return to intermediate guidance: the scorer understands finished images, while we only have a noisy image.
+</Talk>
+
+<Talk partner="lumi" pose="explain" id="clean-direction" label="Can a clean-image direction be moved straight to the middle?" next="Consider this image’s possible sources">
+First assume base and reward are differentiable at the clean end. Take logs of $p_R=p_{\mathrm{data}}e^{\lambda R}/Z_R$ and differentiate with respect to the clean image:
+
+$$
+\begin{gathered}
+\nabla_{x_0}\log p_R(x_0)\\
+=\nabla_{x_0}\log p_{\mathrm{data}}(x_0)\\
++\lambda\nabla_{x_0}R(x_0).
+\end{gathered}
+$$
+
+“Original direction plus reward direction” looks much like U7.1. Indeed, $R=\log p(c\mid x_0)$ with $\lambda=1$ recovers the clean conditional score.
+
+But we do not have finished $x_0$, only $x_t$. Does replacing subscript $0$ with $t$ let the same reward evaluate noise? First consider which clean photos could have produced this blurry image.
+</Talk>
+
+<Choose partner="nori" pose="question" id="c-noisy" label="Where could this blurry image have come from?">
+<Figure src={sources} alt="One fixed noisy image with two possible clean sources A and B. The example assigns each a base posterior probability of one half and rewards 0 and 1. Dashed lines mean possible sources, not generation trajectories.">
+Fix the same $x_t$. Equal posterior probabilities for A and B are a separate given assumption; equal base probabilities earlier do not imply it.
+</Figure>
+
+This $x_t$ could have come from $A$ or $B$, whose rewards differ. **What would you do first to bring clean-image reweighting to this state?**
+<Option goto="d-noisy-reward">Treat $x_t$ as finished and directly compute $R(x_t)$.</Option>
+<Option correct reply="Since the clean source is unknown, include the possibilities together. Next, connect their contributions using the original noising process." why="Each source has its own probability and reward weight. Uncertainty does not permit choosing just one source in advance.">Consider compatible clean sources and their respective reward weights.</Option>
+<Option why="The original model supplies base information; the new scorer has not entered the computation automatically. Ignoring it does not produce the new target.">Ignore reward; the original model will know the new preference.</Option>
+</Choose>
+
+<Say partner="nori" pose="explain" id="d-noisy-reward" detour back="c-noisy" label="Is the program receiving the input it understands?" next="Return to the possible sources">
+The aesthetic program was meant to judge composition and lighting in finished photos. Now it receives blurry noise. Even if it returns a number, that need not measure the intended request. Defining $R$ on clean $x_0$ does not make it valid on $x_t$.
+
+The same blurry outline could come from different photos with different rewards. Connecting the clean target to intermediate states requires handling those sources.
+</Say>
+
+<Reveal partner="lumi" pose="explain" id="forward" label="First go in the direction we know" next="Reverse the view of sources inside the integral">
+To find the noisy distribution corresponding to $p_R$, draw a clean image from it and apply the original forward process. Use conditional density $q(x_t\mid x_0)$ for the noisy image given a clean source. Sum all sources’ contributions:
+
+$$
+\begin{aligned}
+&p_t^R(x_t)\\
+&=\int q(x_t\mid x_0)\\
+&\qquad\cdot p_R(x_0)\,\mathrm dx_0.
+\end{aligned}
+$$
+
+We integrate over possible clean sources $x_0$, holding the observed $x_t$ fixed. After substituting $p_R$, we can rewrite the contributions as source probabilities given the current image.
+</Reveal>
+
+<Choose partner="lumi" pose="question" id="c-fixed" label="Which factor can leave the integral?">
+Substituting $p_R$ gives $q(x_t\mid x_0)p_{\mathrm{data}}(x_0)$ inside the integral. This is the base joint density, which Bayes’ rule also writes as
+
+$$
+\begin{gathered}
+q(x_t\mid x_0)p_{\mathrm{data}}(x_0)\\
+=p_t(x_t)p(x_0\mid x_t).
+\end{gathered}
+$$
+
+**When $x_t$ is fixed and we integrate over sources $x_0$, which factor can move outside?**
+<Option correct reply="The current image is fixed, so that factor does not vary with the source being integrated. What remains is an average weighted by source probabilities." why="The integration variable is the clean source; base density at the fixed noisy image does not depend on it.">$p_t(x_t)$.</Option>
+<Option why="Different sources have different probabilities. This posterior supplies their weights and cannot leave the integral as a whole.">$p(x_0\mid x_t)$.</Option>
+<Option why="A and B have different reward multipliers. This factor depends on the clean source being integrated.">$e^{\lambda R(x_0)}$.</Option>
+</Choose>
+
+<Reveal partner="nori" pose="explain" id="posterior" label="Which sources are being averaged?" next="Calculate with the figure’s numbers">
+After taking out $p_t(x_t)$, name the remaining average weight $h_t(x_t)$:
+
+$$
+\begin{gathered}
+h_t(x_t)\\
+:=\mathbb E\!\left[e^{\lambda R(x_0)}\mid x_t\right],\\[4pt]
+p_t^R(x_t)=\frac{p_t(x_t)h_t(x_t)}{Z_R}.
+\end{gathered}
+$$
+
+Read the expectation as: “Given this $x_t$, which clean photo could have produced it? Compute each source’s reward multiplier, then average by its probability.” This uses the **base posterior $p(x_0\mid x_t)$**, not a reward-modified posterior or an average over all data.
+</Reveal>
+
+<Choose partner="nori" pose="question" id="c-average" label="Average rewards, or average multipliers?">
+The two sources are equally likely under the base posterior, with rewards $0,1$. Again let $\lambda=\log3$, giving multipliers $1,3$. **How should we compute $h_t$ for this $x_t$?**
+<Option correct reply="Compute each multiplier first, then posterior-weight them: half of 1 plus half of 3 equals 2." why="h_t is the conditional average of reward multipliers, retaining both sources’ contributions.">$\tfrac12\cdot1+\tfrac12\cdot3=2$.</Option>
+<Option goto="d-best-source">Use only the highest-scoring source: $3$.</Option>
+<Option goto="d-average-order">Average rewards to $1/2$ first, then exponentiate to $\sqrt3$.</Option>
+</Choose>
+
+<Say partner="mugi" pose="explain" id="d-best-source" detour back="c-average" label="Does preferring B mean it came from B?" next="Include both sources">
+The scorer prefers $B$, but this $x_t$ need not have come from $B$. The base posterior still gives each source probability one half. Taking only the largest multiplier removes the other source’s contribution.
+
+We need the average weight over possible sources, not the score of the best possible source.
+</Say>
+
+<Say partner="lumi" pose="explain" id="d-average-order" detour back="c-average" label="Can averaging and exponentiation swap?" next="Return to what is being averaged">
+Averaging rewards first gives $1/2$ and then the exponential multiplier $\sqrt3$. Computing both multipliers first and averaging gives $2$.
+
+Exponentiation is nonlinear, so these orders need not agree. The definition of $h_t$ computes each source’s multiplier first, then takes the posterior average. Keep that order.
+</Say>
+
+<Talk partner="mugi" pose="suggest" id="p-plugin" study="plugin-plan" label="Mugi: what about estimating one clean image?" next="Put the proposal away and check what it omits">
+“Including all possible sources sounds hard. We already have a denoiser. Could we denoise the current image, then give that to the aesthetic program?”
+
+Recall $x_t=\sqrt{\bar\alpha_t}x_0+\sigma_t\epsilon$. Subtract predicted noise and divide out the signal scale:
+
+$$
+\begin{gathered}
+\hat x_0(x_t,t)\\
+=\frac{x_t-\sigma_t\epsilon_\theta(x_t,t)}
+{\sqrt{\bar\alpha_t}}.
+\end{gathered}
+$$
+
+Here $\bar\alpha_t>0$ and $\sigma_t=\sqrt{1-\bar\alpha_t}$. Under ideal squared-error noise estimation, this equals the base posterior mean $\mathbb E[x_0\mid x_t]$; actual networks also have estimation error. It supplies a clean estimate, **not a uniquely recovered true source**.
+
+Mugi proposes using $e^{\lambda R(\hat x_0)}$ instead of the needed $h_t$. Which computation would this save, and which information might it remove?
+</Talk>
+
+<Think partner="nori" pose="question" id="t-plugin" label="Could one denoised estimate replace the average?" review="plugin-plan">
+Recall $\hat x_0(x_t,t)$: ideally it already averages possible sources. Mugi wants to score only this estimate, using $e^{\lambda R(\hat x_0)}$ instead of averaging individual source multipliers in $h_t$. **Does one mean estimate retain the average weight of all possible sources?** Think about the order of averaging and nonlinear operations.
+</Think>
+
+<Reveal partner="mugi" pose="explain" id="plugin" label="Calculate both orders and compare" next="Compare both orders in a continuous distribution">
+Temporarily replace high-dimensional images with numbers: $A$ is $x_0=0$ and $B$ is $x_0=1$, still equally likely given $x_t$. Choose $R(x_0)=x_0$ and $\lambda=\log3$, reproducing the previous rewards and multipliers.
+
+Average the data first to get $\hat x_0=1/2$, then evaluate its multiplier:
+
+$$
+e^{\lambda R(\hat x_0)}
+=e^{(\log3)/2}=\sqrt3.
+$$
+
+Computing source multipliers first and averaging gave $h_t=2$. Even a linear reward leaves an outer exponential that makes the orders differ. Real image rewards are usually nonlinear too, so equality is even less justified.
+
+Replacing the source average with a single denoised prediction is a **plug-in approximation**. It discards source uncertainty; the omitted quantity is more than a normalizing constant.
+</Reveal>
+
+<SteeringExperiment id="posterior-practice" mode="posterior" partner="nori" label="Plot possible sources, h_t, and plug-in">
+Fix the noisy observation and inspect possible clean sources and their mean. A second plot shows h_t and plug-in across observations. See what uncertainty is lost before differentiating.
+</SteeringExperiment>
+
+<Think partner="lumi" pose="question" id="t-direction" label="How do weights give a direction?">
+We have $p_t^R=p_th_t/Z_R$. Follow U7.1: take logs, then differentiate with respect to the current image $x_t$.
+
+$Z_R$ does not change with the image, and the base term gives the original score. **Which term supplies the extra direction this time?** Try writing the new target’s score.
+</Think>
+
+<Reveal partner="lumi" pose="explain" id="direction" label="Differentiate the posterior-average weight" next="Check which step plug-in changes">
+Termwise differentiation gives
+
+$$
+\begin{gathered}
+\nabla_{x_t}\log p_t^R(x_t)\\
+=s_t(x_t)\\
++\nabla_{x_t}\log h_t(x_t).
+\end{gathered}
+$$
+
+The extra direction is the log-gradient of $h_t$: how the average weight of compatible sources changes with the current image. Exact $h_t$ is hard to compute, so a common approach replaces it with the plug-in estimate.
+</Reveal>
+
+<Choose partner="nori" pose="question" id="c-chain" label="Which input are we differentiating now?">
+Assume reward and denoised prediction are differentiable. We use $R(\hat x_0(x_t,t))$ for suggestions while keeping both networks fixed. **Which calculation gives a direction for the current image?**
+<Option correct reply="Changing the current image changes its denoised estimate, which changes reward. Differentiate through that whole dependency with respect to the image, keeping parameters fixed." why="Input gradients can pass through a fixed network. Fixed parameters do not make the output’s input derivative zero.">Differentiate along $x_t\to\hat x_0\to R$ with respect to $x_t$.</Option>
+<Option why="That changes the generative model, violating the fixed-parameter constraint.">Differentiate with respect to $\theta$ and update it.</Option>
+<Option why="Holding the denoised prediction constant removes its dependence on the current image. Its derivative with respect to the current image is also needed.">Treat $\hat x_0$ as constant and use only the reward’s input gradient.</Option>
+</Choose>
+
+<Reveal partner="nori" pose="explain" id="guidance" label="This step is an approximation" next="Check what the results let us claim">
+The plug-in log is $\lambda R(\hat x_0)$, so the extra direction is approximated by
+
+$$
+\begin{gathered}
+\nabla_{x_t}\log h_t(x_t)\\
+\approx\lambda\nabla_{x_t}R(\hat x_0(x_t,t)).
+\end{gathered}
+$$
+
+Write out the whole dependency using the chain rule:
+
+$$
+\begin{gathered}
+\nabla_{x_t}R(\hat x_0(x_t,t))\\
+=\left(\frac{\partial\hat x_0}{\partial x_t}\right)^{\!\top}
+\nabla_{x_0}R(\hat x_0).
+\end{gathered}
+$$
+
+The reward gradient describes changes to the clean estimate that increase its score. The Jacobian $\partial\hat x_0/\partial x_t$ describes how that estimate changes with the current noisy image. Their product converts the direction back to the $x_t$ we can modify. Fixed $\theta$ still allows this input gradient.
+
+Our example already showed unequal weights, so this approximation cannot simply be called exact tilting. Even exact scores need the correct initial noisy distribution and reverse dynamics for actual sampling. Network estimation, finite noise, and a finite-step sampler add approximations to check.
+
+<Extra label="Why check even the initial noise distribution?">
+The same reweighting relation holds at starting time $T$:
+
+$$
+\begin{gathered}
+p_T^R(x_T)\\
+=\frac{p_T(x_T)h_T(x_T)}{Z_R}.
+\end{gathered}
+$$
+
+If the forward process has completely forgotten the clean source, $x_T$ and $x_0$ are independent, so
+
+$$
+\begin{gathered}
+h_T(x_T)=\mathbb E_{p_{\mathrm{data}}}[e^{\lambda R(x_0)}]\\
+=Z_R.
+\end{gathered}
+$$
+
+Then $p_T^R=p_T$, allowing the same base start. Finite noise need not achieve full independence. Even highly accurate scores do not establish exact sampling when started from a mismatched distribution.
+</Extra>
+
+<Extra label="Which approximations do practical methods address?">
+A common practical route converts noisy images into denoised predictions, then uses an external differentiable request for a direction. <a href="https://arxiv.org/abs/2302.07121">Universal Guidance</a> discusses such use. Separating it from the exact posterior average shows where source uncertainty was omitted.
+
+For example, <a href="https://proceedings.mlr.press/v306/geyfman26a.html">Calibrated Test-Time Guidance</a> analyzes how common approximations bias Bayesian posterior sampling and proposes a consistent estimator under its conditions. <a href="https://arxiv.org/abs/2606.02884">Are We Really Tilting?</a> separates mode selection from excessive reward pursuit within modes in Gaussian and mixture examples, and studies reward damping. Read each result with its assumptions; do not extend it to arbitrary rewards and samplers.
+
+Methods can improve posterior approximations, adjust guidance strength, or constrain updates. But a higher average reward checks only one quantity. Excessive preference strength may suppress plausible lower-scoring modes. Assess reward, plausibility, diversity, and whether the defined target is actually sampled separately.
+</Extra>
+</Reveal>
+
+<Judge partner="nori" pose="question" id="j-target" answer={false} label="Does a higher score establish the right proportions?" yes="It proves the target" no="It does not yet prove it"
+  replyYes="Always choosing B has higher average reward than one-quarter A and three-quarters B, but different proportions. Average reward alone cannot identify p_R."
+  replyNo="The metric improved, but that does not establish sampling from p_R. Check the full frequencies; plausibility and diversity require their own evaluation.">
+A batch generated with plug-in guidance has higher average reward than before. **Does this number alone prove that the sampler draws from our defined $p_R$?**
+</Judge>
+
+<Think partner="nori" id="t-distribution-evidence" label="Explain the difference using your plots">
+Choose a reward and λ from your experiment. Use the target curve, generated histogram, and a posterior-mean or h_t value to explain the evidence needed for higher reward, a correctly defined weight, and actual target sampling.
+</Think>
+
+<Reveal partner="nori" id="distribution-evidence" label="Check each kind of evidence">
+Mean reward addresses the scoring metric. Normalization and derivation define the target. Sampling requires comparing proportions, shape, and missing regions. A one-dimensional finite histogram fluctuates and does not provide the same exact check for real images.
+</Reveal>
+
+<Choose partner="lumi" pose="question" id="c-transfer" label="Finally, try different base proportions">
+Now let base probabilities of $A,B$ be $3/4,1/4$, keeping rewards $0,1$ and $\lambda=\log3$, hence multipliers $1,3$. **Which reweighted proportions meet the target?**
+<Option correct reply="Both weights become three quarters; normalization gives one half each. Both reward multipliers and original proportions contribute." why="A is originally three times as common, while B has three times the reward multiplier. The products are equal.">$1/2$ each.</Option>
+<Option why="That ignores the original probabilities and uses only multipliers 1:3. The base proportions have changed.">$A$: $1/4$; $B$: $3/4$.</Option>
+<Option why="That retains the original proportions without applying B’s multiplier of three.">$A$: $3/4$; $B$: $1/4$.</Option>
+</Choose>
+
+<Say partner="mugi" pose="question" id="bridge" label="What if the program only returns scores?" next="Read the continuous note">
+For our two plausible photos, we wanted preferred results more often while retaining alternatives and the base’s influence. Reward tilting defines new proportions. Intermediate guidance must consider compatible clean sources. Replacing their average with one denoised estimate eases computation, but remains an approximation.
+
+If the program only returns scores and cannot be differentiated, we cannot directly compute that direction. **Could we generate candidates and change returned proportions by comparing scores alone?** Continue in <Ref to="dma-gradient-free-steering"/>, where we will examine candidate counts and computation cost.
+
+Read the objective, posterior average, and plug-in derivation continuously in <Ref to="dma-reward-tilting" mode="full"/>.
+</Say>

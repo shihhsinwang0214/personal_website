@@ -79,6 +79,26 @@ async function noteIndex(): Promise<Map<string, NoteEntry[]>> {
 
 const GROUP_CODE = /^(Unit|Week|Lecture|U|W|L|M|G)\s*(\d+)/i;
 
+/** Localized display name; the frontmatter group remains a stable lookup key. */
+export function groupName(group: string, lang: Lang): string {
+  if (lang === 'en') {
+    const names: Record<string, string> = {
+      'Unit 3 · 減少 ODE 的離散化誤差': 'Reducing ODE Discretization Error',
+      'M0 · Calculus 工具箱': 'Calculus Toolkit',
+      'M1 · 機率與 Conditional Expectation': 'Probability and Conditional Expectation',
+      'M5 · Optimization、Convexity 與距離': 'Optimization, Convexity, and Distances',
+      'L0 · 學習就是擬合': 'Learning as Fitting',
+      'L1 · 泛化：過擬合、欠擬合與資料切分': 'Generalization: Fitting and Data Splits',
+      'L2 · 實務中的最佳化': 'Optimization in Practice',
+      'L3 · 實驗方法與超參數搜尋': 'Experiments and Hyperparameter Search',
+      'L4 · 常見架構：結構對應歸納偏置': 'Architectures and Inductive Biases',
+      'L5 · 機率建模與生成模型的評估': 'Probabilistic Modeling and Generative Evaluation',
+    };
+    if (names[group]) return names[group];
+  }
+  return group.replace(/^[^·]*·\s*/, '');
+}
+
 /** "Unit 1 · Diffusion Models" → "U1"; "M1 · …" → "M1"; "G1 · …" → "G1"; otherwise "". */
 export function groupCode(group: string): string {
   const m = GROUP_CODE.exec(group);

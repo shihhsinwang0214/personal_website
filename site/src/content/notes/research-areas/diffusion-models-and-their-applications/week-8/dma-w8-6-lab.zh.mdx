@@ -5,14 +5,16 @@ prereqs:
   - math-w2
   - math-total-derivative
 lang: "zh"
-title: "實作：三種「一步」放在同一張圖上"
+title: "實作：先有解析答案，再檢查 CD 與 CT 學到了什麼"
 category: "courses"
 group: "Unit 5 · Consistency Models"
 status: "available"
-updated: 2026-10-04
-summary: "在同一個 2D toy 上比較 CD、CT 與 reflow×2 的一步品質，再實測 CT 的網格取捨與多步 CM 是否真的受益於更多步。"
+updated: 2026-10-16
+summary: "在一維 Gaussian 上驗證 denoiser、終點 map 與條件相鄰點，再實際訓練 CD／CT，分開評估函數誤差、抽樣地板與多步結果。"
 demos: []
 references:
+  - label: "Lai, Song, Kim, Mitsufuji & Ermon, The Principles of Diffusion Models (v3, 2026)"
+    href: "https://arxiv.org/abs/2510.21890"
   - label: "Song, Dhariwal, Chen & Sutskever, Consistency Models (ICML 2023)"
     href: "https://arxiv.org/abs/2303.01469"
   - label: "Song & Dhariwal, Improved Techniques for Training Consistency Models (ICLR 2024)"
@@ -22,199 +24,164 @@ references:
   - label: "Liu, Gong & Liu, Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow (ICLR 2023)"
     href: "https://arxiv.org/abs/2209.03003"
 ---
-import Objectives from '../../../components/Objectives.astro';
-import Prereq from '../../../components/Prereq.astro';
-import QuizBlock from '../../../components/QuizBlock.astro';
-import Option from '../../../components/Option.astro';
-import Explanation from '../../../components/Explanation.astro';
-import Details from '../../../components/Details.astro';
-import Bridge from '../../../components/Bridge.astro';
-import Ref from '../../../components/Ref.astro';
-import Question from '../../../components/Question.astro';
 import Answer from '../../../components/Answer.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Explanation from '../../../components/Explanation.astro';
+import Objectives from '../../../components/Objectives.astro';
+import Option from '../../../components/Option.astro';
+import Prereq from '../../../components/Prereq.astro';
+import Question from '../../../components/Question.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Ref from '../../../components/Ref.astro';
 
-# 實作：三種「一步」放在同一張圖上
+# 實作：先有解析答案，再檢查 CD 與 CT 學到了什麼
 
 <Objectives>
-- **實作 CD 與 CT。** 在同一個 VE toy 上完成邊界參數化、兩種 loss 與一步取樣。
-- **量出 CT 的網格取捨。** 畫 $W_2$ 對時間網格 $N$，並用精確 score 分離 teacher 誤差與 Euler acceleration error。
-- **公平比較三種一步方法。** 將 CD、CT、reflow×2 放在同一張圖，再檢查多步 CM 是否隨步數穩定改善。
+- **執行完整 CD／CT 訓練。** 將相鄰位置、邊界參數化與 stopped-gradient target 對回正文。
+- **分開量 target 與模型的差距。** 檢查條件平均、Euler error 與終點 map RMSE。
+- **辨認抽樣誤差地板。** 在相同樣本量下比較精確 map 與 learned map 的一步、多步輸出。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 設定
+## 我們要驗證哪三個問題？
 
-沿用 `toy.py`（月牙資料、MLP、`exact_score`）與 <Ref to="dma-lab-interpolants"/> 的 `fm.py`、`couplings.py`（reflow×2 的權重直接載入）。本單元新增 `cm.py`：實作 Song 等人的 CM [1]，並加入 Song 與 Dhariwal 的 iCT 改動 [2]；VE 座標、時間網格與參數化則沿用 Karras 等人的 EDM [3]。
+<Ref to="dma-learn-the-map"/> 已算出 denoiser 不等於終點 map；<Ref to="dma-cd-vs-ct"/> 又分開了 CT 單筆方向、Euler 平均位置與精確 trajectory。現在若直接換成複雜圖片，我們很難判斷程式錯了，還是模型尚未訓好。
 
-三件事要先定下來。**座標**：本單元是 $x_t=x_0+t\epsilon$，$t\in[\varepsilon,T]$，$\varepsilon=0.002$；資料已標準化，toy 上 $T=10$ 就夠遠（$x_T$ 幾乎是純噪聲）。**teacher**：2D toy 的好處在這裡最明顯——真實 score 可以精確算，所以 CD 可以用 `exact_score` 當 teacher，把「teacher 誤差」這一項從實驗裡拿掉，剩下的就只有 Euler 漏掉 velocity 變化造成的誤差。作業會再用 <Ref to="dma-lab-diffusion"/> 訓好的 $\epsilon_\theta$ 當 teacher 對照。**評估**：所有方法都用 2000 個樣本對資料的 $W_2$（`ot.emd2`），與 <Ref to="dma-lab-interpolants"/> 圖 b 同一把尺。
+因此先用同一個可算到底的資料分布 $x_0\sim\mathcal N(0,1)$。本篇的實驗任務是：先檢查可推得的等式，再實際訓練網路，最後比較 map error 與 sampling law。這些機制確認後，才有理由擴展到 two moons 或圖片。
 
-[下載 Week 8：Consistency functions、CD 與 CT notebook（.ipynb）](/personal_website/notes/notebooks/diffusion-models-applications/dma-w8-lab.ipynb)
+[下載完整 Python 程式（NumPy）](/personal_website/notes/code/diffusion-models-applications/dma_fast_maps.py) · [下載可獨立執行的 notebook](/personal_website/notes/notebooks/diffusion-models-applications/dma-w8-lab.ipynb)
 
-**Notebook 內容。** 在解析旋轉／縮放 flow 上驗證 consistency function 沿軌跡不變，比較 CD 有限差分與 CT 全導數 residual，並量化一步與多步近似。surrogate 的 wobble 是刻意注入，方便把訓練誤差與方法性質分開。
-
-## 步驟 1：參數化與時間網格
-
-```python
-EPS, T, SIGMA_D = 0.002, 10.0, 1.0          # 資料已標準化，σ_d = 1
-
-def karras_grid(N, rho=7.0):                # t_1 = EPS < … < t_N = T，小 t 處密
-    i = torch.arange(N)
-    return (EPS**(1/rho) + i/(N-1) * (T**(1/rho) - EPS**(1/rho)))**rho
-
-def c_skip(t): return SIGMA_D**2 / ((t - EPS)**2 + SIGMA_D**2)
-def c_out(t):  return SIGMA_D * (t - EPS) / (SIGMA_D**2 + t**2).sqrt()
-
-class ConsistencyModel(nn.Module):
-    def __init__(self, F): super().__init__(); self.F = F      # F：toy.py 的 MLP
-    def forward(self, x, t):
-        return c_skip(t)[:, None] * x + c_out(t)[:, None] * self.F(x, t)
+```bash
+python -m pip install numpy
+python dma_fast_maps.py --unit 5 --steps 2500 --seeds 0 1 2 --out u5-results
 ```
 
-檢查點：`cm(x, torch.full((n,), EPS))` 應與 `x` 逐元素相等到浮點誤差——邊界條件是架構給的，訓練前就成立（<Ref to="dma-consistency-function"/>）。再算 `c_skip(karras_grid(20))`，確認它從 1 單調降到接近 0。
+程式包含可訓練的單隱藏層 tanh MLP、backprop、Adam、CD／CT、抽樣與輸出表格，沒有依賴前面未提供的 `toy.py` 或 checkpoint。用 NumPy 展開小網路，是為了讓 target 與梯度停止的位置能直接檢查；不是將解析 map 冒充訓好的網路。
 
-## 步驟 2：CD 與 CT 的訓練迴圈
+## 先建立可以用來對答案的函數
 
-```python
-def exact_score_ve(x, t):                    # VE 座標的精確 score：p_t = data ⊛ N(0, t²)
-    ...                                      # 參考解答：改寫 toy.py 的混合 Gaussian 公式，σ_t² = t²
+沿用 $x_t=x_0+t\epsilon$，則
 
-def train_cm(mode, N, steps, teacher=exact_score_ve):
-    cm, tgt = ConsistencyModel(MLP()), None
-    grid = karras_grid(N)
-    for step in range(steps):
-        x0  = sample_data(batch)
-        n   = torch.randint(0, N - 1, (batch,))          # 相鄰的一對 (t_n, t_{n+1})
-        tn, tn1 = grid[n], grid[n + 1]
-        eps = torch.randn_like(x0)
-        xt1 = x0 + tn1[:, None] * eps
-        if mode == 'CD':                                  # teacher 走一步 Euler
-            x_hat = xt1 + ((tn1 - tn) * tn1)[:, None] * teacher(xt1, tn1)
-        else:                                             # CT：同一組 (x0, eps) 重加噪
-            x_hat = x0 + tn[:, None] * eps
-        with torch.no_grad():
-            target = cm(x_hat, tn)                        # θ⁻ = stopgrad(θ)，不用 EMA（iCT）
-        loss = (huber(cm(xt1, tn1), target) / (tn1 - tn)).mean()   # λ = 1/Δt
-        loss.backward(); opt.step(); opt.zero_grad()
-    return cm
-```
+$$
+\begin{aligned}
+p_t&=\mathcal N(0,1+t^2),\\
+v_t(x)&=\frac{tx}{1+t^2},\\
+f(x,t)&=\frac{x}{\sqrt{1+t^2}}.
+\end{aligned}
+$$
 
-與 <Ref to="dma-lab-diffusion"/> 的五行對照：抽 $x_0$、抽時間、加噪聲三行沒變；變的是**目標**——不再是 $\epsilon$，而是「同一條軌跡上前一格的點經過 $f_{\theta^-}$ 的輸出」——以及 CD 與 CT 之間只差 `x_hat` 那一行。這一行就是 <Ref to="dma-cd-vs-ct"/> 的全部。
+第一行用獨立 Gaussian 的變異數相加；第二行從 score $-x/(1+t^2)$ 換成 VE velocity；第三行由沿 trajectory 不變的 $x_t/\sqrt{1+t^2}$ 得到。這些是 **oracle functions**，只在評估與明確標示的 teacher 位置使用。
 
-`huber` 是 pseudo-Huber $\sqrt{\|x-y\|^2+c^2}-c$，$c=0.00054\sqrt{2}$；先用固定 $N=40$ 各訓 CD 與 CT 一個模型。檢查點：訓練中隨機抓一條精確軌跡（用 `exact_score_ve` 細步積分），沿軌跡取 8 個 $(x_t,t)$，`cm(x_t, t)` 的輸出應幾乎相同，且接近軌跡終點——這就是 <Ref to="dma-consistency-function"/> 核心 demo 裡那條「平線」。CD 的平線通常比 CT 更平、更早出現。
+本實驗取 $T=2$，直接從精確 $p_T=\mathcal N(0,5)$ 抽起點，排除有限 $T$ 的 prior mismatch。這與實際生成常用 $\mathcal N(0,T^2)$ 近似不同；不能把兩種起點混在同一個歸因裡。
 
-<Details summary="CT 的 N curriculum：如果固定 N 訓不起來">
-固定 $N=40$ 的 CT 在 toy 上通常可以直接收斂；若 loss 卡住或樣本糊成一團，把 `N` 改成隨訓練步數翻倍的排程（<Ref to="dma-ict-scm"/> 的 $N(k)=\min(s_0 2^{\lfloor k/K'\rfloor},s_1)+1$，toy 上 $s_0=4$、$s_1=128$），並確認 `target` 那一行**沒有**用 EMA。這兩件事來自 Song 與 Dhariwal 的 iCT [2]，分別是第一與第五項。
-</Details>
+## 固定一個 noisy input，檢查 CT 平均位置
 
-## 步驟 3：CT 的 bias 對 $N$（圖 a）
+固定 $x_t=x$ 時，Gaussian posterior 是
 
-固定訓練步數與種子，對 $N\in\{2,4,8,16,32,64,128,256\}$ 各訓一個 CT 模型與一個 CD 模型（teacher 是精確 score）。每個模型抽 2000 個 $x_T$、算一步 $f_\theta(x_T,T)$ 的 $W_2$。兩條曲線畫在同一張圖上，橫軸 $N$ 對數刻度。
+$$
+x_0\mid x_t=x\sim\mathcal N\left(
+\frac{x}{1+t^2},\frac{t^2}{1+t^2}\right).
+$$
 
-預期：**CD** 隨 $N$ 單調下降後趨平——趨平的位置是 MLP 的逼近極限；下降的部分是 Euler 一步漏掉 velocity 變化的誤差 $\propto\Delta t$（<Ref to="dma-cd-vs-ct"/> 的定理：$\|f_\theta-f\|=O(\Delta t)$）。**CT** 先降後**升**：$N$ 小時 bias 主導（每一段把 velocity 當成不變），$N$ 大時 variance 主導（相鄰兩點的訊號被條件目標的散佈淹沒），最低點在中間。兩條線在小 $N$ 幾乎重合——那裡兩者的主要誤差都是同一個 Euler acceleration term。
+因此可以真的抽出許多相容的 $x_0$，以 $\epsilon=(x-x_0)/t$ 找回各自的 noise，再算 $x_0+(t-h)\epsilon$。程式輸出 `u5-local.csv`，列出三個間隔的條件平均誤差、條件標準差與 Euler 對精確位置的差距。
 
-把 CT 曲線的最低點記下來，它是步驟 5 主圖裡 CT 的代表。
+先寫下猜測：$h$ 減半時，標準差與 Euler error 各應怎麼縮小？對照 <Ref to="dma-cd-vs-ct"/>，前者按 $h$ 變化，後者在光滑區域由二階量控制。有限樣本的質心還有 Monte Carlo error；不能替單次平均指定一個必然通過的任意小門檻。
 
-## 步驟 4：條件目標的扇子（圖 b）
+## 用同一個網路，只改相鄰位置的來源
 
-這一步不訓練，直接驗證 <Ref to="dma-cd-vs-ct"/> Q1 的等式。取一個 $x_{t_{n+1}}$，從後驗 $p(x_0\mid x_{t_{n+1}})$（混合 Gaussian，可精確抽）抽 500 個 $x_0$，每個算 $\epsilon=(x_{t_{n+1}}-x_0)/t_{n+1}$ 與 CT 目標 $x_0+t_n\epsilon$。畫這 500 個點的散佈，疊上它們的質心、CD 的 Euler 點、以及真實的 $x_{t_n}$（細步積分）。
+`MLP` 在訓練函數外定義，`cm_forward` 將它包成邊界參數化。與理論篇相同，$t=0$ 時 skip 係數為 $1$、output 係數為 $0$，所以訓練前已保證 $f_\theta(x,0)=x$。
+
+每個 batch 抽 $x_0,\epsilon$ 與相鄰時間 $s<t$，合成 $x_t=x_0+t\epsilon$。CD 與 CT 只在下列這一行不同：
 
 ```python
-xt1 = torch.tensor([[0.3, -0.2]]); tn1, tn = 2.0, 1.5
-x0s   = posterior_sample(xt1, tn1, n=500)              # 混合 Gaussian 後驗
-eps   = (xt1 - x0s) / tn1
-ct    = x0s + tn * eps
-euler = xt1 + (tn1 - tn) * tn1 * exact_score_ve(xt1, torch.tensor([tn1]))
-print((ct.mean(0) - euler).norm())                      # 應 ≲ 5e-3（500 組的抽樣誤差）
+lower = xt - (t-s)*ve_velocity(xt, t) if mode == 'CD' else x0+s*eps
 ```
 
-對三個 $\Delta t\in\{1.0,0.3,0.1\}$ 各畫一張：扇子的半徑 $\propto\Delta t$（variance），Euler 點與真實點的距離 $\propto\Delta t^2$（bias）。把兩個量對 $\Delta t$ 畫成 log-log，斜率應分別接近 1 與 2。
+CD 使用 oracle velocity 當 teacher，但仍只是 Euler step；CT 使用同一份資料與 noise。兩者再共同執行
 
-## 步驟 5：三種「一步」同一張圖（圖 c，主圖）
+```python
+target, _ = cm_forward(net, lower, s, T)
+pred, (features, hidden, out) = cm_forward(net, xt, t, T)
+weight = 1 / (t-s)
+net.update(features, hidden, 2*weight*(pred-target)*out/batch)
+```
 
-三個一步生成器、同一組 2000 個起點噪聲：
+`target` 在數值上用當前參數計算，但 backprop 只經過 `pred`；最後一行的 `out` 是參數化的 output 係數。程式的 manual backprop 不會沿 `lower` 或 target branch 傳梯度。這是完整可執行的 stopped-gradient 更新，不是省略 optimizer 的 pseudocode。
 
-- **CD**（$N=128$、精確 score teacher）：$f_\theta(x_T,T)$。
-- **CT**（步驟 3 的最佳 $N$）：$f_\theta(x_T,T)$。
-- **reflow×2**（Liu、Gong 與 Liu 的 Rectified Flow [4]；從 <Ref to="dma-lab-interpolants"/> 載入）：一步 Euler。注意座標轉換——reflow 模型活在 FM 座標 $s\in[0,1]$，起點是 $\mathcal N(0,I)$；用 $x_T/(1+T)$ 當它的起點（<Ref to="dma-learn-the-map"/> 的對照表：$x^{\text{FM}}_s=s\,x_t$，$t=\frac{1-s}{s}$，所以 $t=T$ 對應 $s=\frac1{1+T}$，$x^{\text{FM}}_s=x_T/(1+T)$；$T=10$ 時寫成 $x_T/T$ 會差 10%）。
-
-畫三組樣本並排（同一座標範圍）、下方一張 $W_2$ 長條圖。預期：CD 最好（teacher 是精確的、$N$ 大）；CT 略差（variance 極限）；reflow×2 與 CT 接近或稍差（仍有沿途 velocity 變化）。三根長條旁各寫一句「誤差來源」：CD——MLP 逼近極限；CT——bias–variance 極限；reflow×2——$\int\|a_t(x_t)\|dt$ 尚未為零。
-
-**把這張圖留好，<Ref week="dma-week-flow-maps"/> 會加上 MeanFlow 的一步、再加上多步版本。**
+本程式使用平方 discrepancy、均勻網格與逐階加密，目的是對照推導；它不是 iCT 完整的 image-training recipe。要測 pseudo-Huber 或不同時間抽樣，可以每次只換一項設計。
 
 <Question id="Q1">
-步驟 5 把 CD、CT、reflow×2 放在同一張長條圖上比。但這三個東西拿到的資源完全不同：CD 有一個**精確**的 score teacher，CT 完全不用 teacher，reflow×2 用的是一個**訓出來的**速度場、而且已經跑過兩輪 reflow。
-
-**這樣比，比得出什麼？比不出什麼？**
-
+CD 使用精確 velocity teacher。如果它生成的分布還有差距，可以把差距全部叫作 teacher error 嗎？
 <Answer>
-比得出的是**「在這個 toy 上，拿這些資源能做到多好」**——一個工程上的對照。比不出的是「哪一個方法比較好」，因為三者的輸入根本不是同一組。
+不行。這個 teacher 的 velocity 是解析的，但相鄰位置仍使用 Euler，且學生只有有限網路與有限更新。要分開檢查：Euler 對精確相鄰位置的誤差、學生對終點 map 的誤差，以及 sample-based distribution estimate 的誤差。
 
-<Ref to="dma-fm-vs-diffusion"/> 那四個設定的教訓在這裡完全適用：**一個實驗結果要歸因到哪一個因素，得把其他因素控制住才說得清。** 這張圖至少有三個沒控制住的東西：
-
-- **teacher 的品質。** CD 的上限就是 teacher；給它精確 score，等於給它一個真實模型上拿不到的上限。作業 1 把 teacher 換成訓好的 $\epsilon_\theta$ 再重畫，就是在控制這一項——CD 的長條會升高多少，那個差就是「teacher 誤差」。
-- **訓練預算。** reflow×2 背後是「訓一個 FM ＋ 生一次資料 ＋ 再訓一次 ＋ 再生一次 ＋ 再訓一次」，總計算量比 CD 或 CT 的一次訓練多得多。三根長條下面應該另外標各自的總網路呼叫次數。
-- **配對。** reflow×2 的 $(x_0,\epsilon)$ 是拉直過的耦合，CD 與 CT 用的是獨立配對。作業 3 正是把這一項搬過去。
-
-那這張圖還有什麼用？兩件事。第一，**它讓「一步生成」這件事在同一把尺上有了數字**——在此之前 <Ref to="dma-learn-the-map"/> 到 <Ref to="dma-ict-scm"/> 講的都是機制，沒有量。第二，**它把每一根長條的誤差來源標出來了**（MLP 逼近極限／bias–variance 極限／殘餘 velocity 變化），而那三個來源彼此不同，這本身就是結論：一步生成沒有單一瓶頸。
-
-寫報告時把上面三項「沒控制住」的東西明白寫出來，比多跑一組實驗更有價值。
+程式因此保留 `oracle` sampler 作對照：連精確 map 的有限樣本 empirical $W_2$ 也通常不為零。若 learned map 的數字已接近它的地板，不能用一個很小的差就宣告方法優劣。
 </Answer>
 </Question>
 
-## 步驟 6：多步 CM 還吃不吃步數？（圖 d）
+## 一步與多步，用不同數字回答不同問題
 
-```python
-@torch.no_grad()
-def multistep_cm(cm, xT, taus):                 # taus：遞減的中間時刻，例如 [T, 3.0, 1.0, 0.3]
-    x0_hat = cm(xT, torch.full((len(xT),), taus[0]))
-    for tau in taus[1:]:
-        x_tau  = x0_hat + tau * torch.randn_like(x0_hat)     # 重加噪：新的噪聲
-        x0_hat = cm(x_tau, torch.full((len(xT),), tau))
-    return x0_hat
-```
+`u5-results.csv` 的 `map_rmse` 在一步時，對同一個起點比較 $f_\theta(x_T,T)$ 與解析 $f(x_T,T)$；這能直接量函數差距。`empirical_w2` 則將生成與獨立 reference samples 各自排序後，比較同順位的位置：
 
-對 CT 模型，步數 $k\in\{1,2,4,8,16,32,64\}$（$\tau$ 序列用 `karras_grid(k+1)` 反轉），畫距離對 $k$；同一張圖疊上 <Ref to="dma-lab-interpolants"/> 那個獨立配對 FM 的 Euler $k$ 步。FM 那條線是斜率約 $-1$ 的直線（<Ref to="dma-error-theory"/> 的 $O(1/N)$）。**CM 那條線跟不跟得上那個斜率，就是這一步要看的事**——<Ref to="dma-multistep-limit"/> Q1 的三個面說它不該跟得上，但「不跟得上」有好幾種長法，量到哪一種就寫哪一種，$k$ 要掃到 64 才看得出來。
+$$
+\widehat W_2
+=\sqrt{\frac1n\sum_{i=1}^n
+\big(x_{(i)}-y_{(i)}\big)^2}.
+$$
 
-再做一件事：把 `cm` 換成**真值** $f$（用 `exact_score_ve` 細步積分到 $\varepsilon$），同樣的多步程序在所有 $k$ 都應給接近零的距離——這就是 <Ref to="dma-multistep-limit"/> 的 `w8-5-c`，也確認了差別全部來自 $f_\theta$。
+這是一維等權 empirical distributions 的精確 $W_2$，不是 population $W_2$ 的精確值。每個 seed 使用 $4096$ 個樣本，並保留獨立資料 reference。
 
-**距離不要用 $W_2$。** 這張圖上 CM 與真值 $f$ 的差距會小到 $10^{-3}$ 量級，而 $n=1000$ 的經驗 $W_2$ 在這個 toy 上光是「兩組真資料互比」就有 0.3 的地板，訊號整個被蓋掉。改用**無偏的 energy distance**（$i\ne j$ 的 U-statistic，<Ref to="dma-lab-interpolants"/> 用過），$n=8000$，地板在 $10^{-4}$。同一顆種子跑三次取平均、把全距也畫上去。
+多步使用 `cm_sample`：每次先回乾淨端，再用新 noise 合成下一個 $\tau$ 的輸入。`calls` 是 CM 求值次數；`oracle` 也走完全相同的多步程序。先預測哪些項目應保持在抽樣地板附近，再執行比較。
 
-## 作業
+一次實際執行的設定為 $2500$ updates、seeds $0,1,2$、每組 $4096$ samples；一步 empirical $W_2$ 的三種子範圍為 CD $0.0438$–$0.0648$、CT $0.0468$–$0.0833$，oracle $0.0426$–$0.0536$。這些區間是三次結果的最小與最大值，不是信賴區間，也不足以排出一般方法名次。
 
-1. **Teacher 換成網路。** 把步驟 2 的 CD teacher 從 `exact_score_ve` 換成 <Ref to="dma-lab-diffusion"/> 訓好的 $\epsilon_\theta$（轉到 VE 座標：$\nabla\log p_t\approx-\epsilon_\theta/t$，注意 VP→VE 的時間對應）。重畫圖 a 的 CD 曲線。它在大 $N$ 處的平台是升高還是不變？說明哪一項誤差進來了。
-2. **EMA target。** 在步驟 2 加回 $\theta^-=\text{EMA}_{0.999}(\theta)$，只對 CT 重畫圖 a。曲線的最低點怎麼移動？對照 <Ref to="dma-ict-scm"/> 對這一項的分類（bias）。
-3. **先拉直、再 CT。** 用 reflow×2 的耦合（不是獨立配對）造 $(x_0,\epsilon)$——也就是把 <Ref to="dma-lab-interpolants"/> 的 `(x0, x1)` 配對換成本單元座標的 $(x_0,\epsilon)$——重訓 CT。圖 a 的 CT 曲線在小 $N$ 處的 bias 下降了多少？用 <Ref to="dma-cd-vs-ct"/> 那個「CT 的目標是假設這一段是直線」的展開框解釋。
-4. **連續時間（sCT）。** 用 `torch.func.jvp` 實作 <Ref to="dma-ict-scm"/> 的全導數目標（toy 上直接用 VE 座標即可，不必換 TrigFlow）：條件速度用 $\epsilon$，tangent 除以 $\|\cdot\|+0.1$。與離散 CT 的最佳 $N$ 比一步 $W_2$。再把 tangent normalization 關掉重訓一次，觀察 loss 曲線。
-5. **（選）最佳 $\tau_1$。** 對兩步 CM 掃 $\tau_1\in[0.1,T]$，畫 $W_2$ 對 $\tau_1$。最低點在哪裡？$\tau_1\to\varepsilon$ 與 $\tau_1\to T$ 兩端各退化成什麼？
+## 接著改哪一個因素？
+
+1. 固定 network、seed 與更新數，只改 `max_grid`，分開看 local target 表與 trained map RMSE，檢查是否真的能由前者預測後者。
+2. 將 CD 的 Euler 相鄰點換成解析 $\psi_{t\to s}(x_t)$，讓兩個版本使用相同初始參數，比較 finite-gap 誤差。
+3. 將起點改成 $\mathcal N(0,T^2)$，比較 oracle 的變化，單獨量 prior mismatch。
+4. 用 <Ref to="dma-multistep-limit"/> 的 $\hat f=(1+ct)f$ 代替網路，直接核對 Gaussian variance recurrence，再回來看 learned map 是否符合相同簡化。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/fast-maps-gaussian.html?topic=5-6" class="demo-frame" title="U5.6：解析 Gaussian 互動檢查" style="height: 900px; width: 100%; border: none;"></iframe>
+
+**互動 demo：先用解析答案對照。** 每個數字由目前參數重新計算；實際訓練結果另見實作程式。
+
+## 消化一下
 
 <QuizBlock id="w8-6-a">
-步驟 3 裡 CT 的 $W_2$ 曲線在大 $N$ 時**上升**，而 CD 的不會。原因是：
-<Option>大 $N$ 時 CT 的 bias 變大。</Option>
-<Option correct>CT 的目標帶著條件噪聲的隨機退向，其散佈與相鄰兩點輸出的真實差距都是 $O(\Delta t)$，$N$ 大時訊噪比不再改善，梯度被 variance 主導；CD 的目標是確定的，沒有這一項。</Option>
-<Option>大 $N$ 時 Karras 網格在 $t$ 小處太密，CT 沒有樣本在大 $t$。</Option>
-<Explanation>
-bias 隨 $N$ 增加而**減少**，兩種方法都一樣。網格密度對 CD 與 CT 相同，且 $\lambda=1/\Delta t$ 已補償。差別只在目標是確定的（CD）還是條件版本（CT）——這正是 <Ref to="dma-cd-vs-ct"/> 的 bias–variance 取捨在圖上的樣子。
-</Explanation>
+為什麼本篇從 $\mathcal N(0,1+T^2)$ 抽起點？
+<Option correct>為了使用精確 $p_T$，先排除 prior mismatch。</Option>
+<Option>所有 diffusion 模型的 prior 都必須如此。</Option>
+<Option>這會保證 CT 訓練精確收斂。</Option>
+<Explanation>控制一個因素，才能解讀剩下的誤差。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w8-6-b">
-步驟 6 中把 $f_\theta$ 換成真值 $f$，多步 CM 在所有步數都給接近零的距離。這說明多步 CM 那條線的形狀來自：
-<Option>重加噪的交叉讓分佈偏離資料。</Option>
-<Option>多步程序本身在分佈層面不合法。</Option>
-<Option correct>$f_\theta$ 的逼近誤差在每一跳都是「滿的」、不隨步數縮小；程序在分佈層面合法，交叉改變的只是配對。</Option>
-<Explanation>
-真值 $f$ 把 $p_\tau$ 精確推到資料分佈，重加噪後仍是 $p_\tau$，所以分佈永遠對。交叉是配對層面的事（哪個噪聲對到哪個樣本），不影響邊際。那條線的形狀完全由 $f_\theta$ 決定：輸出是最後一跳給的，而最後一跳的誤差不會因為前面跳過幾次而變小。
-</Explanation>
+Oracle 的 empirical $W_2$ 非零，表示什麼？
+<Option>解析 map 一定寫錯。</Option>
+<Option correct>獨立有限 samples 的 empirical distributions 仍會不同，需要保留這個地板。</Option>
+<Option>多步 CM 在精確模型下也非法。</Option>
+<Explanation>應同時看同起點的 map error 與分布抽樣估計。</Explanation>
+</QuizBlock>
+
+<QuizBlock id="w8-6-c">
+程式的停止梯度在哪裡實現？
+<Option>完全不更新網路。</Option>
+<Option>不計算 target 的數值。</Option>
+<Option correct>計算 target，但 manual backprop 只經線上 prediction。</Option>
+<Explanation>停止梯度改變求導路徑，並不刪除 target 的值。</Explanation>
 </QuizBlock>
 
 <Bridge to="dma-flow-map">
-這個單元學會了從任何 $t$ 一步跳到終點，卻也因此卡住：想多走幾步時，只能先到終點、重新加噪再出發。<Ref to="dma-flow-map"/> 會從 CTM 出發，把目的時間 $s$ 也交給模型：能不能從任意 $t$ 直接跳到任意 $s$，讓一步與多步都沿同一條 trajectory？
+這些實驗讓終點 map 的定義與誤差可以被逐項檢查。下一個問題是輸出能力：<Ref to="dma-flow-map"/> 將目的時間也交給模型，讓我們能直接檢查同一條 trajectory 的中途位置。
 </Bridge>
 
 ## 參考文獻
 
-1. Song, Y., Dhariwal, P., Chen, M., Sutskever, I. [*Consistency Models.*](https://arxiv.org/abs/2303.01469) ICML 2023.（步驟 2 的 CD / CT 損失、步驟 6 的多步取樣。）
-2. Song, Y., Dhariwal, P. [*Improved Techniques for Training Consistency Models.*](https://arxiv.org/abs/2310.14189) ICLR 2024.（pseudo-Huber、$\lambda=1/\Delta t$、無 EMA target、$N$ curriculum。）
-3. Karras, T., Aittala, M., Aila, T., Laine, S. [*Elucidating the Design Space of Diffusion-Based Generative Models.*](https://arxiv.org/abs/2206.00364) NeurIPS 2022.（`karras_grid`、$c_{\text{skip}},c_{\text{out}}$。）
-4. Liu, X., Gong, C., Liu, Q. [*Flow Straight and Fast.*](https://arxiv.org/abs/2209.03003) ICLR 2023.（步驟 5 的 reflow×2 與作業 3 的耦合。）
+主要理論參考：[The Principles of Diffusion Models](https://arxiv.org/abs/2510.21890)，§11.2 的 CD／CT、sampling 與 §11.3 的停止梯度更新；Gaussian oracle 與小型 NumPy 網路是本課程實驗。正文的符號沿用本課程；方法實作細節再對照下列原始論文。
+
+1. [Song, Dhariwal, Chen & Sutskever, Consistency Models (ICML 2023)](https://arxiv.org/abs/2303.01469)。
+2. [Song & Dhariwal, Improved Techniques for Training Consistency Models (ICLR 2024)](https://arxiv.org/abs/2310.14189)。
+3. [Karras, Aittala, Aila & Laine, Elucidating the Design Space of Diffusion-Based Generative Models (NeurIPS 2022)](https://arxiv.org/abs/2206.00364)。
+4. [Liu, Gong & Liu, Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow (ICLR 2023)](https://arxiv.org/abs/2209.03003)。
