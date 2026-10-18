@@ -53,10 +53,30 @@ export function isPublishedDojo(entry: DojoEntry): boolean {
   return entry.data.status === 'available';
 }
 
+// Drafts remain readable in development and in the separate local build.
+// The deployed build (and every CI build) must omit their routes and links.
+const environment = (import.meta as { env?: { DEV?: boolean; MODE?: string } }).env;
+const onCI = typeof process !== 'undefined' && Boolean(process.env.CI);
+export const previewDojoDrafts = !onCI && Boolean(environment?.DEV || environment?.MODE === 'local-preview');
+// Exclude these source files before MDX compilation in a public build, so their
+// client experiments and workers cannot enter the deployment artifact either.
+export const localOnlyDojoSlugs = new Set([
+  'what-generation-learns',
+  'design-forward-process',
+  'learn-reverse-step',
+  'denoiser-and-score',
+  'choose-reverse-dynamics',
+  'diagnose-diffusion',
+]);
+export function isVisibleDojo(entry: DojoEntry, preview = previewDojoDrafts): boolean {
+  return (preview || !localOnlyDojoSlugs.has(entry.data.slug)) &&
+    (isPublishedDojo(entry) || (preview && entry.data.status === 'draft'));
+}
+
 /** Scripts for a listing: the requested language first, the other language as fallback. */
-export function dojoForListingLang(entries: DojoEntry[], lang: Lang): DojoEntry[] {
+export function dojoForListingLang(entries: DojoEntry[], lang: Lang, preview = previewDojoDrafts): DojoEntry[] {
   const bySlug = new Map<string, DojoEntry>();
-  for (const e of entries.filter(isPublishedDojo)) {
+  for (const e of entries.filter((entry) => isVisibleDojo(entry, preview))) {
     const cur = bySlug.get(e.data.slug);
     if (!cur || (cur.data.lang !== lang && e.data.lang === lang)) bySlug.set(e.data.slug, e);
   }
@@ -67,14 +87,14 @@ export function dojoForListingLang(entries: DojoEntry[], lang: Lang): DojoEntry[
 }
 
 /** Published neighbours in the same question sequence and language. */
-export function dojoSeriesEntries(entries: DojoEntry[], current: DojoEntry): DojoEntry[] {
+export function dojoSeriesEntries(entries: DojoEntry[], current: DojoEntry, preview = previewDojoDrafts): DojoEntry[] {
   if (!current.data.series) return [];
-  return entries.filter((e) => isPublishedDojo(e) && e.data.series === current.data.series && e.data.lang === current.data.lang)
+  return entries.filter((e) => isVisibleDojo(e, preview) && e.data.series === current.data.series && e.data.lang === current.data.lang)
     .sort((a, b) => (a.data.order ?? Number.MAX_SAFE_INTEGER) - (b.data.order ?? Number.MAX_SAFE_INTEGER));
 }
 
 /** The dojo script carved from a note, if one exists (any language, preferring `lang`). */
-export function dojoForNote(entries: DojoEntry[], noteLabel: string | undefined, noteSlug: string, lang: Lang): DojoEntry | undefined {
-  const hits = entries.filter((e) => isPublishedDojo(e) && (e.data.note === noteLabel || e.data.note === noteSlug));
+export function dojoForNote(entries: DojoEntry[], noteLabel: string | undefined, noteSlug: string, lang: Lang, preview = previewDojoDrafts): DojoEntry | undefined {
+  const hits = entries.filter((e) => isVisibleDojo(e, preview) && (e.data.note === noteLabel || e.data.note === noteSlug));
   return hits.find((e) => e.data.lang === lang) ?? hits[0];
 }

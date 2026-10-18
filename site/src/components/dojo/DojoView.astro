@@ -14,7 +14,7 @@ import type { Lang } from '../../lib/notes';
 import { formatNoteDate } from '../../lib/notes';
 import { resolveNoteRef } from '../../lib/noteRefs';
 import { withBase } from '../../lib/url';
-import { dojoIndexRoute, dojoRoute, dojoSeriesEntries, dojoThemeOf, dojoTitle, skillManualLabel, type DojoEntry } from '../../lib/dojo';
+import { dojoIndexRoute, dojoRoute, dojoSeriesEntries, dojoThemeOf, dojoTitle, skillManualLabel, isVisibleDojo, type DojoEntry } from '../../lib/dojo';
 
 interface Props { entry: DojoEntry; all: DojoEntry[]; lang: Lang }
 const { entry, all, lang } = Astro.props;
@@ -26,7 +26,7 @@ const sequence = dojoSeriesEntries(all, entry);
 const seriesNav = await Promise.all(sequence.map(async (e) => ({ entry: e, note: await resolveNoteRef(e.data.note, lang) })));
 const next = sequence[sequence.findIndex((e) => e.id === entry.id) + 1];
 const nextNote = next ? await resolveNoteRef(next.data.note, lang) : undefined;
-const other = all.find((e) => e.data.slug === entry.data.slug && e.data.lang !== lang && e.data.status === 'available');
+const other = all.find((e) => e.data.slug === entry.data.slug && e.data.lang !== lang && isVisibleDojo(e));
 const alternates = [
   { lang, path: dojoRoute(entry.data.slug, lang) },
   ...(other ? [{ lang: other.data.lang, path: dojoRoute(entry.data.slug, other.data.lang) }] : []),

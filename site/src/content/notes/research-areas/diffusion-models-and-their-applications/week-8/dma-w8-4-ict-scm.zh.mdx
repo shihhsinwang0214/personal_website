@@ -72,8 +72,11 @@ $$
 這裡暫時省略與 $h$ 無關的時間權重。要看 $h\to0$，先展開 target：
 
 $$
+\begin{aligned}
 f_{\theta^-}(x_{t-h},t-h)
-=f_{\theta^-}(x_t,t)-h\frac{\mathrm d}{\mathrm dt}f_{\theta^-}(x_t,t)+O(h^2).
+={}&f_{\theta^-}(x_t,t)\\
+&-h\frac{\mathrm d}{\mathrm dt}f_{\theta^-}(x_t,t)+O(h^2).
+\end{aligned}
 $$
 
 只讓線上輸出接受參數梯度，然後在比較點將兩份參數數值設成相同，零階差距便消失。因此
@@ -110,7 +113,7 @@ _, tangent = torch.func.jvp(
 
 `velocity` 可以是 teacher 的 $v_\phi$；從頭訓練時則用這筆配對的條件速度。後者的原始 stopped-gradient 更新在條件平均下精確相同，但單筆 tangent 仍有隨機性。JVP 省下完整 Jacobian 的儲存，不等於沒有額外計算成本。
 
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/fast-maps-gaussian.html?topic=5-4" class="demo-frame" title="U5.4：解析 Gaussian 互動檢查" style="height: 900px; width: 100%; border: none;"></iframe>
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/fast-maps-gaussian.html?topic=5-4" class="demo-frame" title="U5.4：解析 Gaussian 互動檢查" style="height: 1000px; width: 100%; border: none;"></iframe>
 
 **互動 demo：解析 Gaussian 檢查。** 調整起始時間、區間與位置，直接計算本篇的關係；偏差控制是明示的 surrogate，沒有使用預設的品質曲線。
 
@@ -123,8 +126,10 @@ Song 與 Dhariwal 的 improved consistency training（iCT）[1] 仍使用相鄰�
 **讓大殘差不必產生任意大的梯度。** 對向量殘差 $r$，pseudo-Huber discrepancy 是
 
 $$
-d(r)=\sqrt{\|r\|^2+c^2}-c,\qquad
-\nabla_r d(r)=\frac{r}{\sqrt{\|r\|^2+c^2}}.
+\begin{aligned}
+d(r)&=\sqrt{\|r\|^2+c^2}-c,\\
+\nabla_r d(r)&=\frac{r}{\sqrt{\|r\|^2+c^2}}.
+\end{aligned}
 $$
 
 梯度 norm 不超過 $1$。小殘差時它近似平方，大殘差時增長接近線性；這是限制離群殘差影響的機制，不是讓 target noise 消失。

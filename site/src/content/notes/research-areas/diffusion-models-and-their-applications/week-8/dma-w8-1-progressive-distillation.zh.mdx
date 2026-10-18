@@ -93,10 +93,12 @@ $$
 取得 target 後，抽資料 $x_0$、獨立 noise $\epsilon$ 與訓練網格上的三連點 $(t,u,s)$，合成 $x_t$，最小化
 
 $$
+\begin{aligned}
 \mathcal L_{\mathrm{PD}}
-=\mathbb E_{x_0,\epsilon,(t,u,s)}
-\left[w(t)\left\|D_\theta(x_t,t)
--\operatorname{sg}(x_0^{\mathrm{target}})\right\|^2\right].
+&=\mathbb E_{x_0,\epsilon,(t,u,s)}\big[ w(t)\\
+&\qquad\cdot\|D_\theta(x_t,t)
+-\operatorname{sg}(x_0^{\mathrm{target}})\|^2\big].
+\end{aligned}
 $$
 
 $w(t)$ 決定不同起始時間的權重，$\operatorname{sg}$ 表示目標不回傳參數梯度。給定 $x_t$ 與本輪時間網格，teacher 的兩步結果是確定的；這是用 deterministic teacher 做逐點蒸餾的關鍵。
@@ -128,6 +130,12 @@ $$
 
 <Remark label="計算成本" summary="每個標籤兩次呼叫，不等於總訓練成本只有兩次">
 本輪用單次網路求值的一步規則時，每個標籤需要兩次 teacher evaluation；總成本還要乘訓練樣本數與輪數，另加學生更新。若 coarse solver 本身含多個 stages，步數減半也不代表 NFE 同比減半。少步、大步通常更難擬合，但哪一輪品質下降最多仍是實驗結果，不是這條 recurrence 的結論。
+</Remark>
+
+<Remark label="原文對照" summary="U1 的 v-prediction 為什麼會在少步蒸餾再出現？">
+本篇用 VE 座標把兩步合一的代數寫簡單；原始 progressive distillation 使用的 VP 座標，也研究了 prediction 與時間加權的選擇。<Ref to="dma-denoising-regression"/> 的 v-prediction label 是 $\sqrt{\bar\alpha_t}\epsilon-\sigma_tx_0$，是 data 與 noise 的另一種線性組合；這個名稱裡的 v 不等於本篇的 ODE velocity $v_t$。
+
+少步時，模型必須跨過更大的 noise-level 範圍，prediction 座標在兩端的尺度與數值條件就更重要。這是原文引入該座標的背景；本篇的 target 反解則是在指定 VE update 下成立，不能把兩套係數直接混用。
 </Remark>
 
 ## 消化一下

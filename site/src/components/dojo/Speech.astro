@@ -1,0 +1,23 @@
+---
+import Partner from './Partner.astro';
+import type { DojoPartnerId, DojoPartnerPose } from '../../lib/dojoPartners';
+import { dojoPartners } from '../../lib/dojoPartners';
+interface Props { partner: DojoPartnerId; pose?: DojoPartnerPose }
+const { partner, pose = 'explain' } = Astro.props;
+---
+
+<div class="dojo-speech" data-speaker={partner} role="group" aria-label={dojoPartners[partner].name}>
+  <Partner partner={partner} pose={pose} compact />
+  <div class="dojo-body dojo-speech-body"><slot /></div>
+</div>
+
+<style is:global>
+  .dojo .dojo-speech { display: grid; grid-template-columns: 80px minmax(0, 1fr); align-items: start; gap: 16px; min-width: 0; }
+  .dojo .dojo-speech-body { min-width: 0; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+  .dojo .dojo-speech > .dojo-partner.is-compact { margin: 0; }
+  @media (max-width: 600px) {
+    .dojo .dojo-speech { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    .dojo .dojo-speech > .dojo-partner.is-compact { grid-template-columns: 64px minmax(0, 1fr); justify-items: start; align-items: center; gap: 10px; }
+    .dojo .dojo-speech-body { padding: 10px 12px; }
+  }
+</style>

@@ -1,0 +1,27 @@
+---
+import { langFromUrl } from '../../lib/noteRefs';
+interface Props { id: string; label: string; next?: string }
+const { id, label, next } = Astro.props;
+const zh = langFromUrl(Astro.url) === 'zh';
+---
+
+<article class="dojo-node dojo-say dojo-exchange" data-node data-kind="say" data-exchange id={id} data-next={next}>
+  <span class="dojo-tag">{label}</span>
+  <div class="dojo-exchange-turns" aria-live="polite" aria-relevant="additions text"><slot /></div>
+  <div class="dojo-exchange-controls" data-exchange-controls hidden>
+    <button type="button" class="dojo-btn" data-exchange-next>{zh ? '接著聽' : 'Listen to the next sentence'}</button>
+    <button type="button" class="dojo-btn dojo-btn-ghost" data-exchange-all hidden>{zh ? '顯示本段全部' : 'Show the full passage'}</button>
+    <button type="button" class="dojo-btn dojo-btn-ghost" data-exchange-reset hidden>{zh ? '從這段重聽' : 'Listen again from the beginning'}</button>
+  </div>
+</article>
+
+<style is:global>
+  .dojo .dojo-exchange-turns { display: grid; gap: 20px; min-width: 0; }
+  .dojo .dojo-exchange-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .dojo .dojo-exchange-controls .dojo-btn { white-space: normal; text-align: left; max-width: 100%; }
+  @media print {
+    .dojo .dojo-speech[hidden] { display: grid !important; }
+    .dojo [data-speech-line][hidden] { display: block !important; }
+    .dojo .dojo-exchange-controls { display: none !important; }
+  }
+</style>

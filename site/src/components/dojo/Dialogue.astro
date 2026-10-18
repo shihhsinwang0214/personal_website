@@ -50,6 +50,23 @@ const t = lang === 'zh'
 ---
 
 <section class="dojo" data-dojo data-slug={slug} data-progress-version={progressVersion} data-i18n={JSON.stringify(t)}>
+  <details class="dojo-reading-settings" data-reading-settings hidden>
+    <summary>{lang === 'zh' ? '閱讀設定' : 'Reading settings'}</summary>
+    <div class="dojo-reading-options">
+      <label><input type="checkbox" data-exchange-mode />{lang === 'zh' ? '逐句顯示（選用）' : 'Reveal sentence by sentence (optional)'}</label>
+      <div class="dojo-playback-options" data-playback-options hidden>
+        <label><input type="checkbox" data-exchange-auto checked />{lang === 'zh' ? '自動播放同一位夥伴的話' : 'Autoplay each companion’s turn'}</label>
+        <label>{lang === 'zh' ? '播放速度' : 'Playback speed'}
+          <select data-exchange-speed>
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="1.5">1.5×</option>
+            <option value="2">2×</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </details>
   <div class="dojo-resume" data-resume hidden>
     <span data-resume-text></span>
     <button type="button" class="dojo-btn" data-resume-go>{t.resumeBtn}</button>
@@ -67,6 +84,13 @@ const t = lang === 'zh'
 <style is:global>
   .dojo { max-width: 720px; margin: 0 auto; }
   .dojo [hidden] { display: none !important; }
+  .dojo-reading-settings { margin-bottom: 16px; color: var(--text-muted); font-size: .85rem; }
+  .dojo-reading-settings summary { cursor: pointer; padding: 6px 0; width: fit-content; }
+  .dojo-reading-options, .dojo-playback-options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 8px 0; }
+  .dojo-reading-options label { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; }
+  .dojo-reading-options input { accent-color: var(--accent); width: 18px; height: 18px; flex: none; }
+  .dojo-reading-options select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
+  @media print { .dojo-reading-settings { display: none; } }
   .dojo:not(.is-live) .dojo-end[hidden] { display: flex !important; }
   .dojo:not(.is-live) [data-restart] { display: none; }
   .dojo.is-live .dojo-node { display: none; }
@@ -363,7 +387,43 @@ const t = lang === 'zh'
     };
     const motion = () => matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' as const : 'smooth' as const;
     const t: I18n = JSON.parse(root.dataset.i18n ?? '{}');
+    const exchangeRestorers = new Map<Node, () => void>();
+    const exchangePlayers = new Map<Node, { refresh: () => void; stop: () => void; replay: () => void }>();
+    let activeExchange: Node | undefined;
+    let sentenceMode = false;
+    let autoplay = true;
+    let playbackSpeed = 1;
+    function activateExchange(node?: Node) {
+      if (activeExchange && activeExchange !== node) exchangePlayers.get(activeExchange)?.stop();
+      activeExchange = node;
+      if (node) exchangePlayers.get(node)?.refresh();
+    }
+    // A page-wide preference; only reading position is written to storage.
+    root.addEventListener('change', (event) => {
+      const input = event.target;
+      if (input instanceof HTMLInputElement && input.hasAttribute('data-exchange-mode')) {
+        sentenceMode = input.checked;
+        const options = root.querySelector<HTMLElement>('[data-playback-options]');
+        if (options) options.hidden = !sentenceMode;
+        if (sentenceMode && activeExchange) exchangePlayers.get(activeExchange)?.replay();
+      } else if (input instanceof HTMLInputElement && input.hasAttribute('data-exchange-auto')) {
+        autoplay = input.checked;
+        root.querySelectorAll<HTMLInputElement>('[data-exchange-auto]').forEach((toggle) => { toggle.checked = autoplay; });
+      } else if (input instanceof HTMLSelectElement && input.hasAttribute('data-exchange-speed')) {
+        const speed = Number(input.value);
+        if (![0.5, 1, 1.5, 2].includes(speed)) return;
+        playbackSpeed = speed;
+        root.style.setProperty('--dojo-sentence-duration', `${0.7 / playbackSpeed}s`);
+        root.querySelectorAll<HTMLSelectElement>('[data-exchange-speed]').forEach((select) => { select.value = String(playbackSpeed); });
+      } else return;
+      exchangePlayers.forEach((player) => player.refresh());
+    });
+    document.addEventListener('visibilitychange', () => exchangePlayers.forEach((player) => player.refresh()));
+    window.addEventListener('pagehide', () => exchangePlayers.forEach((player) => player.stop()));
+    window.addEventListener('pageshow', () => exchangePlayers.forEach((player) => player.refresh()));
     const nodes = Array.from(root.querySelectorAll<Node>('[data-node]'));
+    const readingSettings = root.querySelector<HTMLElement>('[data-reading-settings]');
+    if (readingSettings) readingSettings.hidden = !nodes.some((node) => node.hasAttribute('data-exchange'));
     const methodPaths = Array.from(root.querySelectorAll<HTMLElement>('[data-method-path]'));
     const pathById = new Map(methodPaths.map((path) => [path.id, path]));
     const pathNodes = (path: HTMLElement) => nodes.filter((n) => n.closest('[data-method-path]') === path && n.dataset.detour !== 'true');
@@ -399,7 +459,7 @@ const t = lang === 'zh'
       btn.type = 'button'; btn.className = 'dojo-btn'; btn.textContent = label;
       btn.addEventListener('click', () => { box!.remove(); onNext(); });
       box.appendChild(btn);
-      syncDerivationActions(node);
+      syncReadingActions(node);
       return btn;
     }
 
@@ -407,11 +467,90 @@ const t = lang === 'zh'
       return Array.from(node.querySelectorAll<HTMLElement>('[data-derivation]'))
         .filter((d) => !d.closest('[data-study-review-content]'));
     }
-    function syncDerivationActions(node: Node) {
+    function syncReadingActions(node: Node) {
       const box = node.querySelector<HTMLElement>(':scope > .dojo-actions');
       if (!box) return;
-      box.hidden = derivations(node).some((d) =>
+      box.hidden = (node.hasAttribute('data-exchange') && node.dataset.exchangeComplete !== 'true') || derivations(node).some((d) =>
         d.dataset.deriveRequired !== 'false' && !d.closest('.dojo-extra') && d.dataset.deriveComplete !== 'true');
+    }
+    function bindExchange(node: Node, completed = false) {
+      if (!node.hasAttribute('data-exchange')) return;
+      const restore = exchangeRestorers.get(node);
+      if (restore) { if (completed) restore(); return; }
+      const lines = Array.from(node.querySelectorAll<HTMLElement>('[data-speech-line]'));
+      const speeches = Array.from(node.querySelectorAll<HTMLElement>('[data-speaker]'));
+      const controls = node.querySelector<HTMLElement>('[data-exchange-controls]');
+      const next = node.querySelector<HTMLButtonElement>('[data-exchange-next]');
+      const all = node.querySelector<HTMLButtonElement>('[data-exchange-all]');
+      const reset = node.querySelector<HTMLButtonElement>('[data-exchange-reset]');
+      if (!lines.length || !controls || !next || !all || !reset) { node.dataset.exchangeComplete = 'true'; return; }
+      const sentenceNext = next.textContent;
+      const zh = document.documentElement.lang.startsWith('zh');
+      let shown = completed || !sentenceMode ? lines.length - 1 : 0;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      function stop() { if (timer !== undefined) clearTimeout(timer); timer = undefined; }
+      const speaker = (i: number) => lines[i]?.closest<HTMLElement>('[data-speaker]');
+      function turnEnd() {
+        let end = shown;
+        const id = speaker(shown)?.dataset.speaker;
+        while (end + 1 < lines.length && speaker(end + 1)?.dataset.speaker === id) end++;
+        return end;
+      }
+      function canPlay() {
+        const path = node.closest('[data-method-path]');
+        return sentenceMode && autoplay && activeExchange === node && !document.hidden && node.isConnected &&
+          node.classList.contains('is-shown') && (!path || path.classList.contains('is-open'));
+      }
+      // Leave time to read the previous sentence, including mixed Chinese/English.
+      function readingDelay() {
+        const text = lines[shown].textContent || '';
+        const han = (text.match(/\p{Script=Han}/gu) || []).length;
+        const words = (text.match(/[\p{L}\p{N}]+/gu) || []).filter((word) => !/\p{Script=Han}/u.test(word)).length;
+        return Math.min(8000, Math.max(1800, 1000 + han * 150 + words * 260)) / playbackSpeed;
+      }
+      function schedule() {
+        stop();
+        if (!canPlay() || shown >= turnEnd()) return;
+        timer = setTimeout(() => {
+          timer = undefined;
+          if (!canPlay()) return;
+          const previous = lines[shown].getBoundingClientRect();
+          shown++;
+          render(false, true);
+          // Follow the conversation only while the reader is looking at it.
+          if (previous.top >= 0 && previous.bottom <= window.innerHeight && lines[shown].getBoundingClientRect().bottom > window.innerHeight) {
+            lines[shown].scrollIntoView({ behavior: motion(), block: 'nearest' });
+          }
+        }, readingDelay());
+      }
+      function render(focus = false, animate = false) {
+        if (!sentenceMode) shown = lines.length - 1;
+        lines.forEach((line, i) => {
+          line.classList.toggle('is-appearing', animate && i === shown);
+          line.hidden = i > shown;
+        });
+        speeches.forEach((speech) => { speech.hidden = !lines.some((line) => speech.contains(line) && !line.hidden); });
+        const full = shown === lines.length - 1;
+        if (full) node.dataset.exchangeComplete = 'true';
+        controls.hidden = !sentenceMode || lines.length < 2;
+        const speaking = shown < turnEnd();
+        next.hidden = full || (autoplay && speaking);
+        next.textContent = autoplay ? `${zh ? '下一位：' : 'Next: '}${speaker(shown + 1)?.getAttribute('aria-label') || ''}` : sentenceNext;
+        all.hidden = full;
+        reset.hidden = shown === 0;
+        syncReadingActions(node);
+        if (focus) {
+          lines[shown].focus({ preventScroll: true });
+          lines[shown].scrollIntoView({ behavior: motion(), block: 'nearest' });
+        }
+        schedule();
+      }
+      next.addEventListener('click', () => { shown = Math.min(shown + 1, lines.length - 1); activateExchange(node); render(true, true); });
+      all.addEventListener('click', () => { shown = lines.length - 1; activateExchange(node); render(true); });
+      reset.addEventListener('click', () => { shown = 0; activateExchange(node); render(true); });
+      exchangeRestorers.set(node, () => { shown = lines.length - 1; render(); });
+      exchangePlayers.set(node, { refresh: () => render(), stop, replay: () => { shown = 0; render(); } });
+      render();
     }
     function bindDerivations(node: Node, completed = false) {
       derivations(node).forEach((d) => {
@@ -438,7 +577,7 @@ const t = lang === 'zh'
           next.textContent = `${t.deriveNext}${steps[shown + 1]?.dataset.deriveTitle || ''}`;
           controls.hidden = steps.length < 2;
           status.textContent = focus ? (full ? t.deriveDone : `${t.deriveCurrent}${steps[shown].dataset.deriveTitle}`) : '';
-          syncDerivationActions(node);
+          syncReadingActions(node);
           if (focus) {
             steps[shown].tabIndex = -1;
             steps[shown].focus({ preventScroll: true });
@@ -453,6 +592,7 @@ const t = lang === 'zh'
     }
 
     function finish(node: Node) {
+      if (activeExchange === node) activateExchange();
       node.classList.add('is-done');
       // Options that carry an explanation stay tappable after the walk moves on.
       node.querySelectorAll<HTMLButtonElement>('button.dojo-opt').forEach((b) => { if (!explorable(b)) b.disabled = true; });
@@ -499,6 +639,7 @@ const t = lang === 'zh'
 
     function reveal(node: Node, scroll = true) {
       node.classList.add('is-shown');
+      activateExchange(node.hasAttribute('data-exchange') ? node : undefined);
       if (node === main[0]) scroll = false;
       if (scroll) requestAnimationFrame(() => { node.tabIndex = -1; node.focus({ preventScroll: true }); node.scrollIntoView({ behavior: motion(), block: 'start' }); });
     }
@@ -536,6 +677,7 @@ const t = lang === 'zh'
     }
 
     function returnMethod(path: HTMLElement) {
+      if (activeExchange?.closest('[data-method-path]') === path) activateExchange();
       path.classList.remove('is-open');
       const back = byId.get(path.dataset.back || '');
       if (back) reopen(back);
@@ -584,6 +726,7 @@ const t = lang === 'zh'
     function show(node: Node) {
       node.closest('[data-method-path]')?.classList.add('is-open');
       prepareReviews(node);
+      bindExchange(node);
       bindDerivations(node);
       const kind = node.dataset.kind;
       if (kind === 'explore' || kind === 'choose' || kind === 'judge' || kind === 'think' || kind === 'sort') node.dataset.stampLive = t.stampLive;
@@ -609,7 +752,7 @@ const t = lang === 'zh'
         stamp(node, node.dataset.lang === 'zh' ? '讀過了' : 'Read through');
         // Only reading position is saved. Never fabricate an old prediction/run.
         const notice = node.querySelector<HTMLElement>('[data-experiment-change]');
-        if (notice) notice.textContent = node.dataset.lang === 'zh' ? '上次的實驗數據沒有保存，可以重新試。下方提供一組示範供對照。' : 'Previous experiment results were not saved. Try again, or compare the worked example below.';
+        if (notice) notice.textContent = node.dataset.experimentResumeNote || (node.dataset.lang === 'zh' ? '上次的實驗數據沒有保存，可以重新試。下方提供一組示範供對照。' : 'Previous experiment results were not saved. Try again, or compare the worked example below.');
         const example = node.querySelector<HTMLElement>('[data-experiment-fallback]');
         if (example) example.hidden = false;
       } else if (node.dataset.experimentComplete === 'true') {
@@ -892,6 +1035,7 @@ const t = lang === 'zh'
     // ---- fast-forward for resume ----
     function restoreNode(n: Node) {
         prepareReviews(n);
+        bindExchange(n, true);
         bindDerivations(n, true);
         const kind = n.dataset.kind;
         if (kind === 'explore') {
@@ -939,6 +1083,7 @@ const t = lang === 'zh'
       resume.querySelector('[data-resume-go]')?.addEventListener('click', () => { resume.hidden = true; fastForward(saved); });
       // The first node is always visible so the page never looks empty.
       reveal(main[0], false);
+      bindExchange(main[0]);
       if (main[0].dataset.kind === 'explore' || main[0].dataset.kind === 'choose' || main[0].dataset.kind === 'judge' || main[0].dataset.kind === 'sort') show(main[0]);
       else actions(main[0], main[0].dataset.next || t.next, () => { resume.hidden = true; clearStep(slug); position = 0; Object.keys(pathSteps).forEach((key) => delete pathSteps[key]); advanceFrom(main[0]); });
     } else if (main.length) {

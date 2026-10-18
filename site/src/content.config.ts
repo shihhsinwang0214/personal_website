@@ -1,5 +1,6 @@
 import { defineCollection, z } from 'astro:content';
 import { glob } from 'astro/loaders';
+import { localOnlyDojoSlugs, previewDojoDrafts } from './lib/dojo';
 
 const referenceSchema = z.union([
   z.string(),
@@ -64,7 +65,10 @@ const handbook = defineCollection({
  */
 const dojo = defineCollection({
   loader: glob({
-    pattern: '**/*.{md,mdx}',
+    pattern: [
+      '**/*.{md,mdx}',
+      ...(!previewDojoDrafts ? [...localOnlyDojoSlugs].map((slug) => `!**/${slug}.*.{md,mdx}`) : []),
+    ],
     base: './src/content/dojo',
     generateId: ({ data }) => `${data.lang}/${data.slug}`,
   }),

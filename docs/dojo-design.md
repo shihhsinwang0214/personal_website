@@ -3,7 +3,71 @@
 2026-10-13 名稱確定：中文使用「知識秘境(Beta)」，英文使用「Knowledge Realms (Beta)」。原稱練功房；程式檔名、collection、網址與進度鍵沿用 `dojo`，既有閱讀位置可繼續使用。下文的歷史名稱與設計稿名稱保留原稱。
 
 同一個問題，換讀者試著往下推，再一起對照理由。
-這一頁是給之後維護練功房的人（含 agent）看的規則。目前已有 U7.0–U7.3 的連續練習；分工與圖片規格見 `docs/dojo-u7-sequence.md`。
+這一頁是給之後維護練功房的人（含 agent）看的規則。目前已有 U1.0–U1.5 與 U7.0–U7.3 的連續練習；實作記錄分別見 `docs/dojo-u1-implementation.md` 與 `docs/dojo-u7-sequence.md`。
+
+## 2026-10-18：U1 只在本機預覽
+
+使用者指定知識秘境的群組標籤直接顯示 Unit 名稱，移除「技能書／Skill manual」前綴；來源筆記的連結文字仍保留。
+
+U1.0–U1.5 的十二份中英文腳本暫改為 `status: draft`。`isPublishedDojo` 只表示正式可發布；路由、列表、系列前後篇、語言切換及 notes 的秘境入口統一使用 `isVisibleDojo`，只在非 CI 的 dev 或 `local-preview` 模式顯示草稿。正式 build 會先依 `localOnlyDojoSlugs` 排除 U1 的內容載入，避免 MDX 預編譯把專用實驗／Worker 留在產物；同時不產生頁面或列表／筆記入口，因此不進 sitemap 與頁面搜尋索引。
+
+本機可用 `npm run dev`；靜態預覽使用 `npm run build:local` 和 `npm run preview:local`，輸出至 `site/dist-local`，與正式上傳的 `site/dist` 分開，快取也獨立。U1 腳本、專用實驗／運算／Python／測試與規劃檔已加入 `.gitignore`；目前均未被 Git 追蹤。原有 U1 課程 notes 仍保留原發布狀態。日後正式開放 U1 秘境時，須同時調整腳本的 status、`localOnlyDojoSlugs` 與相應的 Git 排除規則。
+
+驗證：本機建置保留十二個 U1 頁面，正式建置為 304 頁、排除十二個 U1 頁面；所有 HTML 與 sitemap 無 U1 秘境連結，專用實驗 script／Worker 也不在正式產物。先做本機 build、再不加 force 做正式 build，同樣不殘留 U1。二十份 U1 專用檔案仍在本機，全部 ignored 且未追蹤。44 項測試、content check（49 個既有警告）通過；本機 4333 已確認群組標籤無前綴，U1 可開啟且六篇導覽完整。
+
+## 2026-10-17：修正 U1.1–U1.3 的理解斷點
+
+U1.1–U1.3 中英文版本提高為 5。題目先交代足以判斷的條件，不把「容易抽樣」偷換成「一定要非退化 Gaussian」；零向量提案另讓讀者檢查 regression 的來源歧義與隨機性。開放提案後提供可操作的自我檢查，不假裝分析讀者填入的文字。
+
+第一個 forward 實驗沿用每步 β 與整數步數，A／B 使用同一 β，只比較有無縮小原狀態。原生與 Python 都真正逐步執行；這裡不顯示尚未引入的 r／連續時間。閉式抽樣推完後才用 k/T 與 Δt 說明連續進度、r 和切步數的關係。VP 的單位 covariance 是設計參考，先說清楚，再推縮小係數。
+
+Posterior 主線先固定已知原圖與 observation，用一維未知量實際展開兩個平方、收集係數、完成配方，再讀 mean／variance 與換回原符號。`Derivation showLabel={false}` 與 `DeriveStep compact` 可省去重複標題及已在正文說明的三列 metadata，不省略推理。手機驗證應檢查公式本身是否需要左右拖動，不能只看頁面有無溢出。U1.3 的兩點 MSE 例子明示暫用 x₀ 作 label，接著才把一般結果套回 ε。
+
+各 diffusion 實驗主畫面保留當前問題的兩個指標，其餘資料置於「其他數據與抽樣診斷」。判讀提示依實驗指明先看哪個圖或量；累積 noise variance 與單步 β 分開命名。同組 histogram 與理論虛線使用相同顏色。
+
+## 2026-10-17：精簡閱讀節奏（取代下方逐句預設）
+
+使用者試讀後指出內容與操作太冗長。預設直接顯示一個完整概念的對話，段內不要求逐句或換人點擊；只在問題、推導與實驗判讀處保留必要操作。「閱讀設定」集中在章首，逐句、自動播放與速度為可選模式，可一鍵顯示本段全部。U1 移除重複接話與推導前的第二次開場，將部分回答合併到計算或實驗，保留原有公式、必要假設與 22 個實驗。U1.0／U1.4 版本為 5，其餘為 4。不要再把每段拆成互相確認的碎句來增加互動。
+
+## 2026-10-16：讓學生加入夥伴的討論
+
+2026-10-17 延伸至 U1 全系列：保留使用者確認的 U1.0 開場，將其餘方法說明與 U1.1–U1.5 的敘述改為接續彼此想法的 `Exchange`。先提出手上能做的動作、檢查缺口，再進既有思考與實驗；完整推導另保留為可逐步展開的計算板，前面新增對話說清楚為什麼需要這段計算，不讓自動播放代替推導操作。U1.0／U1.4 的閱讀版本為 4，其餘為 3，中英文一致。
+
+使用者再次強調初衷：知識秘境要能獨立學習，對話設計須幫助學生形成問題、提出做法、檢查缺口，再建立方法。只替旁白加名字、套用指定文句或完成頁面生成，都不足以達成這個目的。
+
+- 夥伴要接著上一個人的想法追問、補充或檢查，避免輪流講完各自的段落。角色可以有合理但尚未完整的想法，不固定一人永遠知道答案。
+- 使用者指定每個對話框都要更像實際說話：用短句、自然接話和第一人稱，避免讓角色朗讀書面段落或教學規格。保留 input／function／loss 等必要術語與數學的精確意思；口語化不靠刻意裝可愛、誇張驚嘆或把定義省掉。以一句實際能說出口的話安排每個 Sentence 的停頓。
+- 學生是討論的參與者。在關鍵推論尚未說完時，用開放問題讓讀者提出判斷、要看的證據或下一個做法，再讀夥伴的後續討論。不用一眼就能猜作者偏好的選擇題代替這個過程。
+- 必要定義仍完整教，不把所有定義寫成假裝能答的測驗。使用者隨後指定「話一句一句出來」：同一段討論內每次展開一句，由讀者按「接著聽」控制速度；真正的推理問題另用 Think 停下來。
+- 數學與實驗由討論中的需求引出。讀者應能說出現在缺什麼、為什麼需要這個量，以及接下來如何驗證；不以看過台詞或跑完程式當作學會。
+
+U1.0 先以 Nori／Lumi 討論動物照片開始，在提出「只畫新狗、沒有貓」後停下來讓讀者設計判斷，再從整批結果引出分布。照片向量、data law、density 與一維示範分開處理；三條方法的入口也改為提案與追問。中英文版本同步為 3。
+
+`Exchange` 是沿用 `data-kind="say"` 的單一主線節點；內含 `Speech partner pose`，每句用 `Sentence` 明確分段，公式另成一段，不在瀏覽器用標點硬切數字與數學。首次只露第一句，按「接著聽」再露一句，保留前文；尚未輪到的角色不先出現。全部展開才開放主線繼續，真正的思考點另外用 `Think`。句子不產生主線子節點或額外存檔；續讀已完成的討論還原全文，尚未完成的討論由第一句開始。可從這段重聽，已讀完後重聽不重新鎖住主線。手機的角色顯示在發言上方，避免擠壓公式寬度。停用 JavaScript 仍可讀完整討論。
+
+2026-10-17 使用者新增可選「自動播放對話」：預設保留手動逐句；開啟後依句子長度留閱讀時間、淡入同一位夥伴的下一句，到換人處一定停下，按「下一位」才開始另一位的發言。播放中可顯示這位的完整發言或關閉開關，保留已出現的內容；本頁各段共用開關，不額外寫入存檔。自動播放不切換主線、不越過思考題，離開分支或頁面進入背景時停止計時，回到頁面後再接著播。自動展開不搶鍵盤焦點，淡入與捲動尊重 reduced motion；無 JavaScript 與列印仍直接提供全文。
+
+播放速度可選 0.5×、1×、1.5×、2×，同時調整句間閱讀停頓與淡入時間；本頁各段同步設定，播放中切換會重新安排下一句，不一次傾倒未讀內容，也不跨過換人處。
+
+## 2026-10-16：U1 的多實驗問題鏈
+
+**本次教學改寫優先於下方初版的實驗安排。** 使用者指出初版像是替 notes 佐證的 lab：口吻不符、缺少目的與操作的引導，太早給公式和結果。秘境必須是一條可獨立學習的路，notes 是另一條連續閱讀路徑。不能以實驗數量、可執行程式或技術驗收代替教學驗收。
+
+使用者進一步指定 U1.0 的用詞與讀者前提：標題採「我們有一批資料，要怎麼讓模型學會生成類似的資料呢？」；由 Nori 第一人稱提出「我手上收集了很多動物的照片」，再邀請讀者一起想怎麼讓神經網路生成新照片。讀者已知道資料是 input、神經網路是 function、loss 衡量目前 function 距離目標多遠，並會用 gradient descent 優化。從這些已有工具引出「生成任務與 loss 怎麼設計」，保留使用者提供的口吻，不自行改成抽象的課程宣告。
+
+U1.0 改為三條完整方法探索，各自從需求、構造、loss 走到計算與實作，最後才比較。U1.1 依序處理：沒有配對 → 選擇能做的破壞方向 → 反向起點的要求 → 只加 noise 的尺度問題 → 由 variance 條件選縮放係數 → 具體兩步操作 → Markov 與 Gaussian 的角色 → 訓練成本才引出直接抽樣式 → 檢查終點。第一個實驗只比較逐步 VP 與逐步 additive，不提前教抽樣捷徑。
+
+U1.2 先檢查反解缺少的資訊，再分清 target 與網路 input，從可算 posterior、objective 等價與 model family 得到 regression；完整交代 training example、label、參數更新及生成的資訊。U1.3 先讓讀者處理來源歧義與平方誤差，再引入 score、推導與兩種移動規則。U1.4 保留完整 SDE／ODE 路徑，新增訓練快照、noise variance、時間方向與 probability flux 的推理入口。U1.5 先提出受控比較，再執行與判讀，不在觀察前指定原因。中英文主線對應，版本改為 2（U1.4 為 3）。
+
+使用者指定先實作 U1.0–U1.5，並明確要求每篇不限制只能有一個實驗，可運算的補充也提供實作。六篇各有中英文版本，同屬 `dma-u1-diffusion` 系列；U2、U3 仍為規劃。各篇對應來源 note label，現行編號仍由 notes metadata 產生。
+
+`DiffusionExperiment` 有 13 個計算模式，在六篇共出現 22 次：獨立配對 generator regression、RBF EBM、monotone nonlinear normalizing flow、forward、prior、reverse、denoiser training、clean posterior、posterior-mean map、fixed-time score sampling、prediction equivalence、cross-time coupling、reverse sampling。純計算在 `dojoDiffusion.ts`，長運算使用獨立 Worker；`dojoDiffusionPython.ts` 產生自足 NumPy／Matplotlib 程式，只附該模式需要的 helpers。
+
+EBM 真的在有限網格正規化並以 data/model feature expectations 更新 energy。Flow 為 G(z)=b+az+c tanh(dz)，a、c、d 正，使用 inverse、Jacobian 與 implicit differentiation 真正訓練 likelihood；不是用預設曲線當結果。Denoiser 是輸入 (xₜ,t) 的 32-unit tanh MLP，explicit backprop／Adam，以 ε、clean 或 v labels 訓練，生成只使用 learned prediction；held-out error 換到共同 ε 座標。解析 score 與 posterior 另外標明，不能冒充 trained network。
+
+每個實驗保留預測、A／B、自由改設定、實際 histogram、訓練／field／trajectory 證據與判讀。執行不直接開放主線，對照解釋後才取得繼續；Python 成功只打開判讀。圖表附 actual settings，不把新控制項或 Python 結果冒充原生舊圖。閱讀存檔仍不含參數、samples、weights、文字或程式。
+
+U1.4 的 reverse SDE 與 PF-ODE 是完整必讀 `MethodPath`，讀過最後的設定、推導、實驗與限制才標記，再進共同 A／B、最後統整與新情境。Continuous solvers 截止 t=.001，參考線也是該時刻 law；DDPM／DDIM 可到 0，但 finite-step Gaussian/mean substitution 不宣稱精確終點抽樣。故意錯誤的 bad-skip、noise-off、independent inverse 都清楚標明，不能拿它們當正確 sampler 範例。
 
 ## 2026-10-16：U7.1–U7.3 的分布、posterior、粒子與 source 實作
 
