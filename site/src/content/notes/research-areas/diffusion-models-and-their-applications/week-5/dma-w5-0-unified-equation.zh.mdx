@@ -12,7 +12,7 @@ title: "Stochastic Interpolant: 統一 Flow 與 Diffusion"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-10-04
+updated: 2026-10-18
 summary: "Stochastic interpolant 把端點、路徑與額外 randomness 寫進同一個物件，再從它導出 marginal path、velocity、score、ODE 與 SDE；同一套架構也說清楚 regression error 分別如何控制 ODE 的 Wasserstein error 與 SDE 的 KL error。"
 demos:
   - "notes/research_areas/diffusion-models-applications/w5-0-gamma.html"
@@ -35,6 +35,7 @@ references:
     href: "https://proceedings.neurips.cc/paper_files/paper/2025/hash/0ca819b3e8126e19a008c38cd0c371ea-Abstract-Conference.html"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
@@ -46,6 +47,9 @@ import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
+import SlideFigure from '../../../components/SlideFigure.astro';
+import couplingFigure from '../week-4/imgs/slides/w4-s48-coupling.png';
+import randomnessFigure from '../week-4/imgs/slides/w4-s49-extra-randomness.png';
 
 # Stochastic Interpolant: 統一 Flow 與 Diffusion
 
@@ -112,6 +116,10 @@ $$
 
 但如果我們已經知道每個人的位置，就可以把靠近象山的人優先配到象山站、靠近市政府的人優先配到市政府站，同時維持每個車站原本的人數。兩種方法的 $p_0$ 與 $p_1$ 完全相同，改變的只有「誰和誰配成一組」——也就是 coupling。
 
+<SlideFigure id="u2-coupling" src={couplingFigure} slide={48} crop={[25, 112, 1625, 610]} alt="同一批起點與兩個捷運站的終點，隨機配對產生交叉路線，結構化配對則較平行">
+圖：兩端的人群與各站人數保持不變；改變 coupling $\pi$，只改變誰被配到哪一站，卻會改變中途的 reference paths 與 $p_t$。
+</SlideFigure>
+
 有了抽取端點的方法後，我們才替每一組 $(x_0,x_1)$ 建立 reference path。例如，
 
 $$
@@ -164,15 +172,24 @@ Reference path 是用來製造 training label 的路；stochastic interpolant �
 
 那能不能保留起點與終點，卻讓中間的人群不要擠得那麼尖？這套架構的做法是：在 reference path 外，再加入一個獨立的 Gaussian random variable $Z$，
 
-$$
-\boxed{
-X_t
-=
-\sigma_tX_0+\alpha_tX_1+\gamma_tZ,
-\qquad
-(X_0,X_1)\sim\pi,\qquad Z\sim\mathcal N(0,I).
-}
-$$
+<FormulaSteps
+  id="stochastic-interpolant"
+  compact
+  title="把端點、路徑與額外 randomness 接起來"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{1}{(X_0,X_1)\sim\pi,}\\
+    \reveal{3}{Z\sim\mathcal N(0,I).}\\
+    \reveal{2}{X_t=\sigma_tX_0+\alpha_tX_1}
+    \reveal{3}{+\gamma_tZ.}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先決定誰和誰配成一組", text: String.raw`從 coupling $\pi$ 抽出一組端點 $(X_0,X_1)$。兩端各自的 distribution 不變，但配對方式可以設計。` },
+    { label: "再替這組端點算中途位置", text: String.raw`$\sigma_tX_0+\alpha_tX_1$ 是這組端點在 reference path 上的位置；係數控制兩端如何交接。` },
+    { label: "最後替中途留一點寬度", text: String.raw`另外獨立抽出 Gaussian $Z$，加上 $\gamma_tZ$。同一組端點現在能產生周圍的 training points；$\gamma_0=\gamma_1=0$ 保留兩端。` },
+  ]}
+/>
 
 這裡沿用 U2.3 的時間方向與符號：$t=0$ 是起點、$t=1$ 是終點。因此
 
@@ -185,6 +202,10 @@ $$
 $$
 
 在散場的畫面裡，$\gamma_tZ$ 就像讓每個人在 reference path 周圍保留一點活動空間，而不是所有人都踩在同一條細線上。因為 $\gamma_0=\gamma_1=0$，它不會改變兩端；改變的是中間每一張空拍照。
+
+<SlideFigure id="u2-extra-randomness" src={randomnessFigure} slide={49} crop={[25, 105, 1625, 515]} alt="固定同一對端點，沒有額外 noise 時只有一條細路，加入 γ_t Z 後中途形成有寬度的通道">
+圖：固定同一對端點、改抽 $Z$，中途位置就散開成有厚度的通道。$\gamma_0=\gamma_1=0$ 保留兩端；這是 interpolant 的 randomness，與 SDE 每一步的 Brownian increment 不同。
+</SlideFigure>
 
 <Remark label="論文中的結果" summary="加入 $\gamma_tZ$ 有什麼理論與實務上的好處？">
 令 $p_t^{(0)}$ 表示沒有額外 noise 時的中間 distribution。因為 $Z$ 是獨立 Gaussian，加入 $\gamma_tZ$ 後會精確得到
@@ -249,13 +270,27 @@ $$
 
 這個 reference velocity 可以直接算，所以和 U2.1 一樣，把 $(X_t,t)$ 當輸入、$\dot X_t$ 當 label：
 
-$$
-\mathcal L_v(\theta)
-=
-\mathbb E\!\left[
-\left\|v_\theta(X_t,t)-\dot X_t\right\|^2
-\right].
-$$
+<FormulaSteps
+  id="interpolant-velocity-loss"
+  compact
+  title="把所有可產生的 reference velocities 當成學習目標"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{1}{\mathcal L_v(\theta)=}\\
+    \reveal{5}{\mathbb E\!\left[
+    \reveal{4}{\left\|\reveal{2}{v_\theta}\reveal{1}{(X_t,t)}
+    \reveal{3}{-\dot X_t}\right\|^2}
+    \right].}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先製造網路看得到的 input", text: String.raw`抽出時間 $t$、端點 $(X_0,X_1)\sim\pi$ 與獨立的 $Z$，便能算出 $X_t$。網路收到的是 $(X_t,t)$。` },
+    { label: "讓網路回答此刻的速度", text: String.raw`$v_\theta(X_t,t)$ 是網路對這個時間、這個位置的速度預測。` },
+    { label: "同一次抽樣也給出 label", text: String.raw`剛才那組 $(X_0,X_1,Z)$ 決定了 $\dot X_t=\dot\sigma_tX_0+\dot\alpha_tX_1+\dot\gamma_tZ$。這是可以直接算出的 reference velocity。` },
+    { label: "先比較這一筆的平方誤差", text: String.raw`把預測減去 reference velocity，再取平方長度，量出這一筆資料的速度誤差。` },
+    { label: "再參考所有能產生的 label", text: String.raw`對時間、端點與額外的 $Z$ 取平均，也就是考慮這個抽樣方式下所有能產生的 label，參考所有的 reference velocities 作為學習目標。` },
+  ]}
+/>
 
 固定 $(x,t)$ 後，L2 regression 仍然會把所有可能經過這裡的 velocities 取平均，因此
 
@@ -318,16 +353,26 @@ $$
 
 所以只要 $\gamma_t>0$，就可以沿用 U1.3 的 Tweedie 公式：
 
-$$
-\boxed{
-\nabla_x\log p_t(x)
-=
--\frac{1}{\gamma_t}\,
-\mathbb E[Z\mid X_t=x]
-=
--\frac{\eta_t^*(x)}{\gamma_t}.
-}
-$$
+<FormulaSteps
+  id="interpolant-noise-score"
+  compact
+  title="從已知的 Gaussian label 得到 score"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{4}{\nabla_x\log p_t(x)=}\\
+    \reveal{4}{-\frac{1}{\gamma_t}}
+    \reveal{3}{\mathbb E[\reveal{2}{Z\mid}\reveal{1}{X_t=x}]}\\
+    \reveal{5}{=-\frac{\eta_t^*(x)}{\gamma_t}.}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先固定觀察到的位置", text: String.raw`我們已經看到時間 $t$ 的位置 $X_t=x$；現在只考慮能產生這個觀察的可能來路。` },
+    { label: "再看各種來路用到的 Gaussian", text: String.raw`每一種來路都帶著一個 $Z$，表示它相對於 conditional Gaussian 中心的偏移。` },
+    { label: "把相容的偏移取平均", text: String.raw`$\mathbb E[Z\mid X_t=x]$ 把這些可能的 Gaussian labels，按它們在此處的 conditional distribution 取平均。` },
+    { label: "用 Tweedie 換成 score", text: String.raw`當 $\gamma_t>0$，把平均的 $Z$ 乘上 $-1/\gamma_t$，就得到這個位置的 score。負號與尺度來自前面的 Gaussian score 推導。` },
+    { label: "換成 regression 學到的量", text: String.raw`$Z$-regression 的最佳解正是 $\eta_t^*(x)=\mathbb E[Z\mid X_t=x]$，所以它可以直接代入同一條式子。` },
+  ]}
+/>
 
 直覺上，$\gamma_tZ$ 把每一條 conditional path 撐成一條有厚度的通道；預測「我在通道裡偏離中心多少」，也就告訴我們哪個方向的 density 比較高。
 
@@ -665,10 +710,6 @@ $\gamma_tZ$ 提供平滑的 conditional density，讓 score 可以透過 regress
 所以後面的問題要分開處理：U3 會先研究 reference paths 交叉後產生的彎曲，接著用 reflow 與 minibatch OT 改善 coupling；<Ref to="dma-lab-interpolants" /> 再實際比較 $\varepsilon_t$ 改變時，誤差修正能力與 numerical cost 如何取捨。
 </Answer>
 </Question>
-
-![Reference path、coupling 與額外 randomness](./imgs/w5-0-1.png)
-
-*圖：path、coupling 與額外 randomness 共同決定 stochastic interpolant，也共同決定中間的 marginal distributions。*
 
 ## 快速回顧一下
 

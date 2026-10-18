@@ -10,7 +10,7 @@ title: "沿著人潮學會怎麼走"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-10-05
+updated: 2026-10-18
 summary: "知道起點與終點後，我們可以先畫出參考路徑；L2 regression 會把經過同一位置的速度取平均，得到 Flow ODE 需要的 velocity field。"
 demos:
   - "notes/research_areas/diffusion-models-applications/w4-1-reference-paths.html"
@@ -30,6 +30,12 @@ import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
+import SlideFigure from '../../../components/SlideFigure.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
+import referenceFigure from './imgs/slides/w4-s18-reference-path.png';
+import trainingFigure from './imgs/slides/w4-s24-training-pair.png';
+import meanFigure from './imgs/slides/w4-s26-conditional-mean.png';
+import eulerFigure from './imgs/slides/w4-s28-euler-queries.png';
 
 # 沿著人潮學會怎麼走
 
@@ -62,6 +68,10 @@ import Ref from '../../../components/Ref.astro';
 $$
 I_t(x_0,x_1).
 $$
+
+<SlideFigure id="u2-reference-path" src={referenceFigure} slide={18} crop={[35, 150, 1115, 575]} alt="地圖上從藍色起點 x0 到橘色終點 x1 的參考路徑，行人位置標為 I_t(x0,x1)">
+圖：先知道起點 $x_0$ 與終點 $x_1$，才能替這一組端點畫出 $I_t(x_0,x_1)$；路線可以彎，也可以直接選直線。
+</SlideFigure>
 
 最簡單暴力的選擇，自然就是橫衝直撞地走直線：
 
@@ -110,18 +120,35 @@ $$
 
 我們也可以讓神經網路做一模一樣的事情。每一條 reference path 都告訴我們：在位置 $I_t$、時間 $t$ 時，應該有一個 reference velocity $\dot I_t$。於是，我們把它當成 label，直接做 regression：
 
-$$
-\boxed{
-\mathcal L_{\mathrm{CFM}}(\theta)
-=
-\mathbb E_{t,(X_0,X_1)}
-\left[
-\left\|v_\theta(I_t,t)-\dot I_t\right\|^2
-\right].
-}
-$$
+<FormulaSteps
+  id="cfm-loss"
+  compact
+  title="怎麼讓模型跟著這個人的速度走？"
+  formula={String.raw`
+    \begin{gathered}
+      \reveal{1}{\mathcal L_{\mathrm{CFM}}(\theta)=} \\[.25em]
+      \reveal{5}{\mathbb E_{t,(X_0,X_1)}\big[}
+      \reveal{4}{\big\|}
+      \reveal{2}{v_\theta}\reveal{1}{(I_t,t)}
+      \reveal{3}{-\dot I_t}
+      \reveal{4}{\big\|^2}
+      \reveal{5}{\big].}
+    \end{gathered}
+  `}
+  steps={[
+    { label: '準備輸入', text: String.raw`抽一組端點與時間 $t$，算出位置 $I_t$，得到輸入 $(I_t,t)$。` },
+    { label: '模型給出速度', text: String.raw`讓模型在這個位置與時間，給出速度 $v_\theta(I_t,t)$。` },
+    { label: '參考速度作為 label', text: String.raw`這個人當下的速度是 $\dot I_t$；拿它當 label，與模型的速度相減。` },
+    { label: '衡量平方誤差', text: '把速度差的長度取平方，衡量這一次跟得有多接近。' },
+    { label: '對抽樣取平均', text: String.raw`再對不同時間 $t$ 與端點 $(X_0,X_1)$ 的平方誤差取平均，也就是考慮所有我們能產生的 label，參考所有的速度作為學習目標。` },
+  ]}
+/>
 
 也就是說，每次看到一條 reference path，$v_\theta$ 都會被要求：**站在 $I_t$ 這個位置時，盡量跟這個人的速度 $\dot I_t$ 一樣。**
+
+<SlideFigure id="u2-training-pair" src={trainingFigure} slide={24} crop={[25, 172, 1625, 350]} alt="依序抽出端點、抽出時間 t、算出位置 I_t，再計算該位置的速度 label">
+圖：一筆 training pair 的製造流程。直線只用來算出輸入 $(I_t,t)$ 與速度 label $\dot I_t$，不需要先跑一趟 ODE。
+</SlideFigure>
 
 每次 training 時，我們只需要抽一組端點與時間 $t$，就能直接算出 $I_t$ 與 $\dot I_t$，不必先解 ODE、真的模擬一條 trajectory，才能製造這組 training pair。Lipman 等人的 Flow Matching 原論文 [1] 把這種訓練方式稱為 **simulation-free training**。
 
@@ -133,22 +160,34 @@ $$
 
 咦？還記得我們在 **U1** 看過的事情嗎？當一個函數必須同時對很多不同的 target 最小化 L2 距離時，最好的選擇就是：**取平均。**
 
-<Ref to="math-mse-conditional-expectation">M1.2</Ref> 已經證過：固定輸入之後，L2 regression 的最佳解就是 label 的 conditional mean。現在只要把輸入換成 $(I_t,t)$，把 label 換成 $\dot I_t$，就得到
+<Ref to="math-mse-conditional-expectation">M1.2</Ref> 已經證過：固定輸入之後，L2 regression 的最佳解就是 label 的 conditional mean。現在只要把輸入換成 $(I_t,t)$，把 label 換成 $\dot I_t$。先把 $I_t(X_0,X_1)$ 簡寫成 $I_t$，照剛才的想法，一部分一部分寫出來：
 
-$$
-\boxed{
-v_t^*(x)
-=
-\mathbb E\!\left[
-\dot I_t(X_0,X_1)
-\mid I_t(X_0,X_1)=x
-\right].
-}
-$$
+<FormulaSteps
+  id="conditional-velocity"
+  compact
+  title="站在同一個街口，該聽誰的？"
+  formula={String.raw`
+    \reveal{1}{v_t^*(x)=}
+    \reveal{4}{\mathbb E\big[}
+    \reveal{3}{\dot I_t\mid}
+    \reveal{2}{I_t=x}
+    \reveal{4}{\big]}
+  `}
+  steps={[
+    { label: '現在要選的速度', text: String.raw`在時刻 $t$、位置 $x$，該怎麼選速度？` },
+    { label: '同一時刻、同一位置', text: String.raw`先看此刻經過 $x$ 的人：$I_t=x$。` },
+    { label: '他們各自的速度', text: String.raw`再看他們各自的方向與速度：$\dot I_t$。` },
+    { label: '取條件平均', text: '依這個條件下的可能性，把這些速度取平均。' },
+  ]}
+/>
 
 這條式子的意思，其實就是剛才的散場例子：
 
 > **站在 $x$，看看所有可能在時間 $t$ 經過這裡的人，再把他們的方向與速度取平均。**
+
+<SlideFigure id="u2-conditional-mean" src={meanFigure} slide={26} crop={[140, 180, 1380, 400]} alt="同一位置的三個橘色參考速度，經 L2 regression 合成一個深藍色平均速度">
+圖：固定 $(x,t)$ 後，橘色箭頭表示相容的 reference velocities；深藍色箭頭是依它們的條件機率平均後得到的 $v_t^*(x)$。
+</SlideFigure>
 
 所以，L2 objective 和 conditional expectation 並不是兩個分開的技巧。**L2 objective 是我們實際拿來訓練的方法；conditional expectation，則是它在理想情況下學到的 velocity field。**
 
@@ -160,20 +199,24 @@ $$
 
 ## 訓練完之後，要怎麼真的沿著這個 field 走？
 
-訓練完成後，模型給我們的是：站在任意位置 $x$、時間 $t$，現在應該往哪裡走。要生成資料，我們先從起點 distribution 抽一個 $x^{(0)}\sim p_0$，再解
+訓練完成後，模型給我們的是：站在任意位置 $x$、時間 $t$，現在應該往哪裡走。要生成資料，我們先在 $t_0=0$ 從起點 distribution 抽一個 $x_{t_0}\sim p_0$，再解
 
 $$
 \frac{\mathrm dx_t}{\mathrm dt}=v_\theta(x_t,t).
 $$
 
-一般來說，這條 ODE 沒有 closed-form solution。所以實作時，我們會把 $0$ 到 $1$ 這個區間切成許多小段 $[t_k,t_{k+1}]$，再用 numerical solver 做近似迭代。像是最簡單的 Euler method 會採用
+一般來說，這條 ODE 沒有 closed-form solution。所以實作時，我們會把 $0$ 到 $1$ 這個區間切成許多小段 $[t_k,t_{k+1}]$，再用 numerical solver 做近似迭代。沿用圖中的 notation，這一段用 $x_{t_k}$ 記 sampler 在時間 $t_k$ 算出的近似位置；若使用固定步長 $\Delta t=t_{k+1}-t_k$，最簡單的 Euler method 會採用
 
 $$
-x^{(k+1)}
+x_{t_{k+1}}
 =
-x^{(k)}+\Delta t\,
-v_\theta\!\left(x^{(k)},t_k\right).
+x_{t_k}+\Delta t\,
+v_\theta\!\left(x_{t_k},t_k\right).
 $$
+
+<SlideFigure id="u2-euler-queries" src={eulerFigure} slide={28} crop={[30, 775, 765, 125]} alt="Euler 生成時交替詢問目前位置的 velocity，再走一步，並於新位置重新詢問">
+圖：在 $x_{t_k}$ 詢問 $v_\theta(x_{t_k},t_k)$，再沿這個 velocity 走 $\Delta t$，得到 $x_{t_{k+1}}$；下一步從新位置重新詢問。
+</SlideFigure>
 
 這條式子其實就很像迷路的人實際採用的做法：**先問一次現在該往哪裡走，沿著這個方向走一小步，再從新的位置重新問一次。** 每一步都要呼叫一次網路；而且就像黎曼積分一樣，通常切得越細，就走得越準，但生成也會越慢。
 

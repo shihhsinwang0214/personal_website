@@ -9,7 +9,7 @@ title: "拉直（一）：Reflow"
 category: "courses"
 group: "Unit 3 · 減少 ODE 的離散化誤差"
 status: "available"
-updated: 2026-10-09
+updated: 2026-10-18
 summary: "用上一輪 ODE 的端點重新畫直線，再平均出下一輪的 velocity。理想情況下，平方運輸成本的下降量正好是 reference velocity variance 與新 trajectory 的 straightness 相加；成本逐輪不增加，但這兩個量不保證逐輪變小。"
 demos:
   - "notes/research_areas/diffusion-models-applications/w5-3-crossing-reflow.html"
@@ -23,6 +23,12 @@ references:
     href: "https://arxiv.org/abs/2403.03206"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
+import SlideFigure from '../../../components/SlideFigure.astro';
+import rectificationLoopSlide from './imgs/slides/w5-s30-rectification-loop.png';
+import referenceVarianceSlide from './imgs/slides/w5-s36-reference-variance.png';
+import straightnessSlide from './imgs/slides/w5-s34-trajectory-straightness.png';
+import bestIterateSlide from './imgs/slides/w5-s39-best-iterate.png';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
@@ -121,9 +127,9 @@ $$
 
 原論文把這個**反覆進行 rectification 的程序**稱為 **reflow**。
 
-![Rectification 是一個迴圈](./imgs/w5-3-1.png)
-
-*圖：Rectification 是一個迴圈。從配對學出速度場、跑 ODE 取得新終點，再用新配對重訓；理想情況下，straightness 最終會趨近零，但不保證每一輪都比上一輪小。*
+<SlideFigure id="u3-rectification-loop" src={rectificationLoopSlide} week={5} slide={30} alt="Rectification 的三步：由舊 coupling 畫 reference lines，平均出新的 velocity 並解 ODE，再把同一條 trajectory 的兩端配成新的 coupling。">
+從左往右看：$\pi^{(k)}$ 決定直線 $I_t^{(k)}$，它們的 conditional mean velocity $v_t^{(k+1)}$ 決定新 ODE $Z_t^{(k+1)}$，最後收集兩端得到 $\pi^{(k+1)}$。紫色箭頭把新配對送回下一輪；保留的是端點，下一輪仍要重新畫 reference lines、重新學 velocity。
+</SlideFigure>
 
 ## 上下交叉後，ODE 會怎麼走？
 
@@ -198,23 +204,37 @@ $$
 I_t^{(k)}=(1-t)Z_0^{(k)}+tZ_1^{(k)}.
 $$
 
-這條直線的 reference velocity 是 $Z_1^{(k)}-Z_0^{(k)}$。依照 U2.1 的 L2 regression，將這一輪由舊配對決定的 optimal velocity 記成
+這條直線的 reference velocity 是 $Z_1^{(k)}-Z_0^{(k)}$。依照 U2.1 的 L2 regression，為了和圖中的輪次一致，將舊配對 $\pi^{(k)}$ 決定、用來產生新 ODE 的 optimal velocity 記成
 
-$$
-v_t(x)=\mathbb E\!\left[
-Z_1^{(k)}-Z_0^{(k)}\mid I_t^{(k)}=x
-\right].
-$$
+<FormulaSteps
+  id="reflow-conditional-velocity"
+  compact
+  title="用舊配對重新平均下一輪的速度"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{4}{v_t^{(k+1)}(x)=}\\
+    \reveal{3}{\mathbb E\!\left[
+    \reveal{2}{Z_1^{(k)}-Z_0^{(k)}\mid}
+    \reveal{1}{I_t^{(k)}=x}\right].}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先固定下一輪要回答的 input", text: String.raw`在時間 $t$、位置 $x$，只看舊配對重新畫出的直線中，哪些滿足 $I_t^{(k)}=x$。` },
+    { label: "找出這些直線提供的 label", text: String.raw`每一條相容直線的速度，都是它的舊端點位移 $Z_1^{(k)}-Z_0^{(k)}$。` },
+    { label: "把相容的 reference velocities 平均", text: String.raw`對這些速度取 conditional expectation。平均的權重由本輪 coupling $\pi^{(k)}$ 決定。` },
+    { label: "得到用來產生新 ODE 的 field", text: String.raw`這個平均就是 $v_t^{(k+1)}(x)$。它要由本輪的 reference paths 重新決定；不是把上一輪的 field 再積分一次。` },
+  ]}
+/>
 
 下一輪不是沿用舊 trajectory 的 velocity，而是沿著這個重新平均出來的 field 前進：
 
 $$
 \frac{\mathrm dZ_t^{(k+1)}}{\mathrm dt}
-=v_t(Z_t^{(k+1)}),
+=v_t^{(k+1)}(Z_t^{(k+1)}),
 \qquad Z_0^{(k+1)}=Z_0^{(k)}.
 $$
 
-**舊 ODE 的端點決定新的 reference paths；它們平均出的 velocity，再決定新的 ODE trajectory。** 每一輪的 $v_t$ 都由當輪的 $\pi^{(k)}$ 重新決定，不是把同一個 field 反覆積分。
+**舊 ODE 的端點決定新的 reference paths；它們平均出的 velocity，再決定新的 ODE trajectory。** 每一輪的 $v_t^{(k+1)}$ 都由當輪的 $\pi^{(k)}$ 重新決定，不是把同一個 field 反覆積分。
 
 **（一）保留 marginals。** Rectification 重新安排的是「每個起點要配到哪個終點」，不是兩端各自的 distribution。新的 ODE 仍從原本的起點出發，因此
 
@@ -244,39 +264,63 @@ $$
 
 回到散場的例子，這個量比較的是每個人被分配到的目的地有多遠，不是他沿 ODE 實際走過的路有多長。那從舊配對產生下一輪後，$C^{(k)}-C^{(k+1)}$ 究竟會是多少？
 
-先看舊 reference paths。站在同一個時間、位置，不同的人可能要求不同的 velocity，而 $v_t$ 只能給它們的平均。原論文 [1] 用 $V$ 量出這些 reference velocities 離平均有多遠：
+先看舊 reference paths。站在同一個時間、位置，不同的人可能要求不同的 velocity，而 $v_t^{(k+1)}$ 只能給它們的平均。原論文 [1] 用 $V$ 量出這些 reference velocities 離平均有多遠：
 
 $$
 V(\pi^{(k)})
 =\int_0^1\mathbb E\!\left[
 \left\|
-\left(Z_1^{(k)}-Z_0^{(k)}\right)-v_t(I_t^{(k)})
+\left(Z_1^{(k)}-Z_0^{(k)}\right)-v_t^{(k+1)}(I_t^{(k)})
 \right\|^2
 \right]\mathrm dt.
 $$
 
 這就是 **conditional variance**：先固定 $(x,t)$，看相容的 reference velocities 有多不一致，再對位置與時間平均。向量的平方 norm 會把各分量的 variance 加總成一個數。$V=0$ 時，幾乎所有 $(x,t)$ 上的 reference velocities 都已經一致；它不是神經網路沒學好的誤差。
 
+<SlideFigure id="u3-reference-variance" src={referenceVarianceSlide} week={5} slide={36} crop={[20, 150, 1632, 290]} alt="在相同時間與位置，兩個 reference velocities 為 2,1 與 2,-1，平均為 2,0；若 reference velocities 一致，conditional variance 就是零。">
+固定 $I_t^{(k)}=x$ 後，左圖仍可能看到不同的 $\dot I_t^{(k)}$；它們與平均 $v_t^{(k+1)}(x)$ 的平方距離，構成這裡的 conditional variance。$V$ 再對位置與時間平均。右圖的 reference velocities 全部一致，因此這個位置的 conditional variance 是零。
+</SlideFigure>
+
 再看新的 ODE trajectory。即使每個位置只給出一個 velocity，同一個人沿途看到的 velocity 還是可能改變。因為時間區間是 $[0,1]$，這條 trajectory 的平均 velocity 就是總位移：
 
 $$
-\int_0^1 v_t(Z_t^{(k+1)})\,\mathrm dt
+\int_0^1 v_t^{(k+1)}(Z_t^{(k+1)})\,\mathrm dt
 =Z_1^{(k+1)}-Z_0^{(k+1)}.
 $$
 
 因此，我們可以看**同一條 trajectory 沿時間的 velocity variance**，再對隨機起點取平均。Liu、Gong 與 Liu 的原論文 [1] 把這個量稱為 **straightness**：
 
-$$
-S(Z^{(k+1)})
-=\int_0^1\mathbb E\!\left[
-\left\|
-\left(Z_1^{(k+1)}-Z_0^{(k+1)}\right)
--\frac{\mathrm d Z_t^{(k+1)}}{\mathrm dt}
-\right\|^2
-\right]\mathrm dt.
-$$
+<FormulaSteps
+  id="trajectory-straightness"
+  compact
+  title="同一個人的速度沿途有多不一致"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{5}{S(Z^{(k+1)})=}\\
+    \reveal{5}{\int_0^1}\reveal{4}{\mathbb E\!\Big[
+    \reveal{3}{\left\|
+    \begin{gathered}
+    \reveal{2}{Z_1^{(k+1)}-Z_0^{(k+1)}}\\
+    -\reveal{1}{\frac{\mathrm d Z_t^{(k+1)}}{\mathrm dt}}
+    \end{gathered}
+    \right\|^2}
+    \Big]}\reveal{5}{\mathrm dt.}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先看同一個人此刻怎麼走", text: String.raw`$\mathrm dZ_t^{(k+1)}/\mathrm dt$ 是新 ODE trajectory 上，這個人當下的 velocity。` },
+    { label: "再問等速直達需要什麼速度", text: String.raw`整段時間長度是 $1$，所以端點位移 $Z_1^{(k+1)}-Z_0^{(k+1)}$ 就是這個人整段路的平均 velocity。` },
+    { label: "比較瞬間與整段平均", text: String.raw`把當下 velocity 與這個人自己的平均 velocity 相減，再取平方長度。這一步沒有把不同人的速度混成同一個平均。` },
+    { label: "對隨機起點取平均", text: String.raw`換一個起點便換一條 ODE trajectory；期望值把各條路上同一種平方偏差平均起來。` },
+    { label: "再累積整段時間", text: String.raw`最後對 $t\in[0,1]$ 積分，得到 straightness $S$。若 $S=0$，幾乎每個人的 velocity 沿途都等於自己的端點位移，也就是等速直線。` },
+  ]}
+/>
 
 $S(Z^{(k+1)})=0$ 時，幾乎每一條 ODE trajectory 都以固定速度走直線，因此一步 Euler 就能精確走到終點。不同人可以有不同速度；$S$ 比較的是**同一個人的速度沿途有沒有變**，不是把所有人的速度混在一起算 variance。
+
+<SlideFigure id="u3-trajectory-straightness" src={straightnessSlide} week={5} slide={34} alt="對 trajectory Z_t=(t,t²)，比較瞬間 velocity (1,2t) 和端點位移 (1,1)，用兩者的差說明 straightness。">
+先只看一條 $Z_t=(t,t^2)$：端點位移是 $Z_1-Z_0=(1,1)$，但瞬間 velocity 是 $\dot Z_t=(1,2t)$。在 $t=\tfrac14$，兩支箭頭分別為 $(1,1)$ 與 $(1,\tfrac12)$。因此這條路的 $S=\int_0^1(1-2t)^2\,\mathrm dt=\tfrac13$；一般情況再對隨機起點取期望。圖省略了輪次，上文的新 trajectory 則記成 $Z_t^{(k+1)}$。
+</SlideFigure>
 
 <Details summary="straightness 和 U3.1 的加速度積分有什麼關係？">
 這裡的 straightness 和 <Ref to="dma-error-theory">U3.1</Ref> 使用的加速度積分
@@ -299,29 +343,29 @@ $$
 所以 straightness 等於零時，U3.1 控制 Euler error 的加速度積分也等於零；但在一般情況下，兩個數值不必一起變大或變小。Reflow 的定理直接控制的是下面的 $S+V$，要把它連到 finite-step error，仍然要使用 U3.1 的分析。
 </Details>
 
-接著把兩個 variance 接進成本計算。舊 reference velocity 可以拆成「conditional mean $v_t(I_t^{(k)})$」與「離平均的偏差」。後者在給定 $I_t^{(k)}$ 時平均為零，因此展開平方後，交叉項會消失：
+接著把兩個 variance 接進成本計算。舊 reference velocity 可以拆成「conditional mean $v_t^{(k+1)}(I_t^{(k)})$」與「離平均的偏差」。後者在給定 $I_t^{(k)}$ 時平均為零，因此展開平方後，交叉項會消失：
 
 $$
 C^{(k)}
 =V(\pi^{(k)})
-+\int_0^1\mathbb E\!\left[\left\|v_t(I_t^{(k)})\right\|^2\right]\mathrm dt.
++\int_0^1\mathbb E\!\left[\left\|v_t^{(k+1)}(I_t^{(k)})\right\|^2\right]\mathrm dt.
 $$
 
-這就是平方誤差的 variance 分解。接著，$I_t^{(k)}$ 與 $Z_t^{(k+1)}$ 在每個時刻的 marginal 相同，所以同一個函數 $\|v_t(\cdot)\|^2$ 對它們取平均，結果也相同：
+這就是平方誤差的 variance 分解。接著，$I_t^{(k)}$ 與 $Z_t^{(k+1)}$ 在每個時刻的 marginal 相同，所以同一個函數 $\|v_t^{(k+1)}(\cdot)\|^2$ 對它們取平均，結果也相同：
 
 $$
 \begin{aligned}
-&\int_0^1\mathbb E\|v_t(I_t^{(k)})\|^2\,\mathrm dt\\
-&\qquad=\int_0^1\mathbb E\|v_t(Z_t^{(k+1)})\|^2\,\mathrm dt.
+&\int_0^1\mathbb E\|v_t^{(k+1)}(I_t^{(k)})\|^2\,\mathrm dt\\
+&\qquad=\int_0^1\mathbb E\|v_t^{(k+1)}(Z_t^{(k+1)})\|^2\,\mathrm dt.
 \end{aligned}
 $$
 
-最後看右邊。將 $S$ 的平方展開，交叉項用剛才的 $\int_0^1v_t(Z_t^{(k+1)})\,\mathrm dt=Z_1^{(k+1)}-Z_0^{(k+1)}$ 計算：
+最後看右邊。將 $S$ 的平方展開，交叉項用剛才的 $\int_0^1v_t^{(k+1)}(Z_t^{(k+1)})\,\mathrm dt=Z_1^{(k+1)}-Z_0^{(k+1)}$ 計算：
 
 $$
 \begin{aligned}
 S(Z^{(k+1)})
-&=\int_0^1\mathbb E\|v_t(Z_t^{(k+1)})\|^2\,\mathrm dt\\
+&=\int_0^1\mathbb E\|v_t^{(k+1)}(Z_t^{(k+1)})\|^2\,\mathrm dt\\
 &\quad-2C^{(k+1)}+C^{(k+1)}.
 \end{aligned}
 $$
@@ -329,18 +373,28 @@ $$
 也就是「速度平方的時間平均，減去平均速度的平方」。移項後得到
 
 $$
-\int_0^1\mathbb E\|v_t(Z_t^{(k+1)})\|^2\,\mathrm dt
+\int_0^1\mathbb E\|v_t^{(k+1)}(Z_t^{(k+1)})\|^2\,\mathrm dt
 =S(Z^{(k+1)})+C^{(k+1)}.
 $$
 
 把這條式子代回舊成本的分解，就得到原論文 Theorem 3.7 [1] 使用的等式：
 
-$$
-\boxed{
-C^{(k)}-C^{(k+1)}
-=V(\pi^{(k)})+S(Z^{(k+1)}).
-}
-$$
+<FormulaSteps
+  id="reflow-cost-decomposition"
+  compact
+  title="這一輪省下的成本來自哪裡"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{3}{C^{(k)}-C^{(k+1)}=}\\
+    \reveal{1}{V(\pi^{(k)})}\reveal{2}{+S(Z^{(k+1)})}\reveal{3}{.}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "舊 reference velocities 有多分歧", text: String.raw`$V(\pi^{(k)})$ 量的是同一個時間、位置上，舊 reference velocities 離 conditional mean 有多遠。` },
+    { label: "新 ODE 沿途又改了多少速度", text: String.raw`$S(Z^{(k+1)})$ 量的是同一條新 trajectory 上，瞬間 velocity 離它自己的時間平均有多遠。這是另一種 variance。` },
+    { label: "前面的分解把兩者接到成本", text: String.raw`在理想 velocity 與精確 ODE 下，平方成本的下降量恰好等於這兩個非負量相加。因此成本不增加；這條等式沒有保證 $V$ 或 $S$ 本身逐輪下降。` },
+  ]}
+/>
 
 左邊是這一輪**平方運輸成本下降了多少**；右邊是舊 paths 在同一位置的 velocity variance，加上新 ODE 在同一條 trajectory 沿時間的 velocity variance。兩者都非負，因此 $C^{(k+1)}\le C^{(k)}$；只要 $V+S>0$，這一輪成本就會嚴格下降。
 
@@ -352,9 +406,9 @@ $$
 $$
 \begin{aligned}
 &\mathbb E\!\left[c\!\left(Z_1^{(k+1)}-Z_0^{(k+1)}\right)\right] \\
-&=\mathbb E\!\left[c\!\left(\int_0^1v_t(Z_t^{(k+1)})\,\mathrm dt\right)\right] \\
-&\le\int_0^1\mathbb E\!\left[c\!\left(v_t(Z_t^{(k+1)})\right)\right]\mathrm dt \\
-&=\int_0^1\mathbb E\!\left[c\!\left(v_t(I_t^{(k)})\right)\right]\mathrm dt \\
+&=\mathbb E\!\left[c\!\left(\int_0^1v_t^{(k+1)}(Z_t^{(k+1)})\,\mathrm dt\right)\right] \\
+&\le\int_0^1\mathbb E\!\left[c\!\left(v_t^{(k+1)}(Z_t^{(k+1)})\right)\right]\mathrm dt \\
+&=\int_0^1\mathbb E\!\left[c\!\left(v_t^{(k+1)}(I_t^{(k)})\right)\right]\mathrm dt \\
 &\le\mathbb E\!\left[c\!\left(Z_1^{(k)}-Z_0^{(k)}\right)\right].
 \end{aligned}
 $$
@@ -399,6 +453,10 @@ $$
 $$
 A_k:=S(Z^{(k+1)})+V(\pi^{(k)})\ge 0.
 $$
+
+<SlideFigure id="u3-best-iterate" src={bestIterateSlide} week={5} slide={39} crop={[1135, 225, 525, 440]} alt="各輪 A_k 的柱狀示意：柱高可以上下波動，最小的一根不大於平均線，不能從 best-iterate bound 推出逐輪下降。">
+每根柱子是 $A_k=S(Z^{(k+1)})+V(\pi^{(k)})$，虛線是這幾輪的平均。紅柱不大於平均，對應剛才的 $\min_{0\le k\le K}A_k\le C^{(0)}/(K+1)$；柱高仍可以上下波動，因此這個 bound 沒有保證每一輪都更好。柱高只是示意，並非實測數據。
+</SlideFigure>
 
 如果每一輪都能繼續做 rectification，而且 $C^{(0)}<\infty$，那麼
 

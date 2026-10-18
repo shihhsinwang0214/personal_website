@@ -8,7 +8,7 @@ title: "Forward Process 是必要的嗎？"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-10-04
+updated: 2026-10-18
 summary: "DDPM 從 Gaussian 出發生成資料；如果 transport 的兩端都是任意分布，我們能不能先設計中間的位置，再學一個 velocity field 把它們連起來？"
 demos: []
 references:
@@ -16,6 +16,7 @@ references:
     href: "https://arxiv.org/abs/2210.02747"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
@@ -23,6 +24,8 @@ import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
+import SlideFigure from '../../../components/SlideFigure.astro';
+import transferFigure from './imgs/slides/w4-s05-distribution-transfer.png';
 
 # Forward Process 是必要的嗎？
 
@@ -44,7 +47,9 @@ import Ref from '../../../components/Ref.astro';
 起點明明是真實照片，為什麼還要先把它變成 Gaussian？
 </Ask>
 
-![兩個 diffusion 做不到的任務](./imgs/w4-0-1.png)
+<SlideFigure id="u2-transfer" src={transferFigure} slide={5} crop={[15, 125, 1630, 700]} alt="狗、貓、建築與風景照片轉成卡通或繪畫風格，兩端都是資料分布">
+圖：從照片分布搬到卡通或繪畫分布，兩端都不是 Gaussian。這裡要放開的是 U1 生成設定中固定的 Gaussian 起點。
+</SlideFigure>
 
 U1 中的生成設定是
 
@@ -72,9 +77,21 @@ $$
 
 所以我們要找的是一個 velocity field：
 
-$$
-\frac{\mathrm d x_t}{\mathrm d t}=v_t(x_t).
-$$
+<FormulaSteps
+  id="flow-motion-rule"
+  compact
+  title="把局部速度接成一條路"
+  formula={String.raw`
+    \reveal{3}{\frac{\mathrm d\reveal{1}{x_t}}{\mathrm d t}}
+    \reveal{3}{=}
+    \reveal{2}{v_t(\reveal{1}{x_t})}\reveal{3}{.}
+  `}
+  steps={[
+    { label: "先看這粒沙在哪裡", text: String.raw`用 $x_t$ 記這粒沙在時間 $t$ 的位置；它是我們要一路更新的量。` },
+    { label: "再問此刻往哪裡走", text: String.raw`$v_t(x_t)$ 給出這個時間、這個位置的移動方向與速度大小。` },
+    { label: "位置怎麼跟著變", text: String.raw`讓位置的瞬間變化率等於剛才的速度，便得到 flow ODE。反覆照這個規則走，才形成整條 trajectory。` },
+  ]}
+/>
 
 $v_t(x_t)$ 回答的是一個很局部的問題：**時間 $t$、位置 $x_t$ 的這粒沙，現在該往哪裡走、走多快？** 所有沙粒都反覆照這個規則移動，整個 distribution 就會被逐步搬運。
 

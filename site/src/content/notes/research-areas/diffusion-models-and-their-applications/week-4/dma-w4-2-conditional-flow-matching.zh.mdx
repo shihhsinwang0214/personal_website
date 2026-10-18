@@ -10,7 +10,7 @@ title: "平均人潮為什麼能搬動整個分布？"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-10-04
+updated: 2026-10-18
 summary: "Continuity equation 把 density 與 velocity 連起來；它也證明了 conditional paths 的 posterior-average velocity 確實生成我們指定的 marginal path。"
 demos: []
 references:
@@ -20,14 +20,17 @@ references:
     href: "https://arxiv.org/abs/1806.07366"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
 import Prereq from '../../../components/Prereq.astro';
-import Try from '../../../components/Try.astro';
 import Remark from '../../../components/Remark.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
 import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
+import SlideFigure from '../../../components/SlideFigure.astro';
+import fluxFigure from './imgs/slides/w4-s33-probability-flux.png';
+import conservationFigure from './imgs/slides/w4-s34-local-conservation.png';
 
 # 平均人潮為什麼能搬動整個分布？
 
@@ -77,13 +80,13 @@ $$
 
 要回答這個問題，先想像一條很窄的走道。如果某個位置的人很多，但大家走得很慢，每秒通過這裡的人不一定很多；反過來，如果大家走得很快，但這裡根本沒什麼人，通過的人也不會很多。所以「每秒有多少人通過這裡」，同時取決於兩件事：**這裡有多擠，以及大家走多快。**
 
-時間 $t$、位置 $x$ 的 density 是 $p_t(x)$，速度是 $v_t(x)$，兩者相乘
+時間 $t$、位置 $x$ 的 density 是 $p_t(x)$，速度是 $v_t(x)$，兩者相乘，記成
 
 $$
-p_t(x)v_t(x)
+J_t(x)=p_t(x)v_t(x).
 $$
 
-就是 **probability flux**。在一維裡尤其直觀：如果 $p_t(x)$ 表示「每公尺有多少 probability」，而 $v_t(x)$ 表示「每秒走幾公尺」，那麼
+$J_t(x)$ 就是 **probability flux**。在一維裡尤其直觀：如果 $p_t(x)$ 表示「每公尺有多少 probability」，而 $v_t(x)$ 表示「每秒走幾公尺」，那麼
 
 $$
 \left(\frac{\text{probability}}{\text{meter}}\right)
@@ -93,47 +96,83 @@ $$
 
 也就是：**每秒有多少 probability 從這裡通過。**
 
-但知道某一個位置的 flux 還不夠。我們真正關心的是一小段區域：**左邊流進來多少，右邊又流出去多少？** 如果右邊流出去的比左邊流進來的多，這一段裡的人就會變少；反過來，流進來的比較多，人就會越來越多。
+<SlideFigure id="u2-probability-flux" src={fluxFigure} slide={33} alt="完整圖解：走道上的 density p_t、velocity v_t 與 probability flux J_t，並列出 J_t=p_t v_t 的關係">
+圖：$p_t(x)$ 描述多擠，$v_t(x)$ 描述走多快；兩者相乘，才得到每單位時間通過這裡的流量 $J_t(x)$。左圖標出它們在走道上的位置，右圖與下方公式說明三者的關係。
+</SlideFigure>
 
-而「流出的 flux 和流入的 flux 差多少」，正是 flux 的 divergence：
+### 先固定一小段走道，數流進來與流出去的人
+
+但知道某一個位置的 flux 還不夠。我們真正關心的是一小段固定的區域 $[x,x+\Delta x]$：**左邊流進來多少，右邊又流出去多少？** 這裡固定的是地面上的兩個位置，不跟著任何一個人移動。
+
+例如每秒有 $6$ 人從左端走進來、$4$ 人從右端走出去，區間內就每秒多 $2$ 人；如果兩端的流量反過來，區間內就每秒少 $2$ 人。所以決定人數變化的，是兩端流量的差，而不只是區間裡的人走得多快。
+
+<SlideFigure id="u2-local-conservation" src={conservationFigure} slide={34} alt="完整區間守恆圖解：固定走道 [x,x+Δx] 的左右流量箭頭，以及人數變化等於流入減流出的公式">
+圖：$N_t([x,x+\Delta x])$ 表示圖中區間內的人數。把總人數正規化為 $1$ 後，對應的就是該區間的 probability mass；兩種讀法都遵守「變化量＝流入－流出」。
+</SlideFigure>
+
+把人數換成 probability，區間內的質量就是 density 的積分。因此質量守恆寫成
+
+<FormulaSteps
+  id="local-probability-balance"
+  compact
+  title="從流入減流出寫出守恆"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{4}{\frac{\mathrm d}{\mathrm dt}}
+    \reveal{1}{\int_x^{x+\Delta x}p_t(u)\,\mathrm du}
+    \reveal{4}{=}\\
+    \reveal{2}{J_t(x)}\reveal{3}{-J_t(x+\Delta x)}\reveal{4}{.}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先圈定要數的區域", text: String.raw`固定地面上的區間 $[x,x+\Delta x]$。把裡面的 density 積分起來，就是區間內的 probability mass。` },
+    { label: "左端流進來多少", text: String.raw`$J_t(x)$ 是左端每單位時間流入的 probability；先把這份流量加進來。` },
+    { label: "右端又流出去多少", text: String.raw`右端流出去的 $J_t(x+\Delta x)$ 要扣掉。留下的是流入減流出。` },
+    { label: "接上區間內的變化", text: String.raw`區間內的質量不能憑空增加或消失，所以它的時間變化率，就等於剛才算出的流入減流出。` },
+  ]}
+/>
+
+左邊是固定區間內的 probability mass 每秒改變多少；右邊則是左端流入減去右端流出。這裡先沿用圖中向右流動的情景；若 $J_t$ 為負，表示流動方向向左，同一個帶正負號的公式仍然成立。
+
+### 把區間縮小，才得到 density 的變化率
+
+剛才算的是整個小區間的質量，現在想知道的是位置 $x$ 附近的 density 如何改變。我們把守恆式兩邊除以區間長度 $\Delta x$，再令 $\Delta x\to0$。當 density 與 flux 足夠平滑時，左邊趨近 $\partial_t p_t(x)$，右邊則成為 flux 的空間導數：
 
 $$
-\nabla\cdot\bigl(p_t(x)v_t(x)\bigr).
-$$
-
-它告訴我們：**這個位置附近，總共有多少 probability 正在淨流出去。** 因此，如果淨流出是正的，這裡的 density 就必須下降；如果流入比流出多，density 就必須上升。也就是
-
-$$
+\begin{aligned}
 \partial_t p_t(x)
-=-\nabla\cdot\bigl(p_t(x)v_t(x)\bigr),
+&=-\lim_{\Delta x\to0}
+\frac{J_t(x+\Delta x)-J_t(x)}{\Delta x}\\
+&=-\partial_x J_t(x)\\
+&=-\partial_x\bigl(p_t(x)v_t(x)\bigr).
+\end{aligned}
 $$
 
-或者寫成
+這個負號就來自「流入減流出」：如果右端的 $J_t(x+\Delta x)$ 比左端的 $J_t(x)$ 大，flux 的空間變化率是正的，區間內卻在失去質量，所以 density 的時間變化率必須是負的。
 
-$$
-\boxed{
-\partial_t p_t(x)+\nabla\cdot\bigl(p_t(x)v_t(x)\bigr)=0.
-}
-$$
+在多維空間，小區域可以從各個方向流入或流出；把各方向的淨流出加總，就把一維的 $\partial_x J_t$ 換成 **flux 的 divergence**，得到
 
-這就是 **continuity equation**。它其實只是在說一件非常簡單的事：**一個地方的人數會改變，不是因為人憑空出現或消失，而只是因為有人流進來、有人流出去。**
+<FormulaSteps
+  id="continuity-balance"
+  compact
+  title="把局部守恆寫成 continuity equation"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{1}{\partial_t p_t(x)}\\
+    \reveal{4}{+}
+    \reveal{3}{\nabla\cdot\bigl(\reveal{2}{p_t(x)v_t(x)}\bigr)}
+    \reveal{4}{=0.}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "固定位置的密度變化", text: String.raw`$\partial_t p_t(x)$ 問的是：站在固定的位置看，這裡的 density 隨時間改變多少？` },
+    { label: "先算 probability flux", text: String.raw`這裡有多擠，乘上大家走多快，得到 $p_t(x)v_t(x)$。只看速度，還不知道有多少 probability 通過。` },
+    { label: "再數各方向的淨流出", text: String.raw`對 flux 取 divergence，把附近各方向的淨流出加起來。這是前面一維「右端減左端」的多維版本。` },
+    { label: "用守恆接起兩邊", text: String.raw`淨流出越多，當地 density 就下降得越快。因此 density 的時間變化，加上 flux 的淨流出，必須等於零。` },
+  ]}
+/>
 
-<Try summary="先在一維看一次：就是左邊流入減右邊流出">
-取一個小區間 $[x,x+\Delta x]$，裡面的質量約是 $p_t(x)\Delta x$。單位時間的變化量是
-
-$$
-\partial_t p_t(x)\Delta x
-=p_t(x)v_t(x)-p_t(x+\Delta x)v_t(x+\Delta x).
-$$
-
-兩邊除以 $\Delta x$、令 $\Delta x\to0$：
-
-$$
-\partial_t p_t(x)=-\partial_x\bigl(p_t(x)v_t(x)\bigr).
-$$
-
-高維只是把區間的兩端換成封閉曲面，把 $\partial_x$ 換成 divergence。
-</Try>
+這就是 **continuity equation**。$\partial_t p_t(x)$ 看的是「固定位置的 density 隨時間改變多少」；$\nabla\cdot(p_tv_t)$ 看的是「附近的 probability flux 有多少淨流出」。**一個地方的質量會改變，是因為有人流進來、有人流出去；因此這裡要看的是 $p_tv_t$，不能只看 $v_t$ 的 divergence。**
 
 ## 把每一群人的守恆式加起來
 

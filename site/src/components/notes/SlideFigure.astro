@@ -1,0 +1,52 @@
+---
+/** An original slide asset, shown whole unless a crop helps the explanation. */
+import { getImage } from 'astro:assets';
+import type { ImageMetadata } from 'astro';
+
+interface Props {
+  id: string;
+  src: ImageMetadata;
+  alt: string;
+  slide: number;
+  week?: number;
+  /** Visible rectangle in source-image pixels: left, top, width, height. */
+  crop?: [number, number, number, number];
+}
+const { id, src, alt, slide, week = 4, crop } = Astro.props;
+const [left, top, width, height] = crop ?? [0, 0, src.width, src.height];
+if (![left, top, width, height].every(Number.isFinite)
+  || left < 0 || top < 0 || width <= 0 || height <= 0
+  || left + width > src.width || top + height > src.height) {
+  throw new Error(`Invalid slide crop: ${id}`);
+}
+const image = await getImage({ src, format: 'webp', quality: 95 });
+---
+
+<figure class="slide-figure" id={id} data-slide={slide}>
+  <a class="slide-crop" href={image.src} target="_blank" rel="noopener noreferrer"
+    aria-label={`放大原圖：${alt}`} style={`aspect-ratio:${width}/${height}`}>
+    <img src={image.src} width={src.width} height={src.height} alt={alt} loading="lazy" decoding="async"
+      class="slide-image"
+      style={`width:${src.width / width * 100}%;left:${-left / width * 100}%;top:${-top / height * 100}%`} />
+  </a>
+  <figcaption>
+    <slot />
+    <span class="slide-source">Week {week} 投影片 {slide} · 點圖查看原圖</span>
+  </figcaption>
+</figure>
+
+<style>
+  .slide-figure { margin: 24px 0; min-width: 0; }
+  .slide-crop {
+    position: relative; display: block; overflow: hidden; width: 100%;
+    border-radius: 10px; background: white;
+  }
+  .slide-crop:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+  .slide-crop :global(.slide-image) {
+    position: absolute; display: block; max-width: none; height: auto;
+    margin: 0; padding: 0; border: 0; border-radius: 0;
+  }
+  figcaption { margin-top: 9px; color: var(--text-muted); font-size: .84rem; line-height: 1.75; }
+  figcaption :global(p) { margin: 0; }
+  .slide-source { display: block; margin-top: 3px; font-size: .75rem; }
+</style>

@@ -9,7 +9,7 @@ title: "每一條參考路徑都是直線，為什麼學出來的 ODE trajectory
 category: "courses"
 group: "Unit 3 · 減少 ODE 的離散化誤差"
 status: "available"
-updated: 2026-10-04
+updated: 2026-10-18
 summary: "直線 reference paths 可能彼此交叉；在交叉處，L2 只能輸出平均方向，因此真正的 ODE trajectories 仍會彎。路徑與 coupling 決定少步取樣有多困難。"
 demos:
   - "notes/research_areas/diffusion-models-applications/w4-3-crossing.html"
@@ -22,6 +22,9 @@ references:
     href: "https://arxiv.org/abs/2302.00482"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
+import SlideFigure from '../../../components/SlideFigure.astro';
+import referenceVsOdeSlide from '../week-5/imgs/slides/w5-s25-reference-vs-ode.png';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import QuizBlock from '../../../components/QuizBlock.astro';
@@ -40,13 +43,13 @@ import Ref from '../../../components/Ref.astro';
 
 <Prereq items={frontmatter.prereqs} />
 
-在 <Ref to="dma-flows-and-continuity" /> 裡，我們已經看過實際生成的方法：從 $x^{(0)}\sim p_0$ 出發，每一步詢問一次目前的 velocity，再用 Euler method 往前走：
+在 <Ref to="dma-flows-and-continuity" /> 裡，我們已經看過實際生成的方法：從 $x_{t_0}\sim p_0$ 出發，每一步詢問一次目前的 velocity，再用 Euler method 往前走。沿用那裡的 notation，$x_{t_k}$ 是 sampler 在時間 $t_k$ 算出的近似位置：
 
 $$
-x^{(k+1)}
+x_{t_{k+1}}
 =
-x^{(k)}+\Delta t\,
-v_\theta\!\left(x^{(k)},t_k\right).
+x_{t_k}+\Delta t\,
+v_\theta\!\left(x_{t_k},t_k\right).
 $$
 
 而 <Ref to="dma-linear-path">U2.3</Ref> 沿用 Lipman 等人的 Flow Matching [2]，選擇的 reference paths 都是直線，每一條路的 reference velocity $X_1-X_0$ 也都是常數。直覺上，既然方向從頭到尾都不變，我們學到的 optimal velocity 是不是也會讓 trajectory 保持直線？如果是，似乎就可以把 $\Delta t$ 放得很大，甚至一步直接走到終點。
@@ -75,11 +78,25 @@ $$
 
 但網路在同一個輸入 $(x,t)=(0,\tfrac12)$ 只能輸出一個答案。L2 的最佳解會取平均：
 
-$$
-v_{1/2}(0)
-=\frac12(2,2)+\frac12(-2,2)
-=(0,2).
-$$
+<FormulaSteps
+  id="crossing-velocity-average"
+  compact
+  title="在交叉點參考兩種速度"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{1}{v_{1/2}(0)=}
+    \reveal{3}{\frac12}\reveal{2}{(2,2)}
+    \reveal{3}{+\frac12}\reveal{2}{(-2,2)}\\
+    \reveal{4}{=(0,2).}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先固定同一個時間與位置", text: String.raw`只看 $t=\tfrac12$、原點這個 input。網路在這裡只能給一個 velocity。` },
+    { label: "找出同時經過這裡的人", text: String.raw`這個 toy 有兩條相容的 reference paths，它們的速度分別是 $(2,2)$ 與 $(-2,2)$。` },
+    { label: "依這裡的權重取平均", text: String.raw`這個 toy 的兩種來路等可能，所以各乘 $\tfrac12$ 再相加。一般位置要使用 conditional weights，不能一律各取一半。` },
+    { label: "看平均後留下哪個方向", text: String.raw`水平方向互相抵消，垂直方向留下 $2$。這支平均箭頭已經不等於任何一條 reference velocity。` },
+  ]}
+/>
 
 這支向上的箭頭不屬於任何一條 reference path。它是兩條可能來路在交叉點上的平均方向。
 
@@ -101,6 +118,10 @@ $$
 
 > **每一條 reference velocity 都決定出直線，不代表它們平均出的 $v_t^*(x)$ 沿著 ODE trajectory 也會走出直線。**
 
+<SlideFigure id="u3-reference-vs-ode" src={referenceVsOdeSlide} week={5} slide={25} crop={[20, 165, 1632, 535]} alt="同一個交叉 coupling：左欄是交叉的直線 reference paths，右欄是沿 conditional mean velocity 產生的彎曲 ODE trajectories。">
+圖把搬運方向畫成由左到右，和上面的由下往上 toy 使用不同座標；比較的仍是同一件事：左欄用配對端點畫直線，右欄沿平均 velocity 前進。兩欄共用同一組 $p_0,p_1$ 與初始 coupling，卻不會走出同一批 paths。點雲的寬度由 $\sigma$ 表示。
+</SlideFigure>
+
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w4-3-crossing.html" class="demo-frame" title="Reference paths 交叉後，marginal trajectories 如何彎曲" style="height: 940px; width: 100%; border: none;"></iframe>
 
 在 demo 裡切換配對方式：起點與終點的兩個 distributions 都沒有變，但 reference paths 的交叉程度會改變。隨機配對時，許多方向在同一位置互相抵消；依位置配對時，路線比較平行，marginal trajectories 也更接近直線。
@@ -115,11 +136,23 @@ $$
 
 但真正要從 $x_t$ 走到 $x_{t+h}$，需要算的是這一小段時間累積下來的位移：
 
-$$
-x_{t+h}
-=
-x_t+\int_t^{t+h}v_\tau(x_\tau)\,\mathrm d\tau.
-$$
+<FormulaSteps
+  id="exact-flow-displacement"
+  compact
+  title="整段路的位移從哪裡來"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{3}{x_{t+h}=}\reveal{1}{x_t}
+    \reveal{3}{+}\reveal{3}{\int_t^{t+h}
+    \reveal{2}{v_\tau(x_\tau)}\,\mathrm d\tau.}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先站在已知的位置", text: String.raw`$x_t$ 是這一小段的出發位置。我們想知道經過 $h$ 時間後，會到哪裡。` },
+    { label: "沿路的速度會跟著變", text: String.raw`中途時刻 $\tau$ 的速度是 $v_\tau(x_\tau)$；時間和位置都可能改變，不能只看出發時的一支箭頭。` },
+    { label: "把沿途速度累積成位移", text: String.raw`從 $t$ 到 $t+h$ 積分，才得到這段路的精確位移。把它加回出發位置，就是精確終點；Euler 接著要近似的正是這個積分。` },
+  ]}
+/>
 
 這個積分通常沒有 closed-form solution，所以實作時需要 **numerical solver**：把連續時間切成一小段一小段，再用有限次計算近似整條路。
 

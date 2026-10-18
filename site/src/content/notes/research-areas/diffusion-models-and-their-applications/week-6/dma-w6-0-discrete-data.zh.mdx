@@ -9,7 +9,7 @@ title: "資料是 Token 的時候，噪聲是什麼？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-07
+updated: 2026-10-18
 summary: "把 Gaussian 加噪換成 token 的替換或遮蔽，用 transition matrix 算出 noisy snapshot，保留 diffusion 的訓練策略。"
 demos: []
 references:
@@ -41,12 +41,33 @@ import Ref from '../../../components/Ref.astro';
 
 ## 如果資料是一句話呢？
 
-前面我們把一張圖想成 $\mathbb R^d$ 裡的一個點，再逐步加入 Gaussian noise。但一句話是「我／今天／想／吃／……」這樣的一串 token，每個位置從字典裡選一個類別。「想」和「吃」的平均不是一個字；就算給它們編號，對編號加一點 noise 也沒有相同的意義。
+在 U1 和 U2，我們把一筆連續資料，像是圖片或座標，當成 $\mathbb R^d$ 裡的一個點。U1 從資料出發，逐步加入 Gaussian noise，直到接近純 Gaussian；U2 則更一般地設計 reference paths，製造中間狀態，再讓模型學到推動 distribution 的 velocity。這些做法都可以利用連續座標的加減與縮放。
+
+那如果資料是離散的呢？比如一句話「我／今天／想／吃／晚餐」，是由一串 token 組成；每個位置都從字典裡選一個類別。我們先用詞當作 token 示意，把這句話拆開看：
+
+| 位置 $\ell$ | $1$ | $2$ | $3$ | $4$ | $5$ |
+|---|---|---|---|---|---|
+| 這個位置的 token | `我` | `今天` | `想` | `吃` | `晚餐` |
+
+用 $\mathcal V$ 表示含有 $K$ 個 token 的字典，整句話有 $L$ 個位置，就可以寫成
+
+$$
+x_0=(x_0^1,\ldots,x_0^L)\in\mathcal V^L,
+\qquad x_0^\ell\in\mathcal V.
+$$
+
+這裡 $L=5$，例如 $x_0^3=\texttt{想}$。同一個位置也可以選成字典裡的其他 token，例如 `要`；但「想」和「吃」的平均不是另一個 token。就算替它們編號，編號也只是類別的名稱，數字相差多少並沒有自然的語意。
+
+那麼，U2.4 使用的 **stochastic interpolant** 還能沿用嗎？
+
+<Remark label="補充" summary="先轉成 one-hot，再用 U2.4 的做法可以嗎？">
+可以。先把 token $k$ 寫成 one-hot 向量 $e_k\in\mathbb R^K$，就能沿用 <Ref to="dma-unified-equation">U2.4</Ref> 的連續 interpolant，但中間向量通常不再是合法 token。若要求連續 ODE 在終點精確生成 one-hot 頂點，還要處理把連續分布壓到離散點的終點退化；實作也可對連續輸出做 $\operatorname{argmax}$ 解碼。本篇想走另一條路：**直接讓中間狀態也保留 token 的形式。**
+</Remark>
 
 回想 <Ref to="dma-forward-process"/>，Gaussian 幫我們做到的是：**先自己造出 noisy snapshot，再讓模型學怎麼回去。** 那麼，換成 token 後，能不能保留這個策略，只換掉破壞資訊的方法？
 
 <Ask>
-不能加一點 Gaussian noise，<br />
+不能直接對 token 編號加一點 Gaussian noise，<br />
 我們還可以怎麼讓一句話逐漸看不出原文？
 </Ask>
 
@@ -66,7 +87,7 @@ import Ref from '../../../components/Ref.astro';
 
 ## 每一步：保留、換字，或遮掉
 
-把原句記成 $x_0=(x_0^1,\ldots,x_0^L)$，$L$ 是位置數，字典裡有 $K$ 個 token。先只看「晚餐」這個位置：下一步它可能保留、換成其他字，或被遮掉。我們要記錄的，就是每種結果的機率。
+先只看原句裡「晚餐」這個位置：下一步它可能保留、換成其他字，或被遮掉。我們要記錄的，就是每種結果的機率。
 
 用 $Q_t(i,j)$ 記錄「第 $t$ 步從字 $i$ 變成字 $j$」的機率。把現在的字 $i$ 排成一列、下一步可能的結果 $j$ 排成一欄，就得到一張機率表。每個元素非負，每一列加起來是 $1$；這就是 **transition matrix（轉移矩陣）**。
 

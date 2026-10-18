@@ -12,7 +12,7 @@ title: "生成到底在學什麼？"
 category: "courses"
 group: "Unit 1 · Diffusion Models"
 status: "available"
-updated: 2026-10-07
+updated: 2026-10-18
 summary: "把「生一張新圖」翻成 distribution-level 的學習問題：直接讓神經網路表示 density，會因為 normalization 而在梯度裡遇到 model sampling；改成學 transport map，隨機配對的 L2 會學成平均，而 normalizing flow 又必須用可逆性與 log-det 換取精確 likelihood。這些限制最後把我們帶向一個新想法：先用 forward process 自己造出中間狀態與 training pairs。"
 demos: []
 references:
@@ -24,6 +24,11 @@ references:
     href: "https://arxiv.org/abs/1505.05770"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import SlideFigure from '../../../components/SlideFigure.astro';
+import samplesDensitySlide from './imgs/slides/w3-s02-samples-and-density.png';
+import transportMapSlide from './imgs/slides/w3-s06-transport-map.png';
+import independentPairsSlide from './imgs/slides/w3-s07-independent-pairs.png';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Question from '../../../components/Question.astro';
 import Answer from '../../../components/Answer.astro';
@@ -87,9 +92,9 @@ import Remark from '../../../components/Remark.astro';
 
 現在回頭看我們手上的五萬張圖片。這五萬張圖片不是 $p_{\text{data}}$ 本身，而只是從 $p_{\text{data}}$ 中抽出來的五萬個**樣本**；換成幾何的語言，它們就是 $\mathbb R^{3072}$ 裡我們實際觀察到的五萬個點。因為它們來自同一個 $p_{\text{data}}$，所以通常也會反映出背後分布的一部分結構：某些區域的樣本很多，某些區域很少，還有大量區域我們可能一個樣本都沒有看過。
 
-![示意圖：左格俯視 2D 點雲，三團分別是貓、鳥、兔的照片，顏色與等高線代表密度，一顆紫點落在山峰上但不在既有樣本裡、一顆灰點落在空白處；右格把密度值當成高度立成 3D 地形，三座山峰標 mode。](./imgs/w-3-0-2.png)
-
-**圖：從樣本到 distribution。** 左邊是俯視：每一團由相似的同一種動物的照片聚集而成，顏色與等高線是 $p_{\text{data}}(x)$——**每個位置都有值，不只樣本所在處**。右邊把密度值當成高度立起來，$p_{\text{data}}$ 就成了一片地形，山峰是 mode、山谷幾乎是零。（真實資料在 $\mathbb R^{3072}$，這裡壓成 2D＋高度只是為了 demo。）
+<SlideFigure id="u1-samples-and-density" src={samplesDensitySlide} week={3} slide={2} alt="從看得見的動物照片，到資料空間中的樣本點，再把整個空間上的 density 畫成地形；樣本點和產生樣本的 distribution 是不同物件。">
+左欄是我們拿得到的照片，中欄把每張照片看成一個點，右欄才是背後的 $p_{\text{data}}(x)$。**每個位置都有 density value，不只樣本所在處**；山峰是 mode。真實圖片位於 $\mathbb R^{3072}$，這裡用二維位置加上 density 高度示意。
+</SlideFigure>
 
 有了這個畫面，「生成」和「看起來像是來自同一批資料」其實就可以一起說清楚了。
 
@@ -124,11 +129,23 @@ $$
 
 這一步滿足了第一個要求。$E_\theta(x)$ 越低，$x$ 附近的 $\tilde p_\theta(x)$ 就越高；但 $\tilde p_\theta$ 的總量還不一定是 1。於是我們先算出整個空間的總量 $Z_\theta$，再把每個位置都除以它：
 
-$$
-Z_\theta=\int \tilde p_\theta(x)\,dx,
-\qquad
-p_\theta(x)=\frac{\tilde p_\theta(x)}{Z_\theta}.
-$$
+<FormulaSteps
+  id="density-normalization"
+  compact
+  title="正的權重，怎麼變成合法的 density？"
+  formula={String.raw`
+    \begin{gathered}
+      \reveal{2}{Z_\theta=\int\tilde p_\theta(x)\,dx,}\\[.2em]
+      \reveal{1}{p_\theta(x)=}
+      \reveal{3}{\frac{\reveal{1}{\tilde p_\theta(x)}}{\reveal{2}{Z_\theta}}.}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先有正的權重", text: String.raw`每個位置已經有正的權重 $\tilde p_\theta(x)$，但它還不是總量為 1 的 density。` },
+    { label: "算出總量", text: String.raw`把整個空間的權重積分起來，得到同一個總量 $Z_\theta$。` },
+    { label: "除以總量", text: String.raw`只要總量有限，每個位置都除以它，就把總量調成 1。` },
+  ]}
+/>
 
 只要 $Z_\theta$ 有限，這一步就滿足了第二個要求，因為 $\int p_\theta(x)\,dx=1$。**這種先替每個位置指定 energy，再把 energy 轉成 distribution 的模型，叫做 energy-based model** [1]。
 
@@ -213,14 +230,35 @@ $$
 於是我們的目標可以一行寫完：**找一個 $G$ 使 $G_\#\mathcal N(0,I)=p_{\text{data}}$。**
 </Remark>
 
+<SlideFigure id="u1-transport-map" src={transportMapSlide} week={3} slide={6} crop={[20, 115, 1740, 535]} alt="把容易抽樣的 Gaussian 點雲送過 transport map G_theta，得到資料常出現區域的點雲；中間以沙堆變成沙堡比喻重新安排位置。">
+左邊先抽 $z\sim p_z=\mathcal N(0,I)$，中間用帶參數的 $G_\theta$ 決定每個 $z$ 被送到哪裡，右邊收集 $x=G_\theta(z)$。目標是這整批輸出的 distribution $G_{\theta\#}p_z$ 接近 $p_{\text{data}}$；沙堆變成沙堡，對應的就是重新安排每粒沙的位置。
+</SlideFigure>
+
 那接下來的問題就很直接了：**我們要怎麼學這個 $G$？** 我們手上有 $p_{\text{data}}$ 的樣本、也有 $G(z)$ 的樣本，得從這裡寫出一個對 $\theta$ 可微的 loss。
 
 <Question id="Q1">
 手上既然有真實資料 $x$，也有生成出來的 $G(z)$，那用傳統 prediction 的做法不就好了：抽一批 $z$、算出 $G(z)$，再跟資料算 $L_2$：
 
-$$
-\mathcal L(\theta)=\mathbb E_{z,\,x}\big\|G_\theta(z)-x\big\|^2 .
-$$
+<FormulaSteps
+  id="unpaired-regression-loss"
+  compact
+  title="隨機配對之後，這個 loss 在要求什麼？"
+  formula={String.raw`
+    \begin{gathered}
+      \reveal{1}{\mathcal L(\theta)=}\\[.2em]
+      \reveal{5}{\mathbb E_{z,\,x}\Big[
+        \reveal{4}{\big\|\reveal{2}{G_\theta}\reveal{1}{(z)}\reveal{3}{-x}\big\|^2}
+      \Big].}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "抽一份原料", text: String.raw`先抽一個容易取得的 Gaussian 原料 $z$。` },
+    { label: "模型產生圖片", text: String.raw`把 $z$ 送進 $G_\theta$，得到一張生成圖片。` },
+    { label: "拿出比較對象", text: String.raw`再獨立抽一張真實圖片 $x$，拿它來和生成圖片比較。` },
+    { label: "衡量一對的差距", text: String.raw`用兩張圖片的平方距離，衡量這一次配對的誤差。` },
+    { label: "考慮所有配對", text: String.raw`對獨立抽到的 $z$ 與 $x$ 取平均，也就是把各種隨機配對都當作學習目標。` },
+  ]}
+/>
 
 **這樣訓練下去會發生什麼事？**
 
@@ -236,6 +274,10 @@ G_\theta(z)\equiv\mathbb E_{x\sim p_{\text{data}}}[x]\ \ \text{對所有 } z .
 $$
 
 也就是說，**模型的最佳策略是不管拿到什麼 $z$，都輸出同一張「所有訓練圖片的平均」**——一張灰灰的、模糊的四不像。它的 $L_2$ 很低，但完全沒有多樣性，更不是從 $p_{\text{data}}$ 抽出來的樣本。這正是 regression 遇到多解問題時會出現的**回歸到平均**。
+
+<SlideFigure id="u1-independent-pairs" src={independentPairsSlide} week={3} slide={7} crop={[25, 110, 1620, 490]} alt="同一區域的 z 在不同次訓練可能被隨機配到貓、狗或汽車；因為 z 和 x 獨立，平方誤差的最佳輸出是與 z 無關的資料平均。">
+左邊的箭頭只是這次隨機配出的 training pairs；下一次，同一區域的 $z$ 又可能被配到完全不同的 $x$。因此固定 $z$ 時，target 仍來自完整的 $p_{\text{data}}$，右邊的最佳解才會是 $G^\star(z)=\mathbb E[x]$，對所有 $z$ 都一樣。
+</SlideFigure>
 
 再往上看一層，會發現是**目標本身錯位**了：我們真正要的是「$G(z)$ 的分布等於 $p_{\text{data}}$」——一個**分布層級的條件**；而 $L_2$ 問的是「這一個 $G(z)$ 有沒有對上這一張 $x$」——一個**逐樣本的條件**。兩堆樣本可以分布完全相同，隨機抽樣卻沒有任何一對彼此靠近。因此，設計一個逐樣本的 loss 去學一個分布層級的目標，最後自然只會學到平均。
 

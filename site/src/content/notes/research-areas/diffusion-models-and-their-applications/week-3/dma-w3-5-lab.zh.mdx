@@ -16,7 +16,7 @@ title: "實作：建立這個單元的 Toy"
 category: "courses"
 group: "Unit 1 · Diffusion Models"
 status: "available"
-updated: 2026-10-04
+updated: 2026-10-18
 summary: "把整個單元的東西縮成一個幾秒就能重跑的小實驗：2D toy 與小 MLP、ε-prediction 訓練、DDPM 與 DDIM 取樣，並畫出 score field 與軌跡圖。"
 demos: []
 references:
@@ -28,6 +28,7 @@ references:
     href: "https://doi.org/10.1016/0304-4149(82)90051-5"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
@@ -133,11 +134,24 @@ $x_0$ 是 Gaussian 時這個下界算得出精確值：$\operatorname{Var}(\epsi
 
 不重訓。取一批 $(x_t,t)$，只從 $\epsilon_\theta$ 換算：
 
-$$
-\hat x_0=\frac{x_t-\sigma_t\epsilon_\theta}{\sqrt{\bar\alpha_t}},
-\qquad
-\hat v=\sqrt{\bar\alpha_t}\,\epsilon_\theta-\sigma_t\,\hat x_0 ,
-$$
+<FormulaSteps
+  id="convert-noise-prediction"
+  compact
+  title="同一個 noise predictor，怎麼換成另兩種輸出？"
+  formula={String.raw`
+    \begin{gathered}
+      \reveal{1}{\hat x_0=}
+      \reveal{3}{\frac{\reveal{1}{x_t}\reveal{2}{-\sigma_t\epsilon_\theta}}{\sqrt{\bar\alpha_t}}},\\[.2em]
+      \reveal{4}{\hat v=\sqrt{\bar\alpha_t}\,\epsilon_\theta-\sigma_t\,\hat x_0,}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先固定目前的樣本", text: String.raw`先拿同一批 $x_t$，不改模型，也不重新訓練。` },
+    { label: "扣掉預測的 noise", text: String.raw`模型已經給出 $\epsilon_\theta$，先扣掉它在 $x_t$ 中對應的 $\sigma_t\epsilon_\theta$。` },
+    { label: "還原原圖的尺度", text: String.raw`再除以信號係數 $\sqrt{\bar\alpha_t}$，就得到 $\hat x_0$。` },
+    { label: "換成 v 的表示", text: String.raw`把同一份 $\epsilon_\theta$ 與剛算出的 $\hat x_0$ 組合成 $\hat v$，仍然不用重訓。` },
+  ]}
+/>
 
 先做一件一行就能做完的事：從 $\hat v$ 和 $x_t$ 反解回 $\hat\epsilon$，確認它和原本的 $\epsilon_\theta$ 只差在浮點誤差（$\lesssim10^{-6}$）之內。三種寫法真的是同一個東西，這一步就是 <Ref to="dma-denoising-regression"/> 說的「親手驗證一次」。
 

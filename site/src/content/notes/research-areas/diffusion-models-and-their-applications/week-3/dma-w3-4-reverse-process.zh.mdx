@@ -13,7 +13,7 @@ title: "從離散步驟到 Forward / Reverse Dynamics"
 category: "courses"
 group: "Unit 1 · Diffusion Models"
 status: "available"
-updated: 2026-10-04
+updated: 2026-10-18
 summary: "DDPM 已經會從 t 倒退到 t−1，卻仍得依序跑完上千次網路。直接把一步放大，會破壞相鄰 Gaussian 的近似；真正能改的地方，要回到 training objective 才看得見：它固定了每個 noisy marginal，卻沒有固定所有時刻如何連成一條路。沿著這個缺口可以推出較短的 sampling trajectory，再把同一個問題提升成連續時間的 forward 與 reverse dynamics。"
 demos: []
 references:
@@ -29,6 +29,9 @@ references:
     href: "https://arxiv.org/abs/2510.21890"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import SlideFigure from '../../../components/SlideFigure.astro';
+import reverseSamplingSlide from './imgs/slides/w3-s44-reverse-sampling.png';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
@@ -65,6 +68,10 @@ $$
 x_{t-1}=\tilde\mu_t\big(x_t,\ \hat x_\theta(x_t,t)\big)+\sqrt{\tilde\beta_t}\,z,
 \qquad z\sim\mathcal N(0,I).
 $$
+
+<SlideFigure id="u1-reverse-sampling" src={reverseSamplingSlide} week={3} slide={44} crop={[30, 200, 1615, 405]} alt="從右邊 Gaussian x_T 出發，每一步用目前的 x_t 和 t 預測乾淨影像，再從 reverse Gaussian 抽到 x_{t-1}，依序走回左邊的資料。">
+由右往左讀：從 $x_T\sim\mathcal N(0,I)$ 出發，每到一個 $x_t$ 都重新呼叫網路。若網路輸出 $\epsilon_\theta$，先換算成圖中的 $\hat x_0=\hat x_\theta(x_t,t)$，再代入 $\tilde\mu_t$。這一步新抽的 $z$ 是 reverse sampler 加入的 randomness，和 forward 的 $\epsilon_t$ 不同。這些影像是流程示意。
+</SlideFigure>
 
 其中，真實的 $q(x_{t-1}\mid x_t)$ 是許多可能來源混在一起形成的 distribution，通常不是公式裡假設的單一 Gaussian。
 
@@ -185,12 +192,23 @@ $\epsilon_t$ 表示這個樣本相對於「此時應在的位置」，往哪個�
 
 令 $\lambda_{t,s}^2$ 表示要留給新 noise 的 variance，其中 $0\leq\lambda_{t,s}^2\leq1-\bar\alpha_s$；再抽一個與 $\epsilon_t$ 獨立的 $z\sim\mathcal N(0,I)$，定義
 
-$$
-x_s
-=\sqrt{\bar\alpha_s}x_0
-+\sqrt{1-\bar\alpha_s-\lambda_{t,s}^2}\,\epsilon_t
-+\lambda_{t,s}z.
-$$
+<FormulaSteps
+  id="recouple-noisy-snapshots"
+  compact
+  title="保留 noisy snapshot，還可以怎麼重新配對？"
+  formula={String.raw`
+    \begin{aligned}
+      \reveal{1}{x_s}&\reveal{1}{=\sqrt{\bar\alpha_s}x_0}\\[.15em]
+      &\reveal{2}{+\sqrt{1-\bar\alpha_s-\lambda_{t,s}^2}\,\epsilon_t}\\[.15em]
+      &\reveal{3}{+\lambda_{t,s}z.}
+    \end{aligned}
+  `}
+  steps={[
+    { label: "先保住信號的中心", text: String.raw`給定 $x_0$，先保留 $s$ 時刻原本應有的信號 $\sqrt{\bar\alpha_s}x_0$。` },
+    { label: "沿用現在的 noise", text: String.raw`把從 $x_t$ 反解的 $\epsilon_t$ 沿用一部分，先替新的 noise 留出 variance。` },
+    { label: "補足剩下的 variance", text: String.raw`再加上獨立的 $\lambda_{t,s}z$，兩份 noise 的總 variance 仍是 $(1-\bar\alpha_s)I$。` },
+  ]}
+/>
 
 第二項用的是從 $x_t$ 反推出來的 Gaussian noise，第三項則是我們另外引入的隨機性。原本 DDPM 的 Markov trajectory 一般沒有 $\epsilon_s=\epsilon_t$ 這個條件；而沿用同一份 noise，是我們現在**重新定義 coupling** 的方式。
 
@@ -452,9 +470,24 @@ $$
 
 Anderson（1982）[3] 證明了一件很漂亮的事：**把時間倒過來，它仍然是一條 SDE**，而且 drift 裡多出一個 score 項：
 
-$$
-dx=\Big[-\tfrac12\beta(t)\,x-\beta(t)\,\nabla\log p_t(x)\Big]dt+\sqrt{\beta(t)}\,d\bar W_t,\qquad t:1\to0 .
-$$
+<FormulaSteps
+  id="reverse-sde"
+  compact
+  title="除了 score，倒著走還需要哪些量？"
+  formula={String.raw`
+    \begin{aligned}
+    \reveal{1}{dx}&\reveal{2}{=-\tfrac12\beta(t)\,x\,dt}\\
+    &\reveal{3}{-\beta(t)\,\nabla\log p_t(x)\,dt}\\
+    &\reveal{4}{+\sqrt{\beta(t)}\,d\bar W_t,}\quad\reveal{1}{t:1\to0.}
+    \end{aligned}
+  `}
+  steps={[
+    { label: "把時間倒過來", text: String.raw`現在讓時間從 1 走回 0，要描述每一小段的位置變化 $dx$。` },
+    { label: "保留原本的 drift", text: String.raw`先放入 forward dynamics 的 drift 係數，這次沿著負的 $dt$ 往回走。` },
+    { label: "用 score 修正", text: String.raw`再加入 score 項；因為 $dt<0$，這個項提供朝 density 增加方向的修正。` },
+    { label: "保留相應的隨機性", text: String.raw`最後加入反向 Brownian noise，其大小仍由 $\sqrt{\beta(t)}$ 決定。` },
+  ]}
+/>
 
 這條式子把前面缺的兩塊拼在一起了：forward dynamics 提供原本的 drift 與 noise 強度，U1.3 學到的 score 則告訴反向過程，樣本要往哪裡修正。兩者缺一不可。
 

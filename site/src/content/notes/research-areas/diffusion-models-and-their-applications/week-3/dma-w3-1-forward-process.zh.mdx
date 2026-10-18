@@ -9,7 +9,7 @@ title: "指定路徑的方法：Forward Process"
 category: "courses"
 group: "Unit 1 · Diffusion Models"
 status: "available"
-updated: 2026-10-04
+updated: 2026-10-18
 summary: "路徑自己定，那就先挑一條我們本來就會走的路：一步一步加噪聲。寫出 DDPM 的 forward process，用「兩個 Gaussian 相加還是 Gaussian」一步跳到 q(x_t|x_0)，並看清 variance-preserving 與 schedule 各自在管什麼。"
 demos: []
 references:
@@ -23,6 +23,12 @@ references:
     href: "https://arxiv.org/abs/2011.13456"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import SlideFigure from '../../../components/SlideFigure.astro';
+import forwardNoisingSlide from './imgs/slides/w3-s10-forward-noising.png';
+import markovPropertySlide from './imgs/slides/w3-s17-markov-property.png';
+import linearGaussianSlide from './imgs/slides/w3-s21-linear-gaussian.png';
+import aggregateNoiseSlide from './imgs/slides/w3-s24-aggregate-noise.png';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
@@ -55,9 +61,9 @@ import Ref from '../../../components/Ref.astro';
 
 Diffusion 的核心想法就是這個：**利用這個我們似乎知道怎麼走的方向，建立一連串很小的破壞步驟，然後去學怎麼把每一小步倒回來。** 原本困難的「從噪聲直接生成圖片」，就被拆成很多步且每一步都比較容易學習的 denoising（去噪）問題。
 
-![示意圖：同一張貓的照片排成七格，從 t=0 的原圖逐步加噪到 t=1000 的純噪聲，上方一條向右的箭頭寫著「forward：加一點點噪聲——我們本來就會做」，每格下方標 t 與 √ᾱ_t、σ_t 的數值。](./imgs/w-3-1-1.png)
-
-**圖：加噪的階梯。** 同一張照片一路加噪到純噪聲。**往右每一步都很容易**——抽一個 Gaussian、乘一個小係數、加上去；難的是往左。而我們要學的，就是如何倒回其中的每一步。
+<SlideFigure id="u1-forward-noising" src={forwardNoisingSlide} week={3} slide={10} crop={[65, 160, 1545, 405]} alt="同一張貓的照片隨時間逐漸加噪；向右的 forward 是我們設計的過程，向左的 reverse 是之後要學的生成方向。">
+同一張照片沿時間由左往右逐漸被 noise 蓋過；$t=0$ 是原圖，$t=T$ 是接近純 noise 的另一端。圖中的七格是不同時間的示意快照，兩格之間還有許多小步。**往右每一步都容易做；往左該如何走，才是模型要學的問題。**
+</SlideFigure>
 
 有了『一步一步加噪聲這個過程作為我們要走的那條路』這個直覺想法後，接下來就要用數學把這個過程描述清楚。
 
@@ -128,6 +134,10 @@ $$
 q(x_t\mid x_{t-1},x_{t-2},\dots,x_0)=q(x_t\mid x_{t-1}).
 $$
 
+<SlideFigure id="u1-markov-property" src={markovPropertySlide} week={3} slide={17} crop={[750, 145, 900, 680]} alt="Markov chain 圖中，給定現在的 x_{t-1} 後，下一步 x_t 的 conditional 不再需要額外讀取 x_0 到 x_{t-2}。">
+藍色 $x_{t-1}$ 是目前狀態，黃色 $x_t$ 是下一步；灰色的更早狀態在給定 $x_{t-1}$ 後不再提供額外資訊。圖中的等式就是 $q(x_t\mid x_{t-1},\ldots,x_0)=q(x_t\mid x_{t-1})$，並不表示 $x_t$ 和過去完全獨立。
+</SlideFigure>
+
 更詳細的 Markov chain 介紹——定義、transition matrix 與長期行為——可以參考 <Ref to="math-markov-chain"/>。
 </Remark>
 
@@ -155,9 +165,23 @@ $$
 
 $\mathcal N(\cdot,\cdot)$ 括號裡的兩個位置分別是**平均**和**變異數**，所以這一行是說：$x_t$ 服從一個 Gaussian，中心在「把 $x_{t-1}$ 縮小 $\sqrt{1-\beta_t}$ 倍」的位置，散布的大小是 $\beta_t$。寫成取樣的樣子更好懂，它等價於
 
-$$
-x_t=\sqrt{1-\beta_t}\,x_{t-1}+\sqrt{\beta_t}\,\epsilon_t,\qquad \epsilon_t\sim\mathcal N(0,I).
-$$
+<FormulaSteps
+  id="forward-noise-step"
+  compact
+  title="一步只加一點 noise，要怎麼寫？"
+  formula={String.raw`
+    \begin{gathered}
+      \reveal{1}{x_t=}\reveal{2}{\sqrt{1-\beta_t}\,}\reveal{1}{x_{t-1}}
+      \reveal{3}{+\sqrt{\beta_t}\,\epsilon_t,}\\[.2em]
+      \reveal{3}{\epsilon_t\sim\mathcal N(0,I).}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "從現在出發", text: String.raw`手上先有上一個狀態 $x_{t-1}$，要從它產生下一個 $x_t$。` },
+    { label: "先縮小信號", text: String.raw`把原本的狀態乘上 $\sqrt{1-\beta_t}$，先縮小一點。` },
+    { label: "再補新的 noise", text: String.raw`獨立抽一個新的 $\epsilon_t$，縮放成 $\sqrt{\beta_t}\epsilon_t$ 再加上去。` },
+  ]}
+/>
 
 也就是：**把上一個狀態稍微縮小一點，再補上一點新的 Gaussian noise。** 其中 $\beta_t$ 控制第 $t$ 步要加多少 noise。
 
@@ -172,6 +196,10 @@ $$
 $$
 
 信號縮小多少，噪聲就補上多少，變異數總量剛好不變——因此這種 forward process 叫 **variance-preserving（VP）**。它帶來兩個實際好處：$x_T$ 比較容易落在 $\mathcal N(0,I)$ 附近（我們會抽的那個分布），而且網路的輸入尺度在每個 $t$ 都差不多，不會有的時候很大、有的時候很小。
+
+<SlideFigure id="u1-linear-gaussian" src={linearGaussianSlide} week={3} slide={21} alt="一次 forward transition 的三種看法：先縮小目前樣本再加 Gaussian noise、對應的 conditional Gaussian，以及 variance-preserving 的變異數計算。">
+左欄是一個 realization：先縮成 $\sqrt{1-\beta_t}\,x_{t-1}$，再加上這次抽到的 $\sqrt{\beta_t}\,\epsilon_t$。中欄固定 $x_{t-1}$、改抽不同的 $\epsilon_t$，就得到 conditional Gaussian。右欄則額外假設 $\operatorname{Var}(x_{t-1})=I$，檢查兩份 variance 如何補回 $I$。
+</SlideFigure>
 
 **為什麼 $\beta_t$ 要小？** 因為每一步的變化小，反向那一步才容易學。這就是「切碎」真正的意思：我們不是要讓模型少做事，而是要讓它每一次只做一件簡單的事。
 
@@ -224,10 +252,26 @@ $$
 
 剛好又補成兩個係數平方和等於 1。一路歸納下去就得到我們實作上最常用的那一行：
 
-$$
-\boxed{\;q(x_t\mid x_0)=\mathcal N\!\big(\sqrt{\bar\alpha_t}\,x_0,\ (1-\bar\alpha_t)I\big),
-\qquad x_t=\sqrt{\bar\alpha_t}\,x_0+\sigma_t\,\epsilon,\quad \sigma_t^2=1-\bar\alpha_t .\;}
-$$
+<FormulaSteps
+  id="direct-noisy-sample"
+  compact
+  title="不用逐步走，也能直接得到任意時間的樣本嗎？"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{4}{q(x_t\mid x_0)=}\\
+    \reveal{4}{\mathcal N\!\big(\sqrt{\bar\alpha_t}\,x_0,\ (1-\bar\alpha_t)I\big),}\\[.2em]
+    \reveal{1}{x_t=}\reveal{2}{\sqrt{\bar\alpha_t}\,}\reveal{1}{x_0}
+    \reveal{3}{+\sigma_t\epsilon,}\\[.2em]
+    \reveal{3}{\sigma_t^2=1-\bar\alpha_t.}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "固定資料與時間", text: String.raw`先拿一張真實圖片 $x_0$，並指定想看到的時間 $t$。` },
+    { label: "保留剩下的信號", text: String.raw`從頭到現在留下的信號，合起來就是 $\sqrt{\bar\alpha_t}\,x_0$。` },
+    { label: "合併整段 noise", text: String.raw`把前面的小 noise 合成一個 $\sigma_t\epsilon$，其變異數是 $(1-\bar\alpha_t)I$。` },
+    { label: "讀出條件分布", text: String.raw`所以固定 $x_0$ 後，$x_t$ 就服從這個 Gaussian；抽一次 noise 就能直接算出它。` },
+  ]}
+/>
 
 於是取一個訓練樣本只要做三件事：**抽一個 $t$、抽一個 $\epsilon\sim\mathcal N(0,I)$、算一次乘法與加法。** 完全不需要跑那 800 步的遞迴。
 
@@ -236,6 +280,10 @@ $$
 換個角度看，這一行其實是把資料和一個 noise 用 $(\sqrt{\bar\alpha_t},\ \sqrt{1-\bar\alpha_t})$ 這組係數來做**插值**（interpolation）。而「係數平方和恆為 1」是 VP 這個選擇帶來的限制，不是插值本身要求的——<Ref to="dma-fm-vs-diffusion"/> 會把這組係數換成 $(t,\,1-t)$ 的直線插值（linear interpolation），<Ref to="dma-unified-equation"/> 則考慮最一般的情況，寫成一個把 diffusion、flow matching 都涵蓋進去的通式（general form）。
 
 唯一要特別小心的事：這裡的 $\epsilon$ **不是**任何一步加進去的 $\epsilon_t$，而是把 $t$ 個小小的噪聲合併之後、重新命名的單一 Gaussian 變數；它與 $x_0$ 獨立。下一篇的訓練目標會直接針對它，所以這個區別要記起來。
+
+<SlideFigure id="u1-aggregate-noise" src={aggregateNoiseSlide} week={3} slide={24} alt="Forward process 的 closed form：signal 的縮放係數逐步相乘，多份獨立 noise 合成一個標準 Gaussian epsilon，因此可以直接產生任意時間的 x_t。">
+左欄將逐步保留率乘成 $\bar\alpha_t=\prod_{s=1}^t\alpha_s$，中欄把結果寫成 $x_t=\sqrt{\bar\alpha_t}x_0+\sigma_t\epsilon$，其中 $\sigma_t=\sqrt{1-\bar\alpha_t}$。右欄特別區分每一步新抽的 $\epsilon_s$，和把這些 noise 加權合併、重新標準化後的單一 $\epsilon\sim\mathcal N(0,I)$。
+</SlideFigure>
 </Answer>
 </Question>
 

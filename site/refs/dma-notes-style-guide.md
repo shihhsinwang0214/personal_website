@@ -6,6 +6,8 @@
 > **四個模板篇**：`dma-w3-0`（一整篇的骨架）、`dma-w3-1`（一節怎麼從目標倒推、比喻怎麼寫、式子怎麼配白話）、`dma-w3-2`（符號經濟與「先猜再驗」）、`dma-w4-1`（問題驅動、用同一個生活情境一路長出 objective 與 conditional expectation）。要決定寫法時先去看這四篇怎麼做的。
 > 結構性規則（label、`<Ref>`、編號、放置位置）在 `claude/dma-course-notes-structure.md`；**停頓與強調的完整說明（三級機制、`<Try>` 規格、全站 143 個 blockquote 的盤點）在 `claude/dma-notes-stop-and-emphasis.md`**；ML 系列細節在 `claude/ml-foundations-series.md`；進度在 `claude/dma-notes-voice-pass.md`。
 
+> **數學公式的出場順序（2026-10-18）**：新建立的 loss、條件平均、機率式與更新式，依讀者的思考順序逐步長出來；可先固定條件或寫 input，再補 label、比較方式與平均。搭配額外的 [concept-ordered-math-writing skill](../../docs/skills/concept-ordered-math-writing/SKILL.md)，沿用本 guide 的主線與語氣。網頁使用精簡 `FormulaSteps`，提供逐步、一鍵到底與回到起點；不把所有常見代數都做成互動，也不刪改作者指定的完整說明。
+
 ---
 
 ## U2 改寫後確立的主線規則（2026-10-02）

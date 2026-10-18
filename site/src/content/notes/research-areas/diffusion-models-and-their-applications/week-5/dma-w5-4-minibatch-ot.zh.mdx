@@ -10,7 +10,7 @@ title: "拉直（二）：不依靠反覆訓練，能不能用別的方法決定
 category: "courses"
 group: "Unit 3 · 減少 ODE 的離散化誤差"
 status: "available"
-updated: 2026-10-05
+updated: 2026-10-18
 summary: "若想在訓練前就減少 reference velocities 的衝突，可以先用二次成本安排端點；minibatch OT 在每個 batch 內精確解 OT，再沿用原本的 CFM objective，但有限 batch 不等於 population OT，也不保證 learned ODE 已經是等速直線。"
 demos:
   - "notes/research_areas/diffusion-models-applications/w5-4-batch-ot.html"
@@ -23,6 +23,11 @@ references:
     href: "https://arxiv.org/abs/1306.0895"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
+import SlideFigure from '../../../components/SlideFigure.astro';
+import swapEndpointsSlide from './imgs/slides/w5-s43-swap-endpoints.png';
+import assignmentMatrixSlide from './imgs/slides/w5-s47-assignment-matrix.png';
+import empiricalMarginalsSlide from './imgs/slides/w5-s49-empirical-marginals.png';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
@@ -83,12 +88,26 @@ $$
 
 如果搬運成本是距離的平方，這組配對的總成本就是
 
-$$
-C(\sigma)
-=
-\sum_{i=1}^{n}
-\left\|x_0^{(i)}-x_1^{(\sigma(i))}\right\|^2.
-$$
+<FormulaSteps
+  id="assignment-transport-cost"
+  compact
+  title="先算每組配對，再算整張名單的成本"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{5}{C(\sigma)=}
+    \reveal{4}{\sum_{i=1}^{n}}
+    \reveal{3}{\left\|\reveal{1}{x_0^{(i)}}
+    -\reveal{2}{x_1^{(\sigma(i))}}\right\|^2}\reveal{5}{.}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先看第幾件貨物", text: String.raw`$x_0^{(i)}$ 是第 $i$ 個起點。先固定它，問這件貨物要搬去哪裡。` },
+    { label: "照送貨表找它的終點", text: String.raw`$\sigma(i)$ 記錄這件貨物被分到的終點編號，所以配對的另一端是 $x_1^{(\sigma(i))}$。` },
+    { label: "量這一組的搬運成本", text: String.raw`把兩端位置相減，再取平方長度，得到這件貨物的二次搬運成本。` },
+    { label: "把整張名單的成本加起來", text: String.raw`對所有 $i=1,\ldots,n$ 加總。每個終點恰好使用一次的限制，由 $\sigma$ 是 permutation 來保證。` },
+    { label: "得到可比較的總成本", text: String.raw`把這個總和記成 $C(\sigma)$。接下來才在所有合法送貨表裡，找讓它最小的 $\sigma$。` },
+  ]}
+/>
 
 我們想找的，是所有合法配對中讓這個總和最小的那一個：
 
@@ -116,6 +135,10 @@ $$
 (0-1)^2+(3-4)^2=2.
 $$
 
+<SlideFigure id="u3-swap-endpoints" src={swapEndpointsSlide} week={5} slide={43} alt="一維起點 0、3 與終點 1、4：交叉配對的平方成本是 20，順序配對的成本是 2。">
+橫軸是位置 $x$，縱軸是 reference path 的時間 $t$。兩欄使用相同的起點 $\{0,3\}$ 與終點 $\{1,4\}$，只交換誰配誰。每條線本來就直，但交換後成本從 $20$ 降到 $2$，也移除了同一個 $(x,t)$ 上的方向衝突。
+</SlideFigure>
+
 在這個例子裡，**交換不只讓搬運距離變短，也拿掉了兩條彼此交叉的 reference paths。** 接著把同一個計算寫成一般形式。假設某個配對把 $a$ 送到 $A$、把 $b$ 送到 $B$；若交換終點，改成 $a\to B$、$b\to A$，新成本減掉舊成本會是
 
 $$
@@ -137,10 +160,6 @@ $$
 $$
 
 這就是這組 OT 配對的**單調性**。它說的是：從 $b$ 指向 $a$，以及從 $T(b)$ 指向 $T(a)$ 的兩個向量，不能指向彼此相反的方向。在一維裡更直接：如果 $a>b$，就必須有 $T(a)\ge T(b)$。起點的左右順序不能在終點反過來，因此兩條直線不會交叉。
-
-![交換一次，就看出單調](./imgs/w5-4-1.png)
-
-*圖：在一維，交叉配對交換終點後會更短，因此 OT 會保留端點的左右順序。*
 
 不過，高維沒有單一的「左右順序」。那這個條件還能幫我們減少 reference directions 的衝突嗎？考慮 $a$ 與 $b$ 對應的 linear reference paths：
 
@@ -195,6 +214,10 @@ $$
 \sum_{i=1}^{n}C_{i,\sigma(i)}.
 $$
 
+<SlideFigure id="u3-assignment-matrix" src={assignmentMatrixSlide} week={5} slide={47} alt="三個起點 0、3、8 與終點 7、1、4 形成平方距離矩陣；選中格子每列每欄恰好一次，得到置換 2、3、1。">
+把三個起點設為 $(0,3,8)$、抽到的終點依序設為 $(7,1,4)$。粉紅格選出 $\sigma^\star=(2,3,1)$，也就是 $0\to1$、$3\to4$、$8\to7$，總成本 $C_{1,2}+C_{2,3}+C_{3,1}=1+1+1=3$。矩陣依抽樣順序排列，右圖則依位置高低畫出端點。
+</SlideFigure>
+
 solver 回傳的 $\sigma^\star(i)$，就是第 $i$ 個起點應該被送到哪一個終點。所以，**這個 finite、equal-weight 的 quadratic OT 確實有精確算法；問題是資料一多，計算成本就會太高。** 真實資料可能有幾十萬、幾百萬筆，光是存下所有兩兩距離就需要 $O(n^2)$ 的空間，常見的精確 assignment algorithm 則大約需要 $O(n^3)$ 的時間。
 
 訓練神經網路時，我們本來就不會一次讀完整個資料集，而是每次抽一小批樣本，也就是一個 **batch**。因此，一個自然的近似是：只讓目前這 $B$ 個起點，在目前這 $B$ 個終點裡找最佳配對。把上面的 $n\times n$ 矩陣換成 $B\times B$，再用同一個 assignment solver，就會得到這個 batch 裡的 $\sigma^\star$。
@@ -211,16 +234,33 @@ $$
 
 接下來仍然使用 <Ref to="dma-flows-and-continuity">U2.1</Ref> 的 velocity regression：
 
-$$
-\mathcal L_{\mathrm{OT\text{-}CFM}}(\theta)
-=
-\mathbb E\!\left[
-\frac1B\sum_{i=1}^{B}
-\left\|
-v_\theta(I_t^{(i)},t)-\dot I_t^{(i)}
-\right\|^2
-\right].
-$$
+<FormulaSteps
+  id="ot-cfm-regression-loss"
+  compact
+  title="配對換了，velocity regression 怎麼寫"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{1}{\mathcal L_{\mathrm{OT\text{-}CFM}}(\theta)=}\\
+    \reveal{6}{\mathbb E\!\left[
+    \reveal{5}{\frac1B\sum_{i=1}^{B}}
+    \reveal{4}{\left\|
+    \begin{gathered}
+    \reveal{2}{v_\theta}\reveal{1}{(I_t^{(i)},t)}\\
+    \reveal{3}{-\dot I_t^{(i)}}
+    \end{gathered}
+    \right\|^2}
+    \right].}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "配好端點，再製造 input", text: String.raw`先在抽到的 batch 內求出 $\sigma^\star$，再沿每組新配對畫直線、抽時間 $t$，算出網路的 input $(I_t^{(i)},t)$。` },
+    { label: "網路仍然預測 velocity", text: String.raw`$v_\theta(I_t^{(i)},t)$ 回答這個時間、這個位置該怎麼走；model 的任務沒有改變。` },
+    { label: "label 來自重新配對的直線", text: String.raw`$\dot I_t^{(i)}=x_1^{(\sigma^\star(i))}-x_0^{(i)}$ 是這組新端點的 reference velocity。` },
+    { label: "先比較一筆速度的平方誤差", text: String.raw`把預測減去這條直線的速度，再取平方長度，仍然是原本的 velocity regression。` },
+    { label: "再平均目前 batch 的誤差", text: String.raw`$\frac1B\sum_i$ 把這次 batch 裡每一組新配對的平方誤差平均起來。` },
+    { label: "最後對抽 batch 與時間取平均", text: String.raw`期望值涵蓋抽 batch 與抽 $t$ 的 randomness，也就參考這個配對程序能產生的所有速度 labels。改變的是 label 的來路，CFM 的平方誤差形式沒有改。` },
+  ]}
+/>
 
 這個期望值包含抽 batch 與抽時間 $t$ 的 randomness。**CFM objective 的形式沒有改；改的是哪些 $x_0$ 與 $x_1$ 會被拿來畫同一條 reference path。**
 
@@ -354,6 +394,20 @@ $$
 
 <Remark label="補充" summary="重新配對會改變兩端的 distributions 嗎？">
 不會。Batch 內重排只是一個 permutation：$x_0$ 與 $x_1$ 的樣本集合都沒有變，只有誰和誰配在一起。想像送貨表被重新排序，但每個倉庫仍然出一件貨、每個目的地也仍然收一件貨，因此這個 batch 的兩端 empirical marginals 完全不變。
+
+把一次 batch 的配對寫成 empirical coupling：
+
+$$
+\widehat\pi_B
+=\frac1B\sum_{i=1}^B
+\delta_{(x_0^{(i)},x_1^{(\sigma^\star(i))})}.
+$$
+
+$\delta_{(a,b)}$ 表示把單位 probability mass 放在端點對 $(a,b)$。每個 pair 分到 $1/B$ 的權重；再對抽 batch 的 randomness 平均，就得到前面使用的 $\pi_B=\mathbb E[\widehat\pi_B]$。
+
+<SlideFigure id="u3-empirical-marginals" src={empiricalMarginalsSlide} week={5} slide={49} alt="Permutation 改變 empirical coupling 的配對線，但不改兩端樣本集合；對 batches 平均後仍得到連接 p_0 與 p_1 的合法 coupling。">
+第一端仍是 $\frac1B\sum_i\delta_{x_0^{(i)}}$；第二端只是把 $\frac1B\sum_j\delta_{x_1^{(j)}}$ 換了求和順序。因為 $\sigma^\star$ 不重複、不漏掉任何終點，兩端 empirical marginals 都不變；對隨機 batches 平均後，$\pi_B\in\Pi(p_0,p_1)$。
+</SlideFigure>
 
 把抽 batch 的 randomness 一起考慮後，這個程序誘導出的 joint distribution 仍然是一個兩端 marginals 分別為 $p_0,p_1$ 的合法 coupling [2]。所以在理想 velocity 與精確 ODE 下，<Ref to="dma-conditional-flow-matching">U2.2</Ref> 的結論仍然適用：沿著學到的 velocity field 走，最後仍會抵達 $p_1$。
 

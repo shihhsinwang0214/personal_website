@@ -8,7 +8,7 @@ title: "少看幾次方向，還能走得準嗎？"
 category: "courses"
 group: "Unit 3 · 減少 ODE 的離散化誤差"
 status: "available"
-updated: 2026-10-06
+updated: 2026-10-18
 summary: "當 learned velocity 已經固定，還可以改變 numerical solver：Heun 用起點與預測終點的 velocity 修正一步，adaptive solver 則用兩種近似的差決定哪裡該縮小步長。"
 demos:
   - "notes/research_areas/diffusion-models-applications/w5-5-solvers.html"
@@ -21,6 +21,12 @@ references:
     href: "https://arxiv.org/abs/2206.00927"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
+import SlideFigure from '../../../components/SlideFigure.astro';
+import rectangleTrapezoidSlide from './imgs/slides/w5-s56-rectangle-trapezoid.png';
+import heunQueriesSlide from './imgs/slides/w5-s57-heun-queries.png';
+import stepDoublingSlide from './imgs/slides/w5-s61-step-doubling.png';
+import adaptiveRetrySlide from './imgs/slides/w5-s62-adaptive-retry.png';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import Details from '../../../components/Details.astro';
@@ -63,10 +69,12 @@ $$
 
 ## Review：Euler 一步只看一個方向
 
+沿用 U3.1 的符號：$t_{k+1}=t_k+h$，$x_t$ 是精確 ODE trajectory，$\hat x_{t_k}$ 是 solver 算出的近似位置。下面固定同一個 field，簡寫成 $v_t(x)$；實作時，每次查詢的都是 $v_\theta(x,t)$。
+
 Euler 在一步的起點詢問一次：
 
 $$
-x_{t+h}^{\mathrm E}=x_t+h\,v_t(x_t).
+\hat x_{t_{k+1}}=\hat x_{t_k}+h\,v_{t_k}(\hat x_{t_k}).
 $$
 
 它把整段積分近似成一個長方形：寬是 $h$，高是起點 velocity。每一步只花 **1 NFE**，但也等於假設接下來這一小段的方向與速度大小都不變。若把 $[0,1]$ 平均切成 $M$ 步，便需要 $M$ NFE，步長是 $h=1/M$。
@@ -81,61 +89,100 @@ $$
 
 ## 只看起點不夠，能不能也看一下終點？
 
-<Ref to="dma-error-theory">U3.1</Ref> 已經把沿 trajectory 感受到的 acceleration 記成 $a_t(x_t)=\frac{\mathrm d}{\mathrm dt}v_t(x_t)$。將精確解在 $t$ 附近做 Taylor expansion：
+<Ref to="dma-error-theory">U3.1</Ref> 已經把沿 trajectory 感受到的 acceleration 記成 $a_t(x_t)=\frac{\mathrm d}{\mathrm dt}v_t(x_t)$。將精確解在 $t_k$ 附近做 Taylor expansion：
 
 $$
-x_{t+h}
-=x_t+h\,v_t(x_t)
-+\frac{h^2}{2}a_t(x_t)
+x_{t_{k+1}}
+=x_{t_k}+h\,v_{t_k}(x_{t_k})
++\frac{h^2}{2}a_{t_k}(x_{t_k})
 +O(h^3).
 $$
 
-Euler 只留下前兩項，漏掉的正是 $\frac{h^2}{2}a_t(x_t)$。但真的要使用這一項，就得知道 acceleration。**有沒有辦法不直接計算 acceleration，卻稍微捕捉到 velocity 在這一步裡改變了多少？**
+Euler 只留下前兩項，漏掉的正是 $\frac{h^2}{2}a_{t_k}(x_{t_k})$。但真的要使用這一項，就得知道 acceleration。**有沒有辦法不直接計算 acceleration，卻稍微捕捉到 velocity 在這一步裡改變了多少？**
 
 Acceleration 描述的就是 velocity 如何改變。因此，除了起點的方向，我們可以在這一步的終點再問一次：如果前後兩支箭頭差很多，代表這一段的 velocity 確實改變得很快。
 
 從積分的角度也可以看到同一件事。Euler 用起點的 velocity 畫一個長方形來近似積分；如果 velocity 在這一小段裡逐漸改變，用起點與終點兩個高度畫出的**梯形**，通常會更接近曲線下面的面積。也就是使用兩者的平均 velocity：
 
 $$
-x_{t+h}
-\approx x_t+\frac h2\left(v_t(x_t)+v_{t+h}(x_{t+h})\right).
+x_{t_{k+1}}
+\approx x_{t_k}+\frac h2\left(v_{t_k}(x_{t_k})+v_{t_{k+1}}(x_{t_{k+1}})\right).
 $$
 
-![Euler 用起點高度畫長方形，梯形近似則平均兩端高度；灰色斜線標出近似面積與真正 velocity 積分的差。](./imgs/w5-5-rectangle-trapezoid.png)
+<SlideFigure id="u3-rectangle-trapezoid" src={rectangleTrapezoidSlide} week={5} slide={56} alt="位移是 velocity 曲線下的面積；Euler 使用起點高度的長方形，梯形近似使用兩端 velocity 的平均。">
+藍線是精確 trajectory 上的 $v_\tau(x_\tau)$，紅色面積是位移近似，灰色斜線是面積差。兩欄使用同一段 $[t_k,t_{k+1}]$，寬度都是 $h$；右欄暫時假設真正終點的 velocity 已知，接著才處理「終點還沒算出來」的問題。
+</SlideFigure>
 
-**圖：從長方形改成梯形。** 藍線是沿 ODE trajectory 感受到的 velocity，紅色區域是位移的近似，灰色斜線是兩者的面積差。這裡先假設兩端高度已知。
+不過，真正的 $x_{t_{k+1}}$ 正是我們還在計算的答案，現在還不能拿它來問 velocity。最直接的處理方式，是從目前的近似位置 $\hat x_{t_k}$ 先用 Euler 試走一次，得到一個預測終點：
 
-不過，真正的 $x_{t+h}$ 正是我們還在計算的答案，現在還不能拿它來問 velocity。最直接的處理方式，是先用 Euler 試走一次，得到一個預測終點：
+<FormulaSteps
+  id="heun-predictor"
+  compact
+  title="先試走，才有位置可問第二次速度"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{3}{\widetilde x_{t_{k+1}}=}
+    \reveal{1}{\hat x_{t_k}}
+    \reveal{3}{+h\,}\reveal{2}{v_{t_k}(\hat x_{t_k})}\reveal{3}{.}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "從目前算到的位置出發", text: String.raw`$\hat x_{t_k}$ 是 solver 手上的近似位置；真正的下一個終點還不知道。` },
+    { label: "先詢問一次起點速度", text: String.raw`在時間 $t_k$、位置 $\hat x_{t_k}$ 查詢 $v_{t_k}$，花掉第一次 NFE。` },
+    { label: "用 Euler 試走到預測終點", text: String.raw`把這支 velocity 乘上 $h$，加回目前位置，得到 predictor $\widetilde x_{t_{k+1}}$。它提供第二次查詢的位置，還不是最後接受的答案。` },
+  ]}
+/>
 
-$$
-\widetilde x_{t+h}=x_t+h\,v_t(x_t).
-$$
+接著在預測位置 $\widetilde x_{t_{k+1}}$、時間 $t_{k+1}$ 再問一次方向，最後用起點與預測終點的平均 velocity 修正這一步：
 
-接著在 $\widetilde x_{t+h}$ 再問一次方向，最後用起點與預測終點的平均 velocity 修正這一步：
-
-$$
-x_{t+h}^{\mathrm H}
-=x_t+\frac h2\left(v_t(x_t)+v_{t+h}(\widetilde x_{t+h})\right).
-$$
+<FormulaSteps
+  id="heun-corrector"
+  compact
+  title="用兩次查詢修正這一步"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{5}{\hat x_{t_{k+1}}=}\\
+    \reveal{5}{\hat x_{t_k}+}
+    \reveal{4}{h\,\reveal{3}{\frac12}
+    \reveal{3}{\Biggl(}
+    \begin{gathered}
+    \reveal{1}{v_{t_k}(\hat x_{t_k})}\\
+    \reveal{3}{+}\reveal{2}{v_{t_{k+1}}(\widetilde x_{t_{k+1}})}
+    \end{gathered}
+    \reveal{3}{\Biggr)}}\reveal{5}{.}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "保留起點已查過的速度", text: String.raw`Predictor 用過的 $v_{t_k}(\hat x_{t_k})$ 可以直接沿用，不必再花一次 NFE。` },
+    { label: "在預測終點再問一次", text: String.raw`現在有了 $\widetilde x_{t_{k+1}}$，就在這個預測位置與新時間 $t_{k+1}$ 查第二次 velocity。` },
+    { label: "用兩支箭頭的平均", text: String.raw`把起點與預測終點的 velocities 加起來，再乘 $\tfrac12$，近似這一小段的平均 velocity。` },
+    { label: "把平均速度換成位移", text: String.raw`乘上這一步的時間長度 $h$，得到 Heun 使用的位移近似。` },
+    { label: "加回原位置，才接受新終點", text: String.raw`從原本的 $\hat x_{t_k}$ 加上修正位移，得到 corrector $\hat x_{t_{k+1}}$。整步共用兩次 velocity 查詢，也就是 2 NFE。` },
+  ]}
+/>
 
 前一個式子只是 predictor，後一個式子才是 corrector；這個做法稱為 **Heun method**。沿用導航的例子，就是先照目前方向試走到下一個位置，在那裡再看一次導航；如果前後方向不同，便不讓整步都跟著第一支箭頭走。
 
+<SlideFigure id="u3-heun-queries" src={heunQueriesSlide} week={5} slide={57} alt="Heun 先在起點詢問 velocity 做 Euler predictor，再在預測位置詢問第二次，最後用兩次 velocity 的平均修正終點。">
+左欄把 predictor 直接代進 corrector，因此和上式相同。右欄取 $v_t(x)=(1,2t)$、$\hat x_0=(0,0)$、$h=1$：Euler 先預測 $(1,0)$，第二次查到 $(1,2)$，平均兩次 velocity 後，Heun 抵達 $(1,1)$。這個 toy 剛好一步精確；一般 field 仍有高階餘項。
+</SlideFigure>
+
 ### 為什麼兩個 velocity 的平均能補到 acceleration？
 
-在 trajectory 夠平滑時，預測終點的 velocity 可以展開成
+為了只比較這一步新產生的 local error，先假設目前位置精確，也就是 $\hat x_{t_k}=x_{t_k}$。在 trajectory 夠平滑時，預測終點的 velocity 可以展開成
 
 $$
-v_{t+h}(\widetilde x_{t+h})
-=v_t(x_t)+h\,a_t(x_t)+O(h^2).
+v_{t_{k+1}}(\widetilde x_{t_{k+1}})
+=v_{t_k}(x_{t_k})+h\,a_{t_k}(x_{t_k})+O(h^2).
 $$
 
-也就是說，起點與預測終點的 velocity 相差大約 $h\,a_t(x_t)$。把它放回剛才的梯形更新：
+也就是說，起點與預測終點的 velocity 相差大約 $h\,a_{t_k}(x_{t_k})$。把它放回剛才的梯形更新：
 
 $$
 \begin{aligned}
-x_{t+h}^{\mathrm H}
-&=x_t+\frac h2\left(v_t(x_t)+v_{t+h}(\widetilde x_{t+h})\right)\\
-&=x_t+h\,v_t(x_t)+\frac{h^2}{2}a_t(x_t)+O(h^3).
+\hat x_{t_{k+1}}
+&=x_{t_k}+\frac h2\left(v_{t_k}(x_{t_k})+v_{t_{k+1}}(\widetilde x_{t_{k+1}})\right)\\
+&=x_{t_k}+h\,v_{t_k}(x_{t_k})+\frac{h^2}{2}a_{t_k}(x_{t_k})+O(h^3).
 \end{aligned}
 $$
 
@@ -153,29 +200,61 @@ Karras 等人 [1] 在 diffusion sampling 中採用了這類二階修正。不過
 
 Euler 與剛才的 Heun 都把時間切成等長的小段。但導航次數有限時，直路每隔幾公尺就重新確認方向很浪費；接近轉彎處，隔太久才看一次又容易走過頭。更自然的做法是：velocity 穩定時走大步，變化明顯時再縮小步長。
 
-麻煩是，我們事先不知道哪一段變化比較大。最簡單的判斷方法，是從同一個 $x_t$ 出發，分別算「一個大步」與「兩個半步」：
+麻煩是，我們事先不知道哪一段變化比較大。最簡單的判斷方法，是從同一個 $\hat x_{t_k}$ 出發，分別算「一個大步」與「兩個半步」。用 $\mathrm{full}$ 與 $\mathrm{two}$ 標記這兩種終點近似：
 
 $$
 \begin{aligned}
-x_{\mathrm{full}}&=x_t+h\,v_t(x_t),\\
-x_{\mathrm{half}}&=x_t+\frac h2v_t(x_t),\\
-x_{\mathrm{two}}&=x_{\mathrm{half}}+\frac h2v_{t+h/2}(x_{\mathrm{half}}).
+\hat x_{t_{k+1}}^{\mathrm{full}}
+&=\hat x_{t_k}+h\,v_{t_k}(\hat x_{t_k}),\\
+\hat x_{t_k+h/2}
+&=\hat x_{t_k}+\frac h2v_{t_k}(\hat x_{t_k}),\\
+\hat x_{t_{k+1}}^{\mathrm{two}}
+&=\hat x_{t_k+h/2}+\frac h2v_{t_k+h/2}(\hat x_{t_k+h/2}).
 \end{aligned}
 $$
 
 為什麼兩個結果的差可以拿來判斷？沿用剛才的 Taylor expansion，可以算出
 
 $$
-x_{\mathrm{two}}-x_{\mathrm{full}}
-=\frac{h^2}{4}a_t(x_t)+O(h^3).
+\hat x_{t_{k+1}}^{\mathrm{two}}-\hat x_{t_{k+1}}^{\mathrm{full}}
+=\frac{h^2}{4}a_{t_k}(\hat x_{t_k})+O(h^3).
 $$
 
-所以兩者的差雖然不是真實誤差本身，卻會隨這一段的 velocity 變化一起增大。若 $\|x_{\mathrm{two}}-x_{\mathrm{full}}\|$ 小於事先設定的 **tolerance**——也就是我們願意接受的 local discrepancy——就接受這一步，下一步還可以放大 $h$；若差距太大，就拒絕這次更新、縮小 $h$ 再算。
+所以兩者的差雖然不是真實誤差本身，卻會隨這一段的 velocity 變化一起增大。把差距的 norm 記成 $\eta$，並用 $\mathrm{tol}$ 表示事先設定的 **tolerance**，也就是我們願意接受的 local discrepancy：
 
-這就是 **adaptive step size** 的基本想法。注意，前面介紹的 Heun 本身仍是固定步長；「用 Heun」與「步長會不會自動調整」是兩個不同的選擇。不過，Heun 的 Euler predictor $\widetilde x_{t+h}$ 與 corrector $x_{t+h}^{\mathrm H}$ 已經給了同一步的兩種近似，因此也可以用
+<FormulaSteps
+  id="adaptive-local-signal"
+  compact
+  title="用兩種近似的差判斷是否該縮步"
+  formula={String.raw`
+    \reveal{4}{\eta:=}
+    \reveal{3}{\left\|
+    \reveal{2}{\hat x_{t_{k+1}}^{\mathrm{two}}}
+    -\reveal{1}{\hat x_{t_{k+1}}^{\mathrm{full}}}
+    \right\|.}
+  `}
+  steps={[
+    { label: "先算一個大步的終點", text: String.raw`從目前位置出發，以步長 $h$ 做一次 Euler，得到 $\hat x_{t_{k+1}}^{\mathrm{full}}$。` },
+    { label: "從同一起點改走兩個半步", text: String.raw`這次以 $h/2$ 走兩次，中途再查 velocity，得到同一時刻的另一個近似 $\hat x_{t_{k+1}}^{\mathrm{two}}$。` },
+    { label: "比較兩個近似有多不一致", text: String.raw`兩個終點相減並取 norm。這裡只比較 solver 能算出的結果，沒有用到未知的精確答案。` },
+    { label: "把差距記成 local error signal", text: String.raw`用 $\eta$ 記這個差距，再與 tolerance 比較，決定接受這一步或縮小 $h$ 重算。$\eta$ 是誤差信號，並不等於真實 local error。` },
+  ]}
+/>
+
+若 $\eta\le\mathrm{tol}$，就接受這一步，下一步還可以放大 $h$；若 $\eta>\mathrm{tol}$，就拒絕這次更新、縮小 $h$ 再算。
+
+<SlideFigure id="u3-step-doubling" src={stepDoublingSlide} week={5} slide={61} alt="在 velocity 為 1,2t 的 toy 中，一個 Euler 大步得到 1,0，兩個半步得到 1,0.5；兩者距離 eta 是 local error signal。">
+沿用 $v_t=(1,2t)$、$h=1$：一個大步到 $(1,0)$，兩個半步到 $(1,\tfrac12)$，所以 $\eta=\tfrac12$。這是兩種近似的差，沒有拿真正答案 $(1,1)$ 來算；實際演算法也不需要事先知道精確終點。
+</SlideFigure>
+
+<SlideFigure id="u3-adaptive-retry" src={adaptiveRetrySlide} week={5} slide={62} alt="Adaptive solver 用 eta 與 tolerance 比較：差距太大就拒絕本次更新，從原起點以較小 h 重新計算。">
+接受時才前進時間；拒絕時仍留在原本的 $\hat x_{t_k}$，縮小 $h$、重新設定 $t_{k+1}=t_k+h$ 再算。圖中的藍線只是用來說明誤差來源；接受或拒絕的判斷依據是 $\eta$，不需要先知道藍線。
+</SlideFigure>
+
+這就是 **adaptive step size** 的基本想法。注意，前面介紹的 Heun 本身仍是固定步長；「用 Heun」與「步長會不會自動調整」是兩個不同的選擇。不過，Heun 的 Euler predictor $\widetilde x_{t_{k+1}}$ 與 corrector $\hat x_{t_{k+1}}$ 已經給了同一步的兩種近似，因此也可以用
 
 $$
-\left\|x_{t+h}^{\mathrm H}-\widetilde x_{t+h}\right\|
+\left\|\hat x_{t_{k+1}}-\widetilde x_{t_{k+1}}\right\|
 $$
 
 當成 local error signal，再依照差距放大或縮小下一步。更一般的 embedded Runge–Kutta methods 也會共用一組 velocity evaluations，同時計算兩個不同階數的近似；Dormand–Prince method [2] 就是常見的例子。Adaptive solver 不需要預先知道哪裡會轉彎、加速或減速，但估計誤差本身也會花 NFE，而且不同樣本可能需要不同步數。

@@ -9,7 +9,7 @@ title: "Gaussian 起點：DDIM 與 Flow Matching 的交集"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-10-04
+updated: 2026-10-18
 summary: "當起點是 Gaussian，denoiser、score 與 velocity 是同一組 conditional means 的不同寫法；代入 VP path 後，Flow ODE 就接回 DDIM 與 probability-flow ODE。"
 demos: []
 references:
@@ -21,6 +21,7 @@ references:
     href: "https://arxiv.org/abs/2210.02747"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
@@ -29,6 +30,8 @@ import Option from '../../../components/Option.astro';
 import Explanation from '../../../components/Explanation.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
+import SlideFigure from '../../../components/SlideFigure.astro';
+import denoiserFigure from './imgs/slides/w4-s44-noise-velocity.png';
 
 # Gaussian 起點：DDIM 與 Flow Matching 的交集
 
@@ -148,16 +151,26 @@ $$
 
 其中最後一個等號就是 <Ref to="dma-tweedie-and-score" /> 的 Tweedie 公式。代回上式，就得到 denoiser 與 velocity 的轉換公式：
 
-$$
-\boxed{
-v_\theta(x,t)
-=\frac{\dot\alpha_t}{\alpha_t}x
-+\left(
-\dot\sigma_t-
-\frac{\dot\alpha_t}{\alpha_t}\sigma_t
-\right)\epsilon_\theta(x,t).
-}
-$$
+<FormulaSteps
+  id="noise-to-velocity"
+  compact
+  title="用已學到的 noise 換出 velocity"
+  formula={String.raw`
+    \begin{aligned}
+    \reveal{4}{v_\theta(x,t)}&\reveal{4}{=}
+    \reveal{2}{\frac{\dot\alpha_t}{\alpha_t}x}\\
+    &\reveal{4}{+}\reveal{3}{\frac{
+    \alpha_t\dot\sigma_t-\dot\alpha_t\sigma_t
+    }{\alpha_t}}\reveal{1}{\epsilon_\theta(x,t)}\reveal{4}{.}
+    \end{aligned}
+  `}
+  steps={[
+    { label: "從手上已有的模型開始", text: String.raw`在同一條 VP interpolation、同一個 noise level 上，$\epsilon_\theta(x,t)$ 已經在預測這個位置的平均 noise。` },
+    { label: "位置提供另一個已知量", text: String.raw`前面的代入已把 reference velocity 拆成位置項與 noise 項。位置項是 $(\dot\alpha_t/\alpha_t)x$，不需要再學。` },
+    { label: "按原本的 schedule 換算", text: String.raw`Noise 項的係數由同一條 path 的 $\alpha_t,\sigma_t$ 與它們的變化率決定。換輸出表示時，這些係數也要一起帶入。` },
+    { label: "兩項合起來才是 velocity", text: String.raw`把位置項與換算後的 noise 項相加，就得到 $v_\theta(x,t)$。這一步沿用原來的 conditional mean，沒有另外訓練一個 velocity model。` },
+  ]}
+/>
 
 若改用 score 表示，同一條式子則是
 
@@ -169,6 +182,10 @@ v_t^\star(x)
 \frac{\dot\alpha_t}{\alpha_t}\sigma_t
 \right)\nabla_x\log p_t(x).
 $$
+
+<SlideFigure id="u2-noise-velocity" src={denoiserFigure} slide={44} crop={[30, 110, 1610, 240]} alt="相同 noisy state 分別送入 noise regression 與 velocity regression，兩者的最佳解都是 conditional mean">
+圖：固定同一個中間狀態，noise regression 平均的是 $\epsilon$，velocity regression 平均的是路徑速度。圖中的 $X_t$ 對應本篇的 $I_t$；兩者的換算必須使用同一條 interpolation。
+</SlideFigure>
 
 這不是重新訓練另一個模型，只是把同一個 conditional mean 改寫成不同的形式。
 

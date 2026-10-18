@@ -14,7 +14,7 @@ title: "Denoising：倒著走一步，要怎麼學？"
 category: "courses"
 group: "Unit 1 · Diffusion Models"
 status: "available"
-updated: 2026-10-04
+updated: 2026-10-18
 summary: "倒著走一步該從哪個分布抽？Bayes 卡在兩個算不出來的邊際。於是改成「學一個分布去逼近它」，而一條等價定理說：把 x₀ 放進條件裡，目標只差一個與參數無關的常數，最佳解仍然是那個邊際。剩下的選擇是模型族——取固定變異數的 Gaussian，KL 就塌成一個加權的平方誤差，而它學到的量我們先講出來、證明留到下一篇；把學到的 x̂ 代回 posterior mean，就是取樣時跑的那一行。"
 demos: []
 references:
@@ -28,6 +28,14 @@ references:
     href: "https://arxiv.org/abs/2303.00848"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import SlideFigure from '../../../components/SlideFigure.astro';
+import reversePossibilitiesSlide from './imgs/slides/w3-s27-reverse-possibilities.png';
+import bayesMarginalsSlide from './imgs/slides/w3-s32-bayes-marginals.png';
+import trainingInformationSlide from './imgs/slides/w3-s37-training-information.png';
+import gaussianKlSlide from './imgs/slides/w3-s41-gaussian-kl.png';
+import posteriorAverageSlide from './imgs/slides/w3-s43-posterior-average.png';
+import predictionTargetsSlide from './imgs/slides/w3-s45-prediction-targets.png';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
@@ -57,6 +65,10 @@ import Ref from '../../../components/Ref.astro';
 先複習 $q(x_{t-1}\mid x_t)$ 在描述什麼：**給定現在的 $x_t$，退到前一步、落在差不多 $x_{t-1}$ 這個位置的機率密度。**
 
 用上一篇那條從台大到屏東的路線來說：給定現在人在**屏東**，前一站是**高雄**（走西部）還是**台東**（繞東部）？機率會告訴我們每一種可能性有多大，我們就照著它抽一個——抽到高雄或台東都是合理的答案。
+
+<SlideFigure id="u1-reverse-possibilities" src={reversePossibilitiesSlide} week={3} slide={27} crop={[25, 210, 1625, 575]} alt="已知現在人在屏東，前一站仍可能是高雄或台東；對應到 diffusion，固定 x_t 後，可能的 x_{t-1} 形成一個 conditional distribution。">
+左圖固定現在的位置，仍留下不同的可能來路；右圖的紅點是已知的 $x_t$，藍色點雲則表示 $q(x_{t-1}\mid x_t)$ 描述的可能前一步。一次 reverse step 是依這個 conditional distribution 抽出一個 $x_{t-1}$。
+</SlideFigure>
 
 為什麼要寫成「分布」而不是「一個答案」？因為加噪那一步真的把資訊丟掉了：很多不同的 $x_{t-1}$ 都可能變成手上這個 $x_t$，而只有分布記得住是哪些、各自多可能。至於拿到這個分布之後**要怎麼用**——每一步真的抽一個，還是每一步都走一個確定的方向——那是另一個問題，<Ref to="dma-reverse-process"/> 會看到兩種做法都成立。
 </Remark>
@@ -108,11 +120,31 @@ covariance 不是零，就代表有相關；有相關，就不能另外抽一個
 
 因為我們是知道 $q(x_t\mid x_{t-1})$ 的，這時候就會想要用 Bayes 定理來算 $q(x_{t-1}\mid x_t)$（<Ref to="math-bayes-posterior"/>）：
 
-$$
-q(x_{t-1}\mid x_t)=\frac{q(x_t\mid x_{t-1})\,p_{t-1}(x_{t-1})}{p_t(x_t)} .
-$$
+<FormulaSteps
+  id="reverse-bayes"
+  compact
+  title="知道前進規則，能反推上一站嗎？"
+  formula={String.raw`
+    \begin{gathered}
+      \reveal{1}{q(x_{t-1}\mid x_t)=}\\[.2em]
+      \reveal{4}{\frac{
+        \reveal{2}{q(x_t\mid x_{t-1})}\reveal{3}{\,p_{t-1}(x_{t-1})}
+      }{p_t(x_t)}.}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先固定看到的結果", text: String.raw`已經看到現在的 $x_t$，我們想知道前一步 $x_{t-1}$ 有哪些可能。` },
+    { label: "放入前進規則", text: String.raw`對每個候選的 $x_{t-1}$，先看它產生這個 $x_t$ 的 density。` },
+    { label: "考慮候選本來多常見", text: String.raw`再乘上 $p_{t-1}(x_{t-1})$，把前一步各個位置原本的可能性考慮進來。` },
+    { label: "用現在的 density 正規化", text: String.raw`最後除以 $p_t(x_t)$，才得到給定現在之後的反向 density。` },
+  ]}
+/>
 
 分子的 $q(x_t\mid x_{t-1})$ 我們確實會算——那是上一篇自己設計的那一步（<Ref to="dma-forward-process"/>）。但右邊還有 $p_{t-1}(x_{t-1})$ 和 $p_t(x_t)$：它們是**資料經過加噪之後的 marginal distribution**，也就是「所有真實圖片加噪 $t$ 步之後，長成 $x_t$ 的可能性有多大」，我們記成 $p_t$。要知道它，就得把每一張真實圖片的貢獻都加總起來——也就是得先知道整個 $p_{\text{data}}$（但很明顯我們不知道）。這種「式子寫得出來、但實際上算不出來」的東西，以下都叫 **不可算（intractable）**。
+
+<SlideFigure id="u1-bayes-marginals" src={bayesMarginalsSlide} week={3} slide={32} alt="Bayes 將 reverse conditional 拆成 forward conditional 與兩個 noisy marginals；forward Gaussian 會算，但兩個 marginals 都包含未知 p_data 的積分。">
+藍色框是我們設計的 $q(x_t\mid x_{t-1})$，黃色兩項才是卡住的地方。以 $p_t(x_t)=\int q(x_t\mid x_0)p_{\text{data}}(x_0)\,\mathrm dx_0$ 為例，必須把所有可能原圖的貢獻加起來；知道每一個 conditional Gaussian，仍不等於已經知道它們混合後的 marginal density。
+</SlideFigure>
 
 ## 如果算不出來，那可不可以用「學」的？那要怎麼學？
 
@@ -176,6 +208,10 @@ $$
 這裡有一個看起來很奇怪的地方：左邊那個拿來當 target 的 $q(x_{t-1}\mid x_t,x_0)$ **看得到 $x_0$**，但右邊我們真正要學的 $p_\theta(x_{t-1}\mid x_t)$ **看不到**。
 
 為什麼？因為 generation 的時候我們根本沒有 $x_0$，模型最後一定只能靠 $x_t$ 往回走。所以 training 時我們可以用 $x_0$ 造一個「比較容易算的 target」，但模型最後仍然只能看到 $x_t$。
+
+<SlideFigure id="u1-training-information" src={trainingInformationSlide} week={3} slide={37} alt="訓練資料的建造程序：抽 x_0、t、epsilon，算出 x_t；target 可以使用已知的 x_0，但模型的輸入只有 x_t 和 t。">
+Training 時，我們掌握 $(x_0,t,\epsilon,x_t)$，所以能用 $x_0$ 算出 target $q(x_{t-1}\mid x_t,x_0)$。但模型的輸入始終只有 $(x_t,t)$，學的是 $p_\theta(x_{t-1}\mid x_t)$。多知道的 $x_0$ 用來造 target，沒有成為生成時拿不到的 input。
+</SlideFigure>
 
 這看起來有點像作弊，甚至更嚴重：兩邊條件的東西根本不一樣。我們真的還是在學原本那個 $q(x_{t-1}\mid x_t)$ 嗎？
 
@@ -407,12 +443,35 @@ $$
 
 把它代回去，整個訓練目標就是一個**加權的平方誤差**：
 
-$$
-\widetilde{\mathcal J}(\theta)=\mathbb E_{t,\,x_0,\,\epsilon}\Big[w(t)\,\big\|\hat x_\theta(x_t,t)-x_0\big\|^2\Big],
-\qquad w(t)=\frac{\bar\alpha_{t-1}\,\beta_t}{2(1-\bar\alpha_t)(1-\bar\alpha_{t-1})},
-$$
+<FormulaSteps
+  id="weighted-denoising-loss"
+  compact
+  title="一筆加噪資料，要怎麼變成 regression loss？"
+  formula={String.raw`
+    \begin{gathered}
+      \reveal{1}{\widetilde{\mathcal J}(\theta)=}\\[.2em]
+      \reveal{6}{\mathop{\mathbb E}\limits_{t,\,x_0,\,\epsilon}\Big[
+        \reveal{5}{w(t)\,}
+        \reveal{4}{\big\|\reveal{2}{\hat x_\theta}\reveal{1}{(x_t,t)}\reveal{3}{-x_0}\big\|^2}
+      \Big],}\\[.2em]
+      \reveal{5}{w(t)=\frac{\bar\alpha_{t-1}\,\beta_t}{2(1-\bar\alpha_t)(1-\bar\alpha_{t-1})},}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "製造模型看到的輸入", text: String.raw`抽出 $x_0,t,\epsilon$，一行產生 $x_t$；模型只拿到 $(x_t,t)$。` },
+    { label: "預測原圖", text: String.raw`讓 $\hat x_\theta$ 根據這個輸入，預測原本的圖片。` },
+    { label: "放入真正的 label", text: String.raw`Training 時知道真正的 $x_0$，所以可以拿它來和模型預測相減。` },
+    { label: "衡量這一次的誤差", text: String.raw`把圖片差的長度取平方，得到這一筆 training pair 的誤差。` },
+    { label: "保留推導給的權重", text: String.raw`前面的 KL 推導還給了 $w(t)$，決定這個時間的誤差要乘上多少。` },
+    { label: "參考各種可產生的 labels", text: String.raw`再對 $t,x_0,\epsilon$ 的抽樣取平均，讓不同原圖與加噪方式產生的 labels 都成為學習目標。` },
+  ]}
+/>
 
 其中 $x_t=\sqrt{\bar\alpha_t}\,x_0+\sigma_t\epsilon$ 是一行算出來的。沒有對抗、沒有 normalizing constant，就是一個平方誤差——<Ref to="dma-what-are-we-learning"/> 說「路徑自己定，每一步就變成回歸」，指的就是這一行。
+
+<SlideFigure id="u1-gaussian-kl" src={gaussianKlSlide} week={3} slide={41} crop={[30, 365, 1610, 475]} alt="兩個 covariance 相同的 Gaussian，其 KL 中相同的 normalization 與二次項抵消，最後留下兩個 mean 的平方距離；代入 posterior mean 後得到 weighted x_0 regression。">
+這裡的 $\mu_1=\tilde\mu_t(x_t,x_0)$、$\mu_2=\tilde\mu_t(x_t,\hat x_\theta(x_t,t))$。固定同一個正的 covariance $\tilde\beta_t I$ 後，KL 化成 $\|\mu_1-\mu_2\|^2/(2\tilde\beta_t)$；再用 $\tilde\mu_t$ 對 $x_0$ 的 affine 形式，就得到上面的 $w(t)\|\hat x_\theta-x_0\|^2$。圖中的 $\hat x_0$ 指的就是這個網路預測 $\hat x_\theta(x_t,t)$。
+</SlideFigure>
 
 在討論 $w(t)$ 之前，應該要有人舉手問：
 
@@ -455,9 +514,9 @@ $$
 
 （要說清楚的是：「$L_2$ 的最佳解是條件期望」這件事，我們在這裡只是**提到**，並沒有證明——上面是靠和前一個情境對照得到的。這個結論的證明與它真正的份量，<Ref to="dma-tweedie-and-score"/> 會好好討論。）
 
-![示意圖：上排 t 小，三張候選原圖中只有一張亮著，加噪後的 x_t 仍看得出是貓，模型輸出幾乎與原圖相同；下排 t 大，五張不同的照片（貓、鳥、兔、盆栽）都連到同一張看不出內容的 x_t，權重以線的粗細表示，模型輸出是一張模糊的加權平均。](./imgs/w-3-2-1.png)
-
-**圖：同一個 $x_t$ 可以來自很多張圖。** 上排 $t$ 小，能對上的原圖只有一張，輸出就幾乎是原圖；下排 $t$ 大，很多張圖都可能變成同一個 $x_t$，$L_2$ 的最佳解就是它們的**加權平均**。所以這裡的模糊是正確答案，不是訓練失敗。
+<SlideFigure id="u1-posterior-average" src={posteriorAverageSlide} week={3} slide={43} alt="同一個 x_t 對應多張可能原圖：小 t 時 posterior 較集中，大 t 時權重較分散，conditional mean 因而可能模糊。">
+把可能原圖離散成 $x_0^{(i)}$ 後，$\mathbb E[x_0\mid x_t]=\sum_i p(x_0^{(i)}\mid x_t)x_0^{(i)}$。上排用 $(0.96,0.03,0.01)$ 示意集中的 posterior；下排用 $(0.28,0.24,0.20,0.18,0.10)$ 示意較分散的 posterior。這些權重是教學例子；它們各自加總為 $1$，平均後的模糊正是這個例子的 conditional mean。
+</SlideFigure>
 
 ## 看一個點怎麼被去噪
 
@@ -477,18 +536,25 @@ $$
 
 而且選擇用 Gaussian 來 parametrize 它。網路負責預測 $\hat x_\theta(x_t,t)$，再把它代回前面推導出的 posterior mean：
 
-$$
-x_{t-1}
-=
-\tilde\mu_t
-\big(
-x_t,\ \hat x_\theta(x_t,t)
-\big)
-+
-\sqrt{\tilde\beta_t}\,z,
-\qquad
-z\sim\mathcal N(0,I).
-$$
+<FormulaSteps
+  id="ddpm-reverse-sample"
+  compact
+  title="預測出原圖之後，怎麼真的退回一步？"
+  formula={String.raw`
+    \begin{aligned}
+    \reveal{1}{x_{t-1}=}
+    &\reveal{3}{\tilde\mu_t\big(\reveal{1}{x_t},\ \reveal{2}{\hat x_\theta(x_t,t)}\big)}\\
+    &\reveal{4}{+\sqrt{\tilde\beta_t}\,z,}\\
+    &\reveal{4}{z\sim\mathcal N(0,I).}
+    \end{aligned}
+  `}
+  steps={[
+    { label: "只有現在的狀態", text: String.raw`生成時先有當下的 $x_t$，要從它產生前一步 $x_{t-1}$。` },
+    { label: "補上不知道的原圖", text: String.raw`真正的 $x_0$ 不在手上，先讓網路預測 $\hat x_\theta(x_t,t)$。` },
+    { label: "算出 reverse Gaussian 的中心", text: String.raw`把現在的狀態和預測原圖代回 $\tilde\mu_t$，算出這一步的平均位置。` },
+    { label: "按照給定的散布抽樣", text: String.raw`再加上一個新抽的 $\sqrt{\tilde\beta_t}z$，完成從 reverse Gaussian 抽樣。` },
+  ]}
+/>
 
 這樣就完成一次 $x_t\to x_{t-1}$。
 
@@ -632,6 +698,10 @@ $$
 $$
 
 差別主要就在於：**不同的 parametrization，會讓模型更重視不同 noise level 的誤差。**
+
+<SlideFigure id="u1-prediction-targets" src={predictionTargetsSlide} week={3} slide={45} alt="同一個 noisy input 可選擇預測 x_0、epsilon 或 v；三種表示可互相換算，但相同形式的 MSE 會產生不同的 timestep weighting。">
+三欄代表三種可選的 target；$f_\theta(x_t,t)$ 表示網路骨幹，輸出可選 $\hat x_0$、$\epsilon_\theta$ 或 $v_\theta$。下方一邊列出代數換算，一邊寫出 $\|\hat x_0-x_0\|^2=\|\epsilon_\theta-\epsilon\|^2/\mathrm{SNR}(t)$。右下的垂直關係是 $(x_0,\epsilon)$ 的**係數座標**旋轉，不是說任意兩張圖片向量 $x_t$ 與 $v$ 的內積都等於零。
+</SlideFigure>
 
 這裡我們順便講一下 DDPM 原文實際採用的做法。
 

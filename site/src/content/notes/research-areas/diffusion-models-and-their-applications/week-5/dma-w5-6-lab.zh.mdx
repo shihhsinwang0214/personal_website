@@ -9,7 +9,7 @@ title: "實作：換了資料與模型，前面的方法還能沿用嗎？"
 category: "courses"
 group: "Unit 3 · 減少 ODE 的離散化誤差"
 status: "available"
-updated: 2026-10-06
+updated: 2026-10-18
 summary: "把 Flow Matching 中反覆出現的 training 與 sampling 收進同一個 class，再分別換掉 model、資料、coupling 與 solver，實作 Reflow、minibatch OT，以及相同 NFE 下的 Euler／Heun sampling。"
 demos: []
 references:
@@ -23,6 +23,7 @@ references:
     href: "https://arxiv.org/abs/2206.00364"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
@@ -222,11 +223,23 @@ reflow_pairs = baseline.make_reflow_dataset(
 
 這裡得到的是
 
-$$
-(X_0,Z_1^{(1)}),\qquad
-\frac{\mathrm dZ_t^{(1)}}{\mathrm dt}
-=v_t^{(0)}(Z_t^{(1)}).
-$$
+<FormulaSteps
+  id="reflow-training-pairs"
+  compact
+  title="把一次 ODE 的兩端存成下一輪配對"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{3}{(\reveal{1}{X_0},Z_1^{(1)}),}\\
+    \reveal{2}{\frac{\mathrm dZ_t^{(1)}}{\mathrm dt}
+    =v_t^{(0)}(Z_t^{(1)}).}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先抽一批起點", text: String.raw`從 source distribution 抽出 $X_0$，每個起點各自開始一條 ODE trajectory。` },
+    { label: "用目前的 field 走到終點", text: String.raw`用目前的 $v_t^{(0)}$ 積分到 $t=1$，得到對應的 $Z_1^{(1)}$；程式使用較細的 Heun 近似這個終點。` },
+    { label: "同一條路的兩端存成 pair", text: String.raw`把每個 $X_0$ 與它實際抵達的 $Z_1^{(1)}$ 一起存進 pair dataset。下一輪取出這組端點後，會重新畫直線、製造新的 input 與速度 label。` },
+  ]}
+/>
 
 每個起點與它實際抵達的終點，會被存成一組新的 pair。接著我們建立一個**新的 model**，在這些端點之間重新畫直線，再做一次 Flow Matching：
 

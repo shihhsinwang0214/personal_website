@@ -11,7 +11,7 @@ title: "Euler 漏掉的 velocity 變化，要怎麼量？"
 category: "courses"
 group: "Unit 3 · 減少 ODE 的離散化誤差"
 status: "available"
-updated: 2026-10-04
+updated: 2026-10-18
 summary: "Euler 每一步忽略的是這一小段內的 velocity 變化；把它沿時間累積，就能用 ODE trajectory 的加速度控制 finite-step error。"
 demos: []
 references:
@@ -21,6 +21,12 @@ references:
     href: "https://arxiv.org/abs/2209.03003"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
+import SlideFigure from '../../../components/SlideFigure.astro';
+import eulerRemainderSlide from './imgs/slides/w5-s07-euler-remainder.png';
+import accelerationSourcesSlide from './imgs/slides/w5-s11-acceleration-sources.png';
+import errorPropagationSlide from './imgs/slides/w5-s16-error-propagation.png';
+import modelVsSolverSlide from './imgs/slides/w5-s19-model-vs-solver.png';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
@@ -75,7 +81,37 @@ $$
 
 Euler 把整段 velocity 都換成在 $t$ 時刻的 $v_t(x_t)$，因此走到 $x_t+h\,v_t(x_t)$。
 
-但這還沒有告訴我們，它和精確解差在哪裡。我們直接把沿著 trajectory 感受到的 acceleration 記成
+先固定第 $k$ 步，令 $t=t_k$、$t+h=t_{k+1}$。把精確終點與「從精確起點試走一次 Euler」的差記成 $r_k$：
+
+<FormulaSteps
+  id="euler-local-remainder"
+  compact
+  title="比較同一起點出發的兩種終點"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{4}{r_k:=}\reveal{2}{x_{t_{k+1}}}\\
+    \reveal{3}{-\left[\reveal{1}{x_{t_k}+h\,v_{t_k}(x_{t_k})}\right]}\\
+    \reveal{5}{=\int_{t_k}^{t_{k+1}}\Biggl[
+    \begin{gathered}
+    v_\tau(x_\tau)\\
+    -v_{t_k}(x_{t_k})
+    \end{gathered}\Biggr]\,\mathrm d\tau.}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先從精確起點試走 Euler", text: String.raw`從 $x_{t_k}$ 出發，只查一次起點速度，走到 $x_{t_k}+h\,v_{t_k}(x_{t_k})$。這裡還沒有前幾步累積的錯位。` },
+    { label: "再看精確 ODE 走到哪裡", text: String.raw`$x_{t_{k+1}}$ 是從同一個精確起點出發，沿途持續更新 velocity 得到的終點。` },
+    { label: "比較這兩個終點", text: String.raw`精確終點減去 Euler 試走的終點，留下這一步忽略 velocity 變化造成的位移差。` },
+    { label: "替這個差取名字", text: String.raw`把剛才的向量差記成 local remainder $r_k$；它只量這一步新漏掉的部分。` },
+    { label: "把差寫回沿路的速度", text: String.raw`精確位移累積 $v_\tau(x_\tau)$，Euler 則一路沿用 $v_{t_k}(x_{t_k})$。兩者相減，就是沿途 velocity 差的積分。` },
+  ]}
+/>
+
+<SlideFigure id="u3-euler-remainder" src={eulerRemainderSlide} week={5} slide={7} alt="精確 ODE 的藍色終點，和從相同精確起點試走一步 Euler 的紅色終點，兩者相差 local remainder r_k。">
+藍線沿途更新 velocity，紅線只沿用起點的 $v_{t_k}(x_{t_k})$。這裡兩者從同一個精確位置 $x_{t_k}$ 出發，所以 $r_k$ 只量這一步漏掉的變化；還沒有加入前幾步累積的錯位。
+</SlideFigure>
+
+這個式子告訴我們漏掉的是 velocity 變化，但還沒有量出它有多大。我們直接把沿著 trajectory 感受到的 acceleration 記成
 
 $$
 a_s(x_s):=\frac{\mathrm d}{\mathrm ds}v_s(x_s).
@@ -110,11 +146,30 @@ $$
 
 所以我們要量的，是沿著 trajectory 前進時，velocity 改變得有多快。把 $a_t(x_t)$ 用 chain rule 展開：
 
-$$
-a_t(x_t)=\frac{\mathrm d}{\mathrm d t}v_t(x_t)=\underbrace{\partial_t v_t(x_t)}_{\text{場自己在變}}+\underbrace{\big(v_t\cdot\nabla\big)v_t(x_t)}_{\text{粒子換位置了}} .
-$$
+<FormulaSteps
+  id="trajectory-acceleration"
+  compact
+  title="粒子實際感受到的 velocity 變化"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{4}{a_t(x_t)=}\reveal{1}{\frac{\mathrm d}{\mathrm d t}v_t(x_t)}\\
+    \reveal{4}{=}\reveal{2}{\partial_t v_t(x_t)}\\
+    \reveal{3}{+\big(v_t\cdot\nabla\big)v_t(x_t).}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先問沿著這條路看到多少變化", text: String.raw`我們跟著粒子走，想量它看到的 velocity 隨時間改得多快，所以對 $v_t(x_t)$ 取完整的時間導數。` },
+    { label: "第一個來源：場自己在變", text: String.raw`即使暫時站在同一個位置，velocity field 也可能隨時間改變。這一份由 $\partial_t v_t(x_t)$ 記錄。` },
+    { label: "第二個來源：粒子換位置了", text: String.raw`粒子以 $v_t$ 移動到新位置，也可能看到不同的箭頭。Chain rule 給出這份空間變化 $(v_t\cdot\nabla)v_t(x_t)$。` },
+    { label: "兩個來源合成 acceleration", text: String.raw`把時間與位置帶來的變化加起來，才是沿 ODE trajectory 的 acceleration $a_t(x_t)$。轉向、加速與減速都包含在裡面。` },
+  ]}
+/>
 
 第一項問的是：站在同一個位置，velocity field 有沒有隨時間改變？第二項問的是：即使場沒有變，粒子走到另一個位置後，看到的 velocity 是否不同？兩個來源加起來，就是粒子實際感受到的加速度。
+
+<SlideFigure id="u3-acceleration-sources" src={accelerationSourcesSlide} week={5} slide={11} alt="Acceleration 的兩個來源：固定位置時 velocity 隨時間改變，以及粒子移動到不同位置後看到不同 velocity。">
+左欄固定 $x$，看時間改變帶來的 $\partial_t v_t(x_t)$；右欄沿著 $x_t$ 移動，看空間變化帶來的 $(v_t\cdot\nabla)v_t(x_t)$。兩者相加，才是沿 ODE trajectory 的完整 acceleration $a_t(x_t)$。
+</SlideFigure>
 
 <Remark label="補充" summary="Acceleration 和 geometric curvature 不一樣">
 令 $\rho_t=\left\|\frac{\mathrm d x_t}{\mathrm d t}\right\|$ 是移動速度的大小，$T_t$ 是 trajectory 的單位切線方向，$s$ 是弧長。Geometric curvature 定義成
@@ -136,9 +191,6 @@ $$
 
 只有當 trajectory 是**等速直線**時，$a_t(x_t)=0$，Euler 才不會漏掉任何 velocity 變化，從任意時刻一步走到終點也會精確。
 
-![Euler 一步漏掉的 velocity 變化，以及 acceleration 的兩個來源](./imgs/w5-2-1.png)
-
-*圖：Euler 沿用起點的 velocity 走完整步；精確路徑則會沿途更新。這個改變可能來自 velocity field 自己隨時間變化，也可能來自粒子移動到不同位置。*
 
 ## 一步的誤差怎麼一路帶到終點？
 
@@ -217,9 +269,9 @@ $$
 
 也就是說，下一步的誤差由兩部分組成：**前面累積的 $e_k$ 可能被 flow 放大成 $(1+hL)e_k$，再加上這一步新產生的 local remainder $\|r_k\|$。**
 
-![Euler 的 local error 如何一路累積](./imgs/w5-2-2.png)
-
-*圖：上一刻的錯位會讓下一步在不同位置查到 velocity；舊誤差可能被 flow 放大，再加上這一步新產生的 local remainder。*
+<SlideFigure id="u3-error-propagation" src={errorPropagationSlide} week={5} slide={16} alt="將 Euler 的誤差 recurrence 展開：較早出現的 local remainder，會經過更多次 1+hL 的放大。">
+$e_k=\|x_{t_k}-\hat x_{t_k}\|$ 是累積誤差，$r_k$ 是第 $k$ 步新漏掉的變化。$r_0$ 在 $t_1$ 進入後，還要經過 $N-1$ 步；$r_{N-1}$ 在最後一步才進入。因此，前者的上界帶著 $(1+hL)^{N-1}$，後者沒有後續放大因子。
+</SlideFigure>
 
 現在把這個 recurrence 從 $e_0=0$ 一路展開到 $N=1/h$：
 
@@ -237,12 +289,24 @@ $$
 
 因此，對每一條從同一起點出發的 trajectory，
 
-$$
-\boxed{
-\|x_1-\hat x_1\|
-\le e^L h\int_0^1\|a_t(x_t)\|\,\mathrm dt
-}
-$$
+<FormulaSteps
+  id="euler-endpoint-bound"
+  compact
+  title="把沿途的 velocity 變化接到終點誤差"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{4}{\|x_1-\hat x_1\|\le}\\
+    \reveal{3}{e^L}\reveal{2}{h}
+    \reveal{1}{\int_0^1\|a_t(x_t)\|\,\mathrm dt}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先累積這條路上的 velocity 變化", text: String.raw`沿同一條精確 trajectory，把 acceleration 的大小對時間積分。這個量同時記錄轉向、加速與減速。` },
+    { label: "再看每一步跨多大", text: String.raw`乘上步長 $h$，來自前面每一步 remainder 的上界。固定這條路時，把步長縮小便能降低這份上界。` },
+    { label: "把後續的誤差放大也算進去", text: String.raw`站錯位置後可能查到不同 velocity；前面的 recurrence 把這份累積放大收進 $e^L$。` },
+    { label: "最後才接到我們想控制的誤差", text: String.raw`從同一起點出發，精確 ODE 與 Euler 的終點距離，就被這三個因素的乘積壓住。這是上界，沒有宣稱實際誤差一定等於右邊。` },
+  ]}
+/>
 
 這條式子把三個因素分開了：
 
@@ -266,6 +330,10 @@ $$
 \widehat X_{t_{k+1}}
 =\widehat X_{t_k}+h\,v_\theta(\widehat X_{t_k},t_k).
 $$
+
+<SlideFigure id="u3-model-vs-solver" src={modelVsSolverSlide} week={5} slide={19} alt="從相同 X_0 出發，比較理想 ODE X_t、learned continuous ODE 的 tilde X_t，以及 Euler 的 hat X_tk。">
+三條路共用同一個 $X_0$。藍色 $X_t$ 與紫色 $\widetilde X_t$ 的差來自 field；紫色 $\widetilde X_t$ 與紅色 $\widehat X_{t_k}$ 的差才來自 Euler。增加步數會讓紅線更接近紫線，但不會自行把 $v_\theta$ 改成 $v_t$。
+</SlideFigure>
 
 $X_1$ 是理想 ODE 的終點，$\widetilde X_1$ 是把 learned ODE **精確解完**的終點，$\widehat X_1$ 才是實際用 Euler 得到的終點。將它們的 distributions 分別記成
 
@@ -434,10 +502,10 @@ Reference paths 只提供 regression labels。真正生成時跟隨的是 condit
 </QuizBlock>
 
 <QuizBlock id="w5-2-d">
-兩個 velocity fields 的加速度積分相同，但其中一個的 $C_L$ 大很多。哪一個結論最合理？
+兩個 velocity fields 的加速度積分相同，但其中一個的 $e^L$ 大很多。哪一個結論最合理？
 <Option>兩者 Euler error 一定相同。</Option>
-<Option correct>$C_L$ 較大的 field 可能把相同的局部偏差放得更大。</Option>
-<Option>加速度積分已經包含 $C_L$，所以不必分開。</Option>
+<Option correct>$e^L$ 較大的 field 可能把相同的局部偏差放得更大。</Option>
+<Option>加速度積分已經包含 $e^L$，所以不必分開。</Option>
 <Explanation>
 誤差上界同時包含步長、加速度積分與 field 的穩定性。加速度積分不是唯一決定 finite-step error 的量。
 </Explanation>

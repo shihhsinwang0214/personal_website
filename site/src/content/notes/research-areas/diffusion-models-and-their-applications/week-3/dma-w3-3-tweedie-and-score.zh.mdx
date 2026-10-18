@@ -14,7 +14,7 @@ title: "Tweedie 公式：Denoiser 和 Data Distribution 有什麼關係？"
 category: "courses"
 group: "Unit 1 · Diffusion Models"
 status: "available"
-updated: 2026-10-04
+updated: 2026-10-18
 summary: "ELBO 解釋的是帶加權的 objective，但我們真正拿去跑的是 simple MSE——它到底在學什麼？固定一個 noise level，這個回歸的最佳解是 E[ε|x_t]；而把 p_t 對 x_t 微分之後，被積函數正好就是 −ε/σ_t，score 自己冒出來：Tweedie 公式。於是不必靠 ELBO，也能直接說出這個 regression 在估計什麼。最後才回頭看，為什麼 score 這個對象剛好繞得過 normalizing constant 那面牆。"
 demos: []
 references:
@@ -26,6 +26,9 @@ references:
     href: "https://arxiv.org/abs/1907.05600"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import SlideFigure from '../../../components/SlideFigure.astro';
+import densityScoreSlide from './imgs/slides/w3-s05-density-vs-score.png';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
@@ -94,9 +97,21 @@ $$
 
 套回 DDPM：$X$ 就是 $x_t$、$Y$ 就是 $\epsilon$，而聯合分布來自「抽一張 $x_0$、抽一個 $\epsilon$、用那一行算出 $x_t$」這個程序。所以**理想上，模型夠強、訓練到收斂的話**，
 
-$$
-\epsilon_\theta(x_t,t)\ \longrightarrow\ \mathbb E[\epsilon\mid x_t].
-$$
+<FormulaSteps
+  id="optimal-noise-predictor"
+  compact
+  title="同一個 noisy input 可能對到很多個 noise，該回答哪一個？"
+  formula={String.raw`
+    \reveal{1}{\epsilon_\theta(x_t,t)\longrightarrow}
+    \reveal{4}{\mathbb E\big[\reveal{3}{\epsilon\mid}\reveal{2}{x_t}\big].}
+  `}
+  steps={[
+    { label: "固定 noise level", text: String.raw`固定 $t$，模型看到 $x_t$ 後，究竟該回答哪一個 noise？` },
+    { label: "先固定看到的狀態", text: String.raw`先看所有可能產生這個 $x_t$ 的加噪例子。` },
+    { label: "找出可能的 labels", text: String.raw`這些例子各自有不同的 $\epsilon$，它們都是相容的 noise labels。` },
+    { label: "按照 posterior 平均", text: String.raw`L2 會把這些 $\epsilon$ 按 posterior 加權平均，而不是只記住其中一筆。` },
+  ]}
+/>
 
 也就是說，模型不是在記住「這個 $x_t$ 是由哪一個 $\epsilon$ 加出來的」。它學的是：**看到這個 $x_t$ 之後，所有可能的 $\epsilon$ 按 posterior 加權之後的平均。**
 
@@ -178,9 +193,20 @@ $$
 
 也就是「造出這個 $x_t$ 的那個噪聲」。所以被積函數就是 $-\epsilon/\sigma_t$，而對 $p(x_0\mid x_t)$ 取平均就是對 $\epsilon$ 的後驗取平均：
 
-$$
-\boxed{\;\nabla_{x_t}\log p_t(x_t)=-\frac{\mathbb E[\epsilon\mid x_t]}{\sigma_t}\;}
-$$
+<FormulaSteps
+  id="tweedie-score"
+  compact
+  title="平均 noise，怎麼變成 density 的梯度？"
+  formula={String.raw`
+    \reveal{1}{\nabla_{x_t}\log p_t(x_t)=}
+    \reveal{3}{-\frac{\reveal{2}{\mathbb E[\epsilon\mid x_t]}}{\sigma_t}}
+  `}
+  steps={[
+    { label: "想知道當下往哪裡更密集", text: String.raw`左邊是對目前位置 $x_t$ 的 log-density 取梯度。` },
+    { label: "先認出回歸學到的量", text: String.raw`右邊先是所有相容 noise 的 posterior mean，正是模型剛才學到的量。` },
+    { label: "調整方向與尺度", text: String.raw`負號反轉加噪方向，再除以 noise 尺度 $\sigma_t$，就得到這個梯度。` },
+  ]}
+/>
 
 右邊冒出來的，正是上一節那個 posterior mean。換成 $x_0$ 的寫法就是
 
@@ -252,6 +278,30 @@ $$
 
 <Remark label="注意" summary="「繞過」和「解決」不一樣">
 不要把上面那件事讀成「$Z$ 的問題被解決了」。我們從頭到尾**沒有去表示 $p_\theta$ 本身**，只表示它的坡度——所以也就沒有辦法回頭問「這張圖的機率是多少」。**我們沒有解出 density estimation，我們繞過了它。** 代價是拿不到 density 與 likelihood，換到的是可以直接學到生成真正需要的那個局部幾何。<Ref week="dma-week-flow-matching"/> 比較兩個框架時會再回到這個取捨。
+</Remark>
+
+<Remark label="補充" summary="Density 估得接近，微分後的 score 也會接近嗎？">
+還需要檢查導數。固定一個 noise level，這裡把真實 density 簡寫成 $p(x)$。在它上面加一個幅度很小、變化很快的擾動：
+
+$$
+\tilde p(x)=p(x)e^{0.01\sin(1000x)},
+\qquad
+\frac{\tilde p(x)}{p(x)}\in[e^{-0.01},e^{0.01}].
+$$
+
+$\tilde p$ 還沒正規化；若令 $Z=\int\tilde p(x)\,\mathrm dx$、$r(x)=\tilde p(x)/Z$，$Z$ 不依賴 $x$，因此
+
+$$
+\nabla_x\log r(x)
+=\nabla_x\log\tilde p(x)
+=\nabla_x\log p(x)+10\cos(1000x).
+$$
+
+<SlideFigure id="u1-density-vs-score" src={densityScoreSlide} week={3} slide={5} alt="左邊 p 與帶小幅高頻擾動的 tilde p 幾乎重疊，右邊它們的 log gradient 卻相差振幅為 10 的快速震盪。">
+左圖比較函數值，右圖放大一小段 $x$ 後比較 log gradient。$0.01\sin(1000x)$ 對 log density 的影響很小，微分後卻變成 $10\cos(1000x)$；將橘線正規化也不會消除這項 score 誤差。
+</SlideFigure>
+
+所以直接把學到的 density 再微分，還需要控制導數的誤差。前面的 denoising regression 則透過 Tweedie，直接把要估計的量連到 score。
 </Remark>
 
 ## 這個 score field 長什麼樣？

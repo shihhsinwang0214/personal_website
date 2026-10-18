@@ -8,7 +8,7 @@ title: "實作：從 reference path 到 Flow ODE"
 category: "courses"
 group: "Unit 2 · Flow Matching"
 status: "available"
-updated: 2026-10-04
+updated: 2026-10-18
 summary: "用五行程式製造 linear Flow Matching 的訓練資料，再以 Euler／Heun 解 Flow ODE，驗證 DDIM 與 velocity 的轉換，並量出 velocity 變化如何影響 sampling steps。"
 demos:
   - "notes/research_areas/diffusion-models-applications/w4-5-steps.html"
@@ -19,6 +19,7 @@ references:
     href: "https://arxiv.org/abs/2206.00364"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
@@ -56,9 +57,22 @@ $$
 
 使用 Lipman 等人的 linear Conditional Flow Matching [1]，也就是 <Ref to="dma-flows-and-continuity" /> 的直線：
 
-$$
-x_t=(1-t)x_0+tx_1,\qquad \dot I_t=x_1-x_0.
-$$
+<FormulaSteps
+  id="linear-training-label"
+  compact
+  title="從端點製造 model input 與 label"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{2}{x_t=(1-t)\reveal{1}{x_0}+t\reveal{1}{x_1},}\\
+    \reveal{3}{\dot I_t=x_1-x_0.}
+    \end{gathered}
+  `}
+  steps={[
+    { label: "先抽出一組端點", text: String.raw`抽出起點 noise $x_0$ 與資料 $x_1$。這一組配對同時決定中間的 input 與它的 label。` },
+    { label: "再選時間，算出 input", text: String.raw`抽出 $t$ 後，用直線插值得到 $x_t$。網路只會看到 $(x_t,t)$。` },
+    { label: "同一條路給出速度 label", text: String.raw`對這條 reference path 微分，得到 $\dot I_t=x_1-x_0$。程式裡比較的就是 model output 與這個已知速度，再把 batch 的平方誤差取平均。` },
+  ]}
+/>
 
 Training loop 只剩幾行：
 
