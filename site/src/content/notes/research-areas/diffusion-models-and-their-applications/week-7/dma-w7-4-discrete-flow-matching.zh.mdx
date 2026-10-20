@@ -6,12 +6,12 @@ prereqs:
   - math-conditional-expectation
   - math-continuity-equation
 lang: "zh"
-title: "Token 之間不能走直線，還能 Flow Matching 嗎？"
+title: "不知道原句，怎麼學到推動 PMF 的規則？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-06
-summary: "先配對端點、再設計 token 的 conditional probability path，以 posterior average 建構 rate；接回 masked diffusion 與離散生成的應用。"
+updated: 2026-10-19
+summary: "從已知原文的 MASK reveal rate 出發，透過 posterior averaging 建構生成 dynamics，再用 cross-entropy 學習其中未知的原字機率。"
 demos: []
 references:
   - label: "Gat et al., Discrete Flow Matching (2024)"
@@ -24,6 +24,8 @@ references:
     href: "https://arxiv.org/abs/2209.14734"
 ---
 import Ask from '../../../components/Ask.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
+import AlgorithmView from '../../../components/AlgorithmView.astro';
 import Remark from '../../../components/Remark.astro';
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
@@ -36,165 +38,301 @@ import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
 
-# Token 之間不能走直線，還能 Flow Matching 嗎？
+# 不知道原句，怎麼學到推動 PMF 的規則？
 
 <Objectives>
-- **為配好的離散端點建立 conditional probability path。** Token 不能做數值插值，但可以改變位於兩端的機率。
-- **從 conditional rate 得到 marginal rate。** 用 posterior average 與 cross-entropy 接回 Flow Matching 的 conditional trick。
-- **分清相同 snapshots 與相同 trajectories。** 對回 absorbing、uniform 的邊際路徑，再辨認語言、蛋白質與圖生成中的設計。
+- **從指定的 MASK path 算出 conditional rate。** 把需要搬回的機率質量，除以目前可用的 MASK 比例。
+- **用 posterior average 建構生成時的 rate。** 固定目前序列，平均仍可能原句給出的 rates，並用 flow 檢查它保留指定的 joint PMF path。
+- **寫出模型的 input、label 與 cross-entropy。** 說明理想預測為什麼是原字的 posterior，而不是 token 編號的平均。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 先決定中途要有多少人，然後才決定怎麼搬
+## 先假設我們知道原句
 
-<Ref to="dma-remasking"/> 顯示，同一條 probability path 不只一種走法。那我們能不能像 <Ref to="dma-flows-and-continuity"/> 一樣，先給一組端點，再直接設計中間路徑？
+在 <Ref to="dma-ctmc"/>，我們把離散的 velocity 寫成跳躍 rate，也知道要用流入減流出檢查分布。現在要反過來：已經指定 PMF path，怎麼找到生成方向的 rate？
 
-想像把「貓」換成「狗」。我們不能走到「半隻貓、半隻狗」這個 token，但可以說：在時間 $t$，有一部分樣本仍是「貓」，其他已經換成「狗」。**離散的 interpolation，可以插在機率上，而不是插在 token 編號上。**
+先用最容易追蹤的 MASK。固定原句 $x_0$，位置 $\ell$ 在時間 $t$ 的 PMF 是
 
-Gat 等人的 **Discrete Flow Matching（DFM）** [1] 系統化了這個建構；Campbell 等人的 discrete generative flows [2] 也從可設計的 probability paths 與 rates 出發。
-
-## 先配端點，再選跳過去的時機
-
-本篇維持這個單元的方向：$t=0$ 是 data，$t=1$ 是可抽樣的 source，生成倒著走。這與 U2 及 DFM 原論文常用的方向相反；我們要學的目標仍是資料端 $x_0$。
-
-先抽端點 $(x_0,x_1)\sim\pi$。$\pi$ 是 coupling，兩端 marginals 分別為 $p_0$ 與 $p_1$，定義可回顧 <Ref to="dma-unified-equation"/>。再選遞增的 $\kappa_t$，滿足 $\kappa_0=0,\kappa_1=1$，令每個位置的 conditional path 為
 $$
-q_t(x^\ell\mid x_0,x_1)
-=(1-\kappa_t)\delta_{x_0^\ell}(x^\ell)
-+\kappa_t\delta_{x_1^\ell}(x^\ell).
+q_t^\ell(a\mid x_0)
+=\alpha_t\delta_{x_0^\ell}(a)+(1-\alpha_t)\delta_m(a).
 $$
-在固定端點下，各位置獨立抽樣；對整組端點平均後得到
+
+這格不是原字，就是 MASK。假設我們偷看了原文，知道被遮的是 `想`，生成時就只需要決定：**現在這群 MASK 裡，有多少要翻回 `想`？**
+
+本篇維持 $t=0$ data、$t=1$ noise，$\alpha_t$ 非增，生成從 $t$ 退到 $t-h$，$h>0$。這段時間可見比例要由 $\alpha_t$ 增至 $\alpha_{t-h}$；需要翻回的質量是兩者之差，來源 MASK 比例則是 $1-\alpha_t$。因此每個 MASK 的翻開機率為
+
 $$
-p_t(x)=\sum_{x_0,x_1}\pi(x_0,x_1)
-\prod_\ell q_t(x^\ell\mid x_0,x_1).
+\begin{aligned}
+\frac{\alpha_{t-h}-\alpha_t}{1-\alpha_t}
+&=h\frac{-\dot\alpha_t}{1-\alpha_t}+o(h).
+\end{aligned}
 $$
-一種具體的 conditional process 是：每個位置抽一次跳躍時間，累積機率為 $\kappa_t$；跳之前是 $x_0^\ell$，跳之後是 $x_1^\ell$。若兩端相同，那格就不用改。
 
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w7-4-token-path.html" class="demo-frame" title="離散端點之間的 probability interpolation" style="height: 870px; width: 100%; border: none;"></iframe>
+所以每個 MASK 的 reveal rate 是 $-\dot\alpha_t/(1-\alpha_t)$。例如 $\alpha_t=1-t$，在 $t=0.5$ 有一半樣本是 MASK；退回 $h=0.01$ 要補回 $0.01$ 的總質量，因此這群 MASK 各有約 $0.02$ 的翻開機率，rate 是 $2$。
 
-## 假如知道兩端，倒著走的 rate 很容易算
+用 $x^{(\ell\to a)}$ 表示把整句 $x$ 的第 $\ell$ 格換成 $a$，其他位置不動。已知原句時，翻開一定填原字，所以對 $x^\ell=m$、$a\in\mathcal V$，
 
-現在時間從 $t$ 退回 $t-h$。已跳到 source 的比例是 $\kappa_t$，這一小段要退回的比例約為 $\dot\kappa_t h$。所以每個這樣的 token，其退回 rate 是 $\dot\kappa_t/\kappa_t$。
-
-固定端點，若目前位置 $\ell$ 的字是 $x^\ell$，要跳到不同的 $v$，conditional reverse rate 可寫成
 $$
+\begin{gathered}
 \bar R_t^{\mathrm{cond}}
-(x,x^{(\ell\to v)}\mid x_0,x_1)
-=\frac{\dot\kappa_t}{\kappa_t}\mathbf1[x_0^\ell=v],
-\qquad v\neq x^\ell.
+\bigl(x,x^{(\ell\to a)}\mid x_0\bigr)\\
+=\frac{-\dot\alpha_t}{1-\alpha_t}
+\mathbf1[x_0^\ell=a].
+\end{gathered}
 $$
-只會跳回那格的 data endpoint。若已經是原字，所有不同的 $v$ 都得到 rate $0$。
 
-但真正生成時，我們不知道 $x_0$。和 U2 的 reference velocity 一樣，對所有可能的端點取 posterior average：
-$$
-\begin{aligned}
-\bar R_t(x,x^{(\ell\to v)})
-&=\mathbb E[\bar R_t^{\mathrm{cond}}\mid x_t=x]\\
-&=\frac{\dot\kappa_t}{\kappa_t}
-p(x_0^\ell=v\mid x_t=x).
-\end{aligned}
-$$
-**連續 Flow Matching 平均 reference velocities；這裡平均 conditional rates。** 在相應的 well-posed dynamics 下，這個 marginal rate 會生成同一條 $p_t$ [1]。
+指示量 $\mathbf1[x_0^\ell=a]$ 只在原字是 $a$ 時為 $1$。已經可見的位置不再跳；對角元素仍是負的總流出。上標 cond 表示這條規則還需要原句，$\bar R$ 的橫線則表示沿生成方向倒著走，並不是先前已簡化掉的保留係數符號。
 
-<Details summary="Posterior average 為什麼保留同一條 probability path？">
-每組端點的 conditional distribution 在倒著走時，都滿足以 $\bar R_t^{\mathrm{cond}}$ 為 generator 的 forward equation。對 $\pi$ 求和後，從狀態 $x$ 到 $y$ 的 flow 為
-$$
-\begin{aligned}
-&\sum_{x_0,x_1}
-\pi(x_0,x_1)q_t(x\mid x_0,x_1)
-\bar R_t^{\mathrm{cond}}(x,y\mid x_0,x_1)\\
-&\qquad=p_t(x)\,
-\mathbb E[\bar R_t^{\mathrm{cond}}(x,y\mid x_0,x_1)\mid x_t=x].
-\end{aligned}
-$$
-Bayes 把端點的 weights 收成 posterior，於是平均後的流入減流出，正是 $p_t$ 的演化。這是 <Ref to="dma-conditional-flow-matching"/> 證明的離散求和版本；不是要求每條生成 trajectory 都沿原本配好的 conditional path。
-</Details>
-
-## 我們其實已經會訓練這個物件
-
-Training 時端點都已知，可以直接抽 $x_t$，再用 data endpoint 作 label：
-$$
-L_{\mathrm{DFM}}
-=\mathbb E_{t,(x_0,x_1)\sim\pi,x_t}
-\sum_\ell-\log f_\theta^\ell(x_0^\ell\mid x_t,t).
-$$
-固定輸入後，cross-entropy 的理想最佳解就是 $p(x_0^\ell\mid x_t)$，代回上面的 rate 即可。**Training 不用先模擬完整的跳躍過程；只要抽出當下的 conditional snapshot。**
-
-<Remark label="補充" summary="Coupling 會影響什麼？">
-兩端各自的分布相同，配對不同，$p_t$ 與 endpoint posterior 仍可能不同，所以 coupling 可能影響 target uncertainty 與生成誤差。離散 token 沒有 U3 中的幾何直線，不能直接把 continuous reflow 的 straightness 定理照搬過來；但也不能因此說 coupling 對離散學習完全沒有影響。
+<Remark label="條件" summary="時間方向與端點怎麼處理？">
+以下先在 $0<\alpha_t<1$ 的內部時間使用可微的 schedule。$\bar R_t$ 以正的生成時間長度 $h$ 定義：$\Pr(Y_{t-h}=y\mid Y_t=x)=h\bar R_t(x,y)+o(h)$，$y\ne x$。因此它要滿足的是 $-\dot p_t=p_t\bar R_t$。若 rate 在端點發散，需使用極限或另外指定端點轉移，不能把無限 rate 直接乘上有限步長。
 </Remark>
 
-## 回頭看，它和 masked diffusion 差在哪裡？
+## 生成時不知道原句，能不能參考所有可能？
 
-若 source 是全 MASK，取 $\kappa_t=1-\alpha_t$，conditional path 就是
+真正生成時，只看到「我／今天／[MASK]／吃／[MASK]」。我們沒有原句，不知道第三格應該跳成 `想` 還是 `要`。但回想 <Ref to="dma-conditional-flow-matching"/>：同一個街口可能有多條 reference paths，我們參考的是所有相容路徑給出的方向。
+
+這裡也一樣。先固定時間 $t$ 和目前序列 $x$，只考慮能產生這個 $x$ 的原句，再按它們的 posterior 機率平均 conditional rates。例如相容原句在第三格有 $70\%$ 是 `想`、$30\%$ 是 `要`，總 reveal rate 為 $2$，就分別給 `想` rate $1.4$、`要` rate $0.6$。
+
+<Ask>
+把可能原句提供的 rates 取條件平均，<br />
+能不能得到只看目前序列就能使用的生成規則？
+</Ask>
+
+用 $I_t$ 表示 reference noisy state，固定 $I_t=x$ 後，仍隨機的是原句 $X_0$。我們想平均的 label 是這些原句各自提供的 conditional rate：
+
+<FormulaSteps
+  id="u4-average-conditional-rates"
+  compact
+  title="不知道原字時，該用哪個跳躍 rate？"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{1}{\bar R_t(x,y)=}\\[.25em]
+    \reveal{4}{\mathbb E\big[}
+    \reveal{3}{\bar R_t^{\mathrm{cond}}(x,y\mid X_0)\mid}
+    \reveal{2}{I_t=x}
+    \reveal{4}{\big].}
+    \end{gathered}
+  `}
+  steps={[
+    {label: '要找的生成規則', text: String.raw`固定時間 $t$，目前在 $x$，想算跳向另一個狀態 $y$ 的 rate。`},
+    {label: '固定能看見的資訊', text: String.raw`只參考這時能造出目前序列的原句：$I_t=x$。`},
+    {label: '各原句給出的 label', text: String.raw`若知道原句 $X_0$，我們就能算出 conditional rate。`},
+    {label: '按 posterior 取平均', text: String.raw`對 $X_0\mid I_t=x$ 平均這些 rates，得到只依賴目前狀態與時間的規則。`},
+  ]}
+/>
+
+把剛才的指示量代入，便得到對 MASK 位置的生成 rate：
+
 $$
-q_t(x^\ell\mid x_0)
-=\alpha_t\delta_{x_0^\ell}
-+(1-\alpha_t)\delta_m.
-$$
-Reverse rate 也回到
-$$
-\bar R_t(x,x^{(\ell\to v)})
+\begin{gathered}
+\bar R_t\bigl(x,x^{(\ell\to a)}\bigr)\\
 =\frac{-\dot\alpha_t}{1-\alpha_t}
-p(x_0^\ell=v\mid x_t=x).
+\underbrace{\mathbb E[\mathbf1[X_0^\ell=a]\mid I_t=x]}_{\text{原字 posterior}}.
+\end{gathered}
 $$
-這正是 <Ref to="dma-concrete-score"/> 的 masked diffusion。若 source 改成與資料獨立的 uniform tokens，把 $x_1$ 平均掉，也會得到 uniform corruption 的 conditional snapshots。
 
-不過 uniform 的原 forward chain 可以反覆重抽；上面設計的 conditional process 只在端點間跳一次。**Snapshots 一樣，不表示 trajectory law 或 reverse generator 一樣。** 這和 DDPM、DDIM 共用 marginals、卻重新設計 coupling 的差別相同。
+指示量的條件平均，就是原字為 $a$ 的 posterior probability。**前面的係數決定翻得多快，後面的機率決定翻成哪個字。** 我們沒有平均 token 編號，也不需要先列出整張 joint PMF。
+
+<Question id="Q1">
+既然有些原句比較可能，能不能只選最可能的原句，再使用它提供的 conditional rate？
+
+<Answer>
+這會改變轉移的比例。若目前 context 下，原字為 `想`、`要` 的 posterior 是 $0.7$、$0.3$，總 reveal rate 是 $2$，posterior average 分別給它們 $1.4$、$0.6$ 的 rate；只選最可能的原句，則會給 `想` rate $2$、`要` rate $0$。
+
+我們要重現的是各種可能原句所貢獻的 flows，所以需要按 posterior 加權，不能用最可能的一句取代整個平均。接著就用這個 flow 關係檢查分布。
+</Answer>
+</Question>
+
+## 為什麼平均後仍推動原本的分布？
+
+只平均出一條合法 rate 還不夠，還要檢查它是否推動我們指定的 $p_t$。沿用 <Ref to="dma-discrete-data"/> 的混合式，$p_t(x)=\sum_{x_0}p_{\mathrm{data}}(x_0)q_t(x\mid x_0)$。在 $p_t(x)>0$ 的狀態，Bayes 給出相容原句的權重：
+
+$$
+p(X_0=x_0\mid I_t=x)
+=\frac{p_{\mathrm{data}}(x_0)q_t(x\mid x_0)}{p_t(x)}.
+$$
+
+把它放進平均 rate，再乘回來源狀態的機率：
+
+$$
+\begin{aligned}
+p_t(x)\bar R_t(x,y)
+&=\sum_{x_0}p_{\mathrm{data}}(x_0)q_t(x\mid x_0)\\
+&\quad\cdot\bar R_t^{\mathrm{cond}}(x,y\mid x_0).
+\end{aligned}
+$$
+
+右邊正是各原句提供的 conditional flows，按資料機率加起來。每一組 conditional process 都有正確的流入減流出；加總後，就得到 $-\dot p_t=p_t\bar R_t$。因此，在正確的 noise 起點與可適當定義的精確動態下，這條 rate 會倒著經過原本的 **joint** PMF path；不要求某條生成 trajectory 認回某一句 training 原文。
+
+這是 <Ref to="dma-denoising-regression"/> 的 **conditional trick** 在跳躍規則上的版本。先設計 conditional probability path、建立能推動它的 conditional rates，再取 posterior average，便得到 **Discrete Flow Matching（DFM）** 的建構方式；Gat 等人 [1] 與 Campbell 等人 [2] 系統化了這類離散生成流程。
 
 ![連續與離散 Flow Matching](./imgs/w7-4-1.png)
 
-*圖：兩者都先配端點、設計 conditional path，再取 posterior average；連續狀態平均速度，離散狀態平均跳躍 rate。*
+*圖：連續情況平均 reference velocities；離散情況平均 conditional rates。兩者都以機率守恆確認平均後的動態能走過指定的 probability path。*
 
-## 換成真實資料，要看哪幾個設計？
+## 未知的 posterior，要用什麼 label 學？
 
-不用先記每個模型名稱。先問：狀態是什麼、中間怎麼破壞或插值、模型預測什麼、最後怎麼抽樣？
+U2 用平方誤差對準 reference velocity，理想解就是相容 velocities 的條件平均。這裡也可以沿用同一個做法：固定一個內部時間 $t$，以剛才的 conditional rate 為 label 做平方誤差 regression，理想解就是我們已經推得的 posterior-average rate。
 
-| 例子 | 狀態與 probability path | 學習與生成 |
-| --- | --- | --- |
-| MDLM [3] | 語言 token，absorbing masking | 預測原字，按 reveal probabilities 逐步填入 |
-| Multiflow [2] | 蛋白質的離散序列與連續結構 | 同時學離散 rates 與連續 dynamics，做 sequence–structure co-design |
-| DiGress [4] | Graph 的 node、edge 類別逐步 corruption | 預測乾淨圖的類別，再用 reverse transitions 生成 |
+不過，剛才的公式還告訴我們：時間係數 $-\dot\alpha_t/(1-\alpha_t)$ 已知，真正未知的只剩指示量的條件平均，也就是 $p(X_0^\ell=a\mid I_t=x)$。**因此可以先讓模型預測這張原字 PMF，再乘回已知係數，組成生成時的 rate。** 這仍是在學推動分布的規則，只是改用原字機率來參數化它。
 
-圖上的類別合法，不代表分子化學限制必定滿足；序列與結構一起生成，也不等於所有生物性質都有保證。應用仍要選擇適合任務的模型、條件與評估。
+讓模型讀取整句 $x$ 與時間 $t$，在每個位置輸出一張字典上的機率表：
 
-<Question id="Q1">
-如果 data 與 source 的 token 不在同一個連續空間，DFM 還能定義 interpolation 嗎？
+$$
+f_\theta^\ell(a\mid x,t)
+\approx p(X_0^\ell=a\mid I_t=x),
+\qquad a\in\mathcal V.
+$$
 
-<Answer>
-可以，只要兩端可放在同一個離散 state space。Conditional path 是兩個 point masses 的**機率混合**，不是對 token 做數值平均。若任務還要求「這一張輸入對應哪一張輸出」，例如保留指定蛋白質結構，則要把需要保留的資訊作為 condition；只保證兩端的 marginal transport 不等於保證逐筆對應符合任務。
-</Answer>
-</Question>
+對 $a$ 加總為 $1$；模型不必把 MASK 當成原字的候選。這個預測原始資料的模型，仍稱為 **denoiser**。每個 output 可以參考整句 context；輸出每格的 posterior，不代表假設原句各位置獨立。
+
+接下來選擇用 cross-entropy 學這張 PMF。我們沒有真 posterior 當 label，但製造 noisy input 時，手上還保有原文。先抽 $x_0\sim p_{\mathrm{data}}$、$t\sim\mathrm{Unif}(0,1)$，按已知 $q_t(\cdot\mid x_0)$ 抽出 $x_t$；模型只看 $(x_t,t)$，被遮位置的 label 就是 $x_0^\ell$。用 cross-entropy 衡量它給原字多少機率：
+
+<FormulaSteps
+  id="u4-posterior-training-loss"
+  compact
+  title="用能製造的 training pairs 學原字機率"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{1}{\mathcal L(\theta)=}\\[.25em]
+    \reveal{4}{\mathbb E_{t,X_0,I_t}\Big[}
+    \reveal{3}{\sum_{\ell:I_t^\ell=m}-\log}
+    \reveal{2}{f_\theta^\ell(}
+    \reveal{3}{X_0^\ell}
+    \reveal{2}{\mid I_t,t)}
+    \reveal{4}{\Big].}
+    \end{gathered}
+  `}
+  steps={[
+    {label: '製造 input', text: String.raw`先抽原文 $X_0$ 與時間 $t$，再依 conditional PMF 製造 $I_t$。`},
+    {label: '模型給機率', text: String.raw`模型只看 $(I_t,t)$，替各個原字候選給出機率。`},
+    {label: '用原文當 label', text: String.raw`在 MASK 位置，以已知的 $X_0^\ell$ 當正確類別，計算負 log-probability。`},
+    {label: '涵蓋可能的 labels', text: '對時間、原文與遮罩隨機性平均；反覆訓練時，相容的原字會按其機率成為 label。'},
+  ]}
+/>
+
+固定一個 masked input 和位置，將它的真 posterior 簡記為 $p_a$、模型機率記為 $f_a$。把可能的原字 labels 平均，loss 就是 $-\sum_a p_a\log f_a$。加減同一項，可寫成
+
+$$
+-\sum_a p_a\log f_a
+=-\sum_a p_a\log p_a+D_{\mathrm{KL}}(p\|f).
+$$
+
+第一項不隨模型改變，第二項在 $f=p$ 時為零，因此理想最佳輸出正是真 posterior。每次只給一個原字 label，反覆訓練卻能學到整張條件機率表；不需要事先知道這張表。
+
+<AlgorithmView id="u4-mask-training" title="MASK denoiser：一次 training update" code={`輸入：資料集、保留係數 alpha(t)、模型 f_theta
+x0 ← 從資料集抽一句原文
+t ← Uniform(0, 1)
+xt ← copy(x0)
+for ell = 1, ..., L:
+    以機率 1 - alpha(t)，將 xt[ell] 換成 MASK
+prediction ← f_theta(xt, t)     # 每格一張原字典上的 PMF
+loss ← 對所有 MASK 位置加總 -log prediction[ell, x0[ell]]
+以 loss 的 gradient 更新 theta`}>
+
+$$
+\begin{aligned}
+&(x_0,t)\sim p_{\mathrm{data}}\times\mathrm{Unif}(0,1)\\
+&\quad\xrightarrow{\text{依 }q_t\text{ 抽樣}}x_t\\
+&\quad\xrightarrow{f_\theta(\cdot,t)}
+\{f_\theta^\ell(\cdot\mid x_t,t)\}_{\ell=1}^L\\
+&\quad\xrightarrow{\text{以原字為 label}}
+\sum_{\ell:x_t^\ell=m}-\log f_\theta^\ell(x_0^\ell\mid x_t,t).
+\end{aligned}
+$$
+
+</AlgorithmView>
+
+**Training 只要抽 snapshot，不必先模擬完整的跳躍過程。** 學完後，用 $f_\theta$ 取代 rate 裡的 posterior；理想 rate 與網路近似是兩個層次，實際生成還要選取樣方法。
+
+<Remark label="補充" summary="換時間權重，還是在學同一張 posterior 嗎？">
+若只在 loss 乘上與原字 label 無關、對所學時間為正的 $w(t)$，固定 input 下的最佳機率表仍是 posterior。有限模型會共用參數，權重仍可能影響實際學習。這裡先用容易理解的 CE 建立模型；<Ref to="dma-d3pm"/> 的補充再從 discrete diffusion 的 ELBO 解釋特定 weighting。
+</Remark>
+
+<Details summary="換成 uniform，能沿用同一個建構嗎？">
+可以。對 $q_t^\ell=\alpha_t\delta_{x_0^\ell}+(1-\alpha_t)\nu$，在生成方向選擇「以 rate $c_t=-\dot\alpha_t/(1-\alpha_t)$ 重設成原字」。這個操作對候選 $a$ 的淨變化為
+
+$$
+\begin{aligned}
+&c_t[\delta_{x_0^\ell}(a)-q_t^\ell(a\mid x_0)]\\
+&=-\dot\alpha_t[\delta_{x_0^\ell}(a)-\nu(a)]\\
+&=-\partial_tq_t^\ell(a\mid x_0).
+\end{aligned}
+$$
+
+因此它也實現同一條 conditional PMF path。對所有原句取 posterior average 後，對 $a\ne x^\ell$ 有
+
+$$
+\bar R_t\bigl(x,x^{(\ell\to a)}\bigr)
+=\frac{-\dot\alpha_t}{1-\alpha_t}
+p(X_0^\ell=a\mid I_t=x).
+$$
+
+MASK 時，已見字的原字 posterior 是 point mass，所以不能再跳；uniform 時，當前字也可能被換掉，所以所有位置都可能需要預測。Training 可以對所有位置計算 CE。
+
+這是一個實現指定 path 的生成規則。Uniform D3PM 的 forward chain 可以反覆重抽，反轉它會得到另一個 generator；兩者雖可有相同 snapshots，不能宣稱 trajectory law 相同。
+</Details>
+
+<Details summary="若 source 不是 iid noise，端點配對要怎麼加入？">
+先抽配對 $(X_0,X_1)\sim\pi$，$X_0$ 是 data、$X_1$ 是 source；$\pi$ 指定兩端如何配在一起，兩個 marginals 分別是所需的資料與 source 分布。固定兩端，令
+
+$$
+q_t^\ell(a\mid x_0,x_1)
+=\alpha_t\delta_{x_0^\ell}(a)+(1-\alpha_t)\delta_{x_1^\ell}(a).
+$$
+
+各位置條件獨立，再按端點配對混合：
+
+$$
+p_t(x)=\sum_{x_0,x_1}\pi(x_0,x_1)
+\prod_\ell q_t^\ell(x^\ell\mid x_0,x_1).
+$$
+
+同樣可以選擇生成方向以 $-\dot\alpha_t/(1-\alpha_t)$ 的 rate 重設成 data token，再對兩端的 posterior 平均。正文的 iid noise 版本，相當於令 source 與 data 獨立，再將 source 平均掉。
+
+配對不同，中間 PMF 與 endpoint posterior 可能不同；這不等於 U3 的幾何拉直，也不保證有限模型更容易學。這裡仍沿用 $\alpha_t$；原 DFM 論文 [1] 的時間方向相反，不能直接照搬其下標。
+
+<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w7-4-token-path.html" class="demo-frame" title="離散端點之間的 probability interpolation" style="height: 870px; width: 100%; border: none;"></iframe>
+</Details>
+
+<Details summary="閱讀應用論文時，要對照哪些設計？">
+先看狀態、中間 PMF、模型輸出與 sampler。例如 MDLM [3] 用 absorbing masking 和原字預測；Multiflow [2] 同時處理蛋白質的離散序列與連續結構；DiGress [4] 對圖的 node、edge 類別設計離散 corruption。
+
+類別合法不代表化學或生物限制必定滿足；除了 path 與模型，仍需檢查任務條件與評估方式。
+</Details>
+
+
 
 ## 快速回顧一下
 
 <QuizBlock id="w7-4-a">
-離散 conditional interpolation 改變的是：
-<Option>Token 編號的中間值。</Option>
-<Option correct>樣本位於兩個端點的機率。</Option>
-<Option>字典大小一定逐步增加。</Option>
-<Explanation>任何時刻抽出的仍是合法的離散 token。</Explanation>
+MASK 的 reveal rate 分母為什麼是 $1-\alpha_t$？
+<Option>因為所有 token 的機率總和不是 $1$。</Option>
+<Option correct>需要補回的質量，要除以目前能翻開的 MASK 群體比例。</Option>
+<Option>因為它是資料在每格出現的機率。</Option>
+<Explanation>Rate 描述每個來源樣本的頻率，所以要用來源群體的機率作分母。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w7-4-b">
-Conditional rate 要怎麼變成 marginal rate？
-<Option correct>對給定目前狀態後，所有可能端點的 posterior 取平均。</Option>
-<Option>只選最接近的 endpoint。</Option>
-<Option>對不同字的編號取平均。</Option>
-<Explanation>這個平均把各 conditional probability flows 組成 $p_t$ 的整體流量。</Explanation>
+Posterior averaging 固定了什麼、平均什麼？
+<Option correct>固定目前序列與時間，按相容原句的 posterior 平均它們的 conditional rates。</Option>
+<Option>把所有 training sequences 的 token 編號取平均。</Option>
+<Option>固定原句，將所有時間的 rates 等權平均。</Option>
+<Explanation>生成規則只能使用目前可見資訊；原句已經被平均掉。</Explanation>
 </QuizBlock>
 
 <QuizBlock id="w7-4-c">
-兩個 processes 的 $q_t(x_t\mid x_0)$ 相同，表示：
-<Option>所有跨時間的配對與 trajectories 都相同。</Option>
-<Option correct>每個時刻的 snapshots 相同；不同時刻如何連起來仍可能不同。</Option>
-<Option>必須用相同的 finite-step sampler。</Option>
-<Explanation>Marginals、joint process 與 numerical sampler 是不同層次。</Explanation>
+每次訓練只給一個原字 label，為什麼能學到 posterior PMF？
+<Option>因為所有原句都有相同 label。</Option>
+<Option correct>固定 input 下，相容 labels 按其機率出現，平均 CE 在預測等於 posterior 時最小。</Option>
+<Option>因為輸出最大的 logit 就是 joint distribution。</Option>
+<Explanation>模型學的是給各類別多少機率；單筆 label 與反覆訓練的理想最佳解不同。</Explanation>
 </QuizBlock>
 
-<Bridge to="dma-lab-discrete-time">
-這個單元從 token 的加噪與去噪，走到可設計的 probability paths 與 rates。接下來用兩次實作檢查它們：先把網路誤差拿掉，觀察平行填字漏掉的相依；再比較 rate 的有限步取樣，以及加入修改機會後的結果。
+<Bridge to="dma-d3pm">
+現在我們知道離散的 velocity 如何設計、怎麼由 conditional rates 平均而來，也有模型可以學的原字機率。下一步要真的生成：從全 MASK 出發，一次應該翻開多少格、如何抽字，又該怎麼把 rate 轉成有限步的轉移機率？
 </Bridge>
 
 ## 參考文獻

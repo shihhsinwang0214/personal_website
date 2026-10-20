@@ -9,7 +9,7 @@ title: "填錯的字，可以再改嗎？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-06
+updated: 2026-10-19
 summary: "先比較 absorbing 與 uniform 的修改能力，再從每步機率對時間長度的依賴，提出用 rate 設計取樣規則的需求。"
 demos: []
 references:
@@ -56,7 +56,16 @@ import Ref from '../../../components/Ref.astro';
 
 ## 先看原本兩條 chain
 
-Absorbing 的好處是，training snapshot 中所有非 MASK 的字都來自原文，模型清楚知道哪裡缺資訊。但生成時可見的字是模型自己填的，**不保證正確**；原本的 reverse kernel 仍然把它們固定住。
+先把 <Ref to="dma-d3pm"/> 的規則寫出來。若第 $\ell$ 格已是可見的 $v$，absorbing reverse kernel 給
+
+$$
+\begin{gathered}
+p_\theta^\ell(x_s^\ell=v\mid x_t,t)=1,\\
+s<t,\quad x_t^\ell=v\neq m.
+\end{gathered}
+$$
+
+也就是不管網路現在多想改，sampler 都會照抄這一格。這個規則對 training snapshots 很合理：其中的可見字全來自原文，不需要恢復。但生成時，可見字是模型在較少 context 下自己填的，**不保證正確**。所以「training 中可見字可信」與「sampling 中舊答案不能改」要分開看。
 
 Uniform 則不同：每個字都可能被替換，所以 reverse kernel 允許已見的字再改。但它也沒有 MASK 來標明「這格不知道」；模型必須同時判斷哪些字可信、哪些需要換掉。Austin 等人的 D3PM [1] 包含這兩種 forward 設計，並沒有因此給出「能換字就一定比較好」的保證。
 
@@ -73,23 +82,31 @@ Uniform 則不同：每個字都可能被替換，所以 reverse kernel 允許�
 回想 <Ref to="dma-reverse-process"/> 與 <Ref to="dma-unified-equation"/>：同一組 marginals，未必只能用同一種 dynamics 走過去。這裡也可以問相同的問題：保留 absorbing 定義的
 $$
 q_t(x_t^\ell\mid x_0^\ell)
-=\bar\alpha_t\delta_{x_0^\ell}
-+(1-\bar\alpha_t)\delta_m,
+=\alpha_t\delta_{x_0^\ell}
++(1-\alpha_t)\delta_m,
 $$
-但在生成時加入「字 $\to$ MASK」的轉移，之後再讓 denoiser 重選。
+這裡 $\delta_a$ 仍表示全部機率放在 $a$ 的分布。固定原文後，每格在時刻 $t$ 有 $\alpha_t$ 的機率保留原字、其餘是 MASK。這是我們想保留的 snapshot。
+
+新的生成過程則想偶爾走「字 $\to$ MASK」，再讓 denoiser 根據新的 context 重選。於是，同一個時刻的原字／MASK 比例可以不變，但某個樣本到達這裡之前，可能已經被翻開、遮回、又翻開過。這和 <Ref to="dma-unified-equation"/> 區分 probability path 與單條 trajectory 的原因相同。
 
 這個操作叫 **remasking**。Wang 等人的 ReMDM [3] 建構了保留原本 conditional marginals 的 remasking process。不過現在還不能只說「隨機遮回去就好」：遮回去會讓 MASK 變多，**我們還需要補多少翻開的機會，才能維持原本的分布？**
 
 ## 要說修改多少，先決定時間的單位
 
-如果說「每步用 $1\%$ 的機率遮回去」，走十步或一千步，累積效果就不一樣。想像導航每隔一分鐘與每隔十分鐘提醒你一次；即使每次提醒的機率相同，一小時內收到提醒的頻率也不同。
+如果說「每步用 $1\%$ 的機率遮回去」，走十步或一千步就不再是同一個修改強度。先只問一個已填字至少被遮回過一次的機率：若每一步都獨立以 $0.01$ 選它，走 $N$ 步後是
 
-所以我們改問：**每單位時間，一個已填字被遮回去多快？** 用 $\sigma_t$ 表示這個 rate，短短一段 $h$ 的轉移機率就是
 $$
-\Pr(\text{字}\to m\text{ in }[t,t+h])
+1-(1-0.01)^N.
+$$
+
+十步約為 $9.6\%$，一千步卻接近 $100\%$。這個簡化計算還沒描述遮回後怎麼填，只是讓我們看見：**固定每步機率，改步數就連想描述的過程也一起改了。** 我們需要把「修改本身多頻繁」與「電腦把時間切幾步」分開。
+
+所以我們改問：**每單位生成時間，一個已填字被遮回去多快？** 用 $\sigma_t$ 表示這個 rate。生成沿 diffusion 時間倒著走：從 $t$ 退到 $t-h$，其中 $h>0$ 是經過的時間長度。短時間的轉移機率寫成
+$$
+\Pr(x_{t-h}^\ell=m\mid x_t^\ell\neq m)
 =\sigma_t h+o(h).
 $$
-Rate 的單位是 $1/\text{時間}$；$h$ 才是取樣器這一步走多久。$\sigma_t=2$ 不是機率 $2$，而是很小的 $h=0.01$ 內，轉移機率約為 $0.02$。
+Rate 的單位是 $1/\text{時間}$；$h$ 才是取樣器這一步走多久。$\sigma_t=2$ 不是機率 $2$，而是很小的 $h=0.01$ 內，轉移機率約為 $0.02$。$o(h)$ 表示被一階近似省掉的餘項，滿足 $o(h)/h\to0$；所以這個式子描述小時間的行為，不能把任意大的 $h$ 直接代進 $\sigma_th$ 當機率。
 
 Campbell 等人 [2] 用 **continuous-time Markov chain（CTMC）** 描述 discrete diffusion，把這種局部 rate 與計算時的步長分開。**狀態仍然是 token，連續的是時間，不是字。**
 
@@ -101,7 +118,7 @@ Campbell 等人 [2] 用 **continuous-time Markov chain（CTMC）** 描述 discre
 若只在 absorbing sampler 加入「字 $\to$ MASK」，原本要經過的 marginals 還會相同嗎？
 
 <Answer>
-一般不會。原本每個時刻的 MASK 比例是 $1-\bar\alpha_t$；多遮回去卻不增加翻開的機會，MASK 會累積得更多。只讓某個 token 多一條轉移還不夠，我們必須檢查**整個 distribution 的淨流入與淨流出**。下一篇先建立計算這件事的方程式，之後再推導要補上的 rate。
+一般不會。原本每個時刻的 MASK 比例是 $1-\alpha_t$；多遮回去卻不增加翻開的機會，MASK 會累積得更多。只讓某個 token 多一條轉移還不夠，我們必須檢查**整個 distribution 的淨流入與淨流出**。下一篇先建立計算這件事的方程式，之後再推導要補上的 rate。
 </Answer>
 </Question>
 

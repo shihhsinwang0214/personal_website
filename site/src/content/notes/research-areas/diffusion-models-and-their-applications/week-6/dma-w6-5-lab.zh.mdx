@@ -9,7 +9,7 @@ title: "實作 A：每格機率都對，整串還會錯嗎？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-06
+updated: 2026-10-19
 summary: "用完整列舉的 parity toy 比較 joint reverse 與 factorized reverse，先排除模型誤差，再檢查平行填字漏掉的相依。"
 demos: []
 references:
@@ -43,9 +43,11 @@ import Ref from '../../../components/Ref.astro';
 
 ## 怎麼確定錯的是網路，還是抽樣？
 
-<Ref to="dma-factorization-error"/> 說，即使每格的 conditional marginal 都正確，一起獨立填完仍可能出錯。要驗證這件事，最直接的方法就是選一個小到可以列出所有合法資料的問題，先把網路拿掉。
+前面已經建立 PMF path、rate、denoiser 和 sampler，也用 <Ref to="dma-factorization-error"/> 說明：即使每格的 conditional marginal 都正確，一起獨立填完仍可能出錯。要驗證這件事，最直接的方法就是選一個小到可以列出所有合法資料的問題，先把網路拿掉。
 
-這次使用長度 $L=8$ 的 bit 序列，資料是全部 $128$ 條偶數 parity，均勻抽樣。只有「$1$ 的數量必須是偶數」這個限制；所以任何結果都能直接檢查。
+這次使用長度 $L=8$ 的 bit 序列，每格只能是 $0$ 或 $1$。資料只允許 $1$ 的數量為偶數，稱為偶數 parity；例如 $00000000$ 與 $11000000$ 合法，$10000000$ 不合法。全部 $2^8=256$ 種序列中，一半有偶數個 $1$，所以資料共有 $128$ 條，各以 $1/128$ 抽到。
+
+這份小資料的好處是：可以直接列出「目前看到的字還可能來自哪些合法原文」，不必先訓練網路。這種直接使用精確答案的預測器稱為 **oracle**。它在這裡替我們排除 prediction error，讓實驗只比較抽樣規則。
 
 [下載實作 A notebook：Discrete diffusion 與 factorization error](/personal_website/notes/notebooks/diffusion-models-applications/dma-w6-lab.ipynb)
 
@@ -53,7 +55,9 @@ Notebook 需要 NumPy 與 Matplotlib，依序執行 cells。程式使用完整�
 
 ## 第一步：找出這張 snapshot 可能的原文
 
-令 $x_t$ 中的 MASK 用 $-1$ 表示。程式先留下所有與可見字相容的資料，再計算每個位置的 $0$、$1$ 比例：
+Notebook 用整數陣列儲存序列，以 $-1$ 表示 MASK；這只是程式的標記，不會把 $-1$ 當成有數值距離的 token。先用 <Ref to="dma-factorization-error"/> 的三格例子想一次：若看到 $x_t=(0,m,m)$，合法原文只可能是 $000$ 或 $011$。各有一半機率，因此後兩格各自的 $0$、$1$ 比例也是一半。
+
+Joint sampler 會從 $000$、$011$ 直接抽一整串；factorized sampler 則依各格的比例獨立抽，還可能得到 $001$ 或 $010$。這四個動作對應到 notebook 的四個函式：
 
 | 函式 | 計算的物件 |
 | --- | --- |
@@ -68,14 +72,16 @@ Notebook 需要 NumPy 與 Matplotlib，依序執行 cells。程式使用完整�
 
 固定被遮的格數，先從真實資料造出 snapshot，再分別用 joint 與 factorized sampler 填完。對每個設定重複抽樣，量「$1$ 的數量為偶數」的比例。
 
-你應該看到：joint 始終只抽合法資料；只剩一格 MASK 時，factorized 也能補對；但兩格以上一起填時，factorized 的合法率約為 $\tfrac12$。**這個差別不可能來自網路，因為兩邊都沒有使用網路。**
+先寫下預測：只剩一格 MASK 時，兩種方法會不會不同？若兩格或更多一起填，factorized 的合法率大約是多少？接著執行比較 cell，再用下面的條件檢查結果。
+
+Joint 直接從合法原文抽，所以每次都合法；只剩一格 MASK 時，parity 唯一決定那格的值，factorized 也會補對。剩兩格或更多時，每格的 marginal 都是一半，獨立填完的偶數 parity 機率則是 $1/2$。Notebook 每個 MASK 數量重複抽 $800$ 次，所以看到的比例會在真值附近波動；比較時記錄 seed 與樣本數，別把一次曲線的起伏當成新規律。**兩邊都沒有使用網路，因此這個差別來自抽樣結構。**
 
 ![Parity 與局部相依](./imgs/w6-5-1.png)
 
 *圖：本次先用全域 parity 檢查相依；延伸到 Markov toy 時，相依則分布在相鄰位置。*
 
 <Question id="Q1">
-如果 factorized sampler 的合法率只有 $\tfrac12$，把訓練資料增加十倍，這個實验會改善嗎？
+如果 factorized sampler 的合法率只有 $\tfrac12$，把訓練資料增加十倍，這個實驗會改善嗎？
 
 <Answer>
 不會。這裡已經使用真實資料分布算出的精確 conditional marginals，沒有 estimation error 可以改善。要改的是抽樣規則，例如先填一部分、重新計算 conditional，再填剩下的部分；或用能表達 joint dependence 的抽樣方式。這是 <Ref to="dma-factorization-error"/> 的結構性誤差。
@@ -84,9 +90,11 @@ Notebook 需要 NumPy 與 Matplotlib，依序執行 cells。程式使用完整�
 
 ## 第三步：把誤差來源分開記錄
 
-Notebook 另檢查 forward MASK 比例是否跟 $1-\bar\alpha_t=t$ 一致。它回答的是 snapshot 有沒有造對，不是 joint reverse 有沒有抽對。
+Notebook 另檢查 forward MASK 比例是否跟 $1-\alpha_t=t$ 一致。它回答的是 snapshot 有沒有造對，不是 joint reverse 有沒有抽對。
 
-下面的 Markov toy demo 再把 conditional prediction 人為往均勻分布拉一點，模擬可調整的模型誤差。固定每步填字數，比較不同 prediction errors；再固定 prediction error，比較每步填幾格。
+再換到下面的 Markov toy demo：這次不是 notebook 的全域 parity，而是相鄰 bit 有關係的序列。Demo 把精確 conditional prediction 人為往均勻分布拉一點，做出可控制的 prediction error。先固定每步填字數，只改 prediction error；再固定 prediction error，只改每步填幾格。
+
+把每組實驗記成「預測從哪裡來、每步填幾格、重算幾次 conditional、量什麼統計量」。這樣才能分辨：是給出的機率表偏了，還是把正確的表用獨立抽樣組合時漏掉相依。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w6-5-decompose.html" class="demo-frame" title="分開比較 prediction error 與平行填字誤差" style="height: 760px; width: 100%; border: none;"></iframe>
 
@@ -96,7 +104,7 @@ Notebook 另檢查 forward MASK 比例是否跟 $1-\bar\alpha_t=t$ 一致。它�
 
 1. 把資料改成「$1$ 的數量可被 $3$ 整除」，同時修改合法性判斷。不同 MASK 數量下，哪些位置 marginals 看不出 joint constraint？
 2. 將一次填完改成每次只填一格，每次都重新查 conditional。確認偶數 parity 的合法率如何改變。
-3. 訓練自己的 denoiser：輸入 token sequence 與時間，輸出每位置 logits；用 <Ref to="dma-d3pm"/> 的 masked cross-entropy。先比較 logits 的 conditional KL，再放入相同 sampler 比較合法率。這兩個評估分別檢查預測與生成。
+3. 訓練自己的 denoiser：輸入 token sequence 與時間，輸出每位置 logits；用 <Ref to="dma-discrete-flow-matching"/> 的 masked cross-entropy。先比較 logits 的 conditional KL，再放入相同 sampler 比較合法率。這兩個評估分別檢查預測與生成。
 4. 換成相鄰 bit 有相依的 Markov toy，觀察每步填字數的影響。不要只記步數，也記每步實際填幾格、seed 與抽樣數。
 
 ## 快速回顧一下

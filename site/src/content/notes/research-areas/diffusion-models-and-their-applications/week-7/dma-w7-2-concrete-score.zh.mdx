@@ -11,7 +11,7 @@ title: "時間倒過來，Rate 需要學什麼？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-06
+updated: 2026-10-18
 summary: "用 Bayes 推導 reverse rate，指出未知的是 marginal probability ratio；再以 conditional ratio 與 masked denoiser 建立可學習的目標。"
 demos: []
 references:
@@ -47,49 +47,67 @@ import Ref from '../../../components/Ref.astro';
 
 ## Forward 的門會開，倒著走該怎麼開？
 
-<Ref to="dma-ctmc"/> 已經用 $R_t$ 決定資料怎麼逐漸被破壞。但生成時，我們站在 noisy state $x$，不知道先前的人從哪裡來。就像 <Ref to="dma-tweedie-and-score"/> 的散場例子：**知道往外走的規則，還不等於知道這個街口該怎麼往回走。**
+<Ref to="dma-ctmc"/> 已經用 $R_t$ 決定資料怎麼逐漸被破壞。但生成時，我們站在 noisy state $x$，想問的是：**現在落在這裡的樣本，剛才有多少是從另一個狀態 $y$ 過來的？**
 
-令 $\bar R_t(x,y)$ 表示生成時從 $t$ 退向 $t-h$ 的 rate。對 $y\neq x$，先用 Bayes：
+沿用房間的例子，A 往 B 的門每個人都能走，但 B 裡的人有多少原本來自 A，還要看 A 與 B 各有多少人。不能把門上的方向倒過來，就宣稱頻率也相同。下面把房間換成完整序列的狀態 $x,y$，用 Bayes 算真正的比例。
+
+令 $\bar R_t(x,y)$ 表示生成時，從目前的 $x$ 跳向 $y$ 的 reverse rate：經過正的時間長度 $h$，diffusion 時間從 $t$ 退到 $t-h$。對 $y\neq x$，想求的是 $\Pr(x_{t-h}=y\mid x_t=x)$；只在 $p_t(x)>0$ 的狀態使用 Bayes：
 $$
-\Pr(x_{t-h}=y\mid x_t=x)
+\begin{gathered}
+\Pr(x_{t-h}=y\mid x_t=x)\\
 =\frac{p_{t-h}(y)\Pr(x_t=x\mid x_{t-h}=y)}{p_t(x)}.
+\end{gathered}
 $$
 Forward 的短時間轉移是 $hR_t(y,x)+o(h)$，且 $p_{t-h}(y)=p_t(y)+o(1)$。除以 $h$ 再取極限：
 $$
 \bar R_t(x,y)=R_t(y,x)\frac{p_t(y)}{p_t(x)}.
 $$
-**Forward rate 已知；未知的部分是兩個狀態的機率比。** Campbell 等人 [3] 用這個時間反轉公式建構 discrete denoising models。
+式子中的 $R_t(y,x)$ 是原來那扇門：forward 從 $y$ 走到 $x$，reverse 才沿它退回去。例如某時刻 $p_t(y)=0.8$、$p_t(x)=0.2$，而 $R_t(y,x)=0.5$，則 $\bar R_t(x,y)=0.5\times0.8/0.2=2$。同一股流量 $0.4$，對來源比例 $0.8$ 與 $0.2$ 的兩群樣本，就對應不同的每人頻率。
 
-## 離散 score 是比值，不是對 token 編號微分
+**Forward rate 已知；未知的部分是兩個完整狀態的機率比。** Campbell 等人 [3] 用這個時間反轉公式建構 discrete denoising models。接下來的訓練目標，就是要補上這份資料分布的資訊。
+
+## 兩個狀態之間，要學哪一種比較？
 
 連續空間的 score $\nabla\log p_t(x)$ 告訴我們附近哪裡密度比較高。離散空間沒有「朝某個字移動一點點」，所以先保留一個有限的比較：
 $$
 s_t(x)_y=\frac{p_t(y)}{p_t(x)}.
 $$
-這個 ratio 回答「$y$ 比 $x$ 多可能多少」，也不需要 normalizing constant：分子與分母的常數會相消。Meng 等人 [2] 提出 **concrete score** 的離散比較觀點；Lou、Meng 與 Ermon 的 **SEDD** [1] 直接學這些正比值。
+這個 ratio 回答「$y$ 出現的機率是 $x$ 的幾倍」。它可以大於 $1$，例如上面的 ratio 是 $4$；它也不要求對不同鄰居加總為 $1$。因此，直接預測 ratio 的網路要輸出非負數值，不能把所有 ratio 用 softmax 正規化成一張 categorical distribution。
+
+若只知道未正規化的 weights，分子與分母的共同 normalizing constant 仍會相消。Meng 等人 [2] 提出 **concrete score** 的離散比較觀點；Lou、Meng 與 Ermon 的 **SEDD** [1] 直接學這些比值。這裡的新物件是「比較兩個狀態的相對可能性」，不是 token 編號的導數。
 
 <Remark label="符號" summary="Concrete score 有兩種常見寫法">
 原始 concrete score matching 常用 $(p_t(y)-p_t(x))/p_t(x)$，也就是本篇 ratio 減 $1$。本篇跟隨 SEDD 使用 $p_t(y)/p_t(x)$，方便直接乘進 reverse rate。兩者資訊相同，但公式中的常數不能混用。
 </Remark>
 
-在逐位置 corruption 下，forward 一次只改一個 token，所以只需要 $y=x^{(\ell\to v)}$ 這些鄰居的 ratio，不必輸出 $K^L$ 個序列的機率。
+用 $x^{(\ell\to v)}$ 表示把完整序列 $x$ 的第 $\ell$ 格換成 $v$、其他格原封不動。這樣的 $y$ 就是 $x$ 的一個鄰居。在逐位置 corruption 的精確 CTMC 裡，一次跳躍只改一個位置；reverse 因此也只需要這些鄰居的 ratio，而不是輸出所有 $K^L$ 個序列的機率。這裡的「一次跳躍」與電腦用有限步一次更新多格，是兩個層次。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w7-2-ratios.html" class="demo-frame" title="鄰居之間的 probability ratios" style="height: 890px; width: 100%; border: none;"></iframe>
 
 ## 可是整個 $p_t$ 算不出來，Label 從哪裡來？
 
-我們可以直接抽 training pair $(x_0,x_t)$，而 $q_t(x_t\mid x_0)$ 已知。先看看 conditional ratio 的 posterior average：
+若要直接把 $p_t(y)/p_t(x)$ 當 label，就得先知道整個資料分布，這正是我們沒有的東西。不過回想 <Ref to="dma-denoising-regression"/> 的 **conditional trick**：卡在 marginal object 時，可以先盤點自己製造 training pair 時還知道什麼。
+
+我們其實不只看到 $x_t$，還保有抽到的原文 $x_0$，而且已經會算 $q_t(\cdot\mid x_0)$。所以可以先為這筆 training pair 算一個 conditional ratio label：
+
 $$
-\begin{aligned}
+\frac{q_t(y\mid x_0)}{q_t(x_t\mid x_0)}.
+$$
+
+同一個 noisy input 可能來自不同原文，這個 label 也可能不同。固定時間 $t$，只看能產生目前 $x_t=x$ 的那些原文，按它們的 posterior 機率平均會得到什麼？先假設我們比較的鄰居滿足下面補充中的 support 條件，讓分母有定義、約分後也不漏掉原文：
+$$
+\begin{gathered}
 \mathbb E\left[\frac{q_t(y\mid x_0)}{q_t(x\mid x_0)}
-\,\middle|\,x_t=x\right]
-&=\sum_{x_0}\frac{q_t(y\mid x_0)}{q_t(x\mid x_0)}
+\,\middle|\,x_t=x\right]\\
+=\sum_{x_0}\frac{q_t(y\mid x_0)}{q_t(x\mid x_0)}
 \frac{q_t(x\mid x_0)p_0(x_0)}{p_t(x)}\\
-&=\frac{\sum_{x_0}q_t(y\mid x_0)p_0(x_0)}{p_t(x)}\\
-&=\frac{p_t(y)}{p_t(x)}.
-\end{aligned}
+=\frac{\sum_{x_0}q_t(y\mid x_0)p_0(x_0)}{p_t(x)}\\
+=\frac{p_t(y)}{p_t(x)}.
+\end{gathered}
 $$
-第一步用 Bayes，第二步把相同的 conditional 機率約掉。這和 <Ref to="dma-denoising-regression"/>、<Ref to="dma-flows-and-continuity"/> 是相同的策略：**用好算的 conditional target 訓練，最佳解再替我們平均成難算的 marginal object。**
+第一步用 Bayes，把「給定 $x$ 後原文是誰」的 posterior 寫出來；第二步約掉相同的 $q_t(x\mid x_0)$；最後分子把所有原文造成的 $y$ 加起來，正是 $p_t(y)$。這個 expectation 平均的是**固定目前 input 後，仍可能的原文所給出的 labels**，不是把所有 noisy inputs 的 ratios 混在一起。
+
+所以，單筆 label 不需要等於 marginal ratio；我們要設計的 loss，是讓固定 input 下的理想最佳輸出等於這些 labels 的 posterior average。下面的 score entropy loss 就完成這個動作。
 
 <Remark label="補充" summary="這個約分要有什麼條件？">
 我們在 $p_t(x)>0$ 的位置使用 ratio，且要求分子有質量的原文也能產生 $x$：
@@ -100,25 +118,43 @@ $$
 </Remark>
 
 <Details summary="SEDD 怎麼把 conditional ratio 寫成 training loss？">
-令 $a=q_t(y\mid x_0)/q_t(x_t\mid x_0)$，讓 $s_\theta(x_t,t)_y>0$。SEDD 的 denoising score entropy [1]，忽略不含 $\theta$ 的項後，是
-$$
-L_{\mathrm{DSE}}
-=\mathbb E_{t,x_0,x_t}\sum_{y\neq x_t}w_t(x_t,y)
-\left[s_\theta(x_t,t)_y-a\log s_\theta(x_t,t)_y\right].
-$$
-固定 $(x_t,t,y)$，令 $r=\mathbb E[a\mid x_t]$。平均後的 scalar loss 是 $s-r\log s$；微分得到 $1-r/s$，因此 $r>0$ 時最小值在 $s=r$。若 $r=0$，最小值在非負邊界 $s=0$，正值參數化可逼近它。
+固定時間 $t$，以原文 $x_0\sim p_0$ 與加噪結果 $x_t\sim q_t(\cdot\mid x_0)$ 做一筆資料。把上面的 conditional ratio 簡寫成 label $a=q_t(y\mid x_0)/q_t(x_t\mid x_0)$；模型 $s_\theta(x_t,t)_y$ 則要預測這條鄰邊的 marginal ratio。
 
-關鍵是 $a$ 只在線性的 $-a\log s$ 中出現，因此 posterior average 正好留下 marginal ratio。取 $w_t(x,y)=R_t(y,x)$，就對 reverse 需要的 edges 加權；在相應的 CTMC likelihood bound 中，還要保留常數與 prior term，不能直接把任意加權的 loss 當成 likelihood。
+SEDD 的 denoising score entropy [1]，略去不含 $\theta$ 的項後是
+
+$$
+\begin{aligned}
+L_{\mathrm{DSE}}
+&=\mathbb E_{t,x_0,x_t}\sum_{y\neq x_t}w_t(x_t,y)\\
+&\qquad\cdot\left[s_\theta(x_t,t)_y
+-a\log s_\theta(x_t,t)_y\right].
+\end{aligned}
+$$
+
+這裡對時間、原文與 corruption randomness 平均；$w_t(x,y)\geq0$ 是不依賴未知原文的邊權重。為了看最佳解，固定 $(x_t,t,y)$，只把仍可能的 labels $a$ 平均，記其平均為 $r$。Scalar loss 便成為 $s-r\log s$，對預測值 $s$ 微分得到 $1-r/s$。若 $r>0$，它在 $s=r$ 唯一最小；若 $r=0$，最小值在邊界 $s=0$，正值參數化可逼近它。於是最佳預測正好是正文算出的 marginal ratio。
+
+這個機制用到 label 只在線性的 $-a\log s$ 中出現。它不是把 ratio labels 先正規化成類別機率；一般情況下 $\sum_y s_\theta(x,t)_y$ 也不是 $1$。取 $w_t(x,y)=R_t(y,x)$，就會對 reverse 需要的 edges 加權。要解讀成 CTMC 的 likelihood bound，還需保留常數與 prior term。
+
+對 absorbing 的一個 MASK 位置，把正文的 $s_\theta(v)=\alpha_t f_\theta^\ell(v\mid x_t,t)/(1-\alpha_t)$ 代入，再用 $\sum_v f_\theta^\ell(v\mid x_t,t)=1$。乘上 masking rate $\beta_t$ 後，模型相關的那一部分變成
+
+$$
+\frac{-\dot\alpha_t}{1-\alpha_t}
+\bigl[-\log f_\theta^\ell(x_0^\ell\mid x_t,t)\bigr]+C_t,
+$$
+
+其中 $C_t$ 不依賴模型參數：$\sum_v s_\theta(v)=\alpha_t/(1-\alpha_t)$ 是常數，$\log s_\theta(x_0^\ell)$ 則拆成已知係數的 log 與 $\log f_\theta^\ell(x_0^\ell)$。因此在這個參數化下，absorbing score entropy 與 weighted masked cross-entropy 的模型相關部分相同；比較兩組預測的 loss 差值時，常數便相消。這是實作 B 最後要驗的換算。
 </Details>
 
 ## 原本的 masked denoiser，其實已經給了 ratio
 
-令 $x^\ell=m$，$y=x^{(\ell\to v)}$。固定 $x_0$ 後，其餘位置的 conditional 因子約掉，只剩
+先回到熟悉的 MASK，看看這份 ratio 資訊和 <Ref to="dma-d3pm"/> 的猜字機率有什麼關係。令 $x^\ell=m$，把這格填成 $v$ 得到 $y=x^{(\ell\to v)}$。固定原文 $x_0$ 後，$x$、$y$ 的其他位置完全相同，所以那些 conditional probability factors 都能約掉。
+
+剩下的第 $\ell$ 格，在 $x$ 中被遮的機率是 $1-\alpha_t$；在 $y$ 中保持為 $v$ 的機率是 $\alpha_t$，但必須原字本來就是 $v$。因此
 $$
 \frac{q_t(y\mid x_0)}{q_t(x\mid x_0)}
 =\frac{\alpha_t}{1-\alpha_t}\mathbf1[x_0^\ell=v].
 $$
-取 posterior average，得到
+符號 $\mathbf1[x_0^\ell=v]$ 在原字是 $v$ 時為 $1$、否則為 $0$。把這個指示量對仍可能的原文取 posterior average，就是原字為 $v$ 的 conditional probability，因此得到
 $$
 s_t(x)_y
 =\frac{\alpha_t}{1-\alpha_t}p(x_0^\ell=v\mid x_t=x).
