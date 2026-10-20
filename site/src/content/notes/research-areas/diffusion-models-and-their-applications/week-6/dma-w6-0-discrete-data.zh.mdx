@@ -9,7 +9,7 @@ title: "資料是 Token 的時候，噪聲是什麼？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-19
+updated: 2026-10-20
 summary: "沿用 stochastic interpolants 的思路，在原 token 與 noise 的 PMF 間插值，直接抽出 MASK 或 uniform 的 noisy snapshot，並保留整句話的 joint 關聯。"
 demos: []
 references:
@@ -189,11 +189,11 @@ $$
 
 ## 先決定中間要保留多少原文
 
-固定原句 $x_0$，先用 $\nu$ 表示我們選的 noise 分布：可以是全部機率放在 MASK，也可以是字典上的均勻分布。再用 $\alpha_t\in[0,1]$ 決定時間 $t$ 要保留多少原字：以機率 $\alpha_t$ 保留原 token，否則從 $\nu$ 抽一個。
+我們用 $x_0$ 表示一筆給定的 sequence 資料，再用 $\nu$ 表示我們替單一位置選的可抽樣分布：可以是全部機率放在 MASK，也可以是字典上的均勻分布。
 
-這個單元統一用連續時間 $t\in[0,1]$，沿用 U1 diffusion 的時間編號：$t=0$ 表示資料、$t=1$ 表示 noise，與 U2 的方向相反。**生成的目的仍然是從 noise 走向 data，只是這裡的生成時間由 $1$ 倒著走到 $0$。** 這是時間編號的選擇，並不是資料離散就必須反轉方向。我們讓 $\alpha_t$ 隨 $t$ 從 $1$ 降到 $0$，就能從保留整句原文，走到只從 noise 分布抽樣。
+延續上面的討論，我們用 $\alpha_t\in[0,1]$ 決定在時間 $t$ 要保留多少 $x_0$ 中的原 token。它的明確意義是：對每個位置，以機率 $\alpha_t$ 保留原 token，否則從 $\nu$ 隨機抽一個來取代。
 
-對位置 $\ell$，用 $q_t^\ell(a\mid x_0)$ 記錄「給定原句 $x_0$，在時間 $t$ 抽到 token $a$ 的機率」。沿用前面的 point-mass PMF $\delta_{x_0^\ell}$，把保留與重抽兩種情況加起來，就是
+明確一點來說，我們先固定 sequence 中的一個位置 $\ell$，只看這一格的 token。用 $q_t^\ell(a\mid x_0)$ 表示「給定原句 $x_0$，在時間 $t$，位置 $\ell$ 是 token $a$ 的機率」。上面的設計給出：
 
 <FormulaSteps
   id="u4-token-pmf-interpolant"
@@ -207,7 +207,7 @@ $$
   ]}
 />
 
-第一項把保留分支的機率放在原字上；第二項把重抽分支的機率，按 $\nu$ 分給各個 token。**只要換掉 $\nu$，就能在剛才的兩種做法之間切換：**
+對這一格來說，第一項代表有 $\alpha_t$ 的機率會保留原本的 token $x_0^\ell$；第二項則代表剩下有 $1-\alpha_t$ 的機率，會把這一格換成由 $\nu$ 抽出的 token，其中抽到 $a$ 的機率是 $\nu(a)$。**給定原句 $x_0$ 後，每個位置都各自獨立地進行這個「保留或重抽」的動作。** 只要換掉 $\nu$，就能在剛才的兩種做法之間切換：
 
 | 做法 | Noise 分布 $\nu$ | $\alpha_t=0$ 時 |
 | --- | --- | --- |
@@ -215,6 +215,8 @@ $$
 | **Uniform** | $\mathrm{Unif}(\mathcal V)$，每個 token 各有 $1/K$ | 每格從字典均勻抽樣 |
 
 MASK 是在字典外多加一個遮蔽符號；uniform 則沿用原字典。例如原 token 是 `想`，$\alpha_t=0.7$，MASK 的機率就是 `想` 占 $0.7$、MASK 占 $0.3$。若用只有 `想`、`要`、`吃` 的小字典做 uniform，三者的機率則是 $(0.8,0.1,0.1)$，因為重抽也可能抽回 `想`。
+
+這個單元統一用連續時間 $t\in[0,1]$，沿用 U1 diffusion 的時間編號：$t=0$ 表示資料、$t=1$ 表示 noise，與 U2 的方向相反。**生成的目的仍然是從 noise 走向 data，只是這裡的生成時間由 $1$ 倒著走到 $0$。** 這是時間編號的選擇，並不是資料離散就必須反轉方向。我們讓 $\alpha_t$ 隨 $t$ 從 $1$ 降到 $0$，就能從保留整句原文，走到只從 noise 分布抽樣。
 
 <span id="training-需要真的走完前面那些步嗎"></span>
 
