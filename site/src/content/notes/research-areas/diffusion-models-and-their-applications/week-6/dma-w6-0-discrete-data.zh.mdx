@@ -9,7 +9,7 @@ title: "資料是 Token 的時候，噪聲是什麼？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-20
+updated: 2026-10-22
 summary: "沿用 stochastic interpolants 的思路，在原 token 與 noise 的 PMF 間插值，直接抽出 MASK 或 uniform 的 noisy snapshot，並保留整句話的 joint 關聯。"
 demos: []
 references:
@@ -222,7 +222,37 @@ MASK 是用一個特殊標記表示「這個位置的 token 被遮住了」。�
 
 若明確用 one-hot 或 PMF 向量列出所有狀態，而且 MASK 不在原本的 $K$ 類裡，才需要多留一維；若用 embedding 查表，則需確保表中有 MASK 的向量，但每筆向量的維度不必改變。Uniform 則直接從原字典的 $K$ 種 token 抽樣，不需要另外的遮蔽標記。
 
-例如原 token 是 `想`，$\alpha_t=0.7$，MASK 的機率就是 `想` 占 $0.7$、MASK 占 $0.3$。若用只有 `想`、`要`、`吃` 的小字典做 uniform，三者的機率則是 $(0.8,0.1,0.1)$，因為重抽也可能抽回 `想`。
+<figure>
+  <a href="/personal_website/notes/research_areas/diffusion-models-applications/w6-0-mask-representations.svg" target="_blank" rel="noopener noreferrer" aria-label="放大圖：MASK 在整數陣列、one-hot／PMF 與 embedding 中的表示">
+    <img src="/personal_website/notes/research_areas/diffusion-models-applications/w6-0-mask-representations.svg" width="960" height="1250" loading="lazy" alt="同一句話的第三格變成 MASK：整數陣列仍有 L 個位置；若新增 MASK 類別，one-hot／PMF 需 K+1 維；embedding 表多一列，但每列仍是 d 維。" />
+  </a>
+  <figcaption>同一句話、同一個遮蔽動作，表示法不同，需要改的大小也不同。點圖可放大。</figcaption>
+</figure>
+
+例如，固定一個位置 $\ell$，假設原 token 是 $x_0^\ell=\texttt{想}$，且在 $t=0.8$ 時，$\alpha_{0.8}=0.7$。我們現在要考慮依照 $q_t^\ell(a\mid x_0)$ 抽樣得到的 intermediate state $x_{0,t}^\ell$，也就是這一格加噪後的 token。
+
+**若用 MASK**，$\nu=\delta_m$（$m=\texttt{[MASK]}$），那重抽一定會拿到 MASK token（$\nu(\texttt{想})=0$、$\nu(m)=1$）。代入剛才的式子：
+
+$$
+\begin{aligned}
+q_t^\ell(\texttt{想}\mid x_0)&=0.7\cdot1+0.3\cdot0=0.7,\\
+q_t^\ell(m\mid x_0)&=0.7\cdot0+0.3\cdot1=0.3.
+\end{aligned}
+$$
+
+也就是這一格有 $0.7$ 的機率是 `想`、$0.3$ 的機率是 MASK，其餘 token 的機率都是 $0$。
+
+**若用 uniform**，我們改用只有 `想`、`要`、`吃` 的 toy 字典，$K=3$，讓 $\nu(a)=1/3$。仍然令 $x_0^\ell=\texttt{想}$、$\alpha_t=0.7$，就得到：
+
+$$
+\begin{aligned}
+q_t^\ell(\texttt{想}\mid x_0)&=0.7\cdot1+0.3/3=0.8,\\
+q_t^\ell(\texttt{要}\mid x_0)&=0.7\cdot0+0.3/3=0.1,\\
+q_t^\ell(\texttt{吃}\mid x_0)&=0.7\cdot0+0.3/3=0.1.
+\end{aligned}
+$$
+
+因此，按 `想`、`要`、`吃` 排列，這一格的 PMF 是 $(0.8,0.1,0.1)$。**$\alpha_t=0.7$ 是選擇「保留原字」的機率；最後抽到原字的機率還要加上重抽時抽回 `想` 的 $0.3/3=0.1$，所以是 $0.8$。**
 
 這個單元統一用連續時間 $t\in[0,1]$，沿用 U1 diffusion 的時間編號：$t=0$ 表示資料、$t=1$ 表示 noise，與 U2 的方向相反。**生成的目的仍然是從 noise 走向 data，只是這裡的生成時間由 $1$ 倒著走到 $0$。** 這是時間編號的選擇，並不是資料離散就必須反轉方向。我們讓 $\alpha_t$ 隨 $t$ 從 $1$ 降到 $0$，就能從保留整句原文，走到只從 noise 分布抽樣。
 
@@ -230,14 +260,18 @@ MASK 是用一個特殊標記表示「這個位置的 token 被遮住了」。�
 
 ## 有了 PMF，就能直接抽出 noisy state
 
-現在這格的 PMF 已經有了，要得到一個具體 token，只要按它抽樣即可。沿用 U2 的記號，用 $I_t$ 表示我們造出的 reference noisy state：
+現在這格的 PMF 已經有了，但它給的是各個 token 的機率；要得到一個具體的 noisy token，還需要真的抽一次。例如剛才 MASK 的例子，$q_t^\ell(\texttt{想}\mid x_0)=0.7$、$q_t^\ell(m\mid x_0)=0.3$，我們可以把 $[0,1)$ 切成長度 $0.7$ 和 $0.3$ 的兩段，再均勻抽一個數字 $u$：若 $u<0.7$，這格就放 `想`；否則放 MASK。**每次抽樣只得到一個 token，而每個選項被抽中的機率，就是它在 PMF 裡占的比例。**
+
+這種「從有限個類別中，按照各自的機率抽出一個」的動作，就叫 **categorical sampling**。沿用 U2 的記號，用 $I_t$ 表示我們造出的 reference noisy state，$I_t^\ell$ 就是其中位置 $\ell$ 的隨機 token。把剛才的動作寫成數學，就是：
 
 $$
 I_t^\ell\mid X_0=x_0
 \sim\operatorname{Categorical}\big(q_t^\ell(\cdot\mid x_0)\big).
 $$
 
-這就是 categorical sampling。實作時，可以先以機率 $\alpha_t$ 決定是否保留原字，否則從 $\nu$ 抽一個。讓每個位置各自做一次，就得到整句的 noisy sequence $x_t$；給定原文，各位置使用獨立抽樣，因此
+右邊的 $q_t^\ell(\cdot\mid x_0)$ 是把所有候選 token 的機率放在一起的整張 PMF；$\cdot$ 表示這裡考慮所有候選 $a$。這條式子說的是：給定原句 $x_0$，就按這張表抽出 $I_t^\ell$。若固定同一個 $x_0$ 和時間 $t$，獨立重複抽很多次，剛才的例子就會有約 $70\%$ 的結果是 `想`、約 $30\%$ 是 MASK；這是在同一個時間重複抽樣。
+
+實作時，也可以沿用前面的兩個分支：先以機率 $\alpha_t$ 決定是否保留原字，否則從 $\nu$ 抽一個；兩種方式得到的 token 機率相同。讓每個位置各自做一次，就得到整句的 noisy sequence $x_t$；給定原文，各位置使用獨立抽樣，因此
 
 $$
 q_t(x_t\mid x_0)=\prod_{\ell=1}^L q_t^\ell(x_t^\ell\mid x_0).

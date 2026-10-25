@@ -10,7 +10,7 @@ title: "不知道原句，怎麼學到推動 PMF 的規則？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-19
+updated: 2026-10-23
 summary: "從已知原文的 MASK reveal rate 出發，透過 posterior averaging 建構生成 dynamics，再用 cross-entropy 學習其中未知的原字機率。"
 demos: []
 references:
@@ -86,7 +86,7 @@ $$
 指示量 $\mathbf1[x_0^\ell=a]$ 只在原字是 $a$ 時為 $1$。已經可見的位置不再跳；對角元素仍是負的總流出。上標 cond 表示這條規則還需要原句，$\bar R$ 的橫線則表示沿生成方向倒著走，並不是先前已簡化掉的保留係數符號。
 
 <Remark label="條件" summary="時間方向與端點怎麼處理？">
-以下先在 $0<\alpha_t<1$ 的內部時間使用可微的 schedule。$\bar R_t$ 以正的生成時間長度 $h$ 定義：$\Pr(Y_{t-h}=y\mid Y_t=x)=h\bar R_t(x,y)+o(h)$，$y\ne x$。因此它要滿足的是 $-\dot p_t=p_t\bar R_t$。若 rate 在端點發散，需使用極限或另外指定端點轉移，不能把無限 rate 直接乘上有限步長。
+以下先在 $0<\alpha_t<1$ 的內部時間使用可微的 schedule。$\bar R_t$ 以正的生成時間長度 $h$ 定義：$\Pr(Y_{t-h}=y\mid Y_t=x)=h\bar R_t(x,y)+o(h)$，$y\ne x$。因此它要滿足的是 $-\dot p_t=\bar R_t^{\mathsf T}p_t$。若 rate 在端點發散，需使用極限或另外指定端點轉移，不能把無限 rate 直接乘上有限步長。
 </Remark>
 
 ## 生成時不知道原句，能不能參考所有可能？
@@ -164,7 +164,7 @@ p_t(x)\bar R_t(x,y)
 \end{aligned}
 $$
 
-右邊正是各原句提供的 conditional flows，按資料機率加起來。每一組 conditional process 都有正確的流入減流出；加總後，就得到 $-\dot p_t=p_t\bar R_t$。因此，在正確的 noise 起點與可適當定義的精確動態下，這條 rate 會倒著經過原本的 **joint** PMF path；不要求某條生成 trajectory 認回某一句 training 原文。
+右邊正是各原句提供的 conditional flows，按資料機率加起來。每一組 conditional process 都有正確的流入減流出；加總後，就得到 $-\dot p_t=\bar R_t^{\mathsf T}p_t$。因此，在正確的 noise 起點與可適當定義的精確動態下，這條 rate 會倒著經過原本的 **joint** PMF path；不要求某條生成 trajectory 認回某一句 training 原文。
 
 這是 <Ref to="dma-denoising-regression"/> 的 **conditional trick** 在跳躍規則上的版本。先設計 conditional probability path、建立能推動它的 conditional rates，再取 posterior average，便得到 **Discrete Flow Matching（DFM）** 的建構方式；Gat 等人 [1] 與 Campbell 等人 [2] 系統化了這類離散生成流程。
 

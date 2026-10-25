@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="1250" viewBox="0 0 960 1250" role="img" aria-labelledby="title desc">
+  <title id="title">要怎麼在實作上加入 mask 這個 token</title>
+  <desc id="desc">同一句話的第三個位置由想變成 MASK。整數陣列仍有五個位置；若原本五類不含 MASK，one-hot 和 PMF 需列出六類；embedding 表新增 MASK 那一列，但每個 token 的向量維度 d 不變。若已保留 MASK，直接沿用。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Noto Sans TC', sans-serif; fill: #203143; }
+      .title { font-size: 34px; font-weight: 700; }
+      .heading { font-size: 27px; font-weight: 700; }
+      .body { font-size: 24px; }
+      .small { font-size: 21px; fill: #53657a; }
+      .mono { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 26px; }
+      .purple { fill: #7552b3; }
+      .teal { fill: #087d79; }
+      .bold { font-weight: 700; }
+      .cell { fill: #f0f4f8; stroke: #ced9e3; }
+      .mask { fill: #f0e9fc; stroke: #b89dd9; }
+      .panel { fill: #ffffff; stroke: #d5dfe8; stroke-width: 2; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8797a7"/></marker>
+  </defs>
+  <rect width="960" height="1250" rx="22" fill="#f8fafc"/>
+  <text x="40" y="56" class="title">要怎麼在實作上加入 mask 這個 token</text>
+
+  <text x="40" y="149" class="small">原句</text>
+  <g text-anchor="middle" class="body">
+    <rect x="152" y="117" width="126" height="48" rx="8" class="cell"/><text x="215" y="150">我</text>
+    <rect x="291" y="117" width="126" height="48" rx="8" class="cell"/><text x="354" y="150">今天</text>
+    <rect x="430" y="117" width="126" height="48" rx="8" class="cell"/><text x="493" y="150">想</text>
+    <rect x="569" y="117" width="126" height="48" rx="8" class="cell"/><text x="632" y="150">吃</text>
+    <rect x="708" y="117" width="126" height="48" rx="8" class="cell"/><text x="771" y="150">晚餐</text>
+    <rect x="152" y="184" width="126" height="48" rx="8" class="cell"/><text x="215" y="217">我</text>
+    <rect x="291" y="184" width="126" height="48" rx="8" class="cell"/><text x="354" y="217">今天</text>
+    <rect x="430" y="184" width="126" height="48" rx="8" class="mask"/><text x="493" y="217" class="purple">[MASK]</text>
+    <rect x="569" y="184" width="126" height="48" rx="8" class="cell"/><text x="632" y="217">吃</text>
+    <rect x="708" y="184" width="126" height="48" rx="8" class="cell"/><text x="771" y="217">晚餐</text>
+  </g>
+  <text x="40" y="216" class="small">遮住第三格</text>
+  <path d="M493 166 V181" stroke="#8797a7" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="30" y="260" width="900" height="228" rx="15" class="panel"/>
+  <text x="54" y="303" class="heading">① 整數陣列：一個位置存一個編號</text>
+  <text x="54" y="341" class="small">假設原字典依序編為 0, 1, 2, 3, 4，toy 用 −1 標記 MASK。</text>
+  <g text-anchor="middle" class="mono">
+    <rect x="69" y="361" width="86" height="47" rx="7" class="cell"/><text x="112" y="393">0</text>
+    <rect x="163" y="361" width="86" height="47" rx="7" class="cell"/><text x="206" y="393">1</text>
+    <rect x="257" y="361" width="86" height="47" rx="7" class="mask"/><text x="300" y="393" class="purple">−1</text>
+    <rect x="351" y="361" width="86" height="47" rx="7" class="cell"/><text x="394" y="393">3</text>
+    <rect x="445" y="361" width="86" height="47" rx="7" class="cell"/><text x="488" y="393">4</text>
+  </g>
+  <text x="575" y="393" class="body teal bold">仍然只有 L = 5 格</text>
+  <text x="54" y="453" class="small">−1 是這份 toy 的標記；查 embedding 前，需映射成有效索引。</text>
+
+  <rect x="30" y="510" width="900" height="292" rx="15" class="panel"/>
+  <text x="54" y="553" class="heading">② One-hot／PMF：每一維對應一種可能的 token</text>
+  <text x="54" y="591" class="small">若原本 K = 5 類不含 MASK，向量就要列出 K + 1 = 6 類。</text>
+  <g text-anchor="middle">
+    <text x="293" y="636" class="small">我</text><text x="399" y="636" class="small">今天</text><text x="505" y="636" class="small">想</text><text x="611" y="636" class="small">吃</text><text x="717" y="636" class="small">晚餐</text><text x="832" y="636" class="small purple">[MASK]</text>
+    <rect x="243" y="647" width="524" height="46" rx="7" class="cell"/><rect x="780" y="647" width="104" height="46" rx="7" class="mask"/>
+    <text x="293" y="679" class="mono">0</text><text x="399" y="679" class="mono">0</text><text x="505" y="679" class="mono">0</text><text x="611" y="679" class="mono">0</text><text x="717" y="679" class="mono">0</text><text x="832" y="679" class="mono purple">1</text>
+    <rect x="243" y="704" width="524" height="46" rx="7" class="cell"/><rect x="780" y="704" width="104" height="46" rx="7" class="mask"/>
+    <text x="293" y="736" class="mono">0</text><text x="399" y="736" class="mono">0</text><text x="505" y="736" class="mono">0.7</text><text x="611" y="736" class="mono">0</text><text x="717" y="736" class="mono">0</text><text x="832" y="736" class="mono purple">0.3</text>
+  </g>
+  <text x="54" y="678" class="body">MASK 的 one-hot</text>
+  <text x="54" y="735" class="body">第三格的 PMF</text>
+  <text x="54" y="779" class="small">此處的 PMF 以 0.7 保留「想」、以 0.3 遮住；還沒抽出實際 token。</text>
+
+  <rect x="30" y="824" width="900" height="300" rx="15" class="panel"/>
+  <text x="54" y="867" class="heading">③ Embedding：每種 token 查到一個 d 維向量</text>
+  <text x="54" y="905" class="small">若原表沒有 MASK，增加它對應的那一列。</text>
+  <g text-anchor="middle">
+    <text x="96" y="957" class="body">我</text><text x="96" y="999" class="body">今天</text><text x="96" y="1036" class="body">⋮</text><text x="96" y="1084" class="small purple">[MASK]</text>
+    <rect x="163" y="928" width="250" height="38" rx="6" class="cell"/>
+    <rect x="163" y="973" width="250" height="38" rx="6" class="cell"/>
+    <text x="288" y="1036" class="body">⋮</text>
+    <rect x="163" y="1055" width="250" height="38" rx="6" class="mask"/>
+    <text x="288" y="955" class="small">一列含 d 個數值</text><text x="288" y="1000" class="small">一列含 d 個數值</text><text x="288" y="1082" class="small purple">一列也含 d 個數值</text>
+  </g>
+  <path d="M445 1074 H497" stroke="#8797a7" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="529" y="974" class="body">表的大小：K × d → (K + 1) × d</text>
+  <text x="529" y="1017" class="body teal bold">每筆向量仍是 d 維</text>
+  <text x="529" y="1082" class="small purple">新增的是 token 對應的列</text>
+
+  <rect x="30" y="1146" width="900" height="78" rx="12" fill="#e7f3f0"/>
+  <text x="54" y="1178" class="body teal bold">L 數句子的位置；K 數原本的類別；d 數 embedding 的分量。</text>
+  <text x="54" y="1208" class="small">若原本已保留 MASK，就沿用它的編號、向量維度或表格列，不必再新增。</text>
+</svg>

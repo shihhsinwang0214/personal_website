@@ -1,0 +1,29 @@
+---
+import { getImage } from 'astro:assets';
+import type { ImageMetadata } from 'astro';
+
+interface Props {
+  id: string;
+  src: ImageMetadata;
+  alt: string;
+}
+const { id, src, alt } = Astro.props;
+const image = await getImage({ src, format: 'webp', quality: 95 });
+---
+
+<figure class="note-figure" id={id}>
+  <a href={image.src} target="_blank" rel="noopener noreferrer" aria-label={`放大圖片：${alt}`}>
+    <img src={image.src} width={src.width} height={src.height} alt={alt} loading="lazy" decoding="async" />
+  </a>
+  <figcaption><slot /><span class="enlarge-hint">點圖放大</span></figcaption>
+</figure>
+
+<style>
+  .note-figure { margin: 24px 0; min-width: 0; }
+  a { display: block; border-radius: 10px; overflow: hidden; background: white; }
+  a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+  img { display: block; width: 100%; height: auto; margin: 0; }
+  figcaption { margin-top: 9px; color: var(--text-muted); font-size: .84rem; line-height: 1.75; }
+  figcaption :global(p) { margin: 0; }
+  .enlarge-hint { display: block; margin-top: 3px; font-size: .75rem; }
+</style>

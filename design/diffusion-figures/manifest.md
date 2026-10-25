@@ -8,6 +8,8 @@ git -c safe.directory=C:/Users/vespe/Documents/Codex/personal_website show HEAD:
 
 ## Shared contract
 
+**U4.1 exception (2026-10-24):** The current five `u4-1-*.png` figures use the author-requested intuition-first ImageGen workflow, white 16:9 canvases, blue for 想, teal for 要, and red for MASK, and column-vector notation. Their plan and exact prompts are in [the U4.1 figure plan](u4-1-figures-2026-10-24.md). The earlier U4.1 overview raster and its row-vector caption were removed. Other rows retain their original redraw contract below.
+
 - Canvas width is 1920 px. Heights are 720 (16:6), 840 (16:7), 960 (16:8), 1080 (16:9), 1200 (16:10), or 1440 (16:12 / 4:3).
 - `#fffdfb` background; thin rounded panels; no drop shadow, 3D gloss, or oversized poster headline.
 - `#4a90e2` = noise / Gaussian, `#f0803c` = data / forward, `#2a4ea3` = main inference / arrow.
@@ -42,7 +44,11 @@ git -c safe.directory=C:/Users/vespe/Documents/Codex/personal_website show HEAD:
 | `w6-4-1.png` | `week-6/dma-w6-4-absorbing-vs-uniform` | B | 16:9 | Time-axis evidence: wrong absorbing reveal persists; uniform hidden noise can later correct; model cannot identify plausible corrupt tokens | None |
 | `w6-5-1.png` | `week-6/dma-w6-5-lab` | A | 16:8 | Parity: k=1 100%, k≥2 50%; Markov gradual error 0.50→0.10; same transition .9 and switching .1 | None |
 | `w7-0-1.png` | `week-7/dma-w7-0-why-continuous-time` | A | 16:9 | 3×3 matrix with γ edit vs state-rate graph with σ arcs; closed-form breakage vs local-rate flexibility | None |
-| `w7-1-1.png` | `week-7/dma-w7-1-ctmc` | B | 16:8 | Highlight state b; explicit weighted inflow/outflow sums; conservation; continuous flux/divergence correspondence | None |
+| `u4-1-context-data-pmf.png` | `week-7/dma-w7-1-ctmc` | A | 16:9 | Fixed context 我今天＿＿吃麥當勞; assumed observed counts 70 想 / 30 要 → p₀=(.7,.3,0)^T | None |
+| `u4-1-context-pmf-path.png` | `week-7/dma-w7-1-ctmc` | A | 16:9 | p_t=(.7(1−t),.3(1−t),t)^T; generation 1→0; derivative (−.7,−.3,1)^T | None |
+| `u4-1-context-transition.png` | `week-7/dma-w7-1-ctmc` | A | 16:9 | 3×3 Q; exact (.49,.21,.30)^T → (.42,.18,.40)^T; source rows, p_next=Q^T p | None |
+| `u4-1-context-flows.png` | `week-7/dma-w7-1-ctmc` | A | 16:9 | Three states; local MASK net flow .7+.3=.9+.3−.2=1; statewise derivative preserved | None |
+| `u4-1-context-rate-flow.png` | `week-7/dma-w7-1-ctmc` | A | 16:9 | Source probabilities .49/.21 × rate 10/7 give flows .7/.3; 3×3 R and R^T p | None |
 | `w7-2-1.png` | `week-7/dma-w7-2-concrete-score` | B | 16:8 | Gradient/ratio/limit; sequence neighbors with concrete ratios; `drift = known + g² score` vs `rate = known × ratio` | None |
 | `w7-3-1.png` | `week-7/dma-w7-3-remasking` | B | 16:8 | Two-pipe calculation: rates differ but rate×source proportion agrees; base `u_t`; continuous `ε_t` noise/score cancellation | None |
 | `w7-4-1.png` | `week-7/dma-w7-4-discrete-flow-matching` | A | 4:3 | Conditional velocities → marginal velocity; conditional jump times/rates → marginal rate; linear continuity/forward equations | None |

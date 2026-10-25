@@ -11,8 +11,8 @@ title: "有了 PMF path，能不能像 Flow Matching 一樣學 velocity？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-19
-summary: "從 PMF 的導數與樣本的移動規則之別出發，用 probability flow 引出跳躍 rate，再建立離散的 continuity equation。"
+updated: 2026-10-24
+summary: "從離散 velocity 究竟描述誰的變化出發，把 PMF 排成向量，透過 state 轉換與 Markov chain 建立 transition matrix、rate matrix 和機率守恆。"
 demos: []
 references:
   - label: "Campbell et al., A Continuous Time Framework for Discrete Denoising Models (2022)"
@@ -31,102 +31,296 @@ import Explanation from '../../../components/Explanation.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
+import NoteFigure from '../../../components/NoteFigure.astro';
+import populationPmfFigure from './imgs/u4-1-context-data-pmf.png';
+import pmfVelocityFigure from './imgs/u4-1-context-pmf-path.png';
+import transitionMatrixFigure from './imgs/u4-1-context-transition.png';
+import differentFlowsFigure from './imgs/u4-1-context-flows.png';
+import rateFlowFigure from './imgs/u4-1-context-rate-flow.png';
 
 # 有了 PMF path，能不能像 Flow Matching 一樣學 velocity？
 
 <Objectives>
-- **分清 PMF 的導數與生成樣本的規則。** 算出同一個機率淨變化，可以由不同的轉換流量實現。
-- **用短時間轉移定義離散的 probability velocity。** 說出 rate、轉移機率與來源機率乘 rate 各自描述什麼。
-- **從流入減流出推導 PMF 的演化。** 用 master equation 檢查局部跳躍是否推動指定的 joint distribution。
+- **分清機率向量的速度與樣本的轉換規則。** 說出 $\dot p_t$ 告訴我們什麼，以及生成單一樣本還需要什麼。
+- **把 state 轉換接回 Markov chain。** 從 $p_{t+h}=Q_{t\to t+h}^{\mathsf T}p_t$ 推到短時間的 rate matrix，區分 transition probability 與 rate。
+- **推導並檢查 PMF 的變化。** 用 $\dot p_t=R_t^{\mathsf T}p_t$ 和流入減流出，確認跳躍規則是否實現指定的 joint PMF path。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 已經有 interpolation，直接對時間微分呢？
+<span id="已經有-interpolation直接對時間微分呢"></span>
 
-在 <Ref to="dma-discrete-data"/>，我們已經指定了中間 PMF：
+## 這次的 velocity，是誰的速度？
 
-$$
-q_t^\ell(a\mid x_0)
-=\alpha_t\delta_{x_0^\ell}(a)+(1-\alpha_t)\nu(a).
-$$
+在 <Ref to="dma-discrete-data"/>，我們已經選擇用 PMF 描述每個位置上 token 的可能性，也設計好一個好抽樣的分布（U4.0 裡的 noise 分布）：MASK 把全部機率放在遮蔽標記上，uniform 則讓每個位置從字典均勻抽樣。生成時，就從這個已知的、好抽樣的分布出發。
 
-U2 也是先設計 interpolant，再讓模型學 velocity。那這裡能不能照做？先固定原句 $x_0$、位置 $\ell$ 和候選 $a$，對時間微分：
+現在我們想知道的是：**給定目前的句子，一個位置下一刻應該變成哪個 token，各自有多大的機率？** 例如看到 `我／今天／[MASK]／吃／麥當勞`，這次我們先考慮其他四格是固定的，嘗試把第三格遮住後填回來，例如填入 `想` 或是 `要`；我們的目標是希望去 modeling PMF（這些 tokens 各自可能出現的機率），再按 PMF 抽出替代的 token。
 
-$$
-\partial_t q_t^\ell(a\mid x_0)
-=\dot\alpha_t\big[\delta_{x_0^\ell}(a)-\nu(a)\big].
-$$
-
-這個導數確實算得出來。例如選 MASK、原字是 `想`，當 $\dot\alpha_t=-0.2$，`想` 的機率每單位時間減少 $0.2$，MASK 則增加 $0.2$。但這還沒有告訴一個目前拿著某個 token 的樣本：下一刻該換成什麼、以多大的機率換？
-
-回想 <Ref to="dma-flows-and-continuity"/>：$v_t(x)$ 描述位在 $x$ 的樣本怎麼移動，$\partial_t p_t(x)$ 描述這個位置的 density 怎麼變。**PMF 的導數對應後者；我們還需要前者在離散狀態上的版本。**
+U2 的 $v_t(x)$ 告訴連續樣本下一刻怎麼移動；在這裡，我們可以先從「目前的 state 要以什麼機率轉成另一個 state」想起。這些轉換還要讓反覆生成很多個樣本後，各種 state 出現的比例走過指定的 $p_t$，最後符合資料分布。因此問題就變成：
 
 <Ask>
-如果不能讓一個 token 沿座標移動一點點，<br />
-我們要用什麼規則，讓整群樣本的 PMF 按指定方式改變？
+每個 state 的機率應該增加或減少多少？<br />
+再問：要讓這些比例改變，<br />
+哪些樣本應該從哪個 state 換到哪個 state？
 </Ask>
 
-## 機率要增加，可以讓一些樣本換過來
+## 把 PMF 排成向量，看看它怎麼變
 
-想像把每個 token 當成一個房間，每個樣本是房間裡的一個人。重複產生很多個樣本後，房間裡的人數比例就是 PMF；一個人換房間，就是一個樣本換 token。
+我們就從這句話出發：`我／今天／[MASK]／吃／麥當勞`。這次只考慮中間唯一被 MASK 的位置，其他四格固定。我們先做一個只有 `想`、`要` 和 MASK 的 toy example，把 `想` 記為 $1$、`要` 記為 $2$、MASK 記為 $3$。
 
-先只看 `想` 與 `要` 兩個房間。假設某一刻各占一半，希望 `要` 的比例每單位時間增加 $0.1$。下面兩種搬法，都能在這一刻完成相同的淨變化：
+雖然整句有五個位置，但現在只有第三格會變，所以只有三種 states：
 
-| 搬法 | `想` $\to$ `要` 的 flow | `要` $\to$ `想` 的 flow | `要` 的淨增加 |
+| State | 第三格的 token | 整句話 |
+| --- | --- | --- |
+| $1$ | `想` | 我今天想吃麥當勞 |
+| $2$ | `要` | 我今天要吃麥當勞 |
+| $3$ | MASK | 我今天 [MASK] 吃麥當勞 |
+
+每個樣本只能處在其中一種 state。我們可以考慮整群樣本在時間 $t$，第三格是什麼 token 的分布，再將這些機率上下排成一個 **column vector**。以下的 $p_t$ 都是在固定「我／今天／＿＿／吃／麥當勞」這個 context 下，第三格的 PMF，順序是 `想`、`要`、MASK。
+
+那資料中的比例要從哪裡來？例如，**假設我們收集到 $100$ 句前後文字相同的句子，其中約 $70$ 句是「我今天想吃麥當勞」，$30$ 句是「我今天要吃麥當勞」。** 我們就可以用收集到的資料，估計在這個 context 下，第三格大概有 $70\%$ 是 `想`、$30\%$ 是 `要`。這個 toy 先把觀察到的比例當作我們要重現的目標 PMF：
+
+<FormulaSteps
+  id="u4-data-pmf-from-counts"
+  compact
+  title="把資料中觀察到的比例，排成目標 PMF"
+  formula={String.raw`
+    p_0=\begin{pmatrix}
+    \reveal{1}{70/100}\\[.3em]
+    \reveal{2}{30/100}\\[.3em]
+    \reveal{3}{0}
+    \end{pmatrix}
+    =\begin{pmatrix}
+    \reveal{1}{0.7}\\[.3em]
+    \reveal{2}{0.3}\\[.3em]
+    \reveal{3}{0}
+    \end{pmatrix}.
+  `}
+  steps={[
+    {label: '資料中填想的比例', text: String.raw`固定這個 context，假設收集到的 $100$ 句裡有 $70$ 句在第三格填「想」，觀察比例就是 $70/100=0.7$。`},
+    {label: '資料中填要的比例', text: String.raw`另外 $30$ 句填「要」，觀察比例是 $30/100=0.3$；這些數字來自這個 toy 假設收集到的資料。`},
+    {label: '完整資料沒有 MASK', text: String.raw`收集到的是完整句子，因此這個位置是 MASK 的比例為 $0$。三個分量相加為 $1$。`},
+  ]}
+/>
+
+這裡的 $p_0$ 就是我們希望生成結果符合的比例。如果反覆填這個空格很多次，我們希望大約七成填 `想`、三成填 `要`。
+
+<NoteFigure id="u4-sample-and-population" src={populationPmfFigure} alt="固定我今天＿＿吃麥當勞的 context，假設收集的 100 句裡有 70 句填想、30 句填要，將觀察比例排成三個分量的目標 PMF (0.7,0.3,0)。">
+固定其他四格，用資料中第三格出現的比例，建立這個 toy 要重現的目標 PMF。圖中的 $100$ 句與 $70:30$ 是教學例子假設的觀察值。
+</NoteFigure>
+
+## 從全 MASK 出發，機率要怎麼走到資料？
+
+這裡沿用 U4.0 的時間編號：$t=0$ 是資料分布、$t=1$ 是我們選好的、好抽樣的分布。**生成時，我們從 $t=1$ 倒著走到 $t=0$。**
+
+現在第三格從 MASK 出發，也就是說 $t=1$ 時只有 MASK 有可能出現，$p_1=(0,0,1)^{\mathsf T}$。隨著時間從 $t=1$ 退到 $t=0$，我們會希望 `想` 的機率從 $0$ 慢慢變成 $0.7$、`要` 從 $0$ 變成 $0.3$，而 MASK 的機率從 $1$ 變成 $0$。
+
+把剛才說的兩端寫出來，再用最簡單的線性 interpolation，就可以得到中間的 PMF：
+
+<FormulaSteps
+  id="u4-data-to-mask-pmf-path"
+  compact
+  title="從第三格是 MASK，走回資料中觀察到的比例"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{2}{p_0=\begin{pmatrix}0.7\\0.3\\0\end{pmatrix},}
+    \qquad\reveal{1}{p_1=\begin{pmatrix}0\\0\\1\end{pmatrix},}\\[.5em]
+    \reveal{3}{p_t=(1-t)p_0+tp_1
+    =\begin{pmatrix}0.7(1-t)\\0.3(1-t)\\t\end{pmatrix}.}
+    \end{gathered}
+  `}
+  steps={[
+    {label: '從 MASK 開始', text: String.raw`生成從 $t=1$ 開始，第三格一定是 MASK，所以 $p_1=(0,0,1)^{\mathsf T}$。`},
+    {label: '接上資料中的比例', text: String.raw`退到 $t=0$ 時，我們希望第三格符合剛才由資料估計的比例：想占 $0.7$、要占 $0.3$。`},
+    {label: '連起中間的 PMF', text: String.raw`時間 $t$ 把 $1-t$ 的機率按資料比例分給想和要，剩下 $t$ 放在 MASK。例如 $t=0.3$，三者是 $(0.49,0.21,0.30)^{\mathsf T}$。`},
+  ]}
+/>
+
+這樣我們就知道，每個時間 $t$，第三格是 `想`、`要` 或 MASK 的機率應該是多少。
+
+我們可以先看看這張 PMF 隨時間變化的速度。剛才寫的是 $p_t(1)=0.7(1-t)$、$p_t(2)=0.3(1-t)$、$p_t(3)=t$，所以對時間微分，就可以知道沿 $t$ 增加的方向，每種 state 的機率增加或減少得多快：
+
+<FormulaSteps
+  id="u4-pmf-column-velocity"
+  compact
+  title="每個分量的變化，合起來就是 PMF 的速度"
+  formula={String.raw`
+    \dot p_t=
+    \begin{pmatrix}
+    \reveal{1}{\frac{d p_t(1)}{dt}}\\[.3em]
+    \reveal{2}{\frac{d p_t(2)}{dt}}\\[.3em]
+    \reveal{3}{\frac{d p_t(3)}{dt}}
+    \end{pmatrix}
+    =\begin{pmatrix}
+    \reveal{1}{-0.7}\\[.3em]
+    \reveal{2}{-0.3}\\[.3em]
+    \reveal{3}{1}
+    \end{pmatrix}.
+  `}
+  steps={[
+    {label: '先看想的機率', text: String.raw`第一個分量 $p_t(1)=0.7(1-t)$，對時間微分得到 $-0.7$。沿 $t$ 增加，想的機率逐漸減少。`},
+    {label: '再看要的機率', text: String.raw`第二個分量 $p_t(2)=0.3(1-t)$，變化率為 $-0.3$。`},
+    {label: '最後看 MASK 的機率', text: String.raw`第三個分量 $p_t(3)=t$，變化率為 $1$。三個變化率相加為 $0$，總機率仍然是 $1$。`},
+  ]}
+/>
+
+所以我們的確可以把 $p_t$ 對時間微分，得到 **PMF 變化的速度**。這裡的 $\dot p_t$ 描述從資料分布走向好抽樣的分布時，機率怎麼變；生成時倒著走，`想` 和 `要` 的機率就會增加。
+
+<NoteFigure id="u4-pmf-path-and-speed" src={pmfVelocityFigure} alt="第三格的 PMF 從 (0.7,0.3,0) 變成全 MASK 的 (0,0,1)，沿 t 增加的速度為 (-0.7,-0.3,1)，生成從 t=1 倒著走回 0。">
+沿 $t$ 增加，`想`、`要` 的比例下降、MASK 上升；生成沿同一條 PMF path 從 $t=1$ 走回 $0$。這裡畫的是固定 context 下，不同時間的分布。
+</NoteFigure>
+
+但是，**對一個現在是 MASK 的樣本，我們要怎麼知道它什麼時候會被翻成其他 token？這個動作具體是怎麼決定的？** 在這個例子裡，我們還要決定翻成 `想` 還是 `要`。
+
+## 把不同 state 的轉換寫成矩陣
+
+這其實可以接回高中機率裡常見的 Markov chain。例如在簡化的天氣模型裡，我們先固定「今天是晴天」，再列出明天是晴天或雨天的機率；若今天是雨天，就使用另一組機率。把這些條件機率排在一起，就是 transition matrix。
+
+我們先沿 $t$ 增加的方向，從資料分布走向好抽樣的分布，把轉換規則和 PMF 的變化連起來；生成時從 $t$ 退到 $t-h$ 的規則，等到 <Ref to="dma-discrete-flow-matching"/> 再討論。現在把天氣換成 token 的 state，把「今天、明天」換成「時間 $t$、$t+h$」（$h>0$），我們要問的就是同一件事：**給定現在在 state $i$，過了時間 $h$，在 state $j$ 的機率是多少？** 用 $Y_t$ 表示依這個規則變動的隨機 state，將這個條件機率記成
+
+$$
+Q_{t\to t+h}(i,j)
+=\Pr(Y_{t+h}=j\mid Y_t=i).
+$$
+
+在這個 toy 中，我們選擇的規則只讀取目前 state 與時間，不需要再查樣本更早的路徑，這就是 **Markov chain** 的設定（也可回顧 <Ref to="math-markov-chain"/>）。將所有 $i,j$ 的轉換機率排在一起，就得到 **transition matrix** $Q_{t\to t+h}$：每一列固定出發的 state $i$，每一欄對應到達的 state $j$。列出所有去向，也包含留在原地，所以每個元素非負、每列加起來是 $1$。這個例子有三種 states，我們就把三個來源、三個去向排成 $3\times3$ 的矩陣：下面為了把矩陣寫得緊湊，$Q(i,j)$ 都指同一段時間的 $Q_{t\to t+h}(i,j)$。
+
+$$
+\begin{gathered}
+Q_{t\to t+h}=\\[.25em]
+\begin{pmatrix}
+Q(1,1)&Q(1,2)&Q(1,3)\\
+Q(2,1)&Q(2,2)&Q(2,3)\\
+Q(3,1)&Q(3,2)&Q(3,3)
+\end{pmatrix}.
+\end{gathered}
+$$
+
+例如第一列記錄目前是 `想` 時，接下來變成 `想`、`要` 或 MASK 的機率；第二列從 `要` 出發，第三列則從 MASK 出發。
+
+這張矩陣怎麼推動 PMF？假設目前這群樣本已經具有分布 $p_t$，要算轉換後位於 $j$ 的機率，就把「原本在 $i$ 的機率」乘上「從 $i$ 轉到 $j$ 的機率」，再把所有來源加起來。要讓結果符合指定的 $p_{t+h}$，我們需要：
+
+$$
+p_{t+h}(j)
+=\sum_i p_t(i)Q_{t\to t+h}(i,j).
+$$
+
+現在 $p_t$ 是 column vector，而 $Q(i,j)$ 的第一個索引仍是出發的 state。要讓下一刻的第 $j$ 個分量收集所有來源，就需要取 $Q$ 的第 $j$ 欄，與目前的機率向量相乘。因此將 $Q$ 轉置，讓這一欄變成乘法中的一列：
+
+<FormulaSteps
+  id="u4-column-transition-update"
+  compact
+  title="從目前的機率，算出下一刻的機率"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{3}{p_{t+h}=}
+    \reveal{2}{Q_{t\to t+h}^{\mathsf T}}
+    \reveal{1}{p_t}\\[.5em]
+    \reveal{3}{\begin{pmatrix}p_{t+h}(1)\\p_{t+h}(2)\\p_{t+h}(3)\end{pmatrix}}
+    \reveal{3}{=}
+    \reveal{2}{Q_{t\to t+h}^{\mathsf T}}
+    \reveal{1}{\begin{pmatrix}p_t(1)\\p_t(2)\\p_t(3)\end{pmatrix}.}
+    \end{gathered}
+  `}
+  steps={[
+    {label: '手上已有的分布', text: String.raw`先放入目前的 column vector $p_t$，每個分量是一種出發 state 的機率。`},
+    {label: '按轉移機率分配', text: String.raw`左乘 $Q^{\mathsf T}$：三列分別收集所有到想、要與 MASK 的機率。`},
+    {label: '得到下一刻的分布', text: String.raw`乘積的第 $j$ 個分量就是 $\sum_i Q(i,j)p_t(i)$；所有來源加起來，得到下一刻的 column vector $p_{t+h}$。`},
+  ]}
+/>
+
+上標 $\mathsf T$ 表示 transpose（轉置），交換矩陣的列與欄；$Q(i,j)$ 仍然表示 $i\to j$，轉換規則本身沒有改變。
+
+**同一張 $Q$，對單一樣本給出下一個 state 的抽樣機率，對整群樣本則給出 PMF 的更新。** 我們要找的，正是能把這兩件事連起來的規則。
+
+<NoteFigure id="u4-transition-and-pmf" src={transitionMatrixFigure} alt="想與要各以 1/7 的機率轉成 MASK，其餘留下；MASK 留下。三乘三的 Q 轉置乘上 (0.49,0.21,0.30)，得到 (0.42,0.18,0.40)。">
+例如從 $t=0.3$ 走到 $0.4$，讓目前是 `想` 或 `要` 的樣本，各以 $1/7$ 的機率轉成 MASK，其餘留下；目前是 MASK 的樣本都留下。原本的 $(0.49,0.21,0.30)^{\mathsf T}$ 就會變成 $(0.42,0.18,0.40)^{\mathsf T}$。
+</NoteFigure>
+
+<span id="機率要增加可以讓一些樣本換過來"></span>
+
+## 機率要改變，哪些樣本需要換 state？
+
+想像每個 state 是一個房間，每個樣本是房間裡的一個人。三個房間分別是第三格填 `想`、填 `要` 或 MASK；人數比例對應 $p_t$，一個人換房間就對應第三格換 token。沿 $t$ 增加的方向，要讓 MASK 的比例增加，可以讓一些目前填 `想` 或 `要` 的樣本換成 MASK。
+
+沿用 $t=0.3$ 的機率向量：`想` 占 $0.49$、`要` 占 $0.21$、MASK 占 $0.30$。我們希望前兩者每單位時間分別減少 $0.7$、$0.3$，MASK 增加 $1$。下面兩種搬法，都能在這一刻完成相同的淨變化：
+
+| 搬法 | `想` $\to$ MASK | `要` $\to$ MASK | MASK $\to$ `想` |
 | --- | --- | --- | --- |
-| 只往一邊搬 | $0.1$ | $0$ | $0.1$ |
-| 兩邊都有人搬 | $0.2$ | $0.1$ | $0.1$ |
+| 只往 MASK 搬 | $0.7$ | $0.3$ | $0$ |
+| 多一組雙向轉換 | $0.9$ | $0.3$ | $0.2$ |
 
-表裡的數值都是「每單位時間移動的機率質量」。兩種搬法的 PMF 導數相同，樣本可能經歷的跳躍卻不同。因此，**指定各時間的 PMF，還需要選一個實現它的轉換規則。** 就像連續情況先給 probability path，再找符合 continuity equation 的 velocity。
+表裡的數字是 **probability flow**，也就是「每單位時間，從一個 state 轉到另一個 state 的機率質量」。第二種搬法多了 $0.2$ 從 `想` 走向 MASK，也多了 $0.2$ 從 MASK 走回 `想`，兩者剛好抵消。`想` 的淨變化仍是 $-0.9+0.2=-0.7$，`要` 仍是 $-0.3$，MASK 則是 $0.9+0.3-0.2=1$。
 
-## 把每個樣本換字的頻率寫出來
+所以兩種搬法的 $\dot p_t$ 相同，樣本可能經歷的轉換卻不同。指定 PMF path 後，我們還需要選一個實現它的轉換規則；就像 U2 先給 probability path，再找符合 continuity equation 的 velocity。
 
-先回到 forward 的時間方向，從較小的 $t$ 走向 $t+h$；reverse 之後才倒著走。本節先把一個位置可取的各個 token 當成狀態 $i,j$，用 $Y_t$ 表示依規則跳動的隨機 state，並用 $R_t(i,j)$ 表示每個目前在 $i$ 的樣本，跳到 $j$ 的 rate。對 $i\neq j$，
-$$
-\Pr(Y_{t+h}=j\mid Y_t=i)=hR_t(i,j)+o(h).
-$$
-給定現在在 $i$，小時間內跳到 $j$ 的機率約為 $hR_t(i,j)$。若有多扇門，要把各個離開方向加起來，總流出 rate 就是 $\sum_{j\neq i}R_t(i,j)$；留在原狀態的機率則用 $1$ 減掉它：
-$$
-\begin{gathered}
-\Pr(Y_{t+h}=i\mid Y_t=i)\\
-=1-h\sum_{j\neq i}R_t(i,j)+o(h).
-\end{gathered}
-$$
-所以定義
-$$
-\begin{gathered}
-R_t(i,i)=-\sum_{j\neq i}R_t(i,j),\\
-Q_{t\to t+h}=I+hR_t+o(h).
-\end{gathered}
-$$
-這張收集所有跳躍 rates 的表稱為 **rate matrix**。**它的每列和為 $0$，不是 $1$；$I+hR_t$ 才是短時間的 transition approximation。** Campbell 等人 [1] 用這套 CTMC 語言建構 continuous-time discrete diffusion。
+<NoteFigure id="u4-different-flows" src={differentFlowsFigure} alt="三種 state 的 flow：想到 MASK 為 0.7、要到 MASK 為 0.3；或想到 MASK 為 0.9、要到 MASK 為 0.3、MASK 回到想為 0.2。兩者的 PMF 速度都是 (-0.7,-0.3,1)。">
+多加一組彼此抵消的雙向 flow，不改變這一刻的 PMF 速度。Flow 是每單位時間轉移的機率質量，不是一次轉換的機率。
+</NoteFigure>
 
-<Remark label="定義" summary="CTMC：離散狀態，連續時間">
-Continuous-time Markov chain 的狀態可以是有限個 token，但跳躍發生的時間不必落在整數格子。給定現在的狀態，未來的轉移由當下與之後的 rates 決定；不需要查更早的路徑。若總流出 rate 是常數 $\lambda$，等待下一次跳躍的時間是 $\mathrm{Exp}(\lambda)$。更詳細的定義見 <Ref to="math-ctmc"/>。
-</Remark>
+<span id="把每個樣本換字的頻率寫出來"></span>
 
-一列 $R_t(i,\cdot)$ 包含「往其他 token 增加多少轉移機會」和「從原 token 扣掉多少留下的機率」。它在這裡扮演離散的 **probability velocity**：對足夠小的 $h$，先形成 $\delta_i+hR_t(i,\cdot)$ 這張轉移 PMF，再抽出下一個 token。樣本仍然是字典裡的一個選項，連續改變的是轉移機率。
+## 時間只過一點點，轉換得多快？
 
-## 每個房間的機率，怎麼增加或減少？
-
-令 $p_t(i)=\Pr(Y_t=i)$ 是這群樣本在時刻 $t$ 位於狀態 $i$ 的機率。從 $i$ 流向 $j$ 的 probability flow 是
-$$
-p_t(i)R_t(i,j).
-$$
-它的單位是每單位時間移動的機率，而不是單一樣本的轉移機率。沿用房間的例子，若 A 有 $20\%$ 的樣本、A 到 B 的 rate 是 $2$，來源比例乘 rate 是每單位時間 $0.4$；很小的 $h=0.01$ 內，搬走的質量約是 $0.004$。
-
-現在算狀態 $j$ 在 $t+h$ 的機率：它包含原本在 $j$ 且留下的樣本，以及從其他狀態進來的樣本：
+U2 的 velocity 描述瞬時的移動；這裡也希望知道，把時間長度 $h$ 縮得很小時，各種轉換有多快。對不同的 state $i\neq j$，用 $R_t(i,j)$ 表示從 $i$ 跳到 $j$ 的 **rate**，也就是短時間轉移機率除以經過時間後的極限：
 
 $$
 \begin{aligned}
-p_{t+h}(j)
-&=p_t(j)\left[1-h\sum_{k\neq j}R_t(j,k)\right]\\
-&\quad+h\sum_{i\neq j}p_t(i)R_t(i,j)+o(h).
+R_t(i,j)
+&=\lim_{h\downarrow0}\frac{Q_{t\to t+h}(i,j)}{h},\\
+Q_{t\to t+h}(i,j)
+&=hR_t(i,j)+o(h).
 \end{aligned}
 $$
 
-兩邊扣掉 $p_t(j)$、除以經過的時間 $h$，再讓 $h\to0$，就得到機率的瞬時變化：
+給定現在在 $i$，小時間內跳到 $j$ 的機率約為 $hR_t(i,j)$；$o(h)$ 表示比 $h$ 更快趨近零的餘項。把所有離開方向加起來，留在原 state 的機率就等於 $1$ 減掉總跳出機率：
+
+$$
+\begin{gathered}
+Q_{t\to t+h}(i,i)\\
+=1-h\sum_{j\neq i}R_t(i,j)+o(h).
+\end{gathered}
+$$
+
+為了把留下與跳出也寫在同一張矩陣裡，我們定義對角元素
+
+$$
+R_t(i,i)=-\sum_{j\neq i}R_t(i,j).
+$$
+
+於是，整張 transition matrix 的短時間形式就是
+
+$$
+Q_{t\to t+h}=I+hR_t+o(h).
+$$
+
+這裡的 $I$ 是 identity matrix，代表完全沒有經過時間時，每個樣本都留在原 state。收集所有 rates 的 $R_t$ 稱為 **rate matrix**：**非對角元素非負、每列和為 $0$；真正的 transition matrix $Q$ 才有列和 $1$。**
+
+一列 $R_t(i,\cdot)$ 告訴目前在 $i$ 的樣本，各個去向的轉移機率一開始怎麼改變。對足夠小的 $h$，$\delta_i+hR_t(i,\cdot)^{\mathsf T}$ 就是一張以 column vector 表示、可用來近似抽樣的 PMF，其中 $\delta_i$ 是把全部機率放在原 state $i$ 的 column vector。這是離散情況對應 velocity 的規則：樣本在不同 states 之間跳躍，rate 決定各個方向跳得多快。
+
+<Remark label="定義" summary="CTMC：離散狀態，連續時間">
+這樣選擇 rates，就把 Markov chain 延伸到連續時間，稱為 **continuous-time Markov chain（CTMC）**。State 仍然是離散選項，但跳躍時間不必落在整數格子。若總流出 rate 是常數 $\lambda$，等待下一次跳躍的時間是 $\mathrm{Exp}(\lambda)$。本篇在有限狀態、rates 有限且隨時間連續的情況下討論內部時間。上面的線性 path 在 $t<1$ 可取 $R_t(1,3)=R_t(2,3)=1/(1-t)$，因此從 `想`、`要` 流向 MASK 的 flow 分別為 $0.7$、$0.3$；$t=1$ 的全 MASK 分布則由極限得到。更完整的定義見 <Ref to="math-ctmc"/>。Campbell 等人 [1] 用這套語言建構 continuous-time discrete diffusion。
+</Remark>
+
+<span id="每個房間的機率怎麼增加或減少"></span>
+
+## 這張矩陣怎麼產生我們要的機率變化？
+
+若這套轉換規則能實現指定的 PMF path，就有 $p_{t+h}=Q_{t\to t+h}^{\mathsf T}p_t$。兩邊扣掉 $p_t$、除以時間長度 $h$，就得到
+
+$$
+\frac{p_{t+h}-p_t}{h}
+=\frac{Q_{t\to t+h}^{\mathsf T}-I}{h}p_t.
+$$
+
+右邊的矩陣在 $h\to0$ 時趨近 $R_t^{\mathsf T}$，所以
+
+$$
+\frac{d p_t}{dt}=R_t^{\mathsf T}p_t.
+$$
+
+這條式子把我們原本問的兩件事接起來了：左邊是指定的 PMF 變化，右邊是 rate matrix 的轉置，乘上目前的機率 column vector。展開其中一個 state $j$，就是 $\dot p_t(j)=\sum_i p_t(i)R_t(i,j)$。再把負的對角元素代回去：
+
 <FormulaSteps
   id="u4-probability-conservation"
   compact
@@ -139,33 +333,61 @@ $$
     \end{aligned}
   `}
   steps={[
-    {label: '想追蹤的量', text: String.raw`固定狀態 $j$，我們想知道在這裡的機率每單位時間改變多少。`},
-    {label: '加上流入', text: String.raw`從每個其他狀態 $i$ 進來的 flow 是來源機率 $p_t(i)$ 乘上 rate $R_t(i,j)$，再對所有來源相加。`},
-    {label: '扣掉流出', text: String.raw`目前在 $j$ 的機率，乘上所有離開方向的總 rate；流入減流出就是這個狀態的淨變化。`},
+    {label: '想追蹤的量', text: String.raw`固定 state $j$，我們想知道在這裡的機率每單位時間改變多少。`},
+    {label: '加上流入', text: String.raw`從每個其他 state $i$ 進來的 flow 是來源機率 $p_t(i)$ 乘上 rate $R_t(i,j)$，再對所有來源相加。`},
+    {label: '扣掉流出', text: String.raw`目前在 $j$ 的機率，乘上所有離開方向的總 rate；流入減流出就是這個 state 的淨變化。`},
   ]}
 />
 
-把第二項改用對角元素，就得到
-$$
-\frac{d p_t(j)}{dt}=\sum_i p_t(i)R_t(i,j),
-\qquad
-\frac{d p_t}{dt}=p_tR_t.
-$$
-這裡 $p_t=(p_t(1),p_t(2),\ldots)$ 是 row vector，右乘 $R_t$ 就把每個房間的流入與流出一起算完。這條式子叫 **Kolmogorov forward equation**，也稱 **master equation**。把所有 $j$ 的變化加起來，每股從 $i$ 流出的質量都會在另一個狀態流入，因此總機率仍是 $1$。它和 <Ref to="dma-conditional-flow-matching"/> 的 continuity equation 一樣在講質量守恆，只是這次的流量沿離散狀態之間的邊移動。
+這也讓表裡的 flow 有了明確的式子：從 $i$ 流到 $j$ 的 flow 是 $p_t(i)R_t(i,j)$。來源樣本占多少，乘上其中每個樣本跳得多快，才得到整群樣本每單位時間搬過去的機率質量。
 
-之後也可以把「整句話的一種排列」當成一個狀態，用 $x,y$ 表示。即使每次只改一個位置，$p_t(x)$ 仍可以包含整句話的相依；方程本身沒有假設各位置的 marginal distribution 獨立。
+回到 $t=0.3$ 的三個房間。若只讓 `想` 和 `要` 跳成 MASK，從 `想` 搬過去的 flow 是 $0.7$，來源機率是 $0.49$，所以 rate 是 $R_t(1,3)=0.7/0.49=10/7$；從 `要` 搬過去的 flow 是 $0.3$，來源機率是 $0.21$，所以 $R_t(2,3)=0.3/0.21=10/7$。已經是 MASK 的樣本就留下，其餘非對角 rates 都是 $0$：
+
+$$
+R_{0.3}=
+\begin{pmatrix}
+-10/7&0&10/7\\
+0&-10/7&10/7\\
+0&0&0
+\end{pmatrix}.
+$$
+
+我們可以逐格檢查流入減流出，再把它排回 column vector：
+
+$$
+\begin{aligned}
+R_{0.3}^{\mathsf T}p_{0.3}
+&=\begin{pmatrix}
+-(10/7)\cdot0.49\\
+-(10/7)\cdot0.21\\
+(10/7)(0.49+0.21)
+\end{pmatrix}\\[.4em]
+&=\begin{pmatrix}-0.7\\-0.3\\1\end{pmatrix}
+=\dot p_{0.3}.
+\end{aligned}
+$$
+
+它確實產生了指定的機率變化。若採用多一組雙向轉換的做法，在同一時刻就給 $R_t(1,3)=0.9/0.49=90/49$、$R_t(3,1)=0.2/0.30=2/3$，而 $R_t(2,3)$ 仍是 $10/7$；調整對角元素後，流入減流出仍得到相同的 $\dot p_t$。這裡比較的是 $t=0.3$ 這一刻；完整 path 的 rates 可以隨時間改變。
+
+<NoteFigure id="u4-rate-and-flow" src={rateFlowFigure} alt="想的來源比例 0.49 與要的來源比例 0.21，分別乘上 rate 10/7，得到 flow 0.7 和 0.3。三乘三的 rate matrix 產生 PMF 速度 (-0.7,-0.3,1)。">
+對單一樣本，短時間的轉移機率約為 $hR_t(i,3)$，$i=1,2$；對整群樣本，來源比例乘上 rate，才得到 flow。兩股 flow 加起來，MASK 的機率就以每單位時間 $1$ 的速度增加。
+</NoteFigure>
+
+$\dot p_t=R_t^{\mathsf T}p_t$ 叫 **Kolmogorov forward equation**，也稱 **master equation**。把所有 states 的變化加起來，每股流出的質量都在另一個 state 流入，因此總機率仍是 $1$。它和 <Ref to="dma-flows-and-continuity"/> 的 continuity equation 一樣描述機率守恆，只是這次的 flow 沿離散 states 之間的轉換移動。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w7-1-ctmc.html" class="demo-frame" title="Rate 與流入減流出" style="height: 800px; width: 100%; border: none;"></iframe>
 
-![離散與連續的機率守恆](./imgs/w7-1-1.png)
+**互動 demo：** 在 $t=0.3$，第三格的機率是想 $0.49$、要 $0.21$、MASK $0.30$。切換兩種轉換規則，觀察 flow 如何改變，再點一個 state 看流入減流出；同一時刻的 PMF 保持相同。
 
-*圖：Forward equation、continuity equation 與 Fokker–Planck 都描述 probability 如何流動；離散狀態用求和，連續空間用微分算子。*
+<span id="我們要學的是能產生這條-pmf-path-的規則"></span>
 
-## 我們要學的，是能產生這條 PMF path 的規則
+## 要生成整句話，還需要學到什麼？
 
-U2 用 $\partial_t p_t=-\nabla\cdot(p_tv_t)$ 檢查 velocity；這裡用 $\dot p_t=p_tR_t$ 檢查 rate。給定指定的 PMF path，我們要找非對角元素非負、列和為零，而且滿足這條守恆式的 $R_t$。不能只把 $\dot p_t$ 換個名字叫 velocity，因為它還沒有決定從哪個狀態跳去哪裡。
+我們現在可以回答開頭的問題：$\dot p_t$ 是整張 PMF 沿 $t$ 增加方向的變化速度；要讓單一樣本真的動起來，則需要從當前 state 通往其他 states 的 rates $R_t(i,j)$。本篇先看從資料分布走向好抽樣的分布，生成時還要找出倒著走回資料分布的 rates。U2 用 continuity equation 檢查 velocity 是否推動指定的 distribution；這裡用 $\dot p_t=R_t^{\mathsf T}p_t$ 檢查 rate 是否實現指定的 PMF path。
 
-如果真的知道整張 joint PMF，也可以直接解它的 ODE，最後按 PMF 抽樣。但長度 $L$、字典大小 $K$ 的序列有 $K^L$ 種排列；我們希望用讀取目前序列的模型給出局部 rates，不必存下所有排列的機率。每次只改一格，也不表示不同格彼此獨立：rate 可以依賴目前整句 context。
+剛才固定其他四格時，第三格的一個 token 就對應到一種完整句子。到其他位置也會變的情況，就把「一種完整的 token 排列」當成一個 state，用 $x,y$ 表示。因此 $p_t(x)$ 描述整句話的 joint PMF，$R_t(x,y)$ 描述整句由 $x$ 轉成 $y$ 的 rate。即使只允許一次改一個位置，rate 仍可以讀取目前整句 context，沒有假設不同位置彼此獨立。
+
+如果真的知道整張 joint PMF，也可以直接解它的 ODE，最後按 PMF 抽樣。但長度 $L$、字典大小 $K$ 的序列已有 $K^L$ 種排列；我們希望用讀取目前序列的模型給出局部 rates，不必存下所有排列的機率。生成時，時間從 $t$ 退到 $t-h$。如果用 $\bar R_t$ 表示這個方向的 rates，就需要滿足 $-\dot p_t=\bar R_t^{\mathsf T}p_t$；負號來自時間倒著走。因此下一個問題是：**已經有 PMF path，要怎麼找出、再學到符合它的生成 rates？**
 
 <Question id="Q1">
 Rate matrix 有負的對角元素，是不是不合法？若某狀態總流出 rate 是 $4$，可以直接取 $h=1$，把 $I+hR$ 當 transition matrix 嗎？
@@ -202,7 +424,7 @@ Rate matrix 的一列總和是：
 </QuizBlock>
 
 <Bridge to="dma-discrete-flow-matching">
-我們可以延續 Flow Matching 的想法，只是推動樣本的規則變成跳躍 rates；流入減流出則檢查它有沒有走過指定的 PMF path。下一篇先解容易的版本：知道原句時，怎麼設計倒著生成的 rate？再問不知道原句時，能不能像 U2 一樣參考所有可能原句，學到共同的生成規則。
+我們可以延續 Flow Matching 的想法，只是推動樣本的規則變成跳躍 rates；流入減流出則檢查它有沒有走過指定的 PMF path。下一篇把這個固定 context、只填一格的 toy 延伸到整句話，先問怎麼設計生成方向的 rate，再問不知道原句時，能不能像 U2 一樣參考所有可能原句，學到共同的生成規則。
 </Bridge>
 
 ## 參考文獻

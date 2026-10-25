@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>三個水桶：rate 與 forward equation</title>
+<title>只改第三格：想、要、MASK 的 rate 與 flow</title>
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
@@ -33,35 +33,34 @@
 </head>
 <body>
 <div class="card">
-  <p class="goal">學習目標：三個狀態、幾條「水管」。每條管子上的數字是 <b>rate</b>——單位時間流過去的機率。forward equation 就是每個桶的<b>流入減流出</b>，一行寫完。</p>
+  <p class="goal">固定「我／今天／＿＿／吃／麥當勞」，只改第三格。三個桶分別是<b>想、要、MASK</b>，水位是當前的機率。比較兩種 rates，看它們如何得到相同的<b>流入減流出</b>。</p>
 
   <canvas id="cv" width="640" height="400" aria-label="三狀態 CTMC"></canvas>
   <p class="cap">上圖＝三個桶（水位＝當前 p<sub>t</sub>），弧的粗細＝當下的流量 p<sub>t</sub>(x)·R(x→y)　下圖＝三條 p<sub>t</sub> 曲線　<b>點任一個桶</b>看它的 forward equation 代入數字</p>
 
   <div class="controls">
     <div class="row"><span class="lab">預設</span>
-      <button data-p="uniform">uniform（每條管子一樣）</button>
-      <button data-p="absorbing" class="on">absorbing（只流向 [MASK]）</button>
-      <button data-p="remask">absorbing ＋ 回流</button>
+      <button data-p="absorbing" class="on">只往 MASK 轉</button>
+      <button data-p="remask">多一組抵消的雙向 flow</button>
     </div>
     <div class="row">
-      <span class="lab">時間 t</span><input id="t" type="range" min="0" max="2" step="0.02" value="0.8" /><b id="vt">0.80</b>
-      <span class="lab">回流 rate σ</span><input id="s" type="range" min="0" max="2" step="0.05" value="0" /><b id="vs">0.00</b>
+      <span class="lab">時間 t</span><input id="t" type="range" min="0.02" max="0.98" step="0.01" value="0.3" /><b id="vt">0.30</b>
+      <span class="lab">額外雙向 flow</span><input id="s" type="range" min="0" max="0.4" step="0.05" value="0.2" disabled /><b id="vs">0.20</b>
     </div>
     <div class="stats">
-      <span>p<sub>t</sub> = ( <b id="p0">—</b> , <b id="p1">—</b> , <b id="p2">—</b> )</span>
+      <span>想：<b id="p0">—</b>　要：<b id="p1">—</b>　MASK：<b id="p2">—</b></span>
       <span>總和 = <b id="ps">—</b></span>
       <span id="eq"></span>
     </div>
   </div>
 
-  <p class="observe">按「absorbing」：只有指向 [MASK] 的管子有流量，<b>[MASK] 的水位單調上升到 1</b>，另兩桶指數衰減。加上「回流 rate σ」：[MASK] 多出兩條往回的管子，於是水位停在一個<b>平衡</b>而不是 1——流入等於流出的地方。按「uniform」：三桶最後都停在 1/3。點任一個桶會顯示它的 forward equation 並代入當下的數字，<b>總和永遠是 1</b>（那是「流出一定流到別的桶」的結果）。</p>
+  <p class="observe">從假設資料中觀察到的比例 (0.7, 0.3, 0) 出發，沿 t 增加，想、要的機率分別為 0.7(1−t)、0.3(1−t)，MASK 為 t。切換兩種轉換規則，<b>相同時間的三種機率不變，箭頭的 flow 卻會改變</b>。額外的雙向 flow 在想與 MASK 之間相互抵消。點任一個桶，看該 state 的流入減流出。這裡先看從資料走向好抽樣分布的方向；生成時時間倒著走。為了顯示有限的 rates，滑桿只取內部時間。</p>
 </div>
 
 <script src="./_demo-common.js"></script>
 <script>
 (function () {
-  var NAMES = ['字 a', '字 b', '[MASK]'], K = 3;
+  var NAMES = ['想', '要', '[MASK]'], K = 3;
   var cv = document.getElementById('cv');
   var d = NDFlow.hiDPICanvas(cv);
   var tEl = document.getElementById('t'), sEl = document.getElementById('s');
@@ -71,35 +70,35 @@
   var pal = NDFlow.palette();
   var preset = 'absorbing', SEL = -1;
 
-  function rates() {
-    var R = [[0,0,0],[0,0,0],[0,0,0]], sig = parseFloat(sEl.value);
-    if (preset === 'uniform') {
-      for (var i = 0; i < K; i++) for (var j = 0; j < K; j++) if (i !== j) R[i][j] = 0.8;
-    } else {
-      R[0][2] = 1.2; R[1][2] = 1.2;
-      if (preset === 'remask') { R[2][0] = sig / 2; R[2][1] = sig / 2; }
+  function rates(T) {
+    var p = [0.7 * (1 - T), 0.3 * (1 - T), T];
+    var R = [[0,0,0],[0,0,0],[0,0,0]];
+    R[0][2] = R[1][2] = 1 / (1 - T);
+    if (preset === 'remask') {
+      var extraFlow = parseFloat(sEl.value);
+      R[0][2] += extraFlow / p[0];
+      R[2][0] = extraFlow / p[2];
+    }
+    for (var i = 0; i < K; i++) {
+      for (var j = 0; j < K; j++) if (i !== j) R[i][i] -= R[i][j];
     }
     return R;
   }
-  function solve(T) {
-    // 細步 Euler 解 ṗ = pR（p 是列向量、R 是 rate matrix）
-    var R = rates(), n = 400, h = T / n, p = [0.5, 0.5, 0], path = [[0.5, 0.5, 0]];
-    for (var k = 0; k < n; k++) {
-      var np = p.slice();
-      for (var i = 0; i < K; i++) {
-        var inflow = 0, outflow = 0;
-        for (var j = 0; j < K; j++) if (j !== i) { inflow += p[j] * R[j][i]; outflow += p[i] * R[i][j]; }
-        np[i] = p[i] + h * (inflow - outflow);
-      }
-      p = np; path.push(p.slice());
+  function snapshot(T) {
+    // 此 toy 的 PMF 已知；直接畫 reference path，不做數值積分。
+    // 兩個 preset 的 R 都滿足 Rᵀp = (-0.7, -0.3, 1)。
+    var path = [];
+    for (var k = 0; k <= 100; k++) {
+      var t = T * k / 100;
+      path.push([0.7 * (1 - t), 0.3 * (1 - t), t]);
     }
-    return { p: p, path: path, R: R };
+    return { p: path[path.length - 1], path: path, R: rates(T) };
   }
   function lay(s) { return { cx: [0.20 * s.w, 0.50 * s.w, 0.80 * s.w], cy: 0.24 * s.h, r: 0.085 * s.h * 1.6,
                              gy: 0.56 * s.h, gh: 0.34 * s.h, pad: 46 }; }
   function draw() {
     var s = d.resize(), ctx = d.ctx, Y = lay(s), i, j;
-    var T = parseFloat(tEl.value), sol = solve(Math.max(0.02, T)), p = sol.p, R = sol.R;
+    var T = parseFloat(tEl.value), sol = snapshot(T), p = sol.p, R = sol.R;
     ctx.clearRect(0, 0, s.w, s.h);
     ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
     // 弧
@@ -110,9 +109,23 @@
       var mx = (x1 + x2) / 2, my = Y.cy + (up ? -Y.r * 1.5 : Y.r * 1.5);
       ctx.strokeStyle = 'rgba(' + pal.noise[0] + ',' + pal.noise[1] + ',' + pal.noise[2] + ',' + (0.25 + 0.6 * Math.min(1, flow)) + ')';
       ctx.lineWidth = 1 + 7 * Math.min(1, flow);
-      ctx.beginPath(); ctx.moveTo(x1, Y.cy); ctx.quadraticCurveTo(mx, my, x2, Y.cy); ctx.stroke();
+      // 在目的 state 外緣收住弧線，讓箭頭清楚表示轉換方向。
+      var u = 1, tipX = x2, tipY = Y.cy;
+      do {
+        u -= 0.01;
+        tipX = (1-u)*(1-u)*x1 + 2*(1-u)*u*mx + u*u*x2;
+        tipY = (1-u)*(1-u)*Y.cy + 2*(1-u)*u*my + u*u*Y.cy;
+      } while (u > 0.1 && Math.hypot(tipX-x2, tipY-Y.cy) < Y.r+5);
+      ctx.beginPath(); ctx.moveTo(x1, Y.cy);
+      ctx.quadraticCurveTo(x1+u*(mx-x1), Y.cy+u*(my-Y.cy), tipX, tipY); ctx.stroke();
+      var angle = Math.atan2((1-u)*(my-Y.cy)+u*(Y.cy-my), (1-u)*(mx-x1)+u*(x2-mx));
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.beginPath(); ctx.moveTo(tipX, tipY);
+      ctx.lineTo(tipX-9*Math.cos(angle-0.45), tipY-9*Math.sin(angle-0.45));
+      ctx.lineTo(tipX-9*Math.cos(angle+0.45), tipY-9*Math.sin(angle+0.45));
+      ctx.closePath(); ctx.fill();
       ctx.font = '600 9px "Plus Jakarta Sans", system-ui, sans-serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.textAlign = 'center';
+      ctx.fillStyle = pal.dark ? '#bfc7d6' : '#4b5563'; ctx.textAlign = 'center';
       ctx.fillText('R=' + R[i][j].toFixed(2), mx, my + (up ? -4 : 12));
     }
     // 桶
@@ -122,29 +135,28 @@
       ctx.fillStyle = 'rgba(255,255,255,0.07)'; ctx.fill();
       // 水位
       ctx.save(); ctx.beginPath(); ctx.arc(cx, Y.cy, r, 0, 6.284); ctx.clip();
-      ctx.fillStyle = (i === 2) ? 'rgba(235,235,240,0.42)'
-        : 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',0.75)';
+      ctx.fillStyle = ['#3377cc', '#2a9d8f', '#d65a64'][i];
       ctx.fillRect(cx - r, Y.cy + r - 2 * r * p[i], 2 * r, 2 * r * p[i]);
       ctx.restore();
       ctx.strokeStyle = (i === SEL) ? pal.accent : 'rgba(255,255,255,0.35)';
       ctx.lineWidth = (i === SEL) ? 2.6 : 1.2;
       ctx.beginPath(); ctx.arc(cx, Y.cy, r, 0, 6.284); ctx.stroke();
       ctx.font = '700 11px "Plus Jakarta Sans", system-ui, sans-serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.textAlign = 'center';
+      ctx.fillStyle = pal.dark ? '#e9e6e1' : '#1f2733'; ctx.textAlign = 'center';
       ctx.fillText(NAMES[i], cx, Y.cy + r + 15);
       ctx.font = '700 12px "Plus Jakarta Sans", system-ui, sans-serif';
-      ctx.fillStyle = '#15161a';
+      ctx.fillStyle = pal.dark ? '#ffffff' : '#15161a';
       ctx.fillText(p[i].toFixed(2), cx, Y.cy + 4);
     }
     // p_t 曲線
     var gy = Y.gy, gh = Y.gh, pad = Y.pad;
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1;
+    ctx.strokeStyle = pal.dark ? '#3b414b' : '#c8ced8'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(pad, gy + gh); ctx.lineTo(s.w - 16, gy + gh); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(pad, gy); ctx.lineTo(s.w - 16, gy); ctx.stroke();
     ctx.font = '500 9px "Plus Jakarta Sans", system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.textAlign = 'right';
+    ctx.fillStyle = pal.dark ? '#aeb3bf' : '#586174'; ctx.textAlign = 'right';
     ctx.fillText('1', pad - 5, gy + 4); ctx.fillText('0', pad - 5, gy + gh + 3);
-    var cols = ['rgba(' + pal.data.join(',') + ',0.9)', 'rgb(96,186,130)', 'rgba(235,235,240,0.7)'];
+    var cols = ['#3377cc', '#2a9d8f', '#d65a64'];
     var path = sol.path;
     for (i = 0; i < K; i++) {
       ctx.strokeStyle = cols[i]; ctx.lineWidth = 2.2;
@@ -159,7 +171,7 @@
       ctx.fillText(NAMES[i], s.w - 14 - 44, gy + gh - path[path.length - 1][i] * gh - 4);
     }
     ctx.font = '500 9px "Plus Jakarta Sans", system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.textAlign = 'center';
+    ctx.fillStyle = pal.dark ? '#aeb3bf' : '#586174'; ctx.textAlign = 'center';
     ctx.fillText('時間 0 → ' + T.toFixed(2), (pad + s.w - 16) / 2, gy + gh + 13);
 
     vt.textContent = T.toFixed(2); vs.textContent = parseFloat(sEl.value).toFixed(2);
@@ -183,7 +195,8 @@
     b.onclick = function () {
       Array.prototype.forEach.call(document.querySelectorAll('[data-p]'), function (o) { o.classList.remove('on'); });
       b.classList.add('on'); preset = b.dataset.p;
-      if (preset === 'remask' && parseFloat(sEl.value) === 0) sEl.value = 0.6;
+      sEl.disabled = preset !== 'remask';
+      if (preset === 'remask' && parseFloat(sEl.value) === 0) sEl.value = 0.2;
       draw();
     };
   });
