@@ -21,7 +21,8 @@ export function formatVisitorCount(value: unknown, locale = 'en'): string | null
 export async function loadVisitorCounts(code: string, path: string, locale = 'en', request: typeof fetch = fetch) {
   const read = async (key: string) => {
     const response = await request(visitorCounterUrl(code, key), {
-      credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(5000),
+      // Revalidate browser-cached errors after the public counter setting changes.
+      cache: 'no-cache', credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(5000),
     });
     if (!response.ok) throw new Error(`Counter unavailable: ${response.status}`);
     const data = await response.json();
