@@ -1,4 +1,5 @@
 ---
+import PixelIcon from './PixelIcon.astro';
 import type { Lang, NoteEntry } from '../lib/notes';
 import {
   areaAnchor,
@@ -14,9 +15,9 @@ import {
   latestNoteDate,
   lectureAnchor,
   noteRoute,
+  noteHref,
   researchAreaLabels,
   statusLabels,
-  courseByKey,
   foundationReuse,
   notesForListingLang,
   tierLabels,
@@ -26,6 +27,8 @@ import {
 import { groupName, groupCode, noteTitles } from '../lib/noteRefs';
 import { withBase } from '../lib/url';
 import SearchPanel from './SearchPanel.astro';
+import ReadingResume from './ReadingResume.astro';
+import ExplorationMark from './ExplorationMark.astro';
 import SkyMap from './SkyMap.astro';
 import MoleculeMap from './MoleculeMap.astro';
 import MapHead from './MapHead.astro';
@@ -33,9 +36,10 @@ import MapHead from './MapHead.astro';
 interface Props {
   lang: Lang;
   notes: NoteEntry[];
+  allNotes?: NoteEntry[];
 }
 
-const { lang, notes } = Astro.props;
+const { lang, notes, allNotes = notes } = Astro.props;
 const otherLang = lang === 'zh' ? 'en' : 'zh';
 const grouped = groupNotes(notes);
 const courseBlocks = courseSections(notes, lang).filter((course) => course.noteCount > 0);
@@ -66,36 +70,44 @@ const skyNote = shoreTitles.length
   : undefined;
 ---
 
-<section class="notes-index" id="notes-index" data-view="sky">
+<section class="notes-index notes-index--scholar" id="notes-index" data-view="list">
   <div class="notes-index-header">
     <div>
-      <h1>{lang === 'zh' ? 'Notes & Guides' : 'Notes & Guides'}</h1>
+      <ExplorationMark kind="learn" label="COURSE CATALOG" />
+      <h1>{lang === 'zh' ? '課程與筆記' : 'Courses & notes'}</h1>
       <p class="notes-intro">
         {
           lang === 'zh'
-            ? '這裡收錄我的課程與筆記。每一門課都是一個可以探索的世界，也各有一張自己的地圖：有的是一片星空，有的是一組分子。'
-            : 'My courses and notes. Each course is a world to explore, with a map of its own: one is a sky of stars, another a set of molecules.'
+            ? '選一門課，從第一篇開始，或展開單元直接找需要的主題。想邊思考邊學，可以前往互動學習。'
+            : 'Choose a course and start with the first note, or browse its units for a specific topic. For learning through questions, try interactive practice.'
         }
       </p>
-      <p class="notes-intro">
+      <p class="notes-intro notes-map-hint">
         {
           lang === 'zh'
-            ? '地圖上的每一個點都是一篇筆記，讀過就會亮起來。你可以從任何一門課、任何一個點開始，也可以切換到列表，依單元瀏覽或搜尋全部筆記。'
-            : 'Every point on a map is a note, and it lights up once you have read it. Start from any course and any point — or switch to the list to browse by unit and search everything.'
+            ? '地圖模式可以探索筆記之間的關係；讀過的節點會在這個瀏覽器亮起。'
+            : 'Map view shows how the notes connect. Visited notes light up in this browser.'
         }
+      </p>
+      <p class="learning-choice">
+        <span>{lang === 'zh' ? '喜歡先想問題、再看解釋？' : 'Prefer questions before explanations?'}</span>
+        <a href={withBase(lang === 'zh' ? 'zh/dojo' : 'dojo')}>{lang === 'zh' ? '試試互動學習 →' : 'Try interactive practice →'}</a>
       </p>
     </div>
     <div class="view-toggle" role="group" aria-label={lang === 'zh' ? '顯示方式' : 'View'}>
-      <button type="button" class="view-toggle-btn" data-view-btn="sky" aria-pressed="true">
-        <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14l4-6 3 4 3-7 4 9" /><circle cx="3" cy="14" r="1.2" fill="currentColor" stroke="none" /><circle cx="7" cy="8" r="1.2" fill="currentColor" stroke="none" /><circle cx="10" cy="12" r="1.2" fill="currentColor" stroke="none" /><circle cx="13" cy="5" r="1.2" fill="currentColor" stroke="none" /><circle cx="17" cy="14" r="1.2" fill="currentColor" stroke="none" /></svg>
-        {lang === 'zh' ? '地圖' : 'Maps'}
+      <button type="button" class="view-toggle-btn" data-view-btn="list" aria-pressed="true">
+        <PixelIcon name="list" size={16} />
+        {lang === 'zh' ? '課程列表' : 'Course list'}
       </button>
-      <button type="button" class="view-toggle-btn" data-view-btn="list" aria-pressed="false">
-        <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 5h12M4 10h12M4 15h12" /></svg>
-        {lang === 'zh' ? '列表' : 'List'}
+      <button type="button" class="view-toggle-btn" data-view-btn="sky" aria-pressed="false">
+        <PixelIcon name="graph" size={16} />
+        {lang === 'zh' ? '地圖' : 'Maps'}
       </button>
     </div>
   </div>
+
+  <ReadingResume lang={lang} notes={allNotes} />
+  <SearchPanel lang={lang} compact />
 
   <div class="notes-pane notes-pane--sky" data-view-pane="sky">
     <h2 class="notes-tier">{tierLabels.courses[lang]}</h2>
@@ -138,7 +150,6 @@ const skyNote = shoreTitles.length
   </div>
 
   <div class="notes-pane notes-pane--list" data-view-pane="list">
-  <SearchPanel />
 
   {
     courseTiers.map((tierBlock) => (
@@ -149,6 +160,8 @@ const skyNote = shoreTitles.length
               const ready = course.lectures.filter((l) => !l.comingSoon);
               const allNotes = ready.flatMap((l) => l.notes);
               const courseLatest = latestNoteDate(allNotes);
+              const firstNote = allNotes[0];
+              const firstLang = firstNote?.data.status === 'missing' ? (firstNote.data.lang === 'zh' ? 'en' : 'zh') : firstNote?.data.lang;
               const isFoundation = def?.kind === 'foundation';
               const reuse = isFoundation ? reuseOf(course.key) : 0;
               return (
@@ -172,10 +185,15 @@ const skyNote = shoreTitles.length
                         <span class="course-row-count" data-read-count-out>0 / {course.noteCount}</span>
                       </span>
                     )}
-                    <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-                      <path d="M7 4.5 12.5 10 7 15.5" />
-                    </svg>
+                    <PixelIcon name="right" class="disclosure-chevron" size={18} />
                   </a>
+                  {def?.description[lang] && <p class="course-row-description">{def.description[lang]}</p>}
+                  <div class="course-row-actions">
+                    {firstNote && <a class="course-start-link" href={withBase(noteHref(firstNote))}>{lang === 'zh' ? '從第一篇開始' : 'Start with the first note'}{firstLang !== lang ? (lang === 'zh' ? '（英文）' : ' (Chinese)') : ''} →</a>}
+                    <a href={withBase(courseRoute(course.key, lang))}>{lang === 'zh' ? '課程總覽' : 'Course overview'}</a>
+                  </div>
+                  <details class="course-row-units">
+                    <summary>{lang === 'zh' ? `瀏覽 ${ready.length} 個單元` : `Browse ${ready.length} units`}</summary>
                   <div class="course-row-lectures">
                     {ready.map((lecture) => (
                       <a
@@ -194,6 +212,7 @@ const skyNote = shoreTitles.length
                       </a>
                     ))}
                   </div>
+                  </details>
                 </div>
               );
             })}
@@ -229,9 +248,7 @@ const skyNote = shoreTitles.length
                             {latest ? ` · Updated ${formatNoteDate(latest, lang)}` : ''}
                           </span>
                         </span>
-                        <svg class="disclosure-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-                          <path d="M7 4.5 12.5 10 7 15.5" />
-                        </svg>
+                        <PixelIcon name="right" class="disclosure-chevron" size={18} />
                       </summary>
                       <div class="disclosure-content note-group-content">
                         <div class="note-list-cards">
@@ -303,7 +320,7 @@ const skyNote = shoreTitles.length
 <script>
   import { readView, setView } from '../lib/reading';
 
-  // Sky by default; the choice is remembered on this device. A hash that points into the
+  // Course list by default; the choice is remembered on this device. A hash that points into the
   // list (#group-…, #course-…) opens the list so the anchor can be reached.
   function initView() {
     const root = document.getElementById('notes-index');
@@ -316,9 +333,7 @@ const skyNote = shoreTitles.length
       if (remember) setView(view);
     };
     const wantsList = /^#(group-|course-|area-)/.test(location.hash);
-    // Phones default to the list (the sky needs width); a remembered choice still wins.
-    const narrow = window.matchMedia('(max-width: 640px)').matches;
-    apply(wantsList ? 'list' : readView() ?? (narrow ? 'list' : 'sky'), false);
+    apply(wantsList || new URLSearchParams(location.search).has('q') ? 'list' : readView() ?? 'list', false);
     root.querySelectorAll<HTMLButtonElement>('[data-view-btn]').forEach((b) => {
       b.addEventListener('click', () => apply(b.dataset.viewBtn === 'list' ? 'list' : 'sky', true));
     });

@@ -10,6 +10,7 @@
  */
 import { getCollection } from 'astro:content';
 import { Image } from 'astro:assets';
+import ExplorationMark from '../ExplorationMark.astro';
 import { dojoPartners } from '../../lib/dojoPartners';
 import type { Lang } from '../../lib/notes';
 import { isPublishedNote, noteHref } from '../../lib/notes';
@@ -68,9 +69,18 @@ const t = lang === 'zh'
 <section class="dojo-index" data-dojo-theme={defaultDojoTheme} data-i18n={JSON.stringify({ start: t.start, resume: t.resume, again: t.again, progress: t.progress, done: t.done })}>
   <header class="dojo-index-head">
     <div class="dojo-index-paper">
+      <ExplorationMark kind="practice" label="QUESTION LAB" />
       <h1>{dojoTitle[lang]}</h1>
       <p class="dojo-index-tagline"><strong>{dojoTagline[lang]}</strong></p>
-      {t.intro.map((paragraph) => <p class="dojo-index-intro">{paragraph}</p>)}
+      <p class="dojo-index-intro">{lang === 'zh' ? '選一個主題，先做選擇、再比較理由。不必先讀筆記，也不計分。' : 'Pick a topic, make a choice, then compare the reasoning. No prior reading required, and no scores.'}</p>
+      <div class="practice-entry-actions">
+        {entries.length > 0 && <a class="dojo-btn" href="#practice-topics">{lang === 'zh' ? '選擇學習主題 ↓' : 'Choose a topic ↓'}</a>}
+        <a href={withBase(lang === 'zh' ? 'zh/notes' : 'notes')}>{lang === 'zh' ? '想連續閱讀？前往課程筆記 →' : 'Prefer continuous reading? Browse course notes →'}</a>
+      </div>
+      <details class="practice-about">
+        <summary>{lang === 'zh' ? '互動學習是怎麼進行的？' : 'How does interactive learning work?'}</summary>
+        {t.intro.map((paragraph) => <p class="dojo-index-intro">{paragraph}</p>)}
+      </details>
       <section class="dojo-index-companions" aria-label={lang === 'zh' ? '和你一起探索的學習夥伴' : 'Your learning companions'}>
         {Object.values(dojoPartners).map((person) => (
           <figure>
@@ -82,13 +92,15 @@ const t = lang === 'zh'
     </div>
   </header>
 
+  <div id="practice-topics" class="practice-topics-heading"><h2>{lang === 'zh' ? '選擇學習主題' : 'Choose a topic'}</h2><span>{entries.length} {lang === 'zh' ? '篇互動學習' : 'interactive lessons'}</span></div>
+
   {entries.length === 0 && <p class="dojo-empty">{t.empty}</p>}
 
   {
     [...groups.entries()].map(([group, items]) => (
       <section class="dojo-group">
         <div class="dojo-group-head">
-          <span class="dojo-sign"><span class="dojo-group-name">{group}</span></span>
+          <h2 class="dojo-sign dojo-group-title"><span class="dojo-group-name">{group}</span></h2>
           {groupHref(items) && <a class="dojo-sign dojo-sign-link" href={groupHref(items)}>{t.manual}{sourceLanguageLabel(groupHref(items))}</a>}
         </div>
         <ul class="dojo-cards">

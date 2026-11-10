@@ -1,5 +1,9 @@
 ---
 import { getCollection } from 'astro:content';
+import ResearchAtlas from './ResearchAtlas.astro';
+import NavigationIcon from './NavigationIcon.astro';
+import PixelIcon from './PixelIcon.astro';
+import ReadingResume from './ReadingResume.astro';
 import { withBase } from '../lib/url';
 import { profile, research, news, publications, uiText, heroContent } from '../data/content';
 import type { Lang } from '../lib/notes';
@@ -35,18 +39,62 @@ const selectedPubs = publications[0].items.slice(0, 3);
 const recentNews = news.slice(0, 4);
 ---
 
-<main class="home">
+<main class="home home--scholar">
   <section class="hero">
-    <svg class="hero-contour" viewBox="0 0 380 140" preserveAspectRatio="none" aria-hidden="true">
-      <path d="M0,34 C90,8 210,58 380,18" />
-      <path d="M0,62 C110,38 240,86 380,48" />
-      <path d="M0,90 C100,70 230,114 380,80" />
-      <path d="M0,118 C120,98 250,140 380,108" />
-    </svg>
+    <div class="hero-opening">
+    <div class="hero-copy">
+    <div class="field-heading" aria-hidden="true">
+      <PixelIcon name="network" size={22} />
+      <span>RESEARCHER’S FIELDNOTES</span>
+      <span class="field-heading-rule"></span>
+    </div>
     <p class="eyebrow">{heroContent.eyebrow[lang]}</p>
     <h1 class="hero-title">Shih-Hsin Wang <span class="zh">王士欣</span></h1>
     <div class="hero-rule"></div>
-    <p class="hero-lead">{heroContent.lead[lang]}</p>
+    <p class="hero-lead">{lang === 'zh'
+      ? '研究幾何深度學習、生成模型與 AI for Science，將直覺轉化為有理論基礎、可靠且高效的工具。'
+      : 'I work on geometric deep learning, generative models and AI for Science, turning intuition into principled and practical tools.'}</p>
+    </div>
+    <ResearchAtlas lang={lang} />
+    </div>
+    <div class="path-selection-label">
+      <span>{lang === 'zh' ? '選一條路線，開始探索' : 'Choose a path to explore'}</span>
+      <span aria-hidden="true">SELECT A PATH</span>
+    </div>
+    <nav class="visitor-paths" aria-label={lang === 'zh' ? '依目的開始' : 'Start with your goal'}>
+      <a href={withBase(notesIndexRoute(lang))}>
+        <span class="visitor-path-cursor" aria-hidden="true">▸</span>
+        <span class="visitor-path-code" aria-hidden="true">01 / 04</span>
+        <NavigationIcon kind="learn" class="visitor-path-image" animate />
+        <span class="visitor-path-kicker">{lang === 'zh' ? '想學習' : 'Learn'}</span>
+        <strong>{lang === 'zh' ? '課程與筆記' : 'Courses & notes'} <PixelIcon name="right" size={14} /></strong>
+        <span class="visitor-path-desc">{lang === 'zh' ? '依單元建立直覺、推導與實作。' : 'Build intuition through reading, derivations and experiments.'}</span>
+      </a>
+      <a href={withBase(lang === 'zh' ? 'zh/dojo' : 'dojo')}>
+        <span class="visitor-path-cursor" aria-hidden="true">▸</span>
+        <span class="visitor-path-code" aria-hidden="true">02 / 04</span>
+        <NavigationIcon kind="practice" class="visitor-path-image" animate />
+        <span class="visitor-path-kicker">{lang === 'zh' ? '想邊想邊學' : 'Learn through questions'}</span>
+        <strong>{lang === 'zh' ? '互動學習' : 'Interactive learning'} <PixelIcon name="right" size={14} /></strong>
+        <span class="visitor-path-desc">{lang === 'zh' ? '從情境與問題開始，選擇做法、比較理由。' : 'Explore situations, choose an approach and compare the reasoning.'}</span>
+      </a>
+      <a href={withBase(lang === 'zh' ? 'zh/publications' : 'publications')}>
+        <span class="visitor-path-cursor" aria-hidden="true">▸</span>
+        <span class="visitor-path-code" aria-hidden="true">03 / 04</span>
+        <NavigationIcon kind="research" class="visitor-path-image" animate />
+        <span class="visitor-path-kicker">{lang === 'zh' ? '想了解研究' : 'Explore the research'}</span>
+        <strong>{lang === 'zh' ? '研究著作' : 'Publications'} <PixelIcon name="right" size={14} /></strong>
+        <span class="visitor-path-desc">{lang === 'zh' ? '查看論文、研究主題與相關資源。' : 'Find papers, research topics and resources.'}</span>
+      </a>
+      <a href={withBase(lang === 'zh' ? 'zh/handbook' : 'handbook')}>
+        <span class="visitor-path-cursor" aria-hidden="true">▸</span>
+        <span class="visitor-path-code" aria-hidden="true">04 / 04</span>
+        <NavigationIcon kind="lab" class="visitor-path-image" animate />
+        <span class="visitor-path-kicker">{lang === 'zh' ? '想認識或加入團隊' : 'Meet or join the team'}</span>
+        <strong>{lang === 'zh' ? '研究室與招募' : 'Lab & recruitment'} <PixelIcon name="right" size={14} /></strong>
+        <span class="visitor-path-desc">{lang === 'zh' ? '認識成員、研究方式與目前招募資訊。' : 'Meet the members and learn about research and recruitment.'}</span>
+      </a>
+    </nav>
     <div class="hero-links">
       <a href={profile.contact.scholar} target="_blank" rel="noopener">Google Scholar</a>
       <a href={profile.contact.github} target="_blank" rel="noopener">GitHub</a>
@@ -54,36 +102,10 @@ const recentNews = news.slice(0, 4);
       <a href={withBase(profile.cv)} target="_blank" rel="noopener">CV</a>
       <a href={`mailto:${profile.contact.email}`}>Email</a>
     </div>
-  </section>
-
-  <section class="home-section">
-    <div class="home-section-head">
-      <h2>{uiText.recent[lang]}</h2>
-      <a class="section-more" href={withBase(lang === 'zh' ? 'experience' : 'experience')}>
-        {uiText.experienceMore[lang]}
-      </a>
-    </div>
-    <div class="update-list">
-      {
-        recentNews.map((n) => (
-          <div class="update-item">
-            <div class="update-date">{n.date}</div>
-            <div class="update-text">
-              <span set:html={lang === 'zh' && n.htmlZh ? n.htmlZh : n.html} />
-              {n.links &&
-                n.links.map((l) => (
-                  <>
-                    {' '}
-                    <a href={withBase(l.href)} target="_blank" rel="noopener">
-                      {l.label}
-                    </a>
-                  </>
-                ))}
-            </div>
-          </div>
-        ))
-      }
-    </div>
+    <details class="hero-research-details">
+      <summary>{lang === 'zh' ? '更多研究介紹' : 'More about my research'}</summary>
+      <p>{heroContent.lead[lang]}</p>
+    </details>
   </section>
 
   <section class="home-section">
@@ -94,13 +116,7 @@ const recentNews = news.slice(0, 4);
       </a>
     </div>
     <div class="writing-list" id="home-notes">
-      <a class="home-continue" id="home-continue" href="#" hidden>
-        <span class="home-continue-copy">
-          <span class="home-continue-kicker">{lang === 'zh' ? '上次讀到' : 'Last read'}</span>
-          <span class="home-continue-title" data-continue-title></span>
-        </span>
-        <span class="home-continue-btn">{lang === 'zh' ? '接著讀 →' : 'Continue →'}</span>
-      </a>
+      <ReadingResume lang={lang} notes={allNotes} />
       {
         homeBlocks.map((section) => (
           <section class="writing-category" aria-labelledby={`writing-${section.tier}`}>
@@ -172,6 +188,36 @@ const recentNews = news.slice(0, 4);
   </section>
 
   <section class="home-section">
+    <div class="home-section-head">
+      <h2>{uiText.recent[lang]}</h2>
+      <a class="section-more" href={withBase(lang === 'zh' ? 'zh/experience' : 'experience')}>
+        {uiText.experienceMore[lang]}
+      </a>
+    </div>
+    <div class="update-list">
+      {
+        recentNews.map((n) => (
+          <div class="update-item">
+            <div class="update-date">{n.date}</div>
+            <div class="update-text">
+              <span set:html={lang === 'zh' && n.htmlZh ? n.htmlZh : n.html} />
+              {n.links &&
+                n.links.map((l) => (
+                  <>
+                    {' '}
+                    <a href={withBase(l.href)} target="_blank" rel="noopener">
+                      {l.label}
+                    </a>
+                  </>
+                ))}
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="home-section">
     <div class="home-section-head"><h2>{uiText.research[lang]}</h2></div>
     <ul class="research-list">
       {
@@ -188,7 +234,7 @@ const recentNews = news.slice(0, 4);
   <section class="home-section">
     <div class="home-section-head">
       <h2>{uiText.selectedPubs[lang]}</h2>
-      <a class="section-more" href={withBase('publications')}>{uiText.pubsMore[lang]}</a>
+      <a class="section-more" href={withBase(lang === 'zh' ? 'zh/publications' : 'publications')}>{uiText.pubsMore[lang]}</a>
     </div>
     {
       selectedPubs.map((pub) => (
@@ -211,24 +257,6 @@ const recentNews = news.slice(0, 4);
 </main>
 
 <script>
-  import { paintReadState, readLast } from '../lib/reading';
-  import { withBase } from '../lib/url';
-
-  function initHomeNotes() {
-    const root = document.getElementById('home-notes');
-    if (!root) return;
-    paintReadState(root);
-    const last = readLast();
-    const card = document.getElementById('home-continue') as HTMLAnchorElement | null;
-    if (!card || !last) return;
-    const zh = document.documentElement.lang?.startsWith('zh');
-    const title = card.querySelector<HTMLElement>('[data-continue-title]');
-    if (title) title.textContent = last.title;
-    card.href = withBase(last.lang === 'zh' ? `zh/notes/${last.slug}` : `notes/${last.slug}`);
-    if ((zh && last.lang !== 'zh') || (!zh && last.lang !== 'en')) {
-      // Recorded in the other language: still offer it, the note page handles the language toggle.
-    }
-    card.hidden = false;
-  }
-  initHomeNotes();
+  import { paintReadState } from '../lib/reading';
+  paintReadState(document.getElementById('home-notes') ?? document);
 </script>

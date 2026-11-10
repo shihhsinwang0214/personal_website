@@ -1,0 +1,69 @@
+---
+interface Props { lang?: 'en' | 'zh'; groups: string[] }
+const { lang = 'en', groups } = Astro.props;
+const zh = lang === 'zh';
+---
+<div class="publication-tools" data-publication-tools data-lang={lang} hidden data-pagefind-ignore>
+  <div class="publication-filter-fields">
+    <label>
+      <span>{zh ? '搜尋著作' : 'Find a publication'}</span>
+      <input type="search" data-publication-query placeholder={zh ? '標題、作者或會議名稱' : 'Title, author or venue'} aria-controls="publication-list" />
+    </label>
+    <label>
+      <span>{zh ? '研究領域' : 'Research area'}</span>
+      <select data-publication-area aria-controls="publication-list">
+        <option value="">{zh ? '所有領域' : 'All areas'}</option>
+        {groups.map((group) => <option value={group}>{group}</option>)}
+      </select>
+    </label>
+    <button type="button" class="quiet-button" data-publication-reset>{zh ? '清除篩選' : 'Clear filters'}</button>
+  </div>
+  <p class="publication-count" role="status" aria-live="polite" data-publication-count></p>
+</div>
+<p class="publication-empty" data-publication-empty hidden>{zh ? '沒有符合條件的著作。試試作者姓名、其他關鍵字，或清除篩選。' : 'No publications match. Try an author name, another keyword, or clear the filters.'}</p>
+
+<script>
+  const tools = document.querySelector<HTMLElement>('[data-publication-tools]');
+  if (tools) {
+    const query = tools.querySelector<HTMLInputElement>('[data-publication-query]')!;
+    const area = tools.querySelector<HTMLSelectElement>('[data-publication-area]')!;
+    const count = tools.querySelector<HTMLElement>('[data-publication-count]')!;
+    const groups = Array.from(document.querySelectorAll<HTMLElement>('[data-publication-group]'));
+    const items = groups.flatMap((group) => Array.from(group.querySelectorAll<HTMLElement>('.pub-item')).map((item) => ({
+      item, group: group.dataset.publicationGroup,
+      text: ['.pub-title', '.pub-authors', '.pub-venue'].map((sel) => item.querySelector(sel)?.textContent || '').join(' ').toLocaleLowerCase(),
+    })));
+    const apply = () => {
+      const terms = query.value.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+      let visible = 0;
+      items.forEach(({ item, group, text }) => {
+        item.hidden = Boolean(area.value && area.value !== group) || !terms.every((term) => text.includes(term));
+        if (!item.hidden) visible++;
+      });
+      groups.forEach((group) => { group.hidden = !group.querySelector('.pub-item:not([hidden])'); });
+      count.textContent = tools.dataset.lang === 'zh' ? `顯示 ${visible} / ${items.length} 篇著作` : `Showing ${visible} of ${items.length} publications`;
+      const empty = document.querySelector<HTMLElement>('[data-publication-empty]');
+      if (empty) empty.hidden = visible > 0;
+    };
+    query.addEventListener('input', apply);
+    area.addEventListener('change', apply);
+    tools.querySelector('[data-publication-reset]')?.addEventListener('click', () => { query.value = ''; area.value = ''; apply(); query.focus(); });
+    tools.hidden = false;
+    apply();
+    document.querySelectorAll<HTMLButtonElement>('.pub-bibtex-copy').forEach((button) => {
+      button.setAttribute('aria-live', 'polite');
+      button.addEventListener('click', async () => {
+        const original = button.textContent;
+        const code = button.parentElement?.querySelector('code')?.textContent || '';
+        try {
+          if (!navigator.clipboard) throw new Error('Clipboard unavailable');
+          await navigator.clipboard.writeText(code);
+          button.textContent = tools.dataset.lang === 'zh' ? '已複製' : 'Copied';
+        } catch {
+          button.textContent = tools.dataset.lang === 'zh' ? '請選取下方文字複製' : 'Select the text below to copy';
+        }
+        setTimeout(() => { button.textContent = original; }, 2000);
+      });
+    });
+  }
+</script>

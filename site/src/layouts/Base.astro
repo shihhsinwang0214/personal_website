@@ -1,11 +1,19 @@
 ---
+import PixelIcon from '../components/PixelIcon.astro';
 import '../styles/global.css';
+import '../styles/site-polish.css';
+import '../styles/scholar-theme.css';
+import '../styles/navigation-icons.css';
 import 'katex/dist/katex.min.css';
 import { withBase } from '../lib/url';
 import { profile } from '../data/content';
 import { analytics } from '../data/integrations';
+import VisitorCounts from '../components/VisitorCounts.astro';
 import { handbookInNav } from '../lib/handbook';
-import { dojoTitle } from '../lib/dojo';
+import SearchPanel from '../components/SearchPanel.astro';
+import NavigationIcon from '../components/NavigationIcon.astro';
+import type { NavigationIconKind } from '../lib/navigationIcons';
+import type { PixelIconName } from '../lib/pixelIcons';
 
 interface Props {
   title: string;
@@ -45,12 +53,11 @@ const ogImageUrl = new URL(withBase(ogImage), Astro.url).href;
 const notesFeedUrl = withBase('rss.xml');
 const newsFeedUrl = withBase('news.xml');
 
-// Nav is language-aware. Home / Notes / About have zh versions; Publications,
-// Experience and CV are English-only by design, so they always point to the en pages.
+// Describe destinations in plain language; retain the established page titles.
 const nav = [
   { id: 'home', label: isZh ? '首頁' : 'Home', href: withBase(isZh ? 'zh' : '') },
-  { id: 'notes', label: isZh ? '筆記' : 'Notes', href: withBase(isZh ? 'zh/notes' : 'notes') },
-  { id: 'dojo', label: dojoTitle[lang], href: withBase(isZh ? 'zh/dojo' : 'dojo') },
+  { id: 'notes', label: isZh ? '課程筆記' : 'Courses', href: withBase(isZh ? 'zh/notes' : 'notes') },
+  { id: 'dojo', label: isZh ? '互動學習' : 'Practice', href: withBase(isZh ? 'zh/dojo' : 'dojo') },
   ...(handbookInNav
     ? [{ id: 'handbook', label: isZh ? '研究室' : 'Lab', href: withBase(isZh ? 'zh/handbook' : 'handbook') }]
     : []),
@@ -61,10 +68,12 @@ const nav = [
 ];
 
 const year = new Date().getFullYear();
+const navPixelKinds: Record<string, PixelIconName> = { home: 'home', experience: 'experience', about: 'person', cv: 'document' };
+const navIconKinds: Partial<Record<string, NavigationIconKind>> = { notes: 'learn', dojo: 'practice', publications: 'research', handbook: 'lab' };
 ---
 
 <!doctype html>
-<html lang={lang}>
+<html lang={isZh ? 'zh-Hant' : 'en'}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -113,36 +122,46 @@ const year = new Date().getFullYear();
           is:inline
           data-goatcounter={`https://${analytics.code}.goatcounter.com/count`}
           async
-          src="//gc.zgo.at/count.js"
+          src="https://gc.zgo.at/count.js"
         />
       )
     }
   </head>
-  <body>
-    <a class="skip-link" href="#main">Skip to content</a>
+  <body class="scholar-site">
+    <a class="skip-link" href="#main">{isZh ? '跳至主要內容' : 'Skip to content'}</a>
 
     <header class="site-header">
       <div class="topbar-inner">
-        <a class="brand" href={withBase(isZh ? 'zh' : '')}>
-          <img class="brand-avatar" src={withBase(profile.avatar)} alt="" />
+        <a class="brand" aria-label={`${profile.name} ${profile.nameZh}`} href={withBase(isZh ? 'zh' : '')}>
+          <img class="brand-avatar" src={withBase(profile.avatar)} alt="" width="30" height="30" />
+          <span class="brand-short">{isZh ? profile.nameZh : 'S.-H. Wang'}</span>
           <span class="brand-name">{profile.name} <span class="brand-zh">{profile.nameZh}</span></span>
         </a>
 
         <div class="nav-right">
-          <nav class="site-nav" id="site-nav" aria-label="Primary">
+          <nav class="site-nav" id="site-nav" aria-label={isZh ? '主要導覽' : 'Primary navigation'}>
             {
               nav.map((item) => (
                 <a
                   href={item.href}
+                  title={item.id === 'dojo' ? (isZh ? '知識秘境：透過問題與對話學習' : 'Knowledge Realms: learn through questions and conversations') : undefined}
                   aria-current={item.id === active ? 'page' : undefined}
                   target={item.external ? '_blank' : undefined}
                   rel={item.external ? 'noopener' : undefined}
                 >
+                  {navIconKinds[item.id]
+                    ? <NavigationIcon kind={navIconKinds[item.id]!} size="small" class="nav-section-icon" />
+                    : <PixelIcon name={navPixelKinds[item.id]} class="nav-section-icon" />}
                   {item.label}
                 </a>
               ))
             }
           </nav>
+
+          <button class="search-toggle" type="button" aria-label={isZh ? '搜尋筆記' : 'Search notes'} aria-haspopup="dialog" aria-controls="site-search-dialog" title={isZh ? '搜尋筆記（⌘ / Ctrl K）' : 'Search notes (⌘ / Ctrl K)'}>
+            <PixelIcon name="search" />
+            <span class="search-toggle-label">{isZh ? '搜尋' : 'Search'}</span>
+          </button>
 
           {
             langToggleHref && (
@@ -152,20 +171,14 @@ const year = new Date().getFullYear();
             )
           }
 
-          <button class="theme-toggle" type="button" aria-label="Toggle dark mode" aria-pressed="false">
-            <svg class="icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="4" />
-              <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19" />
-            </svg>
-            <svg class="icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
-            </svg>
+          <button class="theme-toggle" type="button" aria-label={isZh ? '切換深色模式' : 'Toggle dark mode'} aria-pressed="false">
+            <PixelIcon name="sun" class="icon icon-sun" />
+            <PixelIcon name="moon" class="icon icon-moon" />
           </button>
 
-          <button class="nav-toggle" type="button" aria-label="Menu" aria-controls="site-nav" aria-expanded="false">
-            <span class="nav-toggle-bar"></span>
-            <span class="nav-toggle-bar"></span>
-            <span class="nav-toggle-bar"></span>
+          <button class="nav-toggle" type="button" aria-label={isZh ? '開啟導覽選單' : 'Open navigation menu'} data-open-label={isZh ? '開啟導覽選單' : 'Open navigation menu'} data-close-label={isZh ? '關閉導覽選單' : 'Close navigation menu'} aria-controls="site-nav" aria-expanded="false">
+            <PixelIcon name="menu" class="nav-menu-icon" />
+            <PixelIcon name="close" class="nav-close-icon" />
           </button>
         </div>
       </div>
@@ -173,98 +186,129 @@ const year = new Date().getFullYear();
 
     <div class="nav-scrim"></div>
 
-    <div id="main" data-pagefind-body>
+    <dialog class="search-dialog" id="site-search-dialog" aria-labelledby="site-search-title">
+      <div class="search-dialog-toolbar">
+        <span>{isZh ? '搜尋課程與筆記' : 'Find a course or note'}</span>
+        <button class="search-close" type="button" aria-label={isZh ? '關閉搜尋' : 'Close search'}>
+          <PixelIcon name="close" />
+        </button>
+      </div>
+      <SearchPanel lang={lang} id="site-search" />
+      <p class="search-dialog-hint">{isZh ? '按 Esc 關閉 · ⌘ / Ctrl K 開啟搜尋' : 'Esc to close · ⌘ / Ctrl K to search'}</p>
+    </dialog>
+
+    <div id="main" tabindex="-1" data-pagefind-body>
       <slot />
     </div>
 
     <footer class="site-footer">
-      &copy; {profile.name} ({profile.nameZh}) // {year}
+      <span>&copy; {year} {profile.name} <span class="footer-name-zh">{profile.nameZh}</span></span>
+      <nav aria-label={isZh ? '頁尾導覽' : 'Footer navigation'}>
+        <a href={withBase(isZh ? 'zh/notes' : 'notes')}><NavigationIcon kind="learn" size="small" />{isZh ? '筆記' : 'Notes'}</a>
+        <a href={`mailto:${profile.contact.email}`}><PixelIcon name="mail" size={18} />{isZh ? '聯絡' : 'Contact'}</a>
+        <a href={notesFeedUrl}><PixelIcon name="rss" size={18} />RSS</a>
+      </nav>
+      <VisitorCounts lang={lang} />
     </footer>
 
     <script>
-      function setStuck() {
-        const h = document.querySelector('.site-header');
-        if (h) h.classList.toggle('is-stuck', window.scrollY > 8);
+      const header = document.querySelector<HTMLElement>('.site-header');
+      const navToggle = document.querySelector<HTMLButtonElement>('.nav-toggle');
+      const nav = document.getElementById('site-nav');
+      const scrim = document.querySelector('.nav-scrim');
+      const themeToggle = document.querySelector<HTMLButtonElement>('.theme-toggle');
+      const main = document.getElementById('main');
+      const footer = document.querySelector<HTMLElement>('.site-footer');
+      const searchToggle = document.querySelector<HTMLButtonElement>('.search-toggle');
+      const searchDialog = document.querySelector<HTMLDialogElement>('#site-search-dialog');
+      const mobile = window.matchMedia('(max-width: 1199px)');
+      const headerBackground = Array.from(header?.querySelectorAll<HTMLElement>('.brand, .search-toggle, .lang-toggle, .theme-toggle') ?? []);
+      if (nav) nav.inert = mobile.matches;
+
+      function closeNav(restoreFocus = false) {
+        document.body.classList.remove('nav-open');
+        navToggle?.setAttribute('aria-expanded', 'false');
+        navToggle?.setAttribute('aria-label', navToggle.dataset.openLabel || 'Open navigation menu');
+        if (nav) nav.inert = mobile.matches;
+        headerBackground.forEach((element) => { element.inert = false; });
+        if (main) main.inert = false;
+        if (footer) footer.inert = false;
+        if (restoreFocus) navToggle?.focus();
       }
-
-      function bindHeader() {
-        const navToggle = document.querySelector('.nav-toggle');
-        const nav = document.getElementById('site-nav');
-        const scrim = document.querySelector('.nav-scrim');
-        const themeToggle = document.querySelector('.theme-toggle');
-
-        if (themeToggle) {
-          const sync = () =>
-            themeToggle.setAttribute(
-              'aria-pressed',
-              document.documentElement.dataset.theme === 'dark' ? 'true' : 'false',
-            );
-          sync();
-          themeToggle.addEventListener('click', () => {
-            const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-            document.documentElement.dataset.theme = next;
-            try {
-              localStorage.setItem('theme', next);
-            } catch (e) {}
-            sync();
-          });
+      navToggle?.addEventListener('click', () => {
+        if (document.body.classList.contains('nav-open')) {
+          closeNav(true);
+          return;
         }
-
-        const close = () => {
-          document.body.classList.remove('nav-open');
-          if (navToggle) navToggle.setAttribute('aria-expanded', 'false');
-        };
-
-        if (navToggle && nav) {
-          navToggle.addEventListener('click', () => {
-            const isOpen = document.body.classList.toggle('nav-open');
-            navToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-            if (isOpen) {
-              const first = nav.querySelector('a, button');
-              if (first instanceof HTMLElement) first.focus();
-            }
-          });
-          if (scrim) scrim.addEventListener('click', close);
-          nav.addEventListener('click', (e) => {
-            if ((e.target as HTMLElement).closest('a')) close();
-          });
-          nav.addEventListener('keydown', (e) => {
-            if (e.key !== 'Tab' || !document.body.classList.contains('nav-open')) return;
-            const items = nav.querySelectorAll<HTMLElement>('a, button');
-            if (!items.length) return;
-            const first = items[0];
-            const last = items[items.length - 1];
-            if (e.shiftKey && document.activeElement === first) {
-              e.preventDefault();
-              last.focus();
-            } else if (!e.shiftKey && document.activeElement === last) {
-              e.preventDefault();
-              first.focus();
-            }
-          });
-        }
-      }
-
-      function setup() {
-        bindHeader();
-        setStuck();
-      }
-
-      if (!(window as any).__chromeGlobal) {
-        (window as any).__chromeGlobal = true;
-        window.addEventListener('scroll', setStuck, { passive: true });
-        document.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape') {
-            document.body.classList.remove('nav-open');
-            const nt = document.querySelector('.nav-toggle');
-            if (nt) nt.setAttribute('aria-expanded', 'false');
-          }
+        document.body.classList.add('nav-open');
+        navToggle.setAttribute('aria-expanded', 'true');
+        navToggle.setAttribute('aria-label', navToggle.dataset.closeLabel || 'Close navigation menu');
+        if (nav) nav.inert = false;
+        headerBackground.forEach((element) => { element.inert = true; });
+        if (main) main.inert = true;
+        if (footer) footer.inert = true;
+        requestAnimationFrame(() => {
+          if (document.body.classList.contains('nav-open')) nav?.querySelector<HTMLElement>('a')?.focus();
         });
-      }
+      });
+      scrim?.addEventListener('click', () => closeNav(true));
+      nav?.addEventListener('click', (event) => {
+        if ((event.target as HTMLElement).closest('a')) closeNav();
+      });
+      mobile.addEventListener('change', () => closeNav());
 
-      // Full-page navigations (no view-transition router). Astro <script>
-      // modules are deferred, so the DOM is ready when this runs.
-      setup();
+      const syncTheme = () => themeToggle?.setAttribute('aria-pressed', String(document.documentElement.dataset.theme === 'dark'));
+      syncTheme();
+      themeToggle?.addEventListener('click', () => {
+        const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        document.documentElement.dataset.theme = next;
+        try { localStorage.setItem('theme', next); } catch {}
+        syncTheme();
+      });
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (event) => {
+        try { if (localStorage.getItem('theme')) return; } catch {}
+        document.documentElement.dataset.theme = event.matches ? 'dark' : 'light';
+        syncTheme();
+      });
+
+      function openSearch() {
+        closeNav();
+        if (!searchDialog || searchDialog.open) return;
+        searchDialog.showModal();
+        document.body.classList.add('search-open');
+        searchDialog.querySelector<HTMLInputElement>('input')?.focus();
+      }
+      searchToggle?.addEventListener('click', openSearch);
+      searchDialog?.querySelector('.search-close')?.addEventListener('click', () => searchDialog.close());
+      searchDialog?.addEventListener('click', (event) => {
+        const rect = searchDialog.getBoundingClientRect();
+        if (event.target === searchDialog && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) searchDialog.close();
+      });
+      searchDialog?.addEventListener('close', () => {
+        document.body.classList.remove('search-open');
+        searchToggle?.focus();
+      });
+      document.addEventListener('keydown', (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+          // Leave any experiment's modal in control of its own keyboard input.
+          if (document.querySelector('dialog[open]') && !searchDialog?.open) return;
+          event.preventDefault();
+          if (searchDialog?.open) searchDialog.close();
+          else openSearch();
+        }
+        if (!document.body.classList.contains('nav-open')) return;
+        if (event.key === 'Escape') closeNav(true);
+        if (event.key === 'Tab' && header) {
+          const items = [...Array.from(nav?.querySelectorAll<HTMLElement>('a, button') ?? []), navToggle!];
+          const first = items[0];
+          const last = items[items.length - 1];
+          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+        }
+      });
+      const setStuck = () => header?.classList.toggle('is-stuck', window.scrollY > 8);
+      window.addEventListener('scroll', setStuck, { passive: true });
+      setStuck();
     </script>
   </body>
 </html>

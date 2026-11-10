@@ -20,6 +20,8 @@ export interface LastRead {
   courseKey?: string;
   group?: string;
   ts: number;
+  /** Last section visible when leaving; no answers or experiment data are stored. */
+  heading?: string;
 }
 
 export function readSlugs(): Set<string> {
@@ -51,7 +53,8 @@ export function readLast(): LastRead | undefined {
     const raw = localStorage.getItem(LAST_KEY);
     if (!raw) return undefined;
     const v = JSON.parse(raw);
-    return v && typeof v.slug === 'string' ? (v as LastRead) : undefined;
+    if (!v || typeof v.slug !== 'string' || (v.lang !== 'en' && v.lang !== 'zh') || typeof v.title !== 'string') return undefined;
+    return { ...v, heading: typeof v.heading === 'string' ? v.heading : undefined } as LastRead;
   } catch {
     return undefined;
   }

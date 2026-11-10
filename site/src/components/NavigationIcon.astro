@@ -1,0 +1,27 @@
+---
+import { getImage } from 'astro:assets';
+import largeSheet from '../assets/navigation/matched-palettes/01-ocean-apricot-large-v1.png';
+import smallSheet from '../assets/navigation/matched-palettes/01-ocean-apricot-small-v2.png';
+import { navigationIconMotion, navigationIconOrder, type NavigationIconKind } from '../lib/navigationIcons';
+
+interface Props {
+  kind: NavigationIconKind;
+  size?: 'large' | 'small';
+  animate?: boolean;
+  class?: string;
+}
+const { kind, size = 'large', animate = false, class: className } = Astro.props;
+// Viewports select the original sheet's icons without modifying either bitmap.
+const largeBoxes = [[1,169,548,419],[563,133,520,484],[1083,111,499,528],[1598,177,574,454]];
+const smallBoxes = [[16,149,512,446],[585,123,484,488],[1102,86,478,525],[1619,158,550,466]];
+const small = size === 'small';
+const source = small ? smallSheet : largeSheet;
+const image = await getImage({ src: source, width: small ? 1086 : 1600, format: 'webp', quality: small ? 100 : 88 });
+const box = (small ? smallBoxes : largeBoxes)[navigationIconOrder.indexOf(kind)];
+---
+<span class:list={['nav-illustration', `nav-illustration--${kind}`, `nav-illustration--${size}`, { 'nav-illustration--animated': animate && !small }, className]} aria-hidden="true">
+  <svg class="nav-illustration__image" viewBox={box.join(' ')} focusable="false">
+    <image href={image.src} width={source.width} height={source.height} />
+  </svg>
+  {animate && !small && <Fragment set:html={navigationIconMotion(kind)} />}
+</span>

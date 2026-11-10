@@ -1,155 +1,150 @@
 ---
 import { withBase } from '../lib/url';
 
-const pagefindSrc = withBase('pagefind/pagefind.js');
-const fallbackSearchSrc = withBase('search-index.json');
-const basePath = import.meta.env.BASE_URL;
+interface Props {
+  lang?: 'en' | 'zh';
+  id?: string;
+  compact?: boolean;
+}
+const { lang = 'en', id = 'notes-search', compact = false } = Astro.props;
+const isZh = lang === 'zh';
 ---
 
-<section class="search-panel" aria-labelledby="notes-search-title" data-pagefind-ignore>
-  <div class="search-panel-head">
-    <h2 id="notes-search-title">Search</h2>
-    <p id="notes-search-help">Search the static site index.</p>
+<section
+  class:list={['search-panel', { 'search-panel--compact': compact }]}
+  aria-labelledby={`${id}-title`}
+  data-search-panel
+  data-search-lang={lang}
+  data-pagefind-src={import.meta.env.DEV ? undefined : withBase('pagefind/pagefind.js')}
+  data-fallback-src={withBase('search-index.json')}
+  data-base-path={import.meta.env.BASE_URL}
+  data-pagefind-ignore
+>
+  <div class:list={['search-panel-head', { 'visually-hidden': compact }]}>
+    <h2 id={`${id}-title`}>{isZh ? '搜尋筆記' : 'Search notes'}</h2>
+    <p id={`${id}-help`}>{isZh ? '輸入主題、關鍵字或單元編號，例如 Flow Matching、U4。' : 'Search by topic, keyword or unit code, such as Flow Matching or U4.'}</p>
   </div>
-  <form class="search-form" role="search">
-    <label class="visually-hidden" for="notes-search-input">Search writing</label>
+  <form class="search-form" role="search" aria-label={isZh ? '搜尋筆記' : 'Search notes'}>
+    <label class="visually-hidden" for={`${id}-input`}>{isZh ? '搜尋關鍵字' : 'Search keywords'}</label>
     <input
-      id="notes-search-input"
+      id={`${id}-input`}
       type="search"
+      name="q"
       autocomplete="off"
-      placeholder="Search writing"
-      aria-describedby="notes-search-help notes-search-status"
+      placeholder={compact ? (isZh ? '搜尋主題或單元，例如 Flow Matching、U4' : 'Search topics or units, e.g. Flow Matching, U4') : (isZh ? '想學些什麼？' : 'What would you like to learn?')}
+      aria-describedby={`${id}-help ${id}-status`}
+      aria-controls={`${id}-results`}
     />
+    <button class="search-submit" type="submit">{isZh ? '搜尋' : 'Search'}</button>
   </form>
-  <p class="search-status" id="notes-search-status" role="status" aria-live="polite"></p>
-  <ol class="search-results" id="notes-search-results"></ol>
+  <p class="search-status" id={`${id}-status`} role="status" aria-live="polite" aria-atomic="true"></p>
+  <ol class="search-results" id={`${id}-results`}></ol>
 </section>
 
-<script is:inline define:vars={{ pagefindSrc, fallbackSearchSrc, basePath }}>
-  (() => {
-    let pagefind;
-    let fallbackIndex;
-    let requestId = 0;
+<script>
+  interface SearchItem {
+    url: string;
+    title: string;
+    excerpt?: string;
+    excerptHtml?: string;
+    text?: string;
+  }
+  let fallbackPromise: Promise<SearchItem[]> | undefined;
+  let pagefindPromise: Promise<any> | undefined;
 
-    function routeWithBase(url) {
-      if (!url) return basePath;
-      if (/^https?:\/\//.test(url)) return url;
-      if (url.startsWith(basePath)) return url;
+  document.querySelectorAll<HTMLElement>('[data-search-panel]').forEach((panel) => {
+    const input = panel.querySelector<HTMLInputElement>('input');
+    const form = panel.querySelector('form');
+    const results = panel.querySelector<HTMLOListElement>('.search-results');
+    const status = panel.querySelector<HTMLElement>('.search-status');
+    if (!input || !form || !results || !status) return;
+    const isZh = panel.dataset.searchLang === 'zh';
+    const basePath = panel.dataset.basePath || '/';
+    let requestId = 0;
+    let timer: ReturnType<typeof setTimeout>;
+
+    function routeWithBase(url: string) {
+      if (/^https?:\/\//.test(url) || url.startsWith(basePath)) return url;
       return basePath.replace(/\/$/, '') + '/' + url.replace(/^\//, '');
     }
-
-    function clear(results, status) {
-      results.replaceChildren();
-      status.textContent = '';
+    async function fallback(query: string) {
+      fallbackPromise ??= fetch(panel.dataset.fallbackSrc!).then((response) => {
+        if (!response.ok) throw new Error('Search unavailable');
+        return response.json();
+      }).catch((error) => { fallbackPromise = undefined; throw error; });
+      const entries = await fallbackPromise;
+      const terms = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+      return entries.map((item) => {
+        const title = item.title.toLocaleLowerCase();
+        const text = (item.text || '').toLocaleLowerCase();
+        if (!terms.every((term) => text.includes(term))) return null;
+        return { ...item, score: terms.reduce((score, term) => score + (title.includes(term) ? 4 : 1), 0) };
+      }).filter((item) => item !== null).sort((a, b) => b.score - a.score).slice(0, 8);
     }
-
-    function renderResults(results, status, items) {
-      results.replaceChildren();
-      if (!items.length) {
-        status.textContent = 'No results';
-        return;
+    async function search(query: string): Promise<SearchItem[]> {
+      if (panel.dataset.pagefindSrc) {
+        try {
+          const src = panel.dataset.pagefindSrc;
+          pagefindPromise ??= import(/* @vite-ignore */ src).catch((error) => { pagefindPromise = undefined; throw error; });
+          const pagefind = await pagefindPromise;
+          const response = await pagefind.search(query);
+          const data = await Promise.all(response.results.slice(0, 8).map((result: any) => result.data()));
+          if (data.length) return data.map((item: any) => ({ url: item.url, title: item.meta?.title || item.url, excerptHtml: item.excerpt || '' }));
+        } catch { /* The metadata index also works before a full Pagefind build. */ }
       }
-      status.textContent = `${items.length} result${items.length === 1 ? '' : 's'}`;
-      for (const item of items) {
-        const li = document.createElement('li');
-        const a = document.createElement('a');
-        const p = document.createElement('p');
-        a.href = routeWithBase(item.url);
-        a.textContent = item.title || item.meta?.title || item.url;
-        if (item.excerptHtml) {
-          p.innerHTML = item.excerptHtml;
-        } else {
-          p.textContent = item.excerpt || '';
+      return fallback(query);
+    }
+    async function run(query: string, current: number) {
+      status!.textContent = isZh ? '搜尋中…' : 'Searching…';
+      results!.setAttribute('aria-busy', 'true');
+      try {
+        const items = await search(query);
+        if (current !== requestId) return;
+        results!.replaceChildren();
+        status!.textContent = items.length
+          ? isZh ? `顯示 ${items.length} 筆結果${items.length === 8 ? '，可加入關鍵字縮小範圍' : ''}。` : `Showing ${items.length} result${items.length === 1 ? '' : 's'}${items.length === 8 ? '. Add keywords to narrow your search' : ''}.`
+          : isZh ? '找不到相關筆記，試試其他關鍵字或單元編號。' : 'No matching notes. Try another keyword or unit code.';
+        for (const item of items) {
+          const li = document.createElement('li');
+          const link = document.createElement('a');
+          const title = document.createElement('strong');
+          const excerpt = document.createElement('p');
+          link.href = routeWithBase(item.url);
+          title.textContent = item.title;
+          if (item.excerptHtml) excerpt.innerHTML = item.excerptHtml;
+          else excerpt.textContent = item.excerpt || '';
+          link.append(title, excerpt);
+          li.append(link);
+          results!.append(li);
         }
-        li.append(a, p);
-        results.append(li);
+      } catch {
+        if (current !== requestId) return;
+        results!.replaceChildren();
+        status!.textContent = isZh ? '暫時無法搜尋，請稍後再試。' : 'Search is temporarily unavailable. Please try again.';
+      } finally {
+        if (current === requestId) results!.removeAttribute('aria-busy');
       }
     }
-
-    function normalize(text) {
-      return String(text || '').toLocaleLowerCase();
+    function schedule(immediate = false) {
+      clearTimeout(timer);
+      // Invalidate in-flight results immediately, including when the input is cleared.
+      const current = ++requestId;
+      const query = input!.value.trim();
+      results!.replaceChildren();
+      results!.removeAttribute('aria-busy');
+      status!.textContent = '';
+      if (!query) return;
+      if (immediate) void run(query, current);
+      else timer = setTimeout(() => void run(query, current), 180);
     }
-
-    async function getFallbackIndex() {
-      if (fallbackIndex) return fallbackIndex;
-      const response = await fetch(fallbackSearchSrc, { credentials: 'same-origin' });
-      if (!response.ok) throw new Error('Fallback search index unavailable');
-      fallbackIndex = await response.json();
-      return fallbackIndex;
+    input.addEventListener('input', () => schedule());
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      schedule(true);
+    });
+    if (!panel.closest('dialog')) {
+      const query = new URLSearchParams(location.search).get('q');
+      if (query) { input.value = query; schedule(true); }
     }
-
-    async function searchFallback(query) {
-      const terms = normalize(query).split(/\s+/).filter(Boolean);
-      const index = await getFallbackIndex();
-      return index
-        .map((item) => {
-          const title = normalize(item.title);
-          const text = normalize(item.text);
-          if (!terms.every((term) => text.includes(term))) return null;
-          const titleScore = terms.reduce((score, term) => score + (title.includes(term) ? 4 : 0), 0);
-          const textScore = terms.reduce((score, term) => score + (text.includes(term) ? 1 : 0), 0);
-          return { ...item, score: titleScore + textScore };
-        })
-        .filter(Boolean)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 8);
-    }
-
-    async function searchPagefind(query) {
-      pagefind = pagefind || (await import(pagefindSrc));
-      const response = await pagefind.search(query);
-      const data = await Promise.all(response.results.slice(0, 8).map((result) => result.data()));
-      return data.map((item) => ({
-        url: item.url,
-        title: item.meta?.title || item.url,
-        excerptHtml: item.excerpt || '',
-      }));
-    }
-
-    function bindSearch() {
-      const input = document.getElementById('notes-search-input');
-      const results = document.getElementById('notes-search-results');
-      const status = document.getElementById('notes-search-status');
-      if (!input || !results || !status || input.dataset.searchBound) return;
-      input.dataset.searchBound = 'true';
-
-      let timer;
-      const runSearch = () => {
-        window.clearTimeout(timer);
-        timer = window.setTimeout(async () => {
-          const query = input.value.trim();
-          const current = ++requestId;
-          if (!query) {
-            clear(results, status);
-            return;
-          }
-          status.textContent = 'Searching';
-          try {
-            let data;
-            try {
-              data = await searchPagefind(query);
-            } catch (pagefindError) {
-              data = await searchFallback(query);
-            }
-            if (current === requestId) renderResults(results, status, data);
-          } catch (error) {
-            if (current === requestId) {
-              results.replaceChildren();
-              status.textContent = 'Search index unavailable';
-            }
-          }
-        }, 180);
-      };
-
-      input.addEventListener('input', runSearch);
-
-      const initialQuery = new URLSearchParams(window.location.search).get('q');
-      if (initialQuery && !input.value) {
-        input.value = initialQuery;
-        runSearch();
-      }
-    }
-
-    bindSearch();
-  })();
+  });
 </script>

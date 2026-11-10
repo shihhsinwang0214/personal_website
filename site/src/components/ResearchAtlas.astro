@@ -1,0 +1,40 @@
+---
+import { Image } from 'astro:assets';
+import PixelIcon from './PixelIcon.astro';
+import noise from '../assets/navigation/atlas-research-candidates/01-noise-to-structure-v1.png';
+import geometry from '../assets/navigation/atlas-research-candidates/02-geometric-compass-v1.png';
+import steering from '../assets/navigation/atlas-research-candidates/06-generative-steering-v1.png';
+interface Props { lang: 'en' | 'zh' }
+const { lang } = Astro.props;
+const zh = lang === 'zh';
+const slides = [
+  { image: noise, title: zh ? '雜訊到結構' : 'Noise to structure' },
+  { image: geometry, title: zh ? '幾何結構羅盤' : 'Geometry & symmetry' },
+  { image: steering, title: zh ? '生成與方向引導' : 'Generative steering' },
+];
+---
+<section class="hero-atlas" data-research-atlas data-lang={lang} role="group" aria-roledescription={zh ? '輪播' : 'carousel'} aria-label={zh ? 'Research Atlas 研究主題圖集' : 'Research Atlas illustrations'} data-pagefind-ignore>
+  <div class="atlas-frame" aria-live="off">
+    {slides.map((slide, i) => (
+      <div class:list={['atlas-slide', { 'is-active': i === 0 }]} data-atlas-slide data-title={slide.title} role="group" aria-roledescription={zh ? '圖像' : 'slide'} aria-label={`${i + 1} / ${slides.length} · ${slide.title}`} aria-hidden={i !== 0}>
+        <Image src={slide.image} alt="" width={360} widths={[160, 320, 540, 720]} sizes="(max-width: 600px) 132px, (max-width: 859px) 200px, 280px" format="webp" quality={85} loading="eager" fetchpriority={i === 0 ? 'high' : 'low'} decoding="async" />
+      </div>
+    ))}
+  </div>
+  <p class="atlas-label" aria-hidden="true">RESEARCH ATLAS <span data-atlas-count>01 / 03</span></p>
+  <p class="atlas-title" data-atlas-caption aria-hidden="true">{slides[0].title}</p>
+  <div class="atlas-controls" hidden>
+    <button type="button" data-atlas-prev aria-label={zh ? '上一張研究主題圖' : 'Previous research illustration'}><PixelIcon name="left" size={16} /></button>
+    <button type="button" data-atlas-rotation aria-label={zh ? '暫停自動切換' : 'Pause automatic rotation'}>
+      <svg class="atlas-pause-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M5 3h5v18H5zm9 0h5v18h-5z" /></svg>
+      <svg class="atlas-play-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M5 3h4v3h5v3h5v6h-5v3H9v3H5z" /></svg>
+    </button>
+    <button type="button" data-atlas-next aria-label={zh ? '下一張研究主題圖' : 'Next research illustration'}><PixelIcon name="right" size={16} /></button>
+  </div>
+  <span class="visually-hidden" data-atlas-announcement aria-live="polite" aria-atomic="true"></span>
+</section>
+
+<script>
+  import { initResearchAtlas } from '../lib/researchAtlas';
+  document.querySelectorAll<HTMLElement>('[data-research-atlas]').forEach(initResearchAtlas);
+</script>

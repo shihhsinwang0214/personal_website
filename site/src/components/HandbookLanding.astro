@@ -1,4 +1,5 @@
 ---
+import PixelIcon from './PixelIcon.astro';
 /**
  * HandbookLanding.astro — the lab homepage, as an expedition command dashboard.
  *
@@ -13,6 +14,7 @@
  */
 import { getCollection } from 'astro:content';
 import HandbookSidebar from './HandbookSidebar.astro';
+import ExplorationMark from './ExplorationMark.astro';
 import { withBase } from '../lib/url';
 import type { Lang } from '../lib/handbook';
 import {
@@ -73,11 +75,18 @@ const t = {
 
   <article class="handbook-article lab-home">
     <section class="lab-hero">
+      <ExplorationMark kind="lab" label="FIELD STATION" />
       <p class="eyebrow">{labInfo.eyebrow[lang]}</p>
       <h1 class="lab-title">{labInfo.name}</h1>
       <p class="lab-subtitle">{labInfo.subtitle}</p>
       <p class="lab-gloss">{labInfo.nameGloss[lang]}</p>
     </section>
+
+    <nav class="section-shortcuts" aria-label={lang === 'zh' ? '研究室常用入口' : 'Lab quick links'}>
+      <a href={withBase(peopleRoute(lang))}>{lang === 'zh' ? '認識成員' : 'Meet the people'} <PixelIcon name="right" size={14} /></a>
+      <a href={withBase(handbookRoute('join', lang))}>{lang === 'zh' ? '招募與申請' : 'Recruitment & applying'} <PixelIcon name="right" size={14} /></a>
+      <a href="#lab-handbook">{lang === 'zh' ? '研究室手冊' : 'Lab handbook'} <PixelIcon name="right" class="pixel-down" size={16} /></a>
+    </nav>
 
     <div class="console">
       {/* ── Main Mission — the conceptual centre, spanning the console ── */}
@@ -185,7 +194,7 @@ const t = {
       </section>
     </div>
 
-    <section class="lab-tree">
+    <section class="lab-tree" id="lab-handbook">
       <div class="lab-section-head">
         <h2>{t.manual}</h2>
         <span class="lab-tree-hint">{t.manualHint}</span>
@@ -202,7 +211,7 @@ const t = {
             data-sections={r.sections.join(' ')}
             title={r.desc[lang]}
           >
-            <span aria-hidden="true">{r.icon}</span> {r.title[lang]}
+            <PixelIcon name={r.icon} /> {r.title[lang]}
           </a>
         ))}
       </nav>
@@ -211,7 +220,7 @@ const t = {
         {nav.map((group) => (
           <div class="lab-tree-path" id={`path-${group.section.key}`} data-section={group.section.key}>
             <div class="lab-tree-head">
-              <span class="lab-tree-icon" aria-hidden="true">{group.section.icon}</span>
+              <PixelIcon name={group.section.icon} size={24} class="lab-tree-icon" />
               <span class="lab-tree-title">{group.section.label[lang]}</span>
               <span class="lab-tree-tag">{group.section.tag}</span>
             </div>
@@ -243,7 +252,7 @@ const t = {
 
     {codex.length > 0 && (
     <a class="lab-codex hud" href={withBase(bestiaryRoute(lang))}>
-      <span class="lab-codex-icon" aria-hidden="true">👾</span>
+      <PixelIcon name="monster" size={32} class="lab-codex-icon" />
       <span class="lab-codex-body">
         <span class="lab-codex-title">{bestiaryHeading[lang]}<span class="lab-codex-count">{codex.length}</span></span>
         <span class="lab-codex-text">
@@ -252,7 +261,7 @@ const t = {
             : 'The difficulties you will meet, and where the handbook deals with each.'}
         </span>
       </span>
-      <span class="lab-codex-go" aria-hidden="true">▸</span>
+      <PixelIcon name="right" class="lab-codex-go" size={20} />
     </a>
     )}
 

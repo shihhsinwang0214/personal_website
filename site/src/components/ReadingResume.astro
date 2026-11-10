@@ -1,0 +1,36 @@
+---
+import type { Lang, NoteEntry } from '../lib/notes';
+import { isPublishedNote, noteHref } from '../lib/notes';
+import { withBase } from '../lib/url';
+interface Props { lang: Lang; notes: NoteEntry[] }
+const { lang, notes } = Astro.props;
+const available = notes.filter((n) => isPublishedNote(n) && n.data.status !== 'missing');
+---
+
+<section class="reading-resume" data-reading-resume hidden data-pagefind-ignore>
+  <div>
+    <p class="reading-resume-label">{lang === 'zh' ? '繼續上次的閱讀' : 'Pick up where you left off'}</p>
+    <a class="reading-resume-title" data-resume-link href="#"><span data-resume-title></span><span aria-hidden="true"> →</span></a>
+    <p class="reading-resume-hint">{lang === 'zh' ? '閱讀位置只保留在這個瀏覽器。' : 'Your reading position stays in this browser.'}</p>
+  </div>
+  <button type="button" class="quiet-button" data-resume-hide>{lang === 'zh' ? '隱藏' : 'Hide'}</button>
+  <script type="application/json" data-resume-routes set:html={JSON.stringify(available.map((n) => ({ slug: n.data.slug, lang: n.data.lang, href: withBase(noteHref(n)) }))).replace(/</g, '\\u003c')} />
+</section>
+
+<script>
+  import { readLast } from '../lib/reading';
+  document.querySelectorAll<HTMLElement>('[data-reading-resume]').forEach((root) => {
+    const last = readLast();
+    if (!last) return;
+    const routes: { slug: string; lang: string; href: string }[] = JSON.parse(root.querySelector('[data-resume-routes]')?.textContent || '[]');
+    const route = routes.find((r) => r.slug === last.slug && r.lang === last.lang);
+    const link = root.querySelector<HTMLAnchorElement>('[data-resume-link]');
+    const title = root.querySelector<HTMLElement>('[data-resume-title]');
+    if (!route || !link || !title) return;
+    title.textContent = last.title || last.slug;
+    link.href = route.href + '?resume=1';
+    if (last.heading) link.hash = last.heading;
+    root.hidden = false;
+    root.querySelector('[data-resume-hide]')?.addEventListener('click', () => { root.hidden = true; });
+  });
+</script>

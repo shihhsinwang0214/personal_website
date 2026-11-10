@@ -1,0 +1,29 @@
+---
+import { analytics } from '../data/integrations';
+import PixelIcon from './PixelIcon.astro';
+interface Props { lang: 'en' | 'zh' }
+const { lang } = Astro.props;
+const zh = lang === 'zh';
+---
+{analytics.enabled && analytics.code && analytics.showCounts && (
+  <div class="visitor-counts" data-visitor-counts data-code={analytics.code} data-lang={lang} hidden data-pagefind-ignore>
+    <span data-page-count-wrap hidden><PixelIcon name="eye" size={18} />{zh ? '本頁瀏覽' : 'Page visits'} <strong data-page-count></strong></span>
+    <span data-total-count-wrap hidden>{zh ? '全站瀏覽' : 'Site visits'} <strong data-total-count></strong></span>
+  </div>
+)}
+<script>
+  import { counterPagePath, loadVisitorCounts } from '../lib/visitorCounts';
+  document.querySelectorAll<HTMLElement>('[data-visitor-counts]').forEach(async (root) => {
+    // Local previews must neither pollute production statistics nor display them as local counts.
+    if (['localhost', '127.0.0.1', '::1', '[::1]'].includes(location.hostname)) return;
+    const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href;
+    const counts = await loadVisitorCounts(root.dataset.code!, counterPagePath(location.href, canonical), root.dataset.lang);
+    for (const key of ['page', 'total'] as const) {
+      const value = counts[key];
+      if (value === null) continue;
+      root.querySelector<HTMLElement>(`[data-${key}-count]`)!.textContent = value;
+      root.querySelector<HTMLElement>(`[data-${key}-count-wrap]`)!.hidden = false;
+      root.hidden = false;
+    }
+  });
+</script>

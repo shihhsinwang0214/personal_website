@@ -1,4 +1,6 @@
 ---
+import ExplorationMark from '../components/ExplorationMark.astro';
+import PublicationTools from '../components/PublicationTools.astro';
 import Base from '../layouts/Base.astro';
 import { withBase } from '../lib/url';
 import { publications } from '../data/content';
@@ -30,15 +32,18 @@ const alternates = [
 >
   <main class="page content">
     <section>
+      <ExplorationMark kind="research" label="PUBLICATIONS" />
       <h1>Publications</h1>
       <p class="pub-intro">
         Full list also on
         <a href="https://scholar.google.com/citations?user=IoihdcYAAAAJ&hl=en" target="_blank" rel="noopener">Google Scholar</a>. * denotes equal contribution.
       </p>
+      <PublicationTools lang="en" groups={publications.map((group) => group.group)} />
+      <div id="publication-list">
       {
         publications.map((group) => (
-          <>
-            <h3>{group.group}</h3>
+          <section class="publication-group" data-publication-group={group.group}>
+            <h2>{group.group}</h2>
             {group.items.map((pub) => (
               <div class="pub-item">
                 <div class="pub-title">
@@ -71,30 +76,11 @@ const alternates = [
                 </div>
               </div>
             ))}
-          </>
+          </section>
         ))
       }
+      </div>
     </section>
   </main>
 
-  <script>
-    function initBibtex() {
-      document.querySelectorAll('.pub-bibtex-copy').forEach((btn) => {
-        if ((btn as HTMLElement).dataset.bound) return;
-        (btn as HTMLElement).dataset.bound = '1';
-        btn.addEventListener('click', () => {
-          const code = btn.parentElement?.querySelector('code')?.textContent ?? '';
-          if (!navigator.clipboard) return;
-          navigator.clipboard.writeText(code).then(() => {
-            const original = btn.textContent;
-            btn.textContent = 'Copied';
-            setTimeout(() => {
-              btn.textContent = original;
-            }, 1400);
-          });
-        });
-      });
-    }
-    initBibtex();
-  </script>
 </Base>

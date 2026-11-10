@@ -1,4 +1,5 @@
 import type { CollectionEntry } from 'astro:content';
+import type { PixelIconName } from './pixelIcons';
 
 export type Lang = 'en' | 'zh';
 export type HandbookEntry = CollectionEntry<'handbook'>;
@@ -56,7 +57,7 @@ export const hiddenHandbookSlugs: Set<string> =
 
 export interface SectionDef {
   key: SectionKey;
-  icon: string;
+  icon: PixelIconName;
   label: Record<Lang, string>;
   /** Mono tag shown beside the section label — the RPG reading of this section.
    *  English on both languages, like the rest of the game vocabulary.
@@ -69,7 +70,7 @@ export interface SectionDef {
 export const handbookSections: SectionDef[] = [
   {
     key: 'joining',
-    icon: '🌱',
+    icon: 'seed',
     tag: 'RECRUITMENT QUEST',
     label: { en: 'Joining the Lab', zh: '加入研究室' },
     blurb: {
@@ -80,7 +81,7 @@ export const handbookSections: SectionDef[] = [
   },
   {
     key: 'practice',
-    icon: '🧭',
+    icon: 'compass',
     tag: 'HOW WE LEVEL UP',
     label: { en: 'How We Do Research', zh: '我們怎麼做研究' },
     blurb: {
@@ -91,7 +92,7 @@ export const handbookSections: SectionDef[] = [
   },
   {
     key: 'getting-started',
-    icon: '🎓',
+    icon: 'cap',
     tag: 'TUTORIAL',
     label: { en: 'Finding Your Research Question', zh: '找到你的研究問題' },
     blurb: {
@@ -102,7 +103,7 @@ export const handbookSections: SectionDef[] = [
   },
   {
     key: 'craft',
-    icon: '🔬',
+    icon: 'microscope',
     tag: 'SKILL MANUAL',
     label: { en: 'Research Craft', zh: '研究技藝' },
     blurb: {
@@ -118,14 +119,14 @@ export const handbookSections: SectionDef[] = [
 // work and how to find a question, and those are different sections. The first
 // entry is where the anchor jumps to; all of them light up.
 export interface RoleCard {
-  icon: string;
+  icon: PixelIconName;
   sections: SectionKey[];
   title: Record<Lang, string>;
   desc: Record<Lang, string>;
 }
 export const roleCards: RoleCard[] = [
   {
-    icon: '🌱',
+    icon: 'seed',
     sections: ['joining', 'practice'],
     title: { en: 'Prospective Student', zh: '準學生' },
     desc: {
@@ -134,7 +135,7 @@ export const roleCards: RoleCard[] = [
     },
   },
   {
-    icon: '🧭',
+    icon: 'compass',
     sections: ['practice', 'getting-started'],
     title: { en: 'New Lab Member', zh: '新進成員' },
     desc: {
@@ -143,7 +144,7 @@ export const roleCards: RoleCard[] = [
     },
   },
   {
-    icon: '🔬',
+    icon: 'microscope',
     sections: ['craft', 'getting-started'],
     title: { en: 'Current Researcher', zh: '現任研究者' },
     desc: {

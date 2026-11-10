@@ -1,17 +1,15 @@
 // ============================================================
-// Third-party integration config. Everything here is OFF until
-// the author fills in real IDs. No integration renders while its
-// `enabled` flag is false, so committing this file changes nothing
-// visible until you paste your own values and flip `enabled`.
+// Third-party integration config. Each integration renders only
+// when enabled and supplied with its real site/account identifiers.
 // ============================================================
 
-// Privacy-friendly analytics (GoatCounter). To enable:
-//   1. Register a code at https://www.goatcounter.com (e.g. "shihhsinwang").
-//   2. Set `code` below and `enabled: true`.
+// GoatCounter site supplied by the author on 2026-11-10.
 export const analytics = {
-  enabled: false,
+  enabled: true,
   // Your GoatCounter code — the "<code>" in https://<code>.goatcounter.com
-  code: '',
+  code: 'shwang',
+  // Enable "Allow adding visitor counts on your website" in GoatCounter's settings.
+  showCounts: true,
 };
 
 // Comments (giscus, backed by GitHub Discussions). To enable:
