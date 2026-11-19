@@ -5,18 +5,19 @@ title: "Join the Lab"
 section: "joining"
 order: 1
 status: "available"
-updated: 2026-07-18
-summary: "Undergraduate project places are full for now; MS/PhD depends on capacity. This page covers who might fit and how to apply."
+updated: 2026-11-18
+summary: "Applications are open for undergraduate project students, MS students, and PhD students. This page covers who might fit and how to apply."
 ---
 
-> **Undergraduate project places are full for now**, and MS/PhD depends on where things stand. Please read everything below before writing to me.
+> **Applications are open for undergraduate project students, MS students, and PhD students**. Please read everything below before writing to me.
 
 ## Current openings
 
-I will join the Department of Computer Science and Information Engineering at National Taiwan University in August 2026. The lab is just starting, and here is where things stand:
+I joined the Department of Computer Science and Information Engineering at National Taiwan University in August 2026. We are currently recruiting:
 
-- **Undergraduate project students** — **not taking new ones for now.** The people already here need enough of my time, and I would rather not take someone on without being able to advise them properly. I will update this page if that changes.
-- **MS and PhD students** — **depends on capacity.** If your direction fits ours, do write — I will tell you honestly whether there is room. Department of Computer Science and Information Engineering at NTU.
+- **Undergraduate project students** — **applications open.** Undergraduates interested in our research and willing to learn proactively are welcome to reach out.
+- **MS students** — **applications open.** Department of Computer Science and Information Engineering at NTU.
+- **PhD students** — **applications open.** Department of Computer Science and Information Engineering at NTU.
 
 Research assistants and other forms of collaboration are also welcome to reach out. For research directions, please see [Publications](/personal_website/publications) and [Notes](/personal_website/notes).
 

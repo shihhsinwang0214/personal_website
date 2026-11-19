@@ -2,14 +2,15 @@
 slug: "dma-w6-5-lab"
 label: "dma-lab-discrete-time"
 prereqs:
-  - math-markov-chain
+  - dma-factorization-error
   - math-kl
 lang: "zh"
 title: "實作 A：每格機率都對，整串還會錯嗎？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-19
+readingMode: "sections"
+updated: 2026-11-11
 summary: "用完整列舉的 parity toy 比較 joint reverse 與 factorized reverse，先排除模型誤差，再檢查平行填字漏掉的相依。"
 demos: []
 references:
@@ -19,6 +20,7 @@ references:
     href: "https://arxiv.org/abs/2406.07524"
 ---
 import Objectives from '../../../components/Objectives.astro';
+import DiscretePythonExperiment from '../../../components/DiscretePythonExperiment.astro';
 import Prereq from '../../../components/Prereq.astro';
 import Ask from '../../../components/Ask.astro';
 import Remark from '../../../components/Remark.astro';
@@ -33,7 +35,7 @@ import Ref from '../../../components/Ref.astro';
 
 # 實作 A：每格機率都對，整串還會錯嗎？
 
-<Objectives>
+<Objectives collapsible>
 - **建立可以完整列舉的離散資料。** 用偶數 parity 序列算精確 conditional，不把網路預測當標準答案。
 - **比較 joint 與逐位置獨立抽樣。** 固定同一張 noisy snapshot，只改填字方式，量出合法率的差別。
 - **分開模型誤差與 factorization error。** 先用 oracle，再把自己訓練的 denoiser 放進相同評估。
@@ -44,6 +46,8 @@ import Ref from '../../../components/Ref.astro';
 ## 怎麼確定錯的是網路，還是抽樣？
 
 前面已經建立 PMF path、rate、denoiser 和 sampler，也用 <Ref to="dma-factorization-error"/> 說明：即使每格的 conditional marginal 都正確，一起獨立填完仍可能出錯。要驗證這件事，最直接的方法就是選一個小到可以列出所有合法資料的問題，先把網路拿掉。
+
+## 用能列出所有答案的小資料，拿掉網路誤差
 
 這次使用長度 $L=8$ 的 bit 序列，每格只能是 $0$ 或 $1$。資料只允許 $1$ 的數量為偶數，稱為偶數 parity；例如 $00000000$ 與 $11000000$ 合法，$10000000$ 不合法。全部 $2^8=256$ 種序列中，一半有偶數個 $1$，所以資料共有 $128$ 條，各以 $1/128$ 抽到。
 
@@ -62,7 +66,7 @@ Joint sampler 會從 $000$、$011$ 直接抽一整串；factorized sampler 則�
 | 函式 | 計算的物件 |
 | --- | --- |
 | <code>compatible_states(xt)</code> | 所有與 $x_t$ 相容的合法原文 |
-| <code>exact_conditional(xt)</code> | 每個位置的 $p(x_0^\ell=0\mid x_t)$、$p(x_0^\ell=1\mid x_t)$ |
+| <code>exact_conditional(xt)</code> | 每個位置的 $\Pr(X_0^{(\ell)}=0\mid I_t=x)$、$\Pr(X_0^{(\ell)}=1\mid I_t=x)$ |
 | <code>sample_joint(xt)</code> | 從相容原文中抽一整串 |
 | <code>sample_factorized(xt)</code> | 按各位置 conditional marginal，獨立填入 MASK |
 
@@ -87,6 +91,18 @@ Joint 直接從合法原文抽，所以每次都合法；只剩一格 MASK 時�
 不會。這裡已經使用真實資料分布算出的精確 conditional marginals，沒有 estimation error 可以改善。要改的是抽樣規則，例如先填一部分、重新計算 conditional，再填剩下的部分；或用能表達 joint dependence 的抽樣方式。這是 <Ref to="dma-factorization-error"/> 的結構性誤差。
 </Answer>
 </Question>
+
+## 動手做：讓同一張 snapshot 接上三種抽樣
+
+下面用同一份 parity 資料實際比較三種方法：一次抽整串相容原文、同批獨立填完，以及每填一格就重算 posterior。三者都使用精確答案，只有抽樣方式不同。
+
+先跑預設的 `masked_count = 3`，再改成 `1`。每次都先從資料抽出原文、遮住指定數量的位置，三種方法共用這張 snapshot。程式會列出第一張 snapshot 的單格 PMF，再統計很多次補完後的合法率。
+
+<DiscretePythonExperiment example="paritySampling" />
+
+只剩一格時，parity 已決定最後的答案；多格同批獨立填，則會漏掉它們共同必須滿足的條件。逐格更新能在後續看到前面已填的結果。增加 `n_runs` 只會讓合法率的估計更穩，不會替同批獨立抽樣補上這個條件。
+
+[下載同一份 parity 比較程式](/personal_website/notes/notebooks/diffusion-models-applications/dma-u4-parity-sampling.py)。
 
 ## 第三步：把誤差來源分開記錄
 

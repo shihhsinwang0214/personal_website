@@ -31,44 +31,40 @@
 </head>
 <body>
 <div class="card">
-  <p class="goal">學習目標：離散版的「加噪聲」就是<b>一條我們自己寫好的 Markov chain</b>。兩條標準選擇的差別只在終點：uniform 走向<b>一片隨機的字</b>，absorbing 走向<b>整串 [MASK]</b>，而被遮的位置不會回來。</p>
+  <p class="goal">學習目標：固定原句「我／今天／想／吃／麥當勞」，比較同一時間的<b>機率表</b>與<b>一次抽出的句子</b>。Uniform 從字典重抽，MASK 則換成遮蔽標記。</p>
 
-  <canvas id="cv" width="640" height="440" aria-label="uniform 與 absorbing 的加噪過程"></canvas>
-  <p class="cap">兩排是同一句話走同一個 t。橘＝原字　藍＝被換成隨機字　灰＝[MASK]　下方長條圖＝該排在<b>被點選的位置</b>上 q(x<sub>t</sub>|x₀) 的分布（點格子換位置）</p>
+  <canvas id="cv" width="640" height="440" aria-label="uniform 與 MASK 的 reference snapshots"></canvas>
+  <p class="cap">兩排使用同一原句與時間 t。橘＝保留分支　藍＝重抽分支（可能抽回原字）　灰＝[MASK]。下方是<b>點選位置</b>的 PMF q<sub>t</sub><sup>ℓ</sup>(·|x₀)，點格子可換位置。</p>
 
   <div class="controls">
     <div class="row">
-      <span class="lab">t</span><input id="t" type="range" min="0" max="20" step="1" value="8" /><b id="vt">8</b>
-      <button id="dice">🎲 重抽噪聲</button>
+      <span class="lab">t</span><input id="t" type="range" min="0" max="100" step="1" value="30" /><b id="vt">0.30</b>
+      <button id="dice">🎲 重抽一次</button>
     </div>
     <div class="stats">
-      <span>ᾱ<sub>t</sub>（還是原字的機率）= <b id="va">—</b></span>
-      <span>uniform 這次被換掉 <b id="vu">—</b> 格</span>
-      <span>absorbing 被遮 <b id="vm">—</b> 格</span>
+      <span>α<sub>t</sub>（選擇保留的機率）= <b id="va">—</b></span>
+      <span>uniform 這次走重抽分支 <b id="vu">—</b> 格</span>
+      <span>MASK 這次被遮 <b id="vm">—</b> 格</span>
     </div>
   </div>
 
-  <p class="observe">拖 t：兩排的原字都以機率 ᾱ<sub>t</sub> 存活，所以<b>被動過的格數大致相同</b>。差別在動過之後長什麼樣——uniform 換成一個隨機的字（<b>也可能換回自己</b>），absorbing 一律變 [MASK]，而且<b>往右拖不會有格子復原</b>。看下方長條圖（滿高＝機率 1）：uniform 的那根柱子一路矮下去、其餘 29 根一起長高，最後攤成一片均勻；absorbing 永遠只有兩根，質量從原字整批搬到 [MASK]。</p>
+  <p class="observe">這裡選 α<sub>t</sub> = 1 − t，字典含 10 個 tokens。<b>固定 t 後重抽，PMF 不變，這次得到的句子可以改變。</b> Uniform 抽到原字的機率是 α<sub>t</sub> + (1 − α<sub>t</sub>)/10；MASK 則是 α<sub>t</sub>。拖時間是在比較不同時間的 reference snapshots，尚未定義生成時如何跳到下一個 state。</p>
 </div>
 
 <script src="./_demo-common.js"></script>
 <script>
 (function () {
-  var SENT = ['我','今','天','想','吃','一','碗','熱','的','牛','肉','麵'];
-  var DICT = ['我','今','天','想','吃','一','碗','熱','的','牛','肉','麵','你','他','很','好','大','小','來','去','看','說','是','不','有','在','了','和','就','也'];
-  var K = DICT.length, T = 20, L = SENT.length, SEL = 4;
+  var SENT = ['我','今天','想','吃','麥當勞'];
+  var DICT = ['我','今天','想','吃','麥當勞','要','打','籃球','晚餐','天空'];
+  var K = DICT.length, L = SENT.length, SEL = 2;
   var cv = document.getElementById('cv');
   var d = NDFlow.hiDPICanvas(cv);
   var tEl = document.getElementById('t');
   var vt = document.getElementById('vt'), va = document.getElementById('va'),
       vu = document.getElementById('vu'), vm = document.getElementById('vm');
   var pal = NDFlow.palette();
-  var abar = [], U = [], R = [];
+  var U = [], R = [];
 
-  function build() {
-    var a = 1; abar = [1];
-    for (var t = 1; t <= T; t++) { var b = 0.02 + 0.20 * (t - 1) / (T - 1); a *= (1 - b); abar.push(a); }
-  }
   function reroll() {
     U = []; R = [];
     for (var i = 0; i < L; i++) { U.push(Math.random()); R.push(Math.floor(Math.random() * K)); }
@@ -89,7 +85,7 @@
   }
   function draw() {
     var s = d.resize(), ctx = d.ctx, i, Y = lay(s);
-    var t = parseInt(tEl.value, 10), ab = abar[t];
+    var t = Number(tEl.value) / 100, ab = 1 - t;
     ctx.clearRect(0, 0, s.w, s.h);
     ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, s.w, s.h);
     var ORANGE = 'rgba(' + pal.data[0] + ',' + pal.data[1] + ',' + pal.data[2] + ',0.88)';
@@ -100,7 +96,7 @@
     [0, 1].forEach(function (row) {
       ctx.font = '700 12px "Plus Jakarta Sans", system-ui, sans-serif';
       ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.textAlign = 'left';
-      ctx.fillText(row === 0 ? 'uniform：換成隨機的字' : 'absorbing：換成 [MASK]', Y.pad, Y.lab[row]);
+      ctx.fillText(row === 0 ? 'uniform：換成隨機的字' : 'MASK：換成 [MASK]', Y.pad, Y.lab[row]);
       for (i = 0; i < L; i++) {
         var touched = U[i] > ab, label, col;
         if (!touched) { label = SENT[i]; col = ORANGE; }
@@ -140,7 +136,7 @@
       if (row === 0) {
         ctx.fillText('原字「' + SENT[SEL] + '」', x0 + bw * DICT.indexOf(SENT[SEL]) + bw / 2, by + bh + 13);
         ctx.textAlign = 'right';
-        ctx.fillText('其餘 ' + (K - 1) + ' 個字各 (1−ᾱ)/K = ' + ((1 - ab) / K).toFixed(3), s.w - Y.pad, by + bh + 13);
+        ctx.fillText('其餘 ' + (K - 1) + ' 個 token 各 (1−α)/K = ' + ((1 - ab) / K).toFixed(3), s.w - Y.pad, by + bh + 13);
       } else {
         ctx.fillText('原字「' + SENT[SEL] + '」', x0 + bw / 2, by + bh + 13);
         ctx.fillText(ab.toFixed(2), x0 + bw / 2, by + bh + 25);
@@ -149,7 +145,7 @@
       }
     });
 
-    vt.textContent = t;
+    vt.textContent = t.toFixed(2);
     va.textContent = ab.toFixed(3);
     vu.textContent = nu;
     vm.textContent = nm;
@@ -165,7 +161,7 @@
   window.addEventListener('resize', draw);
   function applyTheme() { pal = NDFlow.palette(); document.body.dataset.dark = pal.dark ? '1' : '0'; draw(); }
   NDFlow.onThemeChange(applyTheme);
-  build(); reroll(); applyTheme();
+  reroll(); applyTheme();
 })();
 </script>
 </body>

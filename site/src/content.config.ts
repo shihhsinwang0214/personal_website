@@ -33,6 +33,7 @@ const notes = defineCollection({
     status: z.enum(['available', 'draft', 'missing', 'coming-soon']),
     updated: z.coerce.date(),
     summary: z.string(),
+    readingMode: z.enum(['sections']).optional(),
     demos: z.array(z.string()).default([]),
     references: z.array(referenceSchema).default([]),
   }),

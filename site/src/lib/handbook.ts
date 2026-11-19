@@ -266,15 +266,14 @@ export const expeditionTag = 'EXPEDITION';
 /** Heading over the member roster — the people on the expedition, as distinct
  *  from the expedition itself (which is the lab). */
 export const partyHeading: Record<Lang, string> = { en: 'The Expedition Party', zh: '遠征隊隊伍' };
-/** Banner tag on the People page. `OPEN QUEST` would overstate things while
- *  undergraduate places are full — the banner now reports status, not a call. */
-export const recruitingTag: Record<Lang, string> = { en: 'PARTY STATUS', zh: '隊伍狀態' };
+/** Banner tag on the People page for current recruitment openings. */
+export const recruitingTag: Record<Lang, string> = { en: 'OPEN QUEST', zh: '招募中' };
 
 /** One source for the recruiting line. It appears on the People banner and on
  *  the lab dashboard; the two drifting apart would be worse than either. */
 export const recruitmentStatus: Record<Lang, string> = {
-  en: 'Undergraduate project places are full for now; MS/PhD depends on capacity.',
-  zh: '專題生名額目前已滿，碩博士生視情況而定。',
+  en: 'Applications are open for undergraduate project students, MS students, and PhD students.',
+  zh: '目前開放招募學士專題生、碩士生與博士生。',
 };
 export const allMembersLabel: Record<Lang, string> = { en: 'All members →', zh: '所有成員 →' };
 

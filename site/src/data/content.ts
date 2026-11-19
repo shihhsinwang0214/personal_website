@@ -136,9 +136,9 @@ export const heroContent = {
 
 const newsItems: NewsItem[] = [
   {
-    date: 'Aug 2026',
-    html: 'Undergraduate project places are <strong>full for now</strong>; MS/PhD depends on capacity. See <a href="/personal_website/handbook/join">Join the Lab</a> for where things stand and how to apply.',
-    htmlZh: '學士專題生名額<strong>目前已滿</strong>，碩博士生視情況而定。目前狀況與申請方式請見<a href="/personal_website/zh/handbook/join">加入研究室</a>。',
+    date: 'Nov 2026',
+    html: 'Applications are <strong>open</strong> for undergraduate project students, MS students, and PhD students. See <a href="/personal_website/handbook/join">Join the Lab</a> for how to apply.',
+    htmlZh: '目前<strong>開放招募</strong>學士專題生、碩士生與博士生。申請方式請見<a href="/personal_website/zh/handbook/join">加入研究室</a>。',
   },
   {
     date: 'Jul 2026',

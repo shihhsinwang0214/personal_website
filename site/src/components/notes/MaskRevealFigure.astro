@@ -1,0 +1,46 @@
+---
+const samples = Array.from({ length: 100 }, (_, i) => i);
+---
+<figure class="mask-reveal-figure">
+  <p class="figure-title">看 100 份樣本的第三格，這一步要補回多少？</p>
+  <div class="cohorts">
+    <div class="cohort">
+      <p><b>現在：t = 0.5</b><br />50 份是「想」，50 份是 MASK</p>
+      <div class="sample-grid" role="img" aria-label="100 份樣本中，50 份的第三格是想，50 份是 MASK。">
+        {samples.map((i) => <span aria-hidden="true" class:list={['dot', i < 50 ? 'known' : 'masked']} />)}
+      </div>
+    </div>
+    <div class="cohort">
+      <p><b>目標：t − h = 0.4</b><br />60 份是「想」，40 份是 MASK</p>
+      <div class="sample-grid" role="img" aria-label="目標比例是 60 份想、40 份 MASK；其中 10 份想是這一步從 MASK 填回的。">
+        {samples.map((i) => <span aria-hidden="true" class:list={['dot', i < 50 ? 'known' : i < 60 ? 'revealed' : 'masked']} />)}
+      </div>
+    </div>
+  </div>
+  <p class="move"><span class="legend-dot revealed" aria-hidden="true" /> 這一步平均填回 10 份，從原本的 50 份 MASK 裡選。</p>
+  <dl>
+    <div><dt>占全部樣本的新增比例</dt><dd>10 / 100 = <b>0.1</b></dd></div>
+    <div><dt>每個 MASK 的翻開機率</dt><dd>10 / 50 = <b>0.2</b></dd></div>
+  </dl>
+  <figcaption>每個方格是一份樣本的第三格。圖示的是希望維持的比例；各 MASK 獨立抽樣時，單次翻開數可以多於或少於 10，重複抽樣才會看出這個平均。</figcaption>
+</figure>
+<style>
+  .mask-reveal-figure { margin: 24px auto; padding: 18px; max-width: 680px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+  .figure-title { margin: 0 0 14px; text-align: center; font-weight: 650; font-size: .95rem; }
+  .cohorts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .cohort { min-width: 0; text-align: center; }
+  .cohort p { margin: 0 0 12px; font-size: .8rem; line-height: 1.8; }
+  .sample-grid { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 3px; max-width: 160px; margin: auto; }
+  .dot { display: block; aspect-ratio: 1; border: 1px solid var(--border); border-radius: 2px; }
+  .known { background: color-mix(in srgb, var(--accent) 70%, var(--surface)); }
+  .masked { background: var(--surface-2); border-color: var(--text-muted); }
+  .revealed { background: #cf772d; border: 1px solid #cf772d; }
+  .move { margin: 16px 0 12px; text-align: center; font-size: .85rem; }
+  .legend-dot { display: inline-block; width: .7em; height: .7em; border-radius: 2px; }
+  dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0; }
+  dl > div { padding: 10px 6px; text-align: center; border-top: 1px solid var(--border); }
+  dt { font-size: .75rem; color: var(--text-muted); }
+  dd { margin: 6px 0 0; font-size: .95rem; font-variant-numeric: tabular-nums; }
+  figcaption { margin-top: 12px; color: var(--text-muted); font-size: .78rem; line-height: 1.7; }
+  @media (max-width: 560px) { .mask-reveal-figure { padding: 12px; } .cohorts { gap: 12px; } .cohort p { font-size: .72rem; } .sample-grid { gap: 2px; } }
+</style>

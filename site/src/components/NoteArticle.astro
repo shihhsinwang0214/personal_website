@@ -25,6 +25,7 @@ import { groupCode, noteTitles } from '../lib/noteRefs';
 import { withBase } from '../lib/url';
 import Comments from './Comments.astro';
 import NoteTree from './NoteTree.astro';
+import NoteSectionReader from './notes/NoteSectionReader.astro';
 
 interface Props {
   entry: NoteEntry;
@@ -225,7 +226,9 @@ const articleJsonLd = {
         </aside>
 
         <div class="note-body markdown-body">
-          <Content />
+          {entry.data.readingMode === 'sections'
+            ? <NoteSectionReader id={entry.data.slug}><Content /></NoteSectionReader>
+            : <Content />}
         </div>
       </div>
 
@@ -291,6 +294,8 @@ const articleJsonLd = {
       const positionHeadings = Array.from(body?.querySelectorAll<HTMLElement>('h2[id], h3[id]') ?? []);
       let currentHeading: string | undefined;
       const capturePosition = () => {
+        const focusedHeading = body?.querySelector<HTMLElement>('[data-mode="focus"] .note-reading-section:not([hidden]) h2[id]');
+        if (focusedHeading) { currentHeading = focusedHeading.id; return; }
         const edge = (document.querySelector('.site-header')?.getBoundingClientRect().bottom ?? 0) + 64;
         let nearest = -Infinity;
         currentHeading = undefined;
@@ -305,7 +310,8 @@ const articleJsonLd = {
         const main = document.getElementById('note-main');
         if (!current || current.slug !== main?.dataset.noteSlug || current.lang !== main?.dataset.noteLang) return;
         // Page teardown can change layout; save the last visible snapshot, not teardown geometry.
-        setLast({ ...current, heading: currentHeading });
+        const focusedHeading = body?.querySelector<HTMLElement>('[data-mode="focus"] .note-reading-section:not([hidden]) h2[id]');
+        setLast({ ...current, heading: focusedHeading?.id ?? currentHeading });
       };
       capturePosition();
       let positionTimer: ReturnType<typeof setTimeout>;
@@ -323,7 +329,12 @@ const articleJsonLd = {
       if (url.searchParams.get('resume') === '1') {
         if (!location.hash && saved?.heading) {
           const target = document.getElementById(saved.heading);
-          if (target && body?.contains(target)) window.addEventListener('pageshow', () => requestAnimationFrame(() => target.scrollIntoView({ block: 'start', behavior: 'instant' })), { once: true });
+          if (target && body?.contains(target)) window.addEventListener('pageshow', () => requestAnimationFrame(() => {
+            const reader = target.closest<HTMLElement>('[data-note-section-reader]');
+            if (reader) reader.dataset.resumeHeading = target.id;
+            document.dispatchEvent(new CustomEvent('note-reader-reveal', { detail: { heading: target.id } }));
+            target.scrollIntoView({ block: 'start', behavior: 'instant' });
+          }), { once: true });
         }
         url.searchParams.delete('resume');
         history.replaceState(null, '', url);

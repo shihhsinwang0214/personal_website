@@ -1,0 +1,169 @@
+---
+interface Props { kind: 'posterior' | 'sampler' | 'joint' | 'sequence' | 'conditionalPmf' | 'remasking' | 'context' | 'contextSampler'; token?: string; position?: number }
+const { kind, token: remaskingToken = '想', position: remaskingPosition = 3 } = Astro.props;
+---
+<figure class="discrete-mechanism">
+  {kind === 'conditionalPmf' && <>
+    <p class="figure-title">字典有很多 token，為什麼這裡只看兩個分量？</p>
+    <p class="context">給定 clean 原句：我／今天／<b>想</b>／吃／麥當勞<br /><small>只看第三格，使用 MASK 加噪；這一刻 αₜ = 0.5。</small></p>
+    <div class="pmf-reduction">
+      <div class="panel">
+        <p class="pmf-heading">完整 PMF</p>
+        <div class="pmf-vector" role="img" aria-label="第三格的完整 conditional PMF：想的機率 0.5，要與吃為 0，其餘一般 token 也為 0，MASK 為 0.5。">
+          <div class="pmf-labels"><b>想</b><span>要</span><span>吃</span><span>⋮</span><b>[MASK]</b></div>
+          <div class="pmf-values"><b>0.5</b><span>0</span><span>0</span><span>⋮</span><b>0.5</b></div>
+        </div>
+        <small>所有其他 token 的分量都是 0。</small>
+      </div>
+      <div class="reduction-arrow">只列可能<br />非零的分量<span aria-hidden="true">→</span></div>
+      <div class="panel">
+        <p class="pmf-heading">本文簡寫的 PMF</p>
+        <div class="pmf-vector" role="img" aria-label="省略零分量後，按想、MASK 排成 column vector，兩個分量為 0.5、0.5。">
+          <div class="pmf-labels"><b>想</b><b>[MASK]</b></div>
+          <div class="pmf-values"><b>0.5</b><b>0.5</b></div>
+        </div>
+        <small>仍然是同一張 conditional PMF。</small>
+      </div>
+    </div>
+    <figcaption>省略的是在這個條件下為 0 的分量。若換成 uniform，其他 token 也可能出現；若不知道原句，同一個 MASK 也可能來自「想」或「要」等不同原字。</figcaption>
+  </>}
+  {kind === 'sequence' && <>
+    <p class="figure-title">知道原句時，每個 MASK 各自決定這一步要不要翻開</p>
+    <p class="context">原句 x₀：我／今天／想／吃／麥當勞</p>
+    <div class="panel"><span class="tag">目前的 Iₜ：t = 0.5</span>
+      <div class="sequence-row">{['我', '今天', '[MASK]', '吃', '[MASK]'].map((token, i) => <div class:list={['token-cell', {'masked': token === '[MASK]'}]}><small>第 {i + 1} 格</small><b>{token}</b></div>)}</div>
+    </div>
+    <div class="arrow" aria-hidden="true">↓</div>
+    <div class="panel"><span class="tag">αₜ = 1 − t；從 0.5 退到 0.4：每格的精確翻開機率 w = 0.2</span>
+      <div class="sequence-row">
+        {['我', '今天', '想', '吃', '麥當勞'].map((token, i) => <div class="token-pmf">{i === 2 || i === 4 ? <><b>{token}</b><small>0.2</small><b>[MASK]</b><small>0.8</small></> : <><b>{token}</b><small>機率 1</small></>}</div>)}
+      </div>
+    </div>
+    <div class="arrow"><span aria-hidden="true">↓ </span>各格抽一個 token，放回同一個位置</div>
+    <div class="panel result"><span class="tag">按位置組回整句：四種可能的下一份 Iₜ₋ₕ</span>
+      <div class="outcomes">
+        <div><span>我／今天／[MASK]／吃／[MASK]</span><b>0.8 × 0.8 = 0.64</b></div>
+        <div><span>我／今天／<strong>想</strong>／吃／[MASK]</span><b>0.2 × 0.8 = 0.16</b></div>
+        <div><span>我／今天／[MASK]／吃／<strong>麥當勞</strong></span><b>0.8 × 0.2 = 0.16</b></div>
+        <div><span>我／今天／<strong>想</strong>／吃／<strong>麥當勞</strong></span><b>0.2 × 0.2 = 0.04</b></div>
+      </div>
+    </div>
+    <figcaption>條件都是同一份目前整句與已知原句。硬幣決定各格是否翻開，原句決定填什麼；一次抽出一種結果，四種機率相加為 1。</figcaption>
+  </>}
+  {kind === 'context' && <>
+    <p class="figure-title">看見一個新字，剩下的答案機率就改變</p>
+    <div class="panel result"><span class="tag">兩格都是未知：兩種完整搭配仍然可能</span>
+      <div class="sequence-row">{['我', '今天', '想', '[MASK]', '[MASK]'].map(token => <div class:list={['token-cell', {masked: token === '[MASK]'}]}><b>{token}</b></div>)}</div>
+      <p>吃／麥當勞：1/2　　打／籃球：1/2</p>
+    </div>
+    <div class="arrow">翻開其中一格，再看另一格</div>
+    <div class="two-panels">
+      <div class="panel"><span class="tag">第四格出現「吃」</span>
+        <div class="sequence-row">{['我', '今天', '想', '吃', '[MASK]'].map(token => <div class:list={['token-cell', {masked: token === '[MASK]'}]}><b>{token}</b></div>)}</div>
+        <p>第五格：<b>麥當勞 1</b>、籃球 0</p><small>完成時照抄「吃」，補回「麥當勞」。</small>
+      </div>
+      <div class="panel"><span class="tag">第五格出現「籃球」</span>
+        <div class="sequence-row">{['我', '今天', '想', '[MASK]', '籃球'].map(token => <div class:list={['token-cell', {masked: token === '[MASK]'}]}><b>{token}</b></div>)}</div>
+        <p>第四格：吃 0、<b>打 1</b></p><small>完成時照抄「籃球」，補回「打」。</small>
+      </div>
+    </div>
+    <figcaption>資料仍是兩種完整句子各占一半。改變的是目前看見的線索：我們只考慮與已見 tokens 相容的完整答案。</figcaption>
+  </>}
+  {kind === 'contextSampler' && <>
+    <p class="figure-title">填回一格，再讓模型讀取新的部分句子</p>
+    <ol class="pipeline">
+      <li><span class="tag">目前：我／今天／想／[MASK]／[MASK]</span><p>第四格：吃 1/2、打 1/2；第五格：麥當勞 1/2、籃球 1/2。</p><small>兩個分類器先讀相同的目前 context。</small></li>
+      <li><span class="tag">αₜ = 1 − t；t = 0.5 → s = 0.4</span><p>每個 MASK 以 0.2 機率翻開。一次可能的結果是第四格翻開並抽到「吃」，第五格仍遮住。</p><small>新狀態：我／今天／想／吃／[MASK]。</small></li>
+      <li><span class="tag">下一步，重新讀取含有「吃」的 context</span><p>第五格的預測變成：<b>麥當勞 1、籃球 0</b>。</p><small>前三格和已填的「吃」直接照抄。</small></li>
+      <li><span class="tag">之後選到第五格翻開</span><p>按新的 PMF 填入「麥當勞」，得到「我／今天／想／吃／麥當勞」。</p><small>另一條可能路徑是先填「籃球」，再補「打」。</small></li>
+    </ol>
+    <figcaption>圖中是一條可能的抽樣路徑。每步先決定哪些 MASK 翻開，再抽 token；更新整句之後，下一步重新預測。</figcaption>
+  </>}
+  {kind === 'posterior' && <>
+    <p class="figure-title">從給定原句的 rate，到只看目前序列的 rate</p>
+    <div class="two-panels">
+      <div class="panel"><span class="tag">給定 clean 原句 X₀ = x₀</span><p>我／今天／<b>想</b>／吃／麥當勞</p><small>MASK → 想：rate 2；→ 要：rate 0</small><p>我／今天／<b>要</b>／吃／麥當勞</p><small>MASK → 想：rate 0；→ 要：rate 2</small></div>
+      <div class="panel"><span class="tag">原句未知，只固定目前整句 Iₜ = x</span><p>我／今天／<b>[MASK]</b>／吃／麥當勞</p><p>按可能原句的 posterior，平均左邊的 rates。</p><small>這個 toy 的 posterior：想 0.7、要 0.3</small></div>
+    </div>
+    <div class="arrow">↓ 將未知的 X₀ 平均掉，保留目前的 Iₜ = x</div>
+    <div class="panel result"><b>在 t = 0.5，第三格平均後的理想 rates</b><div class="pmf"><span style="flex:7">想 0.7</span><span style="flex:3">要 0.3</span></div><p>MASK → 想：0.7 × 2 + 0.3 × 0 = <b>1.4</b></p><p>MASK → 要：0.7 × 0 + 0.3 × 2 = <b>0.6</b></p></div>
+    <figcaption>固定同一個時間與目前整句，內層使用各原句給出的 conditional rate，外層按原句 posterior 平均。圖中是理想值；模型再學習這張原字 PMF，近似這些 rates。</figcaption>
+  </>}
+  {kind === 'sampler' && <>
+    <p class="figure-title">操作和 reference 相同，未知原字改由模型的 PMF 決定</p>
+    <ol class="pipeline">
+      <li><span class="tag">目前整句：我／今天／[MASK]／吃／[MASK]</span><p>模型讀取同一份完整 context。</p><small>第三格：想 0.7、要 0.3；這個 toy 的第五格：麥當勞 1。</small></li>
+      <li><span class="tag">αₜ = 1 − t；t = 0.5 → s = 0.4</span><p>兩個 MASK 各自以 <b>0.2</b> 機率翻開。</p><small>先決定翻不翻；這個硬幣沒有選出原字。</small></li>
+      <li><span class="tag">每個翻開的位置，再按該格 PMF 抽字</span><p>第三格可能填「想」或「要」；第五格在這個 toy 填「麥當勞」。</p><small>兩格都使用本段開始時的 context。</small></li>
+      <li><span class="tag">一次可能的結果：我／今天／要／吃／[MASK]</span><p>把新字放回位置，下一段<b>重新預測</b>。</p><small>在不同資料中，新 context 也可能改變其他位置的答案機率。</small></li>
+    </ol>
+    <figcaption>這是有限步 sampler。U4.1 翻開後查已知原句；這裡翻開後按預測 PMF 抽字。一次生成是一句話，重複很多次才看得出輸出分布。</figcaption>
+  </>}
+  {kind === 'remasking' && <>
+    <p class="figure-title">沿用「{remaskingToken}／MASK」：多遮回多少 flow，就額外補回多少</p>
+    <p class="context">給定原句，只看第 {remaskingPosition} 格；αₜ = 0.8，新增修改 rate σₜ = 0.5。</p>
+    <div class="two-panels">
+      <div class="panel"><span class="tag">目前是「{remaskingToken}」的群體：0.8</span><p>{remaskingToken} → MASK</p><p>新增 rate <b>0.5</b></p><small>搬出的 flow：0.8 × 0.5 = <b>0.4</b></small></div>
+      <div class="panel"><span class="tag">目前是 MASK 的群體：0.2</span><p>MASK → {remaskingToken}</p><p>額外 rate <b>2</b></p><small>補回的 flow：0.2 × 2 = <b>0.4</b></small></div>
+    </div>
+    <div class="panel result"><p>「{remaskingToken}」新增的淨變化：−0.4 + 0.4 = <b>0</b></p><p>MASK 新增的淨變化：+0.4 − 0.4 = <b>0</b></p></div>
+    <figcaption>這只畫新增的一對轉移，原本沿 path 填回的 rate 仍然保留。樣本可以往返，整群比例的額外變化卻抵消。</figcaption>
+  </>}
+  {kind === 'joint' && <>
+    <p class="figure-title">兩張正確的逐格 PMF，會組成同一張 joint 嗎？</p>
+    <p class="context">我／今天／想／[MASK]／[MASK]</p>
+    <div class="two-panels">
+      <div class="panel"><span class="tag">資料的 joint</span><table><thead><tr><th></th><th>麥當勞</th><th>籃球</th></tr></thead><tbody><tr><th>吃</th><td class="valid">0.5</td><td>0</td></tr><tr><th>打</th><td>0</td><td class="valid">0.5</td></tr></tbody></table><small>只有「吃麥當勞／打籃球」。</small></div>
+      <div class="panel"><span class="tag">同批獨立抽樣</span><table><thead><tr><th></th><th>麥當勞</th><th>籃球</th></tr></thead><tbody><tr><th>吃</th><td class="valid">0.25</td><td class="mismatch">0.25</td></tr><tr><th>打</th><td class="mismatch">0.25</td><td class="valid">0.25</td></tr></tbody></table><small>一半機率落在資料沒有的搭配。</small></div>
+    </div>
+    <div class="panel result"><b>先抽第四格，再更新第五格的 PMF</b><p>抽到「吃」→ 第五格只能是「麥當勞」</p><p>抽到「打」→ 第五格只能是「籃球」</p></div>
+    <figcaption>兩種方法的單格比例都各半；差別在第五格有沒有看見第四格剛抽出的結果。</figcaption>
+  </>}
+</figure>
+<style>
+  .discrete-mechanism { margin: 1.7em auto; max-width: 760px; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+  .figure-title { margin: 0 0 16px; font-weight: 650; text-align: center; }
+  .two-panels { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+  .pmf-reduction { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); gap: 10px; align-items: center; }
+  .pmf-reduction .panel { text-align: center; }
+  .pmf-heading { font-weight: 600; }
+  .pmf-vector { display: flex; justify-content: center; gap: 12px; margin: 20px 0; }
+  .pmf-labels, .pmf-values { display: grid; grid-auto-rows: 30px; align-items: center; }
+  .pmf-labels { text-align: right; font-size: .86rem; }
+  .pmf-values { position: relative; padding: 0 15px; border-left: 2px solid var(--text-muted); border-right: 2px solid var(--text-muted); font-variant-numeric: tabular-nums; }
+  .pmf-values::before, .pmf-values::after { content: ''; position: absolute; left: 0; right: 0; height: 5px; border-left: 5px solid var(--text-muted); border-right: 5px solid var(--text-muted); }
+  .pmf-values::before { top: 0; }
+  .pmf-values::after { bottom: 0; }
+  .pmf-vector b { color: var(--accent); font-weight: 650; }
+  .pmf-vector span { color: var(--text-muted); }
+  .reduction-arrow { text-align: center; font-size: .75rem; line-height: 1.6; color: var(--text-muted); }
+  .reduction-arrow span { display: block; font-size: 1.4rem; }
+  .panel { min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: 8px; }
+  .panel p, .pipeline p { margin: 8px 0; font-size: .9rem; line-height: 1.7; }
+  small, figcaption { color: var(--text-muted); font-size: .8rem; line-height: 1.7; }
+  .tag { font-size: .78rem; color: var(--text-muted); }
+  .result { margin-top: 12px; background: var(--surface-2); }
+  .arrow, .context { text-align: center; margin: 12px 0; }
+  .sequence-row { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 5px; margin-top: 12px; }
+  .token-cell, .token-pmf { min-width: 0; padding: 9px 3px; text-align: center; border: 1px solid var(--border); border-radius: 6px; font-size: .8rem; background: var(--surface); }
+  .token-cell small, .token-pmf small { display: block; font-size: .7rem; }
+  .token-cell b { display: block; margin-top: 5px; }
+  .token-cell.masked { background: var(--surface-2); color: var(--text-muted); }
+  .token-pmf b { font-size: .78rem; font-weight: 600; }
+  .pmf { display: flex; gap: 3px; margin-top: 14px; }
+  .pmf span { padding: 8px; background: var(--surface); text-align: center; border: 1px solid var(--border); border-radius: 5px; }
+  .outcomes { display: grid; gap: 10px; margin-top: 12px; font-size: .85rem; }
+  .outcomes > div { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .outcomes b { font-size: .78rem; white-space: nowrap; }
+  .outcomes strong { color: var(--accent); }
+  @media (max-width: 560px) { .outcomes > div { grid-template-columns: 1fr; gap: 3px; } }
+  .pipeline { display: grid; gap: 10px; margin: 0; padding-left: 24px; }
+  .pipeline li { padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--surface-2); }
+  table { display: table; border-collapse: collapse; margin: 12px auto; width: 100%; text-align: center; font-size: .83rem; }
+  td, th { padding: 8px 4px; border: 1px solid var(--border); }
+  .valid { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+  .mismatch { font-weight: 700; text-decoration: underline; text-underline-offset: 4px; }
+  figcaption { margin-top: 14px; }
+  @media (max-width: 560px) { .two-panels { grid-template-columns: 1fr; } .discrete-mechanism { padding: 12px; } .sequence-row { gap: 3px; } .sequence-row b { font-size: .75rem; } .sequence-row small { font-size: .7rem; } }
+  @media (max-width: 560px) { .pmf-reduction { grid-template-columns: 1fr; } .reduction-arrow br { display: none; } .reduction-arrow span { transform: rotate(90deg); } }
+</style>

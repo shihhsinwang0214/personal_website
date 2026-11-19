@@ -77,6 +77,7 @@ export const noteSlugList = [
   'dma-w7-3-remasking',
   'dma-w6-5-lab',
   'dma-w7-6-lab',
+  'dma-u4-classification-to-diffusion',
   'dma-w8-0-learn-the-map',
   'dma-w8-1-progressive-distillation',
   'dma-w8-2-consistency-function',

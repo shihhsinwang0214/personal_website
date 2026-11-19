@@ -2,15 +2,15 @@
 slug: "dma-w7-6-lab"
 label: "dma-lab-ctmc"
 prereqs:
-  - math-ctmc
-  - math-time-reversal
-  - math-kl
+  - dma-remasking
+  - dma-lab-discrete-time
 lang: "zh"
 title: "實作 B：步長與重新遮蔽會改變什麼？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-19
+readingMode: "sections"
+updated: 2026-11-11
 summary: "比較 frozen-rate 小步與 closed-form reveal probabilities，實作配平的 finite-step remasking，再驗證 absorbing ratio 與 weighted cross-entropy。"
 demos: []
 references:
@@ -22,6 +22,7 @@ references:
     href: "https://arxiv.org/abs/2310.16834"
 ---
 import Ask from '../../../components/Ask.astro';
+import DiscretePythonExperiment from '../../../components/DiscretePythonExperiment.astro';
 import Remark from '../../../components/Remark.astro';
 import Question from '../../../components/Question.astro';
 import Answer from '../../../components/Answer.astro';
@@ -36,7 +37,7 @@ import Ref from '../../../components/Ref.astro';
 
 # 實作 B：步長與重新遮蔽會改變什麼？
 
-<Objectives>
+<Objectives collapsible>
 - **比較 closed-form reveal 與 frozen-rate 近似。** 不混入 endpoint completion，先量每個時刻的 MASK 比例。
 - **實作真的會修改已填字的 remasking。** 寫出有限步的遮回與補償機率，分清 conditional snapshot 保留與生成時的因子化。
 - **分開時間近似、因子化與預測誤差。** 先比較 MASK 比例，再固定 sampler 與計算預算，比較模型誤差和修改頻率。
@@ -51,6 +52,8 @@ import Ref from '../../../components/Ref.astro';
 [下載實作 B notebook：Rate、remasking 與 absorbing ratios](/personal_website/notes/notebooks/diffusion-models-applications/dma-w7-lab.ipynb)
 
 程式需要 NumPy 與 Matplotlib，仍用完整列舉的 $8$ 格 bit 序列。這次資料給全部偶數 parity 合計 $99\%$、全部奇數 parity 合計 $1\%$，各組內再均勻分配，所以每種完整序列都有正機率。
+
+## 為什麼這次每種原句都要留一點機率？
 
 為什麼要改資料？Remasking 會在已填出的 context 上繼續詢問 posterior。若純偶數資料的 sampler 暫時產生一整串奇數 parity，這就是資料機率為零的 context，真 posterior 無從定義；oracle 不能替它憑空提供答案。加入少量奇數資料，才能在本次每個可能的 context 上持續比較已定義的 conditional。這次要量的是生成結果的偶數比例是否接近 $0.99$，而不是是否每次都為偶數。
 
@@ -68,6 +71,8 @@ $$
 這是 **frozen-rate 的 $\tau$-leaping 型近似**：用目前的 rate 描述一整段時間，這段內不重新查詢 rates 與 context。因為凍結後的等待時間是 exponential，長度 $h$ 內至少跳一次的機率才是 $1-e^{-h/t}$；它和直接使用一階近似 $h/t$ 是不同規則。
 
 先比較一個能手算的時間段：$t=0.5$、$s=0.4$，則 $h/t=0.2$，closed-form 翻開 $20\%$ 的 MASK；凍結 rate 給 $1-e^{-0.2}\approx0.1813$，只翻開約 $18.13\%$。後者沒有跟上這條 path 所要求的翻開量。由 $1-e^{-h/t}=h/t+O((h/t)^2)$ 可看出，小步時一階一致，但有限步不同。
+
+## 把時間近似和填字搭配分開量
 
 先猜哪種方法會留下較多 MASK，再執行 notebook 的第一組實驗。它只追蹤 $30000$ 個位置的 MASK 與否，先不抽具體 bit，並停在 $t=0.02$。這樣不會把最後強制填完、或多個 bit 的搭配問題混進來。
 
@@ -107,6 +112,8 @@ $$
 
 機率必須介於 $0$ 與 $1$。當 $\alpha_t>0$，$r$ 要同時滿足 $r\leq1$ 與 $r\leq(1-\alpha_s)/\alpha_t$，才能讓 $a\leq1$。程式先算 $r=1-e^{-\sigma(t-s)}$，再套用這個限制；這是直接設計的有限步 kernel，不是把所有機率都寫成 rate 乘步長。若 $\alpha_t=0$，當下沒有可見字可遮回，不必用上述比值限制 $r$。這類保留 conditional marginals 的設計見 ReMDM [2]。
 
+## 給定原句的配平，和實際生成要分開驗證
+
 分成兩次驗證。先給定真實 $x_0$，翻開時確定填原字，檢查所有可見字是否仍與原文相同、新的 MASK 比例是否接近 $1-\alpha_s$。再拿掉原文，改用 posterior marginals 抽新字，比較不同 steps 與 $\sigma$ 的偶數 parity 比例。第二次仍有平行抽字的因子化誤差，不能只憑第一次 snapshot 配平，就宣稱生成 joint 正確。
 
 <Remark label="補充" summary="為什麼需要所有轉移都用更新前的狀態？">
@@ -117,20 +124,35 @@ $$
 
 程式把精確的 token=1 posterior 往 $\tfrac12$ 拉：
 $$
-\tilde f^\ell=(1-\epsilon)f^\ell+\epsilon\frac12.
+\begin{gathered}
+\widetilde f^{(\ell)}(1\mid x,t)\\
+=(1-\epsilon)f^{(\ell)}(1\mid x,t)+\epsilon\frac12.
+\end{gathered}
 $$
-這裡 $f^\ell$ 只指 token 為 $1$ 的精確 posterior probability，$\tilde f^\ell$ 是給 sampler 用的預測值。$\epsilon=0$ 時使用 oracle；$\epsilon=1$ 時完全忽略 context、每格都以一半機率填 $1$。中間值是我們明確設定的 prediction surrogate，不是訓練好的 neural network。
+這裡 $x$ 是目前整份 sequence，$f^{(\ell)}(1\mid x,t)=\Pr(X_0^{(\ell)}=1\mid I_t=x)$ 是第 $\ell$ 格原字為 $1$ 的精確 posterior；$\widetilde f^{(\ell)}(1\mid x,t)$ 則是給 sampler 用的近似預測。$\epsilon=0$ 時使用 oracle；$\epsilon=1$ 時完全忽略 context、每格都以一半機率填 $1$。中間值是我們明確設定的 prediction surrogate，不是訓練好的 neural network。
 
 先固定 steps（此程式每步查一次 posterior），比較不同 remasking 強度；再固定 $\sigma$，改變 $\epsilon$。Notebook 每個設定抽 $400$ 串，偶數比例會有抽樣波動；重複 seeds 後再判斷差異，不能只比較兩條很接近的單次曲線。
 
 不要預設每條線都單調改善。記錄 remasking 在哪些計算預算下有幫助，哪些設定反而更差；理想 rate 的 marginal-preservation theorem，不能直接當作 finite-step quality guarantee。
+
+## 動手做：一次只改時間、修改頻率或預測
+
+下面把前三組檢查接成一份可修改的程式。第一組只抽 MASK 是否翻開；第二組給定原句，檢查有限步 remasking 的 snapshot 配平；第三組才拿掉原句，用精確 posterior 或人為加入偏差的預測來生成。
+
+程式使用較小的 `length = 6` 加快瀏覽器運算，資料仍是偶數 parity 合計 $0.99$、奇數合計 $0.01$。先跑 `prediction_error = 0.0`，再改成 `0.2`；比較時固定 `budgets`，每一步只查一次完整 context。時間近似的比較停在 `stop_time = 0.02`，不讓端點填完把中途的差異蓋掉。
+
+<DiscretePythonExperiment example="samplingErrors" />
+
+三張輸出表各回答一個問題：MASK 比例有沒有跟上 schedule？已知原句的修改 kernel 有沒有配平？不知道原句時，有限步生成的偶數比例是否接近 $0.99$？這三個答案不能互相取代；修改頻率增加，也不保證最後一張表單調改善。
+
+[下載同一份 sampling 誤差比較程式](/personal_website/notes/notebooks/diffusion-models-applications/dma-u4-sampling-errors.py)。
 
 <Details summary="選讀實驗：Ratio 和 denoiser，真的只差係數嗎？">
 
 選一張只剩一個 MASK 的 $x$，把它填成 $v$ 得到 $y$。程式分別直接列舉 $p_t(y)/p_t(x)$，以及計算
 $$
 \frac{\alpha_t}{1-\alpha_t}
-p(x_0^\ell=v\mid x_t=x),
+\Pr(X_0^{(\ell)}=v\mid I_t=x),
 $$
 直接列舉的比值使用整句的 $p_t$；右邊只使用目前 context 下那格的 posterior 與已知 schedule。用 assertion 比較兩者，才能確認 ratio 換算沒有把 forward rate、reveal rate 或保留係數混在一起。
 

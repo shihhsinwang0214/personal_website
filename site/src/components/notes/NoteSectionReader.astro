@@ -1,0 +1,226 @@
+---
+interface Props { id: string }
+const { id } = Astro.props;
+const contentId = `reading-${id}`;
+---
+
+<div class="note-section-reader" data-note-section-reader>
+  <div class="section-reader-toolbar" data-reader-toolbar hidden>
+    <span>閱讀方式</span>
+    <div role="group" aria-label="閱讀方式">
+      <button type="button" data-reader-mode="full" aria-pressed="true" aria-controls={contentId}>全文閱讀</button>
+      <button type="button" data-reader-mode="focus" aria-pressed="false" aria-controls={contentId}>逐段閱讀</button>
+    </div>
+  </div>
+  <div id={contentId} data-reader-content><slot /></div>
+  <nav class="section-reader-navigation" data-reader-navigation aria-label="逐段閱讀導覽" hidden>
+    <button type="button" data-reader-previous>← 前一段</button>
+    <span data-reader-status role="status" aria-live="polite"></span>
+    <button type="button" data-reader-next>下一段 →</button>
+  </nav>
+</div>
+
+<style>
+  .section-reader-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 8px; margin: 0 0 20px;
+    color: var(--text-muted); font-size: .8rem;
+    position: sticky; top: 72px; z-index: 10;
+    padding: 8px 0; background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  .section-reader-toolbar [role='group'] { display: flex; gap: 4px; }
+  .note-section-reader button {
+    color: var(--text-muted); background: transparent;
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 10px; font: inherit; cursor: pointer;
+  }
+  .note-section-reader button[aria-pressed='true'] {
+    color: var(--text); background: var(--surface-2); border-color: var(--text-muted);
+  }
+  .note-section-reader button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+  .note-section-reader button:disabled { opacity: .4; cursor: default; }
+  .section-reader-navigation {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; padding: 16px 0; font-size: .8rem;
+  }
+  [data-reader-status] { color: var(--text-muted); text-align: center; }
+  .note-section-reader :global(.note-reading-section) {
+    margin: 24px 0 32px; padding: 0 0 12px;
+    scroll-margin-top: 140px;
+  }
+  .note-section-reader :global(.note-reading-kicker) {
+    display: block; margin: 0 0 8px; font-size: .7rem;
+    font-variant-numeric: tabular-nums; color: var(--text-muted);
+  }
+  .note-section-reader :global(.note-reading-section > h2:first-of-type) { margin-top: 0; }
+  .note-section-reader :global(.note-reading-section :is(h2, h3, [id])) { scroll-margin-top: 140px; }
+  .note-section-reader :global(.note-reading-section > h2:focus) { outline: none; }
+  .note-section-reader[data-note-section-reader] :global(.formula-steps[data-layout='compact']) { margin: 18px 0; }
+  .note-section-reader[data-note-section-reader] :global(.formula-steps[data-layout='compact'] .formula-equation) {
+    padding: 8px 0 6px; font-size: 1.08rem;
+  }
+  .note-section-reader[data-note-section-reader] :global(.formula-steps[data-layout='compact'] .formula-controls) { padding: 2px 0 5px; }
+  .note-section-reader [hidden], .note-section-reader :global(.note-reading-section[hidden]) { display: none !important; }
+  @media (max-width: 600px) {
+    .section-reader-toolbar { font-size: .75rem; }
+    .section-reader-navigation { font-size: .75rem; }
+    .section-reader-navigation button { padding: 8px; }
+  }
+  @media print {
+    .section-reader-toolbar, .section-reader-navigation,
+    .note-section-reader :global(.note-reading-kicker) { display: none !important; }
+    .note-section-reader :global(.note-reading-section[hidden]) { display: block !important; }
+  }
+</style>
+
+<script>
+  // The server renders the complete note. Enhancement only groups existing DOM
+  // nodes, so code edits, formula steps and open supplements survive mode changes.
+  document.querySelectorAll<HTMLElement>('[data-note-section-reader]').forEach((root) => {
+    if (root.dataset.ready) return;
+    const content = root.querySelector<HTMLElement>('[data-reader-content]')!;
+    const toolbar = root.querySelector<HTMLElement>('[data-reader-toolbar]')!;
+    const navigation = root.querySelector<HTMLElement>('[data-reader-navigation]')!;
+    const previous = root.querySelector<HTMLButtonElement>('[data-reader-previous]')!;
+    const next = root.querySelector<HTMLButtonElement>('[data-reader-next]')!;
+    const status = root.querySelector<HTMLElement>('[data-reader-status]')!;
+    const buttons = [...root.querySelectorAll<HTMLButtonElement>('[data-reader-mode]')];
+    const sections: HTMLElement[] = [];
+    let current: HTMLElement | undefined;
+    for (const node of [...content.childNodes]) {
+      if (node instanceof HTMLHeadingElement && node.tagName === 'H2'
+        && node.id !== '參考文獻' && node.id !== 'references') {
+        const section = document.createElement('section');
+        section.className = 'note-reading-section';
+        section.dataset.noteSection = String(sections.length);
+        section.setAttribute('aria-labelledby', node.id);
+        node.tabIndex = -1;
+        // Old heading aliases immediately before the heading belong to its new
+        // section, rather than the preceding one, including on direct entry.
+        const aliases: Node[] = [];
+        let before = current?.lastChild ?? node.previousSibling;
+        while (before && ((before.nodeType === Node.TEXT_NODE && !before.textContent?.trim())
+          || (before instanceof HTMLSpanElement && !!before.id && !before.textContent?.trim()))) {
+          aliases.unshift(before);
+          before = before.previousSibling;
+        }
+        content.insertBefore(section, node);
+        section.append(...aliases, node);
+        sections.push(section);
+        current = section;
+      } else if (current) {
+        current.append(node);
+      }
+    }
+    if (sections.length < 2) return;
+    const saveMode = (value?: string) => {
+      try {
+        if (value === undefined) return localStorage.getItem('notes-section-reading-mode');
+        localStorage.setItem('notes-section-reading-mode', value);
+      } catch { /* Storage is optional; reading and navigation still work. */ }
+      return null;
+    };
+    let focus = saveMode() === 'focus';
+    let index = 0;
+    sections.forEach((section, i) => {
+      const kicker = document.createElement('span');
+      kicker.className = 'note-reading-kicker';
+      kicker.setAttribute('aria-hidden', 'true');
+      kicker.textContent = `${String(i + 1).padStart(2, '0')} ／ ${String(sections.length).padStart(2, '0')}`;
+      section.prepend(kicker);
+    });
+    const render = () => {
+      sections.forEach((section, i) => { section.hidden = focus && i !== index; });
+      navigation.hidden = !focus;
+      root.dataset.mode = focus ? 'focus' : 'full';
+      buttons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.readerMode === root.dataset.mode)));
+      previous.disabled = index === 0;
+      next.disabled = index === sections.length - 1;
+      next.textContent = next.disabled ? '已到本篇末段' : '下一段 →';
+      status.textContent = `第 ${index + 1} / ${sections.length} 段`;
+      if (focus) {
+        const activeId = sections[index].querySelector('h2')?.id;
+        document.querySelectorAll<HTMLAnchorElement>('.note-toc a[href^="#"]').forEach((link) => {
+          let active = false;
+          try { active = decodeURIComponent(link.hash.slice(1)) === activeId; } catch {}
+          link.classList.toggle('is-active', active);
+          if (active) link.setAttribute('aria-current', 'location');
+          else link.removeAttribute('aria-current');
+        });
+      }
+    };
+    const revealTarget = (target: HTMLElement) => {
+      const section = target.closest<HTMLElement>('[data-note-section]');
+      if (!section || !content.contains(section)) return false;
+      index = sections.indexOf(section);
+      render();
+      for (let parent = target.parentElement; parent && parent !== content; parent = parent.parentElement) {
+        if (parent instanceof HTMLDetailsElement) parent.open = true;
+      }
+      return true;
+    };
+    const hashTarget = () => {
+      try { return location.hash ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null; }
+      catch { return null; }
+    };
+    const syncHash = (scroll = true) => {
+      const target = hashTarget();
+      if (target && revealTarget(target) && scroll) {
+        requestAnimationFrame(() => target.scrollIntoView({ block: 'start', behavior: 'instant' }));
+      }
+    };
+    buttons.forEach((button) => button.addEventListener('click', () => {
+      const enteringFocus = button.dataset.readerMode === 'focus' && !focus;
+      if (enteringFocus) {
+        const edge = (document.querySelector('.site-header')?.getBoundingClientRect().bottom ?? 0) + 16;
+        const visible = sections.findIndex((section) => section.getBoundingClientRect().bottom > edge);
+        if (visible >= 0) index = visible;
+      }
+      focus = button.dataset.readerMode === 'focus';
+      saveMode(focus ? 'focus' : 'full');
+      render();
+      if (enteringFocus) {
+        const heading = sections[index].querySelector<HTMLElement>('h2')!;
+        history.replaceState(null, '', `#${encodeURIComponent(heading.id)}`);
+      }
+      // Keep the chosen section in view when the hidden sections change height.
+      sections[index].scrollIntoView({ block: 'start', behavior: 'instant' });
+    }));
+    const go = (offset: number) => {
+      index = Math.max(0, Math.min(sections.length - 1, index + offset));
+      const heading = sections[index].querySelector<HTMLElement>('h2')!;
+      history.pushState(null, '', `#${encodeURIComponent(heading.id)}`);
+      render();
+      heading.focus({ preventScroll: true });
+      heading.scrollIntoView({ block: 'start', behavior: 'instant' });
+    };
+    previous.addEventListener('click', () => go(-1));
+    next.addEventListener('click', () => go(1));
+    window.addEventListener('hashchange', () => syncHash());
+    document.addEventListener('note-reader-reveal', ((event: CustomEvent<{ heading: string }>) => {
+      const target = document.getElementById(event.detail.heading);
+      if (target) revealTarget(target);
+    }) as EventListener);
+    window.addEventListener('popstate', () => {
+      if (location.hash) syncHash();
+      else { index = 0; render(); }
+    });
+    render();
+    toolbar.hidden = false;
+    root.dataset.ready = 'true';
+    syncHash();
+    if (root.dataset.resumeHeading && !location.hash) {
+      const target = document.getElementById(root.dataset.resumeHeading);
+      if (target && revealTarget(target)) target.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }
+    // Printing includes every section and every collapsed supplement, while
+    // restoring the reader's disclosure choices afterwards.
+    let closed: HTMLDetailsElement[] = [];
+    window.addEventListener('beforeprint', () => {
+      closed = [...content.querySelectorAll<HTMLDetailsElement>('details:not([open])')];
+      closed.forEach((detail) => { detail.open = true; });
+    });
+    window.addEventListener('afterprint', () => closed.forEach((detail) => { detail.open = false; }));
+  });
+</script>

@@ -1,7 +1,10 @@
 # Lab pages — RPG rule system
 
 設計規則，給之後維護 lab 區的人（含 agent）。範圍只在 `/handbook/*`，
-個人網站其他頁面（首頁、Notes、Publications、About）維持原本的學術風格。
+個人網站其他頁面的正文維持學術風格。
+
+2026-11-09：作者指定首頁與全站入口可帶有輕度 gaming／學術探索感，
+其視覺範圍見 `design-system.md` 第 10 節。本文件的研究室敘事與名詞規則仍適用於 lab 區。
 
 ## 第一原則
 

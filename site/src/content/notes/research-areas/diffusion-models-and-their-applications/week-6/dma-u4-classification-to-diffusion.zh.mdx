@@ -1,0 +1,633 @@
+---
+slug: "dma-u4-classification-to-diffusion"
+label: "dma-classification-to-discrete-diffusion"
+prereqs:
+  - dma-tweedie-and-score
+lang: "zh"
+title: "會做 Classification，怎麼開始生成一句話？"
+category: "courses"
+group: "Unit 4 · Discrete Diffusion"
+status: "available"
+readingMode: "sections"
+updated: 2026-11-12
+summary: "從分類的 CE 與 joint 搭配問題出發，看見翻開一格如何改變另一格的答案；用各種部分句子訓練原字 posterior，連回 one-hot 條件平均與 Tweedie，再以保留可見字、更新線索的 sampling 建立生成與 remasking。"
+demos: []
+references:
+  - label: "Sahoo et al., Simple and Effective Masked Diffusion Language Models (2024)"
+    href: "https://arxiv.org/abs/2406.07524"
+  - label: "Wang et al., Remasking Discrete Diffusion Models with Inference-Time Scaling (2025)"
+    href: "https://arxiv.org/abs/2503.00307"
+---
+import Ask from '../../../components/Ask.astro';
+import Objectives from '../../../components/Objectives.astro';
+import Prereq from '../../../components/Prereq.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
+import Remark from '../../../components/Remark.astro';
+import CenteredExample from '../../../components/CenteredExample.astro';
+import Try from '../../../components/Try.astro';
+import Details from '../../../components/Details.astro';
+import Question from '../../../components/Question.astro';
+import Answer from '../../../components/Answer.astro';
+import QuizBlock from '../../../components/QuizBlock.astro';
+import Option from '../../../components/Option.astro';
+import Explanation from '../../../components/Explanation.astro';
+import Bridge from '../../../components/Bridge.astro';
+import Ref from '../../../components/Ref.astro';
+import MaskingSequence from '../../../components/MaskingSequence.astro';
+import DiscreteMechanismFigure from '../../../components/DiscreteMechanismFigure.astro';
+import DiscretePythonExperiment from '../../../components/DiscretePythonExperiment.astro';
+
+# 會做 Classification，怎麼開始生成一句話？
+
+<Objectives collapsible>
+- **用分類訓練學到原字的可能性。** 從遮字的 input／label 寫出 CE，推得它的理想解是原字 posterior，並對回 one-hot 的條件平均。
+- **分開 denoiser 的預測與 sampler 的動作。** 算出一次翻開的機率，用兩種句子說明為什麼分批更新 context 能保留搭配，以及同批抽樣還缺少什麼。
+- **從修改需求建立 remasking。** 用來源機率乘上 rate 配平新增 flows，說出理想分布保留的條件，並比較不同抽樣方式的計算成本。
+</Objectives>
+
+<Prereq items={frontmatter.prereqs} />
+
+<span id="給一個-input怎麼學它的類別"></span>
+
+## 我們第一次在 machine learning 中遇到離散的機率，是什麼時候？
+
+想想剛開始學 machine learning 時遇到的 classification 問題。假設我們手上有一批照片，每張都標好是貓、狗或兔子。一筆 training data 就包含兩個東西：**照片是 input，正確的類別是 label。** 訓練時，把照片交給模型，再用 label 檢查它的預測。
+
+把一張照片記成 $x$，用 $a$ 表示候選類別。模型看到 $x$ 後，給類別 $a$ 的機率記成 $f_\theta(a\mid x)$；$\theta$ 是模型中要學習的參數。通常模型先算出各類別的分數，再用 softmax 轉成非負、加起來等於 $1$ 的機率。
+
+那 label 要怎麼和這張機率表對起來？先固定貓、狗、兔子的排列順序，把**這筆資料標註的類別放成 $1$，其餘類別放成 $0$**，這就叫 **one-hot encoding**。例如貓的 label，寫成 column vector 就是 $\operatorname{onehot}(\text{貓})=(1,0,0)^{\mathsf T}$；如果 label 是狗，則是 $(0,1,0)^{\mathsf T}$。
+
+<CenteredExample>
+
+| 候選類別 | 貓 | 狗 | 兔子 |
+| --- | --- | --- | --- |
+| 這筆資料的 one-hot label | $1$ | $0$ | $0$ |
+| 模型給的機率 | $0.8$ | $0.1$ | $0.1$ |
+
+</CenteredExample>
+
+兩列對著相同的類別：one-hot label 記錄這張照片的標註答案，模型則給出自己的預測機率。那要怎麼用這兩個向量計算 loss？我們希望模型給正確類別的機率越高，loss 越小。一個做法是對預測機率取 log，再用 **one-hot label 的各分量當權重**加總，最後取負號。
+
+把剛才那張貓的照片代進去：
+
+$$
+\begin{aligned}
+&-\big[1\log0.8+0\log0.1+0\log0.1\big]\\
+&=-\log0.8\approx0.223.
+\end{aligned}
+$$
+
+貓的分量是 $1$，所以留下 $\log0.8$；狗和兔子的分量都是 $0$，對這筆 loss 的貢獻就是 $0$。這種用 label 的機率權重，對模型的負 log-probability 加權求和的 loss，就叫 **cross-entropy（以下簡稱 CE）**。如果模型只給貓 $0.1$ 的機率，這筆 CE 就會變成 $-\log0.1\approx2.303$，比剛才大。
+
+現在把第 $i$ 筆資料寫成 $(x_i,a_i)$，其中 $x_i$ 是照片、$a_i$ 是它的 label；總共有 $N$ 筆。把這筆 label 的 PMF 記成 $p_i(a)$：$p_i(a_i)=1$，其他類別的機率都是 $0$。剛才的 one-hot vector，就是把這張 PMF 按類別順序排出來。
+
+用機率的寫法，一筆 CE 就是 $-\sum_a p_i(a)\log f_\theta(a\mid x_i)$。每個類別的負 log-probability，按 label PMF 的機率加權；再對 $N$ 筆資料平均，得到
+
+<FormulaSteps id="u4-intro-classification-ce" compact title="用 one-hot label 比較預測，再對資料平均"
+  formula={String.raw`\reveal{5}{\mathcal L_{\mathrm{cls}}(\theta)=}\reveal{4}{-}\reveal{5}{\frac1N\sum_{i=1}^N}\reveal{4}{\sum_a}\reveal{3}{p_i(a)}\reveal{4}{\log}\reveal{2}{f_\theta(a\mid}\reveal{1}{x_i}\reveal{2}{)}`}
+  steps={[
+    {label:'拿一筆 input',text:String.raw`第 $i$ 筆資料的照片是 $x_i$；模型先看到這張照片。`},
+    {label:'輸出分類機率',text:String.raw`模型 $f_\theta$ 根據 $x_i$，替每個候選類別 $a$ 分配機率 $f_\theta(a\mid x_i)$。`},
+    {label:'寫出 label 的 PMF',text:String.raw`這筆 label 的 PMF 是 $p_i$；它把全部機率放在標註類別 $a_i$。`},
+    {label:'算出一筆 CE',text:String.raw`對各類別的預測機率取負 log，再按 label PMF 的機率 $p_i(a)$ 加權求和。`},
+    {label:'對資料平均',text:String.raw`把 $N$ 筆 training data 的 CE 加起來，再除以 $N$，讓每筆資料都參與訓練。`},
+  ]} />
+
+**因為這筆 label 的 PMF 只有 $p_i(a_i)=1$，每筆加總最後只留下 $-\log f_\theta(a_i\mid x_i)$。** 因此，同一個 objective 也可以簡寫成
+
+$$
+\mathcal L_{\mathrm{cls}}(\theta)
+=-\frac1N\sum_{i=1}^N\log f_\theta(a_i\mid x_i).
+$$
+
+這個簡寫和上面用 PMF 加權的式子，是同一個 CE；one-hot label 的機率剛好讓加總只留下正確類別。
+
+算出 loss 後，我們就能對模型參數 $\theta$ 求 gradient，用 gradient descent 更新參數，讓這個平均 loss 下降。反覆讀取 training data、預測機率、計算 CE、更新參數，就是熟悉的分類訓練流程。若最後只想回傳一個分類結果，可以再從這張機率表挑出機率最大的類別。
+
+## 已經會做分類，能不能直接生一句話？
+
+剛才用 CE 訓練時，我們比較的是模型給的機率與 label 的 PMF。現在把資料換成一句話，每個位置的原字都可以當作分類的 label。那我們能不能沿用同樣的訓練，把每格的 CE 加起來，讓模型學會生成一句話？
+
+仍然用這份 **100 筆句子的資料：50 筆想吃麥當勞，另外 50 筆想打籃球**。先看清楚我們會拿到哪些 training labels：
+
+<CenteredExample>
+
+| 一筆原句提供的 labels | 資料中的筆數 | 抽到這整句的機率 |
+| --- | --- | --- |
+| `我／今天／想／吃／麥當勞` | 50 筆 | $50/100=1/2$ |
+| `我／今天／想／打／籃球` | 50 筆 | $50/100=1/2$ |
+
+</CenteredExample>
+
+這裡的 $1/2$ 是從資料抽到某一種完整句子的機率；`吃` 總是和 `麥當勞` 一起出現，`打` 總是和 `籃球` 一起出現。
+
+先試一個最直接的 setup：**每次給模型同一個固定的 input，讓它輸出五個位置各自的機率表；抽到的原句只用來提供 labels。** 例如抽到第一句，第四格的 label PMF 就把機率 $1$ 放在 `吃`，第五格則放在 `麥當勞`。每格都照剛才的方法計算 CE，再把五格的 loss 加起來，更新同一個模型的參數。
+
+<Remark label="分類的成本" summary="為什麼先拆成逐格分類？">
+也可以直接把每一種完整句子當成一個類別，使用一張整句的 one-hot label。若句子長度是 $L$、字典 $\mathcal V$ 有 $K$ 種 token，所有排列共有 $K^L$ 種；每格各做一個 $K$ 類分類器，則只需 $LK$ 個輸出。本段先檢查這個逐格訓練的做法。
+</Remark>
+
+## 這樣訓練，最理想會學到什麼？
+
+用 $X_0$ 表示從這 100 筆資料等機率抽到的原句，$X_0^{(\ell)}$ 是它第 $\ell$ 格的 token；句子長度為 $L$，這裡 $L=5$。第 $\ell$ 格的模型輸出記成 $f_\theta^{(\ell)}(a)$，表示給候選 token $a$ 的機率。此時模型的 input 固定，所以同一格每次都給出同一張 PMF。
+
+要把每筆 loss 對資料平均，我們可以先按 label 分組：某個 token 越常在第 $\ell$ 格當 label，它的負 log-probability 就越常出現在平均裡。這個出現比例，就是 $\Pr(X_0^{(\ell)}=a)$。因此，把各格的 CE 加起來、再對這 100 筆資料平均，可以寫成
+
+<FormulaSteps id="u4-intro-token-training" compact title="同一個固定 input，逐格用資料的 label 機率訓練"
+  formula={String.raw`\reveal{4}{\mathcal L_{\mathrm{token}}(\theta)=}\reveal{3}{-}\reveal{4}{\sum_{\ell=1}^L}\reveal{3}{\sum_a}\reveal{2}{\Pr(X_0^{(\ell)}=a)}\reveal{3}{\log}\reveal{1}{f_\theta^{(\ell)}(a)}`}
+  steps={[
+    {label:'模型給這格的機率',text:String.raw`input 固定，模型為第 $\ell$ 格輸出候選 token 的機率 $f_\theta^{(\ell)}(a)$。`},
+    {label:'資料提供的 label 機率',text:String.raw`把原句按資料比例抽出來；第 $\ell$ 格的 label 是 $a$ 的機率為 $\Pr(X_0^{(\ell)}=a)$。`},
+    {label:'算這格的平均 CE',text:String.raw`按資料中 labels 的出現機率，對模型的負 log-probability 加權求和。`},
+    {label:'把各格加起來',text:String.raw`對 $L$ 個位置的平均 CE 加總，就是這個逐格分類模型的 training objective。`},
+  ]} />
+
+例如第四格，50 筆 label 是 `吃`，另外 50 筆是 `打`。為了算出理想解，先在這兩個候選間分配機率：給 `吃` 的機率是 $u$，給 `打` 的機率就是 $1-u$。這格的平均 CE 是
+
+$$
+-\frac{50}{100}\log u-\frac{50}{100}\log(1-u).
+$$
+
+每筆 label 雖然都是 one-hot，但模型每次看到相同的 input，必須同時考慮這兩種 labels。那要怎麼分配機率，才會讓這格的平均 CE 最小？
+
+<Try summary="為什麼平均 CE 最小時，兩個字各占一半？">
+對 $0<u<1$，把兩項合成同一個 log：
+
+$$
+-\tfrac12\log u-\tfrac12\log(1-u)=-\tfrac12\log\big[u(1-u)\big].
+$$
+
+要讓負 log 最小，就要讓裡面的乘積最大。而
+
+$$
+u(1-u)=\tfrac14-(u-\tfrac12)^2\le\tfrac14,
+$$
+
+在 $u=1/2$ 時取到最大值。若把機率分給這格從未出現的其他 token，留給 `吃／打` 的機率就會減少；把那部分機率移回這兩類，可以降低 CE。因此，這份資料的理想 PMF 會把全部機率分給它們。
+</Try>
+
+**這個 CE 在 $u=1/2$ 時最小**，所以第四格最好的輸出是 `吃`、`打` 各一半。第五格同樣有兩種各占一半的 labels；前三格則永遠是 `我／今天／想`。因此，**理想上，模型夠強、訓練到收斂的話**，各格的輸出會是：
+
+<CenteredExample>
+
+| 位置 | training labels 的出現比例 | 理想的模型輸出 |
+| --- | --- | --- |
+| 第一至第三格 | 每筆都是 `我／今天／想` | 各格對應的原字機率為 $1$ |
+| 第四格 | `吃` 50 筆、`打` 50 筆 | `吃`、`打` 各 $1/2$ |
+| 第五格 | `麥當勞` 50 筆、`籃球` 50 筆 | `麥當勞`、`籃球` 各 $1/2$ |
+
+</CenteredExample>
+
+在這份資料裡，理想模型因此滿足 $f_\theta^{(\ell)}(a)=\Pr(X_0^{(\ell)}=a)$：每格都學到資料中 labels 的比例，達到這個逐格 CE 的理想結果。那生成時，我們是不是只要每格照自己的機率表抽一個 token，再把它們接起來就好了？
+
+<Ask>
+如果每一格都已經學對，<br />
+各自抽字再接起來，就會得到資料裡的那兩種搭配嗎？
+</Ask>
+
+## 每格都學對，為什麼整句還會配錯？
+
+先試最直接的做法：**第四格照自己的機率表抽一個字，第五格也照自己的機率表抽一個詞，兩次抽樣彼此獨立。** 可以想成各丟一次公平硬幣：第一次決定 `吃／打`，第二次決定 `麥當勞／籃球`。即使第四格已經抽到 `吃`，第五格仍然各有一半機率抽到兩個詞，因為這個做法沒有讓第五格參考剛填好的第四格。
+
+於是，生成 `吃／籃球` 要同時發生兩件事：第四格抽到 `吃`，機率是 $1/2$；第五格抽到 `籃球`，機率也是 $1/2$。**因為我們選的抽樣做法讓兩次抽樣獨立**，才可以相乘，得到 $(1/2)\times(1/2)=1/4$。這個 $1/4$ 描述的是逐格獨立抽樣的結果，和前面從資料抽整句是兩個不同的操作。
+
+把四種可能的後兩格都列出來，就看得出差別；前三格在兩邊都固定為 `我／今天／想`：
+
+<CenteredExample>
+
+| 後兩格的搭配 | 從資料抽整句的機率 | 逐格獨立抽樣的機率 |
+| --- | --- | --- |
+| `吃／麥當勞` | $1/2$ | $1/4$ |
+| `吃／籃球` | $0$ | $1/4$ |
+| `打／麥當勞` | $0$ | $1/4$ |
+| `打／籃球` | $1/2$ | $1/4$ |
+
+</CenteredExample>
+
+逐格獨立抽樣有 $1/4+1/4=1/2$ 的機率產生資料裡沒有的搭配。每一格的比例都學對了，卻沒有保住 `吃` 和 `麥當勞`、`打` 和 `籃球` 一起出現的關係。
+
+> **我們要學的，包含各格之間的搭配關係。**
+
+和 <Ref to="dma-what-are-we-learning"/> 一樣，我們要學的是能再抽出資料的 distribution。從資料抽到一整句 $x_0=(x_0^{(1)},\ldots,x_0^{(L)})$ 的機率，稱為整句的 joint PMF，記成 $p_{\mathrm{data}}(x_0)=\Pr(X_0=x_0)$；原文字典記成 $\mathcal V$。前面「只看第四格」或「只看第五格」得到的機率，則是各格的 marginal PMF；兩邊的 marginal 都各半，joint 卻不同。
+
+剛才的問題是：第五格抽字時，沒有參考第四格剛出現的結果。那如果我們真的讓它看見呢？先把未知的位置記成 `[MASK]`。看到 `我／今天／想／[MASK]／[MASK]`，兩種完整搭配都還有可能；但如果其中一格先翻開，剩下被蓋住的 token 是什麼，就會變得很確定。
+
+例如第四格先出現 `吃`，第五格就應該補 `麥當勞`。反過來，如果第五格先出現 `籃球`，第四格就應該補 `打`。**讓我們改變答案機率的，是新看見的 token。**
+
+<DiscreteMechanismFigure kind="context" />
+
+那如果我們的模型，也是這樣訓練的呢？讓它從各種程度、各種位置被遮住的句子出發，被要求補成完全沒有 MASK、而且保留已見 tokens 的完整答案。同一份線索若容許不同原句，就讓模型學會這些相容答案各自的可能性。
+
+<Ask>
+能不能從不同程度的部分句子出發，<br />
+保留已看見的 tokens，學會補成與這些線索相容的完整句子？
+</Ask>
+
+<span id="自己遮掉一些字就能製造分類題"></span>
+
+## 讓模型從各種部分句子練習補完
+
+這些題目可以直接從手上的完整原句製造。抽到 `我／今天／想／吃／麥當勞`，把第五格遮住，就得到 input `我／今天／想／吃／[MASK]`，完整原句則保留作 label。這筆答案中的 `吃` 和 input 相同，真正要學的是如何補回 `麥當勞`。
+
+如果把第四、第五格一起遮住，兩種原句就可能製造出同一個 input。這次從「吃麥當勞」製造的 training pair，用它作 label；下次從「打籃球」製造的 pair，就用另一句作 label。**我們每次提供一筆真實原句，讓 CE 累積學出同一份線索下不同答案的可能性。**
+
+要讓模型真的能使用生成途中新增的線索，訓練時就不能永遠只給同一個固定 input。我們讓遮住的位置和數量都改變：有時只缺一格，有時缺好幾格，也有整句都遮住的題目。
+
+<MaskingSequence />
+
+全部都是 MASK，只要知道句子長度就能製造。這也給了我們一個生成起點：先從完全沒有文字線索的狀態開始，填回一些字，再把新出現的部分句子交給同一個模型，繼續補剩下的位置。
+
+## 怎麼控制訓練時還剩多少線索？
+
+沿用 <Ref to="dma-discrete-data"/>，把 MASK 記成 $m$，用時間 $t$ 安排每格保留原字的機率 $\alpha_t$。令 $\alpha_0=1$、$\alpha_1=0$，隨時間降低；$t=0$ 是完整資料，$t=1$ 是全 MASK。訓練時可以直接抽出任一時間的題目，生成時則從 $1$ 往較小的時間走。
+
+固定原句 $X_0=x_0$ 後，第 $\ell$ 格要嘛保留原字，要嘛變成 MASK。因此，這格出現候選 $a$ 的 conditional PMF 是
+
+<FormulaSteps id="u4-intro-corruption" compact title="一格的 noisy token 從哪裡來？"
+  formula={String.raw`\reveal{1}{q_t^{(\ell)}(a\mid x_0)=}\reveal{2}{\alpha_t\delta_{x_0^{(\ell)}}(a)}\reveal{3}{+(1-\alpha_t)\delta_m(a)}`}
+  steps={[
+    {label:'要描述的結果',text:String.raw`給定原句與時間，想知道第 $\ell$ 格抽到 $a$ 的機率。$\delta_b(a)$ 在 $a=b$ 時是 $1$，其他時候是 $0$。`},
+    {label:'保留原字',text:String.raw`以 $\alpha_t$ 的機率，把這格放成 $x_0^{(\ell)}$。`},
+    {label:'遮住原字',text:String.raw`剩下的 $1-\alpha_t$ 放成 MASK；兩個分支相加，才是完整 PMF。`},
+  ]} />
+
+例如第四格的原字是 `吃`、$\alpha_t=0.7$，按 `吃`、MASK 排成 column vector，就是 $(0.7,0.3)^{\mathsf T}$。這是我們製造 input 時指定的保留機率；模型看到兩格都是 MASK 時，仍要從資料學到 `吃／打` 各半的答案機率。
+
+給定原句後，每格各自做一次保留或遮住，整句的 conditional PMF 是 $q_t(x\mid x_0)=\prod_{\ell=1}^Lq_t^{(\ell)}(x^{(\ell)}\mid x_0)$。沿用 U4，用 $I_t$ 表示這樣造出的 reference noisy sequence，一次具體抽到的部分句子寫成 $I_t=x$。**抽原句、抽時間、抽遮罩，就得到 input 與完整 label，不必先模擬一整條生成路徑。**
+
+<Remark label="符號" summary="對回 U1 與 U4 的記號">
+U1 的 $\sqrt{\bar\alpha_t}$ 是 Gaussian signal 的振幅，這裡的 $\alpha_t$ 是保留原字的機率。U4.0 的一般重抽分布寫成 $\nu$；本篇只做 MASK，所以 $\nu=\delta_m$。$I_t$ 是由資料與遮罩製造的 reference state；後面的 $\widehat x_t$ 是有限步 sampler 實際產生的序列。
+</Remark>
+
+各格的遮罩仍共享同一份原句 $X_0$。把不同原句按資料機率混合，得到時間 $t$ 的整句 PMF：$p_t(x)=\sum_{x_0}p_{\mathrm{data}}(x_0)q_t(x\mid x_0)$。這描述各個時間可能看見哪些部分句子；稍後再安排樣本如何從一份部分句子走到下一份。
+
+<span id="模型要猜一個字還是保留不同可能"></span>
+
+## 同一份部分句子，可能對到哪些完整答案？
+
+固定目前看見的部分句子 $I_t=x$。與它相容的完整原句，必須在所有已見位置滿足 $x_0^{(\ell)}=x^{(\ell)}$；只有 MASK 的位置還有待選擇。我們想學的是這些相容原句的條件分布 $\Pr(X_0=x_0\mid I_t=x)$，而且不同答案要保留資料所支持的比例。
+
+因此，兩格都遮住時，「吃麥當勞／打籃球」仍然各有一半可能；看到 `吃` 之後，只剩「吃麥當勞」相容。**完成句子時，已見的 tokens 直接照抄，模型的預測用來決定 MASK 可以填什麼。**
+
+讓 $f_\theta$ 讀取整句 $I_t$ 與時間 $t$，一次為所有位置輸出分類機率。第 $\ell$ 格的輸出記成 $f_\theta^{(\ell)}(a\mid I_t,t)$，表示看到這份部分句子後，模型給原字 $a$ 的機率。先學出各格在目前線索下的答案機率，生成時再利用每次填字帶來的新線索。
+
+訓練仍沿用開頭的 CE：一筆原句提供 one-hot label，只在 MASK 的格子取原字的負 log-probability，再把這些格子的 loss 加起來。對同一份 input 而言，不同原句可能提供不同 labels；把這些 training pairs 平均後，每個原字的權重就變成 $\Pr(X_0^{(\ell)}=a\mid I_t)$。這個「看到目前線索後，原字仍有多少可能」的機率，就叫原字的 **posterior**。
+
+所以，把訓練的 CE 按目前 input 與可能 labels 分組，可以寫成
+
+<FormulaSteps id="u4-intro-ce" compact title="從部分句子的線索，到原字 posterior 的分類訓練"
+  formula={String.raw`\reveal{1}{\mathcal L(\theta)=}\reveal{3}{-}\reveal{4}{\mathbb E_{t,I_t}\Big[}\reveal{3}{\sum_{\ell:I_t^{(\ell)}=m}\sum_a}\reveal{2}{\Pr(X_0^{(\ell)}=a\mid I_t)}\reveal{3}{\log}\reveal{1}{f_\theta^{(\ell)}(a\mid I_t,t)}\reveal{4}{\Big]}`}
+  steps={[
+    {label:'讀取目前看見的線索',text:String.raw`模型只讀部分句子 $I_t$ 與時間 $t$，為各格給出原字機率。`},
+    {label:'相容原句提供答案機率',text:String.raw`固定這份 input 後，可能原句的第 $\ell$ 格是 $a$ 的機率，為 $\Pr(X_0^{(\ell)}=a\mid I_t)$。`},
+    {label:'只評分需要補的格子',text:String.raw`在 MASK 位置，按原字 posterior 對模型的負 log-probability 加權求和；可見位置直接保留。`},
+    {label:'考慮各種部分句子',text:'對不同時間與遮罩所製造的 inputs 平均，也就是考慮所有能從資料製造的 training pairs。'},
+  ]} />
+
+這是把平均後的訓練目標寫成機率形式。實際 training 每次只需要抽一筆原句、製造一份遮罩、用原字作 label；原字 posterior 的權重，會透過不同 training pairs 的出現比例進入 CE。
+
+<Try summary="固定同一份部分句子，CE 最後會學到什麼？">
+固定時間與目前 input $I_t=x$，用 $p_a=\Pr(X_0^{(\ell)}=a\mid I_t=x)$ 表示原字 posterior，$f_a$ 暫記模型給候選 $a$ 的機率。這格的平均 CE 是 $-\sum_a p_a\log f_a$。
+
+加減同一個 $\sum_a p_a\log p_a$，得到
+
+$$
+\begin{aligned}
+&-\sum_a p_a\log f_a\\
+&=-\sum_a p_a\log p_a\\
+&\quad+\sum_a p_a\log\frac{p_a}{f_a}\\
+&=H(p)+D_{\mathrm{KL}}(p\|f).
+\end{aligned}
+$$
+
+$H(p)$ 是 posterior 的 entropy，固定 input 後不隨模型改變。KL 非負，並在 $f=p$ 時為零，所以選擇原字 posterior 就能讓這格的平均 CE 最小。
+</Try>
+
+因此，**理想上，模型夠強、訓練到收斂的話，會學到目前線索下的原字 posterior：**
+
+$$
+f_\theta^{(\ell)}(a\mid x,t)=\Pr(X_0^{(\ell)}=a\mid I_t=x).
+$$
+
+和固定 input 的逐格分類相比，現在每格的機率會隨看見的線索改變：兩格未知時各半，看到 `吃` 後第五格是 `麥當勞`，看到 `籃球` 後第四格是 `打`。
+
+<Remark label="訓練加權" summary="這個 CE 和 diffusion 的 likelihood objective 怎麼接？">
+若從 diffusion likelihood bound 推得特定 objective，還會出現時間加權。正的、只依時間的權重在理想函數層級不改變固定 input 的最佳 posterior，但會改變有限模型的訓練重點。完整推導可對照 MDLM [1]。
+</Remark>
+
+這份小實驗固定前三格，對後兩格製造不同程度的遮罩。兩種分類器都從同一批 training pairs 用 CE 更新 logits：一種永遠忽略其他位置，另一種按看見的 context 使用不同參數。先看兩格未知時的 PMFs，再看翻開 `吃` 或 `籃球` 後，另一格的預測有沒有改變；最後比較從兩格 MASK 出發的完整搭配。
+
+<DiscretePythonExperiment example="contextPosterior" />
+
+實驗用每個 context 一個 logit 的小型分類器；訓練的是參數，不是直接填入精確 posterior。這份 MASK toy 在同一份部分句子下，兩種原句的相對權重不隨 $t$ 改變，因此小模型以部分句子作 key。改 `n_pairs`、`training_steps` 或 `seed`，檢查有限資料與有限訓練如何影響這些機率。
+
+[下載 context 分類訓練實驗](/personal_website/notes/notebooks/diffusion-models-applications/dma-u4-context-posterior.py)。
+
+<Details summary="補充：把同一個 input 的多種 labels，縮成一個參數來看">
+另一份單格 toy 固定 input `我／今天／[MASK]／吃／麥當勞`，原字七成是 `想`、三成是 `要`。若模型給 `想` 的機率為 $u$，平均 CE 是 $-0.7\log u-0.3\log(1-u)$；取 $u=0.5,0.7,0.99$，分別約為 $0.693,0.611,1.389$。這裡只檢查固定 input 的答案比例，不比較不同 context。
+
+<DiscretePythonExperiment example="posterior" />
+
+程式從遮字 training pairs 更新一個 sigmoid 分類器。改 `n_pairs` 或 `training_steps`，比較初始化與訓練後的 CE；最後印出的 rates 可以接回後面的翻開規則。
+
+[下載單格分類學習實驗](/personal_website/notes/notebooks/diffusion-models-applications/dma-u4-learn-posterior.py)。
+</Details>
+
+## 固定目前線索後，我們在平均哪些 labels？
+
+先固定時間 $t$，也固定模型目前看到的部分句子 $I_t=x$：
+
+<CenteredExample>
+
+`我／今天／想／[MASK]／[MASK]`
+
+</CenteredExample>
+
+這份 input 已經固定，但它背後的原句還沒確定。依照我們的資料，仍然可能是「吃麥當勞」那句，也可能是「打籃球」那句；在這份線索下，兩句的條件機率各是 $1/2$。
+
+我們先只看**同一個位置，也就是第四格**。固定按 `吃／打` 排列 one-hot label：原字是 `吃` 就提供 $(1,0)^{\mathsf T}$，原字是 `打` 就提供 $(0,1)^{\mathsf T}$。這份資料的第四格只會出現這兩個 token，所以先只列這兩個分量，字典裡其他 token 的 label 分量都是 $0$。
+
+<CenteredExample>
+
+| 與目前線索相容的完整原句 | 第四格的 one-hot label | 原句的條件機率 |
+| --- | --- | --- |
+| `我／今天／想／吃／麥當勞` | $\begin{pmatrix}1\\0\end{pmatrix}$ | $1/2$ |
+| `我／今天／想／打／籃球` | $\begin{pmatrix}0\\1\end{pmatrix}$ | $1/2$ |
+
+</CenteredExample>
+
+現在才取平均：**每份可能的原句，提供它第四格的 one-hot label，再按這份線索下的條件機率加權。** 因此得到
+
+$$
+\frac12\begin{pmatrix}1\\0\end{pmatrix}+\frac12\begin{pmatrix}0\\1\end{pmatrix}=\begin{pmatrix}1/2\\1/2\end{pmatrix}.
+$$
+
+第一個分量是 `吃` 的機率，第二個是 `打` 的機率。每筆原句提供的 label 仍然只有一個分量是 $1$；固定目前線索後，考慮不同相容原句，才會平均出這張各半的 PMF。
+
+接著換一份線索，仍然看第四格：
+
+<CenteredExample>
+
+`我／今天／想／[MASK]／籃球`
+
+</CenteredExample>
+
+這次第五格已經是 `籃球`。「吃麥當勞」那句和這個已見 token 不符，因此條件機率變成 $0$；「打籃球」那句則是 $1$。沿用相同的 `吃／打` 排列，平均的是
+
+$$
+0\begin{pmatrix}1\\0\end{pmatrix}+1\begin{pmatrix}0\\1\end{pmatrix}=\begin{pmatrix}0\\1\end{pmatrix}.
+$$
+
+one-hot labels 的寫法沒有改變，改變的是**固定這份新線索後，各原句參與平均的權重**。於是，第四格的條件平均也從「吃、打各半」，變成全部放在 `打`。
+
+把第四格推廣成第 $\ell$ 格，我們剛才做的操作就寫成下面這個條件平均。$I_t=x$ 固定看得見的線索；$X_0$ 仍然在相容原句之間變動，每句提供自己的原字 label：
+
+<FormulaSteps id="u4-intro-onehot" compact title="先固定線索，再平均同一格可能的 one-hot labels"
+  formula={String.raw`\reveal{3}{\mathbb E\!\big[}\reveal{2}{\operatorname{onehot}(X_0^{(\ell)})}\reveal{1}{\mid I_t=x}\reveal{3}{\big]}\reveal{4}{=\big(\Pr(X_0^{(\ell)}=a\mid I_t=x)\big)_{a\in\mathcal V}}`}
+  steps={[
+    {label:'先固定目前線索',text:String.raw`固定時間與整份 input $I_t=x$，再找哪些完整原句仍與它相容。`},
+    {label:'找出要平均的 labels',text:String.raw`每份相容原句，都提供同一個位置 $\ell$ 的 one-hot 原字 label。`},
+    {label:'按條件機率平均',text:'依目前線索下各原句的 posterior 權重，把這些 one-hot labels 加權平均。'},
+    {label:'把各分量讀成機率',text:String.raw`候選 $a$ 的分量，就是目前線索下原字為 $a$ 的機率；所有分量一起組成 posterior PMF。`},
+  ]} />
+
+為什麼右邊會是一張機率表？因為 one-hot 在候選 $a$ 的分量，只有當原字等於 $a$ 時才是 $1$。固定線索後，這個分量的平均就是「原字等於 $a$」的條件機率。**所以 CE 學到的原字 posterior，也正是這些 one-hot labels 的條件平均。**
+
+## 這不就和 U1 預測原圖的平均很像嗎？
+
+現在再回想 <Ref to="dma-tweedie-and-score"/> 的 denoising regression。U1 先抽一張原圖，再加入 Gaussian noise 製造 noisy input；如果用原圖作為 regression label，訓練時就是讓模型從 noisy image 預測原圖的數值。
+
+同一個 noisy input $x_t$，可能由不同原圖搭配不同 noise 產生。**先固定目前看見的 $x_t$，再把仍可能的原圖 labels 按 posterior 加權平均**，就得到 $\mathbb E[x_0\mid x_t]$。U1 已經推過：用平方誤差訓練時，這就是理想的原圖預測。
+
+對照剛才的句子，操作順序其實一樣：我們先固定目前線索，再看哪些原始答案仍有可能，最後按條件機率平均。句子這邊平均的是同一格原字的 one-hot vectors；U1 平均的是原圖的數值 vectors。訓練分別使用 CE 與平方誤差，理想輸出都能透過這個條件平均來理解。
+
+<Remark label="對回 U1" summary="U1 用 noise 作 label 時，怎麼接回原圖平均？">
+U1 的 $\epsilon$-prediction 用 noise 作 label，平方誤差學到 $\mathbb E[\epsilon\mid x_t]$。由 $x_t=\sqrt{\bar\alpha_t}x_0+\sigma_t\epsilon$，在 $\bar\alpha_t>0$ 時固定 $x_t$ 取條件平均，可換算成
+
+$$
+\mathbb E[x_0\mid x_t]=\frac{x_t-\sigma_t\mathbb E[\epsilon\mid x_t]}{\sqrt{\bar\alpha_t}}.
+$$
+
+本段用原圖的條件平均來對照 one-hot labels；兩種 prediction 的關係沿用 U1。
+</Remark>
+
+## 這個條件平均，怎麼接到 Tweedie？
+
+我們現在有了「固定 noisy input 後，平均可能原圖」的結果。那這個平均和生成時使用的 score 有什麼關係？先回到 U1 的 Gaussian corruption：$x_t=\sqrt{\bar\alpha_t}x_0+\sigma_t\epsilon$，其中 $\epsilon\sim\mathcal N(0,I)$ 且獨立於原圖，$\sigma_t$ 是 noise 的標準差。
+
+條件平均 $\mathbb E[x_0\mid x_t]$ 位在原圖的尺度上。先乘回 $\sqrt{\bar\alpha_t}$，就和目前的 $x_t$ 位在相同的 signal 尺度；再減去目前位置 $x_t$，就得到條件平均所提供的 denoising 方向。U1 推得的 Tweedie formula 說，這個量恰好等於 noisy image density 的 score 乘上 $\sigma_t^2$：
+
+<FormulaSteps id="u4-intro-tweedie" compact title="先有條件平均，再換算 denoising 方向與 score"
+  formula={String.raw`\reveal{2}{\sqrt{\bar\alpha_t}\,}\reveal{1}{\mathbb E[x_0\mid x_t]}\reveal{2}{-x_t}\reveal{3}{=\sigma_t^2\nabla_{x_t}\log p_t(x_t)}`}
+  steps={[
+    {label:'固定 noisy input，平均原圖 labels',text:String.raw`在目前 $x_t$ 下，把可能原圖按 posterior 平均，得到 $\mathbb E[x_0\mid x_t]$。`},
+    {label:'回到 noisy input 的尺度',text:String.raw`乘回 signal 係數 $\sqrt{\bar\alpha_t}$，再扣掉目前的 $x_t$，形成 denoising 方向。`},
+    {label:'套用 U1 的 Tweedie 關係',text:String.raw`在 Gaussian corruption 下，這個方向等於 $\sigma_t^2$ 乘上 noisy image density $p_t$ 的 score。`},
+  ]} />
+
+這一段的 $p_t$ 是 U1 noisy images 的 density；$\nabla_{x_t}$ 對目前 noisy 位置微分，指出 density 增加最快的方向。上式在 $\sigma_t>0$ 的 noisy 時間討論，符號沿用 U1。
+
+所以，U1 從條件平均走到 noisy distribution 的局部幾何；我們現在也從 CE 得到 one-hot 原字 labels 的條件平均。那看到目前的部分句子後，這張原字 posterior PMF，能不能同樣告訴我們離散 joint 分布的局部資訊？
+
+## 分類器的 posterior，也包含離散分布的局部資訊嗎？
+
+回到離散句子的 joint PMF $p_t$。這裡沒有連續座標可對 token 微分，但我們可以比較兩個相鄰整句的機率：目前整句 $x$ 的第 $\ell$ 格是 MASK，把它填成 $a\in\mathcal V$ 後，得到候選下一句 $y=x^{(\ell\to a)}$，其餘位置都相同。
+
+先給定原句 $x_0$，並取 $0<\alpha_t<1$。兩句其他位置的 corruption 因子相同；第 $\ell$ 格在 $x$ 中貢獻 $1-\alpha_t$，在 $y$ 中則貢獻 $\alpha_t\mathbf1[x_0^{(\ell)}=a]$，因此
+
+$$
+q_t(y\mid x_0)
+=q_t(x\mid x_0)\frac{\alpha_t}{1-\alpha_t}
+\mathbf1[x_0^{(\ell)}=a].
+$$
+
+這就是把「仍然遮住」的因子，換成「保留了候選原字」的因子。把所有原句按資料機率加起來，再除以 $p_t(x)>0$，得到
+
+$$
+\begin{gathered}
+\frac{p_t(y)}{p_t(x)}\\
+=\frac{\alpha_t}{1-\alpha_t}
+\sum_{x_0}\frac{p_{\mathrm{data}}(x_0)q_t(x\mid x_0)}{p_t(x)}
+\mathbf1[x_0^{(\ell)}=a]\\
+=\frac{\alpha_t}{1-\alpha_t}
+\Pr(X_0^{(\ell)}=a\mid I_t=x).
+\end{gathered}
+$$
+
+第二個等號用了 Bayes rule：和目前整句相容的原句，按 posterior 權重參與加總；挑出原字是 $a$ 的那部分，就得到原字 posterior。這個相鄰 states 的機率比稱為一種 **discrete score**，與連續的 gradient score 對照；比值可能大於 $1$，本身不是一張分類 PMF。[1] 的附錄 C 討論了 masked denoiser 與這種 score 表示的連結。
+
+所以「分類」不只是猜一個答案：學到原字 posterior 後，可以進一步得到 noisy joint 分布的局部機率比。不過，知道這些機率仍然沒有決定這一步要改哪些位置；我們還需要 sampler。
+
+## 一次預測所有 MASK，為什麼還要分批填字？
+
+模型已經在不同部分句子上練習過：兩格未知時保留兩種搭配，翻開其中一格後，再用新線索判斷另一格。現在要把這種完成能力用在生成：先保留目前看得見的字，補回一些 MASK，再把新句子交給同一個模型。
+
+<Question id="Q1">
+既然模型每格的條件機率都已經學對，能不能省掉重新預測，第一次就把所有 MASK 獨立抽完？
+<Answer>
+第一輪讀到的 input 仍是 `我／今天／想／[MASK]／[MASK]`，所以兩格的 posterior 都各半。即使模型知道「看到吃之後要改答案」，這一輪還沒有看見新字；兩格獨立抽，仍會組出四種各占 $1/4$ 的結果。**單格預測可以完全正確，同批抽樣的 joint 仍然可能配錯。**
+
+要用到剛才學會的反應，就要真的更新 input：先抽第四格，得到 `吃` 後保留它，再用 `我／今天／想／吃／[MASK]` 重新預測第五格。先抽第五格也可以；重要的是下一次預測有讀到新出現的字。
+
+模型輸出的是「給定目前整句，各原字的可能性」；同批獨立抽樣額外假設了新字之間的條件獨立。更多樣本只會更清楚地顯示這個 sampler 的分布，不能把這個假設造成的偏差平均掉。
+</Answer>
+</Question>
+
+剛才的實驗真的更新分類器參數；這份實驗則先使用查表的**精確 posterior**，單獨檢查 sampler。固定前三格，比較同批、先第四格、先第五格三種抽法。先猜搭配比例，再改 `n_runs` 看頻率：同批的理論錯配率是 $1/2$，後兩種在這個 toy 都能保留完整搭配。
+
+<DiscretePythonExperiment example="joint" />
+
+[下載分批抽樣實驗](/personal_website/notes/notebooks/diffusion-models-applications/dma-u4-joint-sampling.py)。
+
+這回答了為什麼要反覆更新 context。那每一步該翻開多少格，才和我們設計的 noise schedule 接得起來？
+
+## 這一步要翻開多少 MASK？
+
+先回到已知原句的簡單版本，選擇「已翻開的原字照抄、MASK 有機會翻回原字」的規則。從 $t$ 走到 $s<t$，希望原字比例從 $\alpha_t$ 增加到 $\alpha_s$。例如 $\alpha_t=0.5$、$\alpha_s=0.6$，全體只需多補回 $0.1$，但可以翻開的來源只有那 $0.5$ 的 MASK，因此每個 MASK 的翻開機率是 $0.1/0.5=0.2$。
+
+<FormulaSteps id="u4-intro-reveal" compact title="要補回的質量，分給目前仍遮住的位置"
+  formula={String.raw`\reveal{1}{w_{t,s}=}\reveal{3}{\frac{\reveal{2}{\alpha_s-\alpha_t}}{1-\alpha_t}}`}
+  steps={[
+    {label:'這次要決定的動作',text:String.raw`給定一格在時間 $t$ 仍是 MASK，想算它到 $s<t$ 時翻開的機率。`},
+    {label:'算全體要補回多少',text:String.raw`原字比例要從 $\alpha_t$ 增加到 $\alpha_s$，需要補回 $\alpha_s-\alpha_t$ 的質量。`},
+    {label:'除以可翻開的來源',text:String.raw`目前 MASK 占 $1-\alpha_t$；每個 MASK 用同樣的機率翻開，就得到這個比值。`},
+  ]} />
+
+乘回來源比例就能驗算：$\alpha_t+(1-\alpha_t)w_{t,s}=\alpha_s$。當 $\alpha_t=1-t$，有 $w_{t,s}=(t-s)/t$；例如 $t=0.5$ 到 $s=0.4$，就是剛才的 $0.2$。這是選定的單調翻開 reference 過程下的結果，不是只靠 PMF snapshots 就唯一決定的跨時間規則。
+
+生成時不知道原字，所以把「翻開後查原句」換成「翻開後按目前線索下的模型 PMF 抽字」。用 $\widehat x_t$ 記目前有限步 sampler 的整句；每個位置都依照「可見就保留，MASK 才決定是否填回」更新：
+
+$$
+\widehat x_s^{(\ell)}=\begin{cases}
+\widehat x_t^{(\ell)},&\widehat x_t^{(\ell)}\ne m,\\
+m,&\widehat x_t^{(\ell)}=m,\ \text{機率 }1-w_{t,s},\\
+A_\ell,&\widehat x_t^{(\ell)}=m,\ \text{機率 }w_{t,s}.
+\end{cases}
+$$
+
+其中 $A_\ell\sim\operatorname{Categorical}(f_\theta^{(\ell)}(\cdot\mid\widehat x_t,t))$：依模型給的各類別機率抽一個 token。舊可見字直接照抄。這一步先用舊 context 算完預測與所有操作，得到 $\widehat x_s$ 後，下一步才重算。
+
+<DiscreteMechanismFigure kind="contextSampler" />
+
+從 $\widehat x_1=(m,\ldots,m)$ 出發，選擇遞減的時間表，反覆執行「預測、決定是否翻開、抽字、更新 context」，最後到 $s=0$ 時令剩餘 MASK 全部翻開。這就得到一個完整的基本 masked diffusion sampler。[1] 採用這類保留可見字的生成設計。
+
+翻開機率精確，並不保證同批抽多字的 joint 精確。剛才的搭配反例仍適用；把時間步縮小，可以減少同一批中多個相依位置一起翻開的機會，而模型的 posterior 估計誤差還是另外一件事。
+
+<Details summary="把翻開的機率縮成 rate，如何接回 U4.1–U4.2？">
+令 $s=t-h$、$h>0$。在 schedule 可微且 $1-\alpha_t>0$ 時，$\alpha_{t-h}-\alpha_t=-h\dot\alpha_t+o(h)$，所以
+
+$$
+c_t=\lim_{h\downarrow0}\frac{w_{t,t-h}}h
+=\frac{-\dot\alpha_t}{1-\alpha_t}.
+$$
+
+$c_t$ 是每單位生成時間的總 reveal rate；它可以大於 $1$，乘短時間 $h$ 才近似一步機率。對目前 $x^{(\ell)}=m$、候選 $a$，理想的生成 rate 是
+
+$$
+\bar R_t(x,x^{(\ell\to a)})
+=c_t\Pr(X_0^{(\ell)}=a\mid I_t=x).
+$$
+
+總共翻得多快由 $c_t$ 決定，分到哪個字由原字 posterior 決定。把 posterior 換成 $f_\theta$，就是模型近似 $\bar R_{\theta,t}$。從正確起點出發、使用真 posterior 與可適當定義的精確動態時，這些單格跳躍 rates 沿著完整 joint PMF path；有限步平行更新仍需要另外檢查。推導可接 <Ref to="dma-ctmc"/> 與 <Ref to="dma-discrete-flow-matching"/>。
+</Details>
+
+## 後來的線索更多，前面填的字能再改嗎？
+
+剛才的生成規則一直保留已填的字，只用新線索補剩下的位置。但如果有限步或模型誤差已經產生 `吃／籃球`，單靠繼續補完，就沒有機會修改前面的 `吃`。那我們願不願意把自己先前生成的某一格重新列為未知，再根據其他線索重選？
+
+例如把 `吃／籃球` 改成 `[MASK]／籃球`，保留已見的 `籃球`，再補成 `打／籃球`。這是 **remasking**：額外允許已生成的字重新回到 MASK，再利用其他線索重選。這個例子是在描述修正一個在 toy 資料中機率為零的結果；先遮住出問題的字後，才重新使用有定義的 toy posterior。實際有限模型會對更多輸入提供預測，但也可能估錯。
+
+<Remark label="完成的條件" summary="如果一開始就給定部分句子，哪些字要一直保留？">
+本篇的完整生成從全 MASK 開始，後來看見的字都是 sampler 自己填出的。如果任務是補完使用者給定的部分句子，最初指定的可見 tokens 可以固定保留，不列入 remasking 的候選；新增的重選機會用在生成過程填出的字。
+</Remark>
+
+回想 U1 的 stochastic sampler，我們會利用 score 組成 reverse drift，再加入 Gaussian 擾動。這可以幫助我們想到「除了補回，也給樣本重新探索的機會」，但基本 MASK sampler 已經在隨機決定何時翻開、填哪個字，**不需要額外 remasking 才有抽樣的隨機性**。U1 也有不在每步加入新 noise 的 ODE sampler。Remasking 增加的是已填字的重選機會，不能僅靠類比就任意加入。
+
+## 重新遮住，會不會改掉我們想走的分布？
+
+先固定一筆已知原句，只看原字與 MASK，兩群比例是 $\alpha_t$ 與 $1-\alpha_t$。讓每個可見字以 rate $\sigma_t\ge0$ 遮回，搬出的 probability flow 就是 $\alpha_t\sigma_t$。要讓新增轉移的淨效果為零，就要用相同的 flow 補回；來源 MASK 只有 $1-\alpha_t$，因此每個 MASK 的額外 reveal rate 必須是 $\sigma_t\alpha_t/(1-\alpha_t)$。
+
+<Remark label="符號" summary="這裡的 $\sigma_t$ 沿用 U4.5 的 remasking rate">
+本段 $\sigma_t$ 是每單位生成時間的新增修改 rate，沿用 <Ref to="dma-remasking"/>。它與回顧 U1 Tweedie formula 時的 Gaussian 標準差扮演不同角色，不將兩者的數值直接代入。
+</Remark>
+
+<DiscreteMechanismFigure kind="remasking" token="吃" position={4} />
+
+例如 $\alpha_t=0.8$、$\sigma_t=0.5$，遮回 flow 是 $0.8\times0.5=0.4$；MASK 只有 $0.2$，額外翻開 rate 就要是 $2$，因為 $0.2\times2=0.4$。若兩邊都用 rate $0.5$，補回 flow 只有 $0.1$，原本的 PMF 就會漂移。**要相等的是來源機率乘 rate，不是兩個 rates。**
+
+不知道原句時，還要檢查整句的 joint。仍令 $x^{(\ell)}=m$、$y=x^{(\ell\to a)}$，用 $C_t$ 表示額外加上的轉移 rates：
+
+$$
+\begin{aligned}
+C_t(y,x)&=\sigma_t,\\
+C_t(x,y)&=\sigma_t\frac{\alpha_t}{1-\alpha_t}
+\Pr(X_0^{(\ell)}=a\mid I_t=x).
+\end{aligned}
+$$
+
+第一行把已見字遮回；第二行將額外 reveal rate 按原字 posterior 分配。代入前面推得的 $p_t(y)/p_t(x)$，就得到 $p_t(x)C_t(x,y)=p_t(y)C_t(y,x)$：這一對完整句子的新增流入與流出抵消。每一對都這樣配平，各完整 state 的新增淨變化才都是零。
+
+原本沿 path 的 reveal rate 還要保留，所以總 reveal rate 是 $(-\dot\alpha_t+\sigma_t\alpha_t)/(1-\alpha_t)$，再按原字 posterior 分配到候選 token。這解釋了為什麼能沿用同一個 denoiser，同時改變生成時的跳躍方式；ReMDM [2] 建立了可以套用在預訓練 masked models 上的 remasking family。
+
+這個分布保留結論要求真 posterior、正確起點，以及可適當定義的精確動態；端點用極限或另外指定轉移。換成有限模型、有限步與同批抽字後，還會有預測和抽樣近似。Remasking 能提供重選的機會，品質是否改善，要用實驗比較。
+
+這份實驗固定 diffusion 時間，只模擬新增的修改轉移 $C_t$，並使用給定的精確 PMF；它不是完整生成器，也沒有訓練模型。比較「rates 相等」和「flows 配平」：先看新增 generator 對 PMF 的淨效果，再改 `sigma` 或 `correction_time` 看實際抽樣頻率。
+
+<DiscretePythonExperiment example="remasking" />
+
+[下載 flow 配平實驗](/personal_website/notes/notebooks/diffusion-models-applications/dma-u4-balanced-remasking.py)。
+
+## 模型已經會預測，生成的時間花在哪裡？
+
+每次把目前整句交給 neural network、重新算出各格 PMFs，都算一次模型評估（network evaluation，以下用 NFE 計數）。一次可以預測很多格，所以生成的 token 數不等於 NFE；平行翻開很多格也不表示完全沒有計算成本。
+
+現在不同 sampling 方式的取捨就具體了。大批翻開減少重算 context 的次數，但同批的新字還看不到彼此；小批翻開增加重算機會，卻需要更多模型評估。Remasking 可以再改已填字，也會花掉一部分計算預算在重選上。
+
+<CenteredExample>
+
+| 方式 | 每次改什麼 | 得到什麼、付出什麼 |
+| --- | --- | --- |
+| 大批翻開 | 同一份 context 下補多個 MASK | 較少重算；同批相依可能沒被保留 |
+| 小批翻開 | 補較少位置，較常更新 context | 新字能影響後續預測；需要較多模型評估 |
+| 加入 remasking | 也把部分可見字遮回重選 | 增加修改機會；需設計合法規則並測量成本與品質 |
+
+</CenteredExample>
+
+這張表比較的是生成策略，沒有宣稱某一種普遍最好。比較時固定模型、資料、序列長度與 NFE，再看 joint 統計或品質。若改成依 confidence 選擇哪些位置翻開，選擇規則也變了；不能把它直接當成剛才隨機 reveal kernel 的等價實作。
+
+## 快速回顧一下
+
+<QuizBlock id="u4-intro-posterior">
+同一份 input 是「我／今天／想／[MASK]／[MASK]」，資料中的兩種完整搭配各半。理想分類器應該給第四格什麼機率？
+<Option>每次都輸出「吃」，讓它的機率是 1。</Option>
+<Option correct>輸出吃 0.5、打 0.5，保留目前線索下的原字 posterior。</Option>
+<Option>先把兩個 token ID 取平均，再找最接近的字。</Option>
+<Explanation>固定 input 的平均 CE 等於 posterior entropy 加上 KL，在預測 PMF 等於 posterior 時最小。One-hot 平均也得到這張表。</Explanation>
+</QuizBlock>
+
+<QuizBlock id="u4-intro-joint">
+每格的 posterior 都正確，同批獨立抽樣是否就得到正確整句？
+<Option correct>不一定，新抽出的字可能仍有相依；吃麥當勞／打籃球的例子就會錯配。</Option>
+<Option>會，因為所有分類機率加起來都是 1。</Option>
+<Option>會，只要生成的樣本數夠多。</Option>
+<Explanation>單格 PMFs 合法與 joint 正確是不同要求。重算 context 讓後續預測可以參考已抽出的新字。</Explanation>
+</QuizBlock>
+
+<QuizBlock id="u4-intro-remask">
+想讓新增的 remasking 動作保留理想 PMF，要配平什麼？
+<Option>兩個方向使用相同 rate。</Option>
+<Option>只讓整句的 MASK 總數不變。</Option>
+<Option correct>每對完整 states 的來源機率乘 rate，也就是 probability flows。</Option>
+<Explanation>來源群體比例不同，相同 rate 搬動的質量就不同；逐邊 flows 相等才能讓各 state 的新增淨變化抵消。</Explanation>
+</QuizBlock>
+
+<Bridge to="dma-discrete-data">
+熟悉的分類器可以學會從部分線索補完句子：自己遮字製造 input，用相容原句提供 labels，讓 CE 學到原字 posterior。生成時保留可見字、填回一些 MASK，再讓新出現的字改變下一次預測；需要重選時，再加入有配平條件的 remasking。這把 joint 的搭配需求、訓練與生成接了起來，完整分布的保留則還要分開檢查理想 rates 與有限步更新。
+
+接著從 U4.0 重新檢查中間 PMF 如何設計，再到 U4.1–U4.3 推導 reference rate、posterior averaging 與完整 sampler；U4.4–U4.5 則回答同批抽字漏掉什麼，以及如何加入修改。
+</Bridge>
+
+## 參考文獻
+
+1. Sahoo, S. S. et al. [*Simple and Effective Masked Diffusion Language Models.*](https://arxiv.org/abs/2406.07524) NeurIPS 2024. 對照 masked CE、保留可見字的 reverse sampler，以及附錄 C 的 discrete score 連結。
+2. Wang, G., Schiff, Y., Sahoo, S. S., Kuleshov, V. [*Remasking Discrete Diffusion Models with Inference-Time Scaling.*](https://arxiv.org/abs/2503.00307) NeurIPS 2025. 對照可沿用預訓練 denoiser 的 remasking 設計；本文沿用 U4.5 的 rate 記號與時間方向。

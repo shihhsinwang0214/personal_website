@@ -1,13 +1,13 @@
 ---
 import { langFromUrl } from '../../lib/noteRefs';
 const zh = langFromUrl(Astro.url) === 'zh';
-interface Props { id: string; code: string; syncOnOpen?: boolean }
-const { id, code, syncOnOpen = false } = Astro.props;
+interface Props { id: string; code: string; syncOnOpen?: boolean; summary?: string; intro?: string; open?: boolean }
+const { id, code, syncOnOpen = false, summary, intro, open = false } = Astro.props;
 ---
 
-<details class="dojo-python" data-python-cell data-lang={zh ? 'zh' : 'en'} data-python-sync-on-open={syncOnOpen ? 'true' : undefined}>
-  <summary>{zh ? '換你改程式，執行同一個實驗' : 'Edit Python and run the experiment yourself'}</summary>
-  <p class="dojo-python-intro">{zh ? '可以改參數，也可以改抽樣規則。按執行時才載入 Python；運算在你的瀏覽器進行。每次執行從這段程式重新開始，文字不會存檔。' : 'Change the parameters or the sampling rule. Python loads when you press Run and executes in your browser. Each run starts fresh; your edits are not saved.'}</p>
+<details class="dojo-python" open={open} data-python-cell data-lang={zh ? 'zh' : 'en'} data-python-sync-on-open={syncOnOpen ? 'true' : undefined}>
+  <summary>{summary ?? (zh ? '換你改程式，執行同一個實驗' : 'Edit Python and run the experiment yourself')}</summary>
+  <p class="dojo-python-intro">{intro ?? (zh ? '可以改參數，也可以改抽樣規則。按執行時才載入 Python；運算在你的瀏覽器進行。每次執行從這段程式重新開始，文字不會存檔。' : 'Change the parameters or the sampling rule. Python loads when you press Run and executes in your browser. Each run starts fresh; your edits are not saved.')}</p>
   {syncOnOpen && <p class="dojo-python-intro">{zh ? '首次展開會帶入上方的控制項設定；之後重開會保留你改過的程式。帶入的是條件，不包含上方累積訓練的參數或生成樣本，因此兩邊的有限抽樣圖不必完全相同。' : 'The first opening imports the controls above; reopening preserves your edits. Settings are imported, not accumulated trained parameters or samples, so finite-sample plots need not match exactly.'}</p>}
   <slot />
   <label for={`${id}-code`}>{zh ? '實驗程式（Python）' : 'Experiment code (Python)'}</label>
@@ -17,7 +17,7 @@ const { id, code, syncOnOpen = false } = Astro.props;
     <button type="button" class="dojo-btn" data-python-run>{zh ? '執行 Python' : 'Run Python'}</button>
     <button type="button" class="dojo-btn dojo-btn-ghost" data-python-stop hidden>{zh ? '停止' : 'Stop'}</button>
     <button type="button" class="dojo-btn dojo-btn-ghost" data-python-reset>{zh ? '還原程式' : 'Reset code'}</button>
-    <button type="button" class="dojo-btn dojo-btn-ghost" data-python-sync>{zh ? '套用上方的實驗條件' : 'Use the experiment settings above'}</button>
+    <button type="button" class="dojo-btn dojo-btn-ghost" data-python-sync hidden={!syncOnOpen}>{zh ? '套用上方的實驗條件' : 'Use the experiment settings above'}</button>
   </div>
   <p class="dojo-python-status" data-python-status role="status" aria-live="polite"></p>
   <pre class="dojo-python-output" data-python-output tabindex="0" aria-label={zh ? 'Python 執行結果' : 'Python output'} hidden></pre>
@@ -48,6 +48,10 @@ const { id, code, syncOnOpen = false } = Astro.props;
   /* Worker results insert images without Astro's generated scope attribute. */
   .dojo-python-figures :global(img) { display: block; box-sizing: border-box; width: 100%; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; background: white; }
   .dojo-python-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .dojo-btn { padding: 8px 14px; border: 1px solid var(--border); border-radius: 7px; background: var(--accent); color: var(--bg); font: inherit; font-size: .85rem; cursor: pointer; }
+  .dojo-btn-ghost { background: var(--surface); color: var(--text); }
+  .dojo-btn:disabled { opacity: .6; cursor: wait; }
+  .dojo-btn[hidden] { display: none; }
   textarea:focus-visible, pre:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .dojo-python-status:empty { display: none; }
   @media print { .dojo-python-code, .dojo-python-actions { display: none !important; } .dojo-python-static { display: block !important; } }

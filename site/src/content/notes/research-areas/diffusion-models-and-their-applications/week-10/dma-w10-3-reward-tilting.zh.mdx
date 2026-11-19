@@ -10,7 +10,7 @@ title: "既要像資料，又要 reward 高：我們真正想抽哪個 distribut
 category: "courses"
 group: "Unit 7 · Test-time Guidance"
 status: "available"
-updated: 2026-10-14
+updated: 2026-10-28
 summary: "同時考慮 reward、log density 與保留多種答案的需求，會得到 p_R(x_0)∝p_data(x_0)e^{λR(x_0)}。但 noisy state 上需要先對所有可能的乾淨結果平均 reward 權重；常見 plug-in guidance 正是在近似這個 posterior average。"
 demos: []
 references:
@@ -223,6 +223,87 @@ $$
 剛才 $A$、$B$ 的例子已經看到這個差別。**只最大化平均分數，不會得到正文的 $p_R$；加入 entropy，才把「保留其他可能答案」一起放進我們要解的問題。**
 </Answer>
 </Question>
+
+## 少掉其中一項，得到的 distribution 會怎麼變？
+
+剛才我們看到，reward 與 log density 都有了，仍可能每次只回傳同一張照片。那如果換成拿掉 reward，或拿掉 base distribution 的影響，又會怎麼樣？我們可以把這三項分開比較，看看每一項究竟改變了什麼。
+
+先把相簿簡化成有限的候選集合 $\mathcal X$；這裡的 $p_{\mathrm{data}}$ 與 $\widetilde p$ 都是這個集合上的 PMF，且每個候選都滿足 $p_{\mathrm{data}}(x_0)>0$。固定有限的 reward $R(x_0)$ 與 $\lambda>0$，只改變各個候選被抽中的機率 $\widetilde p(x_0)$。把三項分別記成
+
+$$
+\begin{aligned}
+\mathcal A(\widetilde p)
+&=\lambda\mathbb E_{\widetilde p}[R(x_0)],\\
+\mathcal B(\widetilde p)
+&=\mathbb E_{\widetilde p}[\log p_{\mathrm{data}}(x_0)],\\
+\mathcal C(\widetilde p)
+&=H(\widetilde p).
+\end{aligned}
+$$
+
+$\mathcal A$ 比較平均 reward，$\mathcal B$ 比較在 base 下的平均 log probability，$\mathcal C$ 則鼓勵機率不要過度集中。前兩項的 expectation 都是按我們正在選的 $\widetilde p$ 取平均，$R$ 與 $p_{\mathrm{data}}$ 本身沒有改變。下面用 $\widetilde p^\star$ 表示最大化該列 objective 的抽樣分布，並省略各項的引數 $\widetilde p$：
+
+| 保留的 objective | 最佳抽樣分布 $\widetilde p^\star$ | 少了什麼要求？ |
+| --- | --- | --- |
+| 只有 reward：$\mathcal A$ | 只在 $\arg\max_{x_0}R(x_0)$ 分配機率 | 沒有 base preference，也沒有鼓勵分散的項 |
+| 只有 log base：$\mathcal B$ | 只在 $\arg\max_{x_0}p_{\mathrm{data}}(x_0)$ 分配機率 | 只挑 base 機率最高的候選 |
+| 只有 entropy：$\mathcal C$ | $\widetilde p^\star(x_0)=1/\lvert\mathcal X\rvert$ | 不比較 reward，也不比較 base 機率 |
+| Reward + log base：$\mathcal A+\mathcal B$ | 只在分數 <br /> $\lambda R(x_0)+\log p_{\mathrm{data}}(x_0)$ <br /> 最大處分配機率 | 沒有 entropy，仍可能每次都回傳同一個答案 |
+| Log base + entropy：$\mathcal B+\mathcal C$ | $\widetilde p^\star(x_0)=p_{\mathrm{data}}(x_0)$ | 沒有加入這次的 reward 偏好 |
+| Reward + entropy：$\mathcal A+\mathcal C$ | $\widetilde p^\star(x_0)\propto e^{\lambda R(x_0)}$ | 沒有保留 base distribution 的相對權重 |
+| 三項都保留：$\mathcal A+\mathcal B+\mathcal C$ | $\widetilde p^\star(x_0)=p_R(x_0)$ <br /> $\propto p_{\mathrm{data}}(x_0)e^{\lambda R(x_0)}$ | 同時考慮 reward、base preference 與 entropy |
+
+先只看 entropy。想像我們仍然反覆從相簿裡抽照片，但現在不看照片的 reward，也不看它在 base 裡原本有多常出現，只希望每次抽到什麼不要太容易被預先猜中。如果十次裡大約九次都抽到照片 $A$，我們猜下一張是 $A$ 就很容易猜對；若 $A$、$B$ 各占一半，就比較難猜了。
+
+把這兩種比例代進 entropy（這裡用自然 log），就能看到差別：
+
+$$
+\begin{aligned}
+H(0.9,0.1)
+&=-0.9\log0.9-0.1\log0.1\\
+&\approx0.325,\\[.3em]
+H(0.5,0.5)
+&=\log2\approx0.693.
+\end{aligned}
+$$
+
+**只在意 entropy 時，只要有些候選比其他候選更常出現，把一點機率從較常出現的候選分給較少出現的候選，就能增加 entropy，直到它們一樣常出現。** 因此，在這個沒有其他限制的有限候選集合裡，最後就是每張照片各占 $1/|\mathcal X|$ 的 uniform distribution。這個 objective 沒有讀取 reward 或 base 機率，所以沒有理由偏愛其中某張。
+
+加回其他項後，偏好才有了來源。只有 reward 時，多分一點機率給最高分照片就能提高平均分數，所以沒有理由保留低分照片；reward 加 entropy 則同時考慮高分與不要過度集中。只有 log base 時，也會只挑原本機率最高的照片；加上 entropy 後，才回到 base 原本的比例。例如原本 $A$、$B$ 的比例是 $0.9:0.1$，$\mathcal B+\mathcal C$ 會重現這個比例；若只保留 $\mathcal C$，則會變成 $0.5:0.5$。
+
+表裡的「只在最大處分配機率」是說：如果有好幾個候選並列最高分，可以在它們之間分配機率；若最高分只有一個，就會每次都抽到它。**有沒有 entropy，會把「只找最高分候選」和「決定各種候選出現的比例」分開。** 在保留 entropy 的情況下，有沒有 base 項，則決定相同 reward 的候選是否仍保留原本的相對權重。
+
+這些是不同 objective 的一般形式，不代表每個例子都會得到不同結果。例如 reward 是常數時，三項都保留的 $p_R$ 就等於 $p_{\mathrm{data}}$，與 $\mathcal B+\mathcal C$ 相同。我們保留三項，是要把希望兼顧的要求寫進目標，而不是保證任意設定下都能產生明顯不同的分布。
+
+<Remark label="推導" summary="表裡含有 entropy 的幾列，怎麼得到最佳解？">
+沒有 entropy 的幾列，都和剛才 Q1 的 $\mathbb E_{\widetilde p}[F(x_0)]$ 一樣：平均分數不會高過最大的分數，把機率全部放在最大處就能達到它。
+
+只有 entropy 時，用 $\mathrm{Unif}(\mathcal X)$ 表示每個候選機率都是 $1/|\mathcal X|$ 的均勻分布。展開 KL 就得到
+
+$$
+\begin{aligned}
+&H(\widetilde p)\\
+&\quad=\log|\mathcal X|
+-D_{\mathrm{KL}}\bigl(\widetilde p\|\mathrm{Unif}(\mathcal X)\bigr).
+\end{aligned}
+$$
+
+因為 KL 非負，且在兩個分布相同時為零，所以均勻分布讓 entropy 最大。保留 log base 與 entropy 時，同樣展開 KL：
+
+$$
+\begin{aligned}
+&\mathcal B(\widetilde p)+\mathcal C(\widetilde p)\\
+&\quad=\mathbb E_{\widetilde p}\!\left[
+\log\frac{p_{\mathrm{data}}(x_0)}{\widetilde p(x_0)}
+\right]\\
+&\quad=-D_{\mathrm{KL}}(\widetilde p\|p_{\mathrm{data}}).
+\end{aligned}
+$$
+
+因此最佳解回到 $p_{\mathrm{data}}$。至於 reward 加 entropy，可以在正文的 tilting 推導中，暫時把 base 換成 $\mathrm{Unif}(\mathcal X)$；它的 log probability 是常數 $-\log|\mathcal X|$，加上或拿掉都不影響最佳解。代入後的權重是 $e^{\lambda R(x_0)}/|\mathcal X|$，正規化時共同的 $1/|\mathcal X|$ 消掉，就得到 $\widetilde p^\star(x_0)\propto e^{\lambda R(x_0)}$。
+
+三項都保留時，就是正文已經推出的 $p_R$。這裡用有限候選集合讓比較容易看清楚；回到連續 density 時，要沿用正文的可積分與 normalization 條件，也不能把「均勻分布」直接放到無界的整個空間上。
+</Remark>
 
 <Remark label="補充" summary="同一個 tilted distribution，在論文裡還有哪些常見寫法？">
 先把正文的 objective 展成三項。固定 reward、base distribution 與 $\lambda>0$，我們要在不同的 $\widetilde p$ 之間最大化

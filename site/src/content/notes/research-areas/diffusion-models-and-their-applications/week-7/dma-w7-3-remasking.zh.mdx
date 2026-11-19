@@ -2,16 +2,16 @@
 slug: "dma-w7-3-remasking"
 label: "dma-remasking"
 prereqs:
-  - math-ctmc
-  - dma-d3pm
   - dma-factorization-error
+  - dma-ctmc
 lang: "zh"
 title: "填錯的字，可以再改而不改變目標分布嗎？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-19
-summary: "在 reverse chain 加入 remasking，再以相反方向的 probability flow 補償；用逐邊配平證明理想情況下完整 marginals 不變。"
+readingMode: "sections"
+updated: 2026-11-11
+summary: "沿用已知原句的原字／MASK 例子，從來源比例推得補償 reveal rate，再混合未知原文，逐邊配平整句 flows；分開理想、模型與有限步修改。"
 demos: []
 references:
   - label: "Wang et al., Remasking Discrete Diffusion Models with Inference-Time Scaling (2025)"
@@ -19,6 +19,7 @@ references:
 ---
 import Ask from '../../../components/Ask.astro';
 import AlgorithmView from '../../../components/AlgorithmView.astro';
+import FormulaSteps from '../../../components/FormulaSteps.astro';
 import Remark from '../../../components/Remark.astro';
 import Objectives from '../../../components/Objectives.astro';
 import Prereq from '../../../components/Prereq.astro';
@@ -30,10 +31,12 @@ import Explanation from '../../../components/Explanation.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
+import DiscretePythonExperiment from '../../../components/DiscretePythonExperiment.astro';
+import DiscreteMechanismFigure from '../../../components/DiscreteMechanismFigure.astro';
 
 # 填錯的字，可以再改而不改變目標分布嗎？
 
-<Objectives>
+<Objectives collapsible>
 - **從修改錯字的需求建立 remasking rate。** 寫出字回到 MASK 的頻率，並算出需要增加多少 reveal rate。
 - **用逐邊的 probability flow 證明 marginals 不變。** 不只檢查 MASK 比例，而是檢查整個序列分布的流入與流出。
 - **分清理論保留與實際改善。** 相同 denoiser 可以沿用；有限模型、有限步 sampler 的品質仍要測量。
@@ -43,151 +46,159 @@ import Ref from '../../../components/Ref.astro';
 
 ## 後面的 context 更完整，前面填的字卻不能改
 
-在 <Ref to="dma-factorization-error"/>，我們看到少填幾格、更新 context 後再預測，能避免一部分同批抽字漏掉的相依。但原本的 MASK sampler 還有一個限制：**已經填入的字不會再修改。**
+在 <Ref to="dma-factorization-error"/>，我們看到「吃／麥當勞」和「打／籃球」需要搭配。讓後一格看見前一格的新答案，有助於保留這個關係；但如果有限步抽樣或模型預測已經填出不合適的字，原本的規則就沒有修改機會。
 
-想像寫訊息時，你先打了「明天晚上見」，寫到後面才發現約的是下午。人可以回頭改「晚上」；目前的 sampler 卻只會補空格，不能碰已寫好的部分。對可見的 $v$，它的規則是
+例如目前是 `我／今天／想／吃／籃球`，我們可能想保留 `籃球`，把第四格遮回去，再根據這份 context 重選。就像寫訊息寫到後面，才發現前面那個詞需要重寫。但 U4.3 的 sampler 對可見字直接照抄，後面走再多步也不會碰它。
 
-$$
-\begin{gathered}
-\Pr(Y_s^\ell=v\mid Y_t=x)=1,\\
-x^\ell=v\ne m,\quad s<t.
-\end{gathered}
-$$
-
-Training snapshot 的可見字來自原文，照抄很合理；生成時的可見字卻是模型先前自己填的，可能在 context 不足時選錯。要給它修改機會，最直接的想法是把某個已填字遮回 MASK，再讓模型根據新的 context 重選。
-
-## 換成 uniform，還是沿用原本的 MASK path？
-
-Uniform 的中間 PMF 允許各種 token，生成規則也能允許已見字再換；代價是沒有 MASK 標明哪格缺資訊，模型連當下的可見字也得判斷是否可信。這不是只換 sampler：原本的 training snapshots 與 posterior 也可能一起改變。
-
-<Details summary="互動：保留已填字，與允許再換字有什麼差別？">
-<iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w6-4-correction.html" class="demo-frame" title="已填字能不能修改" style="height: 800px; width: 100%; border: none;"></iframe>
-
-Demo 比較的是修改通道；不能由一次 toy 實驗推論任何 corruption 在所有資料上都較好。
-</Details>
-
-我們也可以沿用 MASK 的 training path。<Ref to="dma-ctmc"/> 已經顯示，同一個 PMF 導數可以有不同的搬法；如果多加一對相反且等量的 flows，整體的淨變化就不必改。這給了另一個選擇：**保留原本的 $p_t$ 與 denoiser，改變樣本走過它的方式。**
-
-把已填字遮回去的操作稱為 **remasking**。但只多遮字，MASK 就會累積得更多；還需要補上適量的翻開機會。
+最自然的修改是：**把已填字遮回 MASK，再讓同一個 denoiser 重新預測。** 這個動作稱為 remasking。不過，多遮一些字，會不會讓我們偏離原本指定的 PMF path？
 
 <Ask>
-我們能不能增加遮回去重選的機會，<br />
-同時保留原本每個時刻的 joint PMF？
+能不能讓樣本多一些修改機會，<br />
+同時保留每個時間原本的 joint PMF？
 </Ask>
+
+<span id="換成-uniform還是沿用原本的-mask-path"></span>
+
+## 回到已知原句，看看多遮一次改變了多少
+
+U4.1 已經把 PMF 的變化寫成「來源比例乘上 rate」的流入流出。我們可以沿用它，而不先換掉 MASK 的 training path。
+
+仍固定原句 $x_0=$ `我／今天／想／吃／麥當勞`，只看第三格；按 `想`、MASK 排列，PMF 是 $(\alpha_t,1-\alpha_t)^{\mathsf T}$。先讓每個可見的 `想` 額外以 rate $\sigma_t\ge0$ 遮回 MASK，沿生成方向 $t\to t-h$ 操作。
+
+如果只有這個動作，從 `想` 流出的質量是 $\alpha_t\sigma_t$，MASK 就會多出同樣的質量。要保留原本的 PMF 變化，就要另外補回同樣的 flow。
 
 ## 遮多少，就要補多少流量
 
-先只看一個位置，想像從資料出發造出很多份時刻 $t$ 的 snapshots。未遮的比例是 $\alpha_t$，MASK 比例是 $1-\alpha_t$；我們想讓新的生成過程在同一時刻也有這些比例。以下仍沿生成方向從 $t$ 退到 $t-h$，$h>0$。
+想像兩個水桶接著相反方向的水管：水位不同，兩邊設成相同 rate，搬動的水量仍然不同。這裡要相等的也是「來源比例乘上 rate」。來源 MASK 占 $1-\alpha_t$，所以每個 MASK 要增加的翻開 rate 是
 
-先固定新增的修改頻率：每個已填字以 rate $\sigma_t\geq0$ 遮回去。那麼每單位生成時間新增的 masking flow 就是「目前可見的比例乘上每個字被遮的 rate」：
-$$
-\sigma_t\alpha_t.
-$$
-若要配平這股 flow，每個 MASK 的額外 reveal rate 應為
-$$
-\frac{\sigma_t\alpha_t}{1-\alpha_t}.
-$$
-因為來源 MASK 的比例乘上這個 rate，正好也是 $\sigma_t\alpha_t$。例如此刻有 $80\%$ 可見、$20\%$ 是 MASK，取 $\sigma_t=0.5$，新增遮回 flow 為 $0.8\times0.5=0.4$。要從 $20\%$ 的 MASK 群體補回同樣的 flow，每個 MASK 的額外 reveal rate 必須是 $0.4/0.2=2$。兩邊 rate 不同，才能搬動相同的 probability mass。
+<FormulaSteps
+  id="u4-compensating-reveal"
+  compact
+  title="沿用 U4.1：要補回的 flow，除以來源 MASK 的比例"
+  formula={String.raw`\reveal{1}{\text{額外 reveal rate}=}\reveal{3}{\frac{\reveal{2}{\sigma_t\alpha_t}}{1-\alpha_t}}`}
+  steps={[
+    {label: '先決定修改頻率', text: String.raw`每個可見原字以新增 rate $\sigma_t$ 遮回去。要保留原本的 PMF，還需增加多少翻開機會？`},
+    {label: '算被遮回的 flow', text: String.raw`可見樣本占 $\alpha_t$，所以每單位生成時間，新增 flow 是 $\sigma_t\alpha_t$。`},
+    {label: '分給目前的 MASK', text: String.raw`用同樣的 flow 除以來源比例 $1-\alpha_t$。得到的是每個 MASK 的額外 rate，不是一步的翻開機率。`},
+  ]}
+/>
 
-加上原本的 reveal rate，新的總翻開頻率是
+例如 $\alpha_t=0.8$、$\sigma_t=0.5$，遮回 flow 是 $0.8\times0.5=0.4$。MASK 只有 $0.2$，所以額外翻開 rate 必須是 $0.4/0.2=2$，才能補回同樣的質量。
+
+<Question id="Q1">
+若兩個方向都設成 rate $0.5$，不也像是「遮多少、補多少」嗎？
+<Answer>
+Rate 相同，每群樣本的數量卻不同：可見群流出 $0.8\times0.5=0.4$，MASK 群只補回 $0.2\times0.5=0.1$。新增淨變化是可見字減少 $0.3$、MASK 增加 $0.3$。要保住 PMF，需要相等的 flow，不是相等的 rate。
+</Answer>
+</Question>
+
+<span id="補償後總翻開-rate-變成多少"></span>
+
+## 加上這一對修改，原本的 PMF 速度會怎麼變？
+
+U4.1 原本的填回 rate 是 $c_t=-\dot\alpha_t/(1-\alpha_t)$。現在額外加一對方向相反的轉移；在已知原句的第三格，它們的來源比例乘上 rate 是
+
+$$
+\begin{aligned}
+\texttt{想}\to m &: \quad \alpha_t\sigma_t,\\
+m\to\texttt{想} &: \quad
+(1-\alpha_t)\frac{\sigma_t\alpha_t}{1-\alpha_t}
+=\alpha_t\sigma_t.
+\end{aligned}
+$$
+
+兩股 flow 相等，因此對 `想` 與 MASK 的新增淨變化都是 $0$。**加的是樣本往返的機會，原本那條 PMF 的速度沒有改變。** 這不是把原本的 reveal rate 換掉，而是在它上面增加補償，所以新的總 reveal rate 是
+
 $$
 \frac{-\dot\alpha_t+\sigma_t\alpha_t}{1-\alpha_t}.
 $$
-第一項 $-\dot\alpha_t/(1-\alpha_t)$ 是原本沿目標 path 翻開的 rate，第二項才是為了補償遮回而新增的 rate。補償後，淨增加的可見比例仍是原本的 $-\dot\alpha_t$。
 
-翻成哪個字，先以真實 posterior 決定；實作時才用同一個 $f_\theta$ 近似。將兩種操作並列寫成模型可用的 rates，對位置 $\ell$ 就是：
-$$
-\begin{aligned}
-\text{字}\to m &: \quad \sigma_t,\\
-m\to v &: \quad
-\frac{-\dot\alpha_t+\sigma_t\alpha_t}{1-\alpha_t}
-f_\theta^\ell(v\mid x_t,t).
-\end{aligned}
-$$
-$\sigma_t=0$ 就回到原本只翻開、不回頭的 sampler。Wang 等人的 **ReMDM** [1] 建構保留 absorbing marginals 的 remasking family；這裡用 rate 的形式理解其連續時間版本。
+$\sigma_t=0$ 就回到只填回、不遮回的規則。和 U4.1 相同，這裡是先設計樣本的轉換，再由流入流出推得它對 PMF 的影響。
 
-![配平的是流量，不是 rate](./imgs/w7-3-1.png)
+<DiscreteMechanismFigure kind="remasking" />
 
-*圖：兩邊的來源比例不同，所以 rate 不必相同；來源比例乘上 rate 形成的 flow，才是要配平的量。*
+## 不知道原句時，補回哪個字？
 
-## MASK 比例相同，整句分布也相同嗎？
+現在像 U4.2 一樣，把原句拿走。固定目前整句 $x$，第 $\ell$ 格是 MASK，令 $y=x^{(\ell\to a)}$。從 $y$ 遮回 $x$ 的新增 rate 是 $\sigma_t$；從 $x$ 補回 $y$，則用原字 posterior 分配新增 reveal rate。
 
-剛才只算出可見與 MASK 兩群的總量。但兩種完全不同的句子，都可能有相同 MASK 比例；如果新翻出的詞分配錯了，整句 distribution 還是會改變。所以還要檢查：**在同一個 context 下，某個特定詞被遮掉的質量，有沒有由對應的 MASK 補回來？**
-
-令完整狀態 $x$ 的第 $\ell$ 格是 MASK，而 $y=x^{(\ell\to v)}$ 只把那一格改成 $v$。其他位置完全相同，所以固定原文 $x_0$ 後，那些位置的 conditional probability factors 相同；這一格則在 $x$ 中貢獻 $1-\alpha_t$，在 $y$ 中貢獻 $\alpha_t\mathbf1[x_0^\ell=v]$。因此
+只保住總 MASK 比例還不夠：**每種完整句子的新增流出，都必須有相等的新增流入。** 要看這個配平，可以沿用 U4.0 的 conditional PMF。固定原句後，$x,y$ 的其他格完全相同；第 $\ell$ 格在 $x$ 中為 MASK，在 $y$ 中則為 $a$，因此
 
 $$
-q_t(y\mid x_0)
+\begin{gathered}
+q_t(y\mid x_0)\\
 =q_t(x\mid x_0)\frac{\alpha_t}{1-\alpha_t}
-\mathbf1[x_0^\ell=v].
+\mathbf1[x_0^{(\ell)}=a].
+\end{gathered}
 $$
 
-兩邊乘上 $p_{\mathrm{data}}(x_0)$，再對所有原文求和。左邊變成 $p_t(y)$；右邊用 Bayes 收成「目前看到 $x$ 時，原字是 $v$」的 posterior：
+兩邊按原句的資料機率求和。左邊是 $p_t(y)$，右邊則用 U4.2 的 Bayes 權重，把指示量收成原字 posterior：
 
 $$
 \begin{gathered}
 p_t(y)=p_t(x)\frac{\alpha_t}{1-\alpha_t}
-p(X_0^\ell=v\mid I_t=x).
+\Pr(X_0^{(\ell)}=a\mid I_t=x).
 \end{gathered}
 $$
 
-左邊 $p_t(y)$ 是目前帶著這個 $v$ 的整句機率；右邊則從帶著 MASK 的那群樣本出發，乘上保留／遮蔽係數與原字是 $v$ 的 posterior。現在把這個已知關係乘上 $\sigma_t$，正好得到新增的兩股相反 flow：
-$$
-\begin{aligned}
-y\to x &: \quad p_t(y)\sigma_t,\\
-x\to y &: \quad
-p_t(x)\frac{\sigma_t\alpha_t}{1-\alpha_t}
-p(x_0^\ell=v\mid x_t=x).
-\end{aligned}
-$$
-由前一條 ratio 關係，兩行正好相等。把所有位置與候選詞都做同樣的配平，對每個完整序列而言，每股新增流出都有相同的新增流入。**所以保留的是整個 $p_t$，不只是 MASK 的總比例。**
+把這個等式乘上 $\sigma_t$，左邊正是 $y\to x$ 的新增 flow，右邊正是 $x\to y$ 的新增 flow。因此不只兩群總量相等，**每一對整句轉換的 flows 都相等**，對每個完整 state 的新增淨變化都是零。
 
-這個結論先在真實 posterior 與精確的 continuous-time dynamics 下成立：新增轉移對每個狀態的機率導數貢獻都是零。從同一個正確 noise distribution 出發，且過程可適當定義時，便能沿原本的 marginals 倒著走；下面的矩陣計算把這句話寫完整。
+<Details summary="把逐邊配平寫成 master equation">
+用 $C_t(x,y)$ 表示新增的整句 rate，對角元素取負的總流出。逐邊相等就是 $p_t(x)C_t(x,y)=p_t(y)C_t(y,x)$。按完整序列排列 PMF column vector $\boldsymbol p_t$ 與矩陣 $\boldsymbol C_t$，便有
 
-<Details summary="把逐邊配平寫成 rate matrix 的證明">
-令 $C_t$ 是新增的 remasking 與 compensating reveal rates，對角元素仍取負的總流出。上面的等式就是
-$$
-p_t(x)C_t(x,y)=p_t(y)C_t(y,x).
-$$
-對所有鄰居求和：
 $$
 \begin{gathered}
-(p_tC_t)(x)\\
-=\sum_{y\neq x}
-\left[p_t(y)C_t(y,x)-p_t(x)C_t(x,y)\right]=0.
+(\boldsymbol C_t^{\mathsf T}\boldsymbol p_t)(x)\\
+=\sum_{y\ne x}\left[\begin{aligned}
+&p_t(y)C_t(y,x)\\
+&-p_t(x)C_t(x,y)
+\end{aligned}\right]=0.
 \end{gathered}
 $$
-因此原 reverse generator $\bar R_t$ 換成 $\bar R_t+C_t$ 後，$p_t$ 在倒著走時的演化完全相同。在正確初始分布、理想 posterior 與可適當定義的精確 CTMC 下，仍經過原本的 marginals。端點有發散 rate 時，需要使用極限或另外指定端點轉移。
+
+所以原本 $-\dot{\boldsymbol p}_t=\bar{\boldsymbol R}_t^{\mathsf T}\boldsymbol p_t$，加上 $\boldsymbol C_t$ 後右邊不變。在正確起點、真 posterior 與可適當定義的精確動態下，仍經過相同的 joint marginals；端點發散時用極限或另外指定端點轉移。
 </Details>
 
-## 沿用網路，不代表每一種設定都會更好
+<span id="mask-比例相同整句分布也相同嗎"></span>
+<span id="沿用網路不代表每一種設定都會更好"></span>
 
-Training snapshot 沒有改，模型仍在預測 $p(x_0^\ell\mid x_t)$，所以可以沿用原本的 masked denoiser。但有限模型不一定估對 posterior，實作也會把 rate 切成有限步；上面的 exact cancellation 不會自動替這些誤差消失。
+## 接回同一個 denoiser，哪些地方變了？
 
-例如一開始兩格同時抽出不相配的詞，等附近的字更完整後，把其中一格遮回，原本的 denoiser 就能用新的 context 重新預測。這提供了修改機會，卻不保證新答案更好；若模型一直把 posterior 估偏，重抽也可能繼續偏。
+理想的新增 rate 記為 $C_t$，使用真 posterior。完整生成 rate 是 $\widetilde R_t=\bar R_t+C_t$；實作時才用 $f_\theta$ 取代 posterior，得到 $\widetilde R_{\theta,t}$。對 $x^{(\ell)}=m$、$a\in\mathcal V$，
 
-ReMDM 論文 [1] 在其實驗中觀察到，增加取樣計算可以改善生成結果。對我們的設定仍要固定模型、比較相同 posterior queries 或模型呼叫預算，再量不同 $\sigma_t$ 的效果。理想的 marginal-preservation 結論，與有限預算下的品質改善，是分別需要檢查的兩件事。
+$$
+\begin{gathered}
+\widetilde R_{\theta,t}(x,x^{(\ell\to a)})\\
+=\frac{-\dot\alpha_t+\sigma_t\alpha_t}{1-\alpha_t}
+ f_\theta^{(\ell)}(a\mid x,t).
+\end{gathered}
+$$
+
+若 $y$ 的這一格已可見，則 $\widetilde R_{\theta,t}(y,y^{(\ell\to m)})=\sigma_t$。兩種動作都只改一格，但預測時讀取整句。Training PMF 與原字 posterior 沒有換掉，所以可以沿用 masked denoiser；改變的是樣本的跳躍方式。
+
+Wang 等人的 **ReMDM** [1] 建構保留 absorbing marginals 的 remasking family；這裡以連續時間的 rate 來推導配平。本文 $\sigma_t$ 是每單位時間的修改 rate；論文有限步公式的 remasking 機率，要連同步長與合法範圍對照，不能當成同一個數值直接代入。
+
+理想的 $C_t$ 保留分布，不表示有限模型或有限步也精確。重選能利用後來增加的 context；如果模型仍把這張 posterior 估偏，也可能繼續抽錯。改強度會增加修改與模型查詢的成本，效果需要在相同計算預算下比較。
+
+<Details summary="延伸比較：uniform 與有限步 remasking 的品質">
+Uniform 也允許已見字改變，但它改了 training snapshots 與 posterior，不能只替原本 MASK sampler 換一個開關。正文的做法保留 MASK path，另外設計生成 dynamics。
 
 <iframe loading="lazy" src="/personal_website/notes/research_areas/diffusion-models-applications/w7-3-remasking.html" class="demo-frame" title="比較 remasking 強度與有限步結果" style="height: 970px; width: 100%; border: none;"></iframe>
 
-*Demo 使用 toy 的 conditional probabilities。觀察 rate 強度與步數一起改變時的結果；曲線是有限步實驗，不是新增 rate 保留 marginals 的證明。*
+Demo 使用 toy conditional probabilities。有限步曲線檢查品質與成本，不是前面 exact flow cancellation 的證明。
+</Details>
 
-<Question id="Q1">
-如果把新 MASK reveal rate 也直接設成 $\sigma_t$，讓兩個方向的 rates 一樣，分布就會不變嗎？
+<span id="有限步怎麼實作數學-pipeline-與-pseudocode"></span>
 
-<Answer>
-不會。兩股 flow 分別是 $\sigma_t\alpha_t$ 與 $\sigma_t(1-\alpha_t)$，一般不相等。要保留分布，還需要對每個字按它在這個 context 下的 posterior 分配 reveal flow。**相同 rate 不等於相同 flow；相同總 MASK 比例也不等於相同整句 distribution。**
-</Answer>
-</Question>
-
-<Details summary="有限步怎麼實作？數學 pipeline 與 pseudocode">
-先用一個直接配平 conditional snapshot 的 kernel。對 $s<t$，令舊可見字以機率 $r$ 遮回、舊 MASK 以機率 $a$ 翻開。固定原文時要求
+## 有限步時，要遮回多少、翻開多少？
+先用一個直接配平 conditional snapshot 的 kernel。對 $s<t$，令舊可見字以機率 $r$ 遮回、舊 MASK 以機率 $a$ 翻開。這段的 $r,a$ 是兩個機率，與 reference rate $r_t^{(\ell)}$、候選 token $a$ 的角色不同。固定原文時要求
 
 $$
 \alpha_t(1-r)+(1-\alpha_t)a=\alpha_s,
 $$
 
 所以 $a=(\alpha_s-\alpha_t+r\alpha_t)/(1-\alpha_t)$。為了讓它不超過 $1$，在 $\alpha_t>0$ 時限制 $r\leq\min\{1,(1-\alpha_s)/\alpha_t\}$；若 $\alpha_t=0$，沒有可見字需要遮回，可設 $r=0$。最後 $s=0$ 時也取 $r=0$、$a=1$。
+
+## 電腦要怎麼同時抽這兩種操作？
 
 <AlgorithmView id="u4-remask-step" title="一次有限步 remasking：$t\to s$" code={`輸入：目前序列 x、時間 t > s、denoiser f_theta、強度 sigma
 old ← copy(x)
@@ -203,29 +214,46 @@ for ell = 1, ..., L:
         以機率 a，按 prediction[ell] 抽 token 放進 x[ell]
 return x`}>
 
-先讀取舊序列 $x_t$，算出 $f_\theta(x_t,t)$、$r$ 與 $a$，再同時執行：
+沿用 U4.3，$\widehat x_t$ 是有限步 sampler 這次抽出的整句，$\widehat x_t^{(\ell)}$ 才是其中一格；這裡的 $r,a$ 是有限一步的機率。先讀取舊序列 $\widehat x_t$，算出 $f_\theta(\widehat x_t,t)$、$r$ 與 $a$。對舊 MASK 位置，按同一份 context 抽出原字候選
+
+$$
+A_\ell\sim\operatorname{Categorical}\bigl(f_\theta^{(\ell)}(\cdot\mid\widehat x_t,t)\bigr).
+$$
+
+再依更新前這格是否為 MASK，同時決定下一刻的 token：
 
 $$
 \begin{aligned}
-x_t^\ell\ne m&:\quad
+\widehat x_t^{(\ell)}\ne m&:\quad
 \begin{cases}
 m,&\text{機率 }r,\\
-x_t^\ell,&\text{機率 }1-r;
+\widehat x_t^{(\ell)},&\text{機率 }1-r;
 \end{cases}\\
-x_t^\ell=m&:\quad
+\widehat x_t^{(\ell)}=m&:\quad
 \begin{cases}
-A_\ell\sim f_\theta^\ell,&\text{機率 }a,\\
+A_\ell,&\text{機率 }a,\\
 m,&\text{機率 }1-a.
 \end{cases}
 \end{aligned}
 $$
 
-每次都用更新前的 mask pattern 判斷兩種操作，得到 $x_s$ 後，下一段才重算 context。
+每次都用更新前的 mask pattern 判斷兩種操作，得到 $\widehat x_s$ 後，下一段才重算 context。
 
 </AlgorithmView>
 
 小步時 $r=\sigma_t h+o(h)$，代入 $a$ 就回到正文的補償 reveal rate。給定原文並確定填回原字時，有限步 kernel 保留所需 conditional snapshots；改成以 posterior marginals 平行抽多個新字，仍可能有因子化誤差。實作 B 會分開檢查這兩件事。
-</Details>
+
+## 動手做：只讓 rate 相等，會發生什麼事？
+
+我們固定前後文字，只讓第三格在 `想`、`要`、MASK 間變動，資料比例仍是 $0.7/0.3$。在 $t=0.2$，$\alpha_t=0.8$，所以目前 PMF 是 $(0.56,0.24,0.20)^{\mathsf T}$。若 $\sigma_t=0.5$，從可見字遮回的總 flow 是 $0.4$，MASK 額外翻開的總 rate 必須是 $2$，再按 $0.7/0.3$ 分給兩個字。
+
+這次先固定 diffusion 時間 $t$，只執行新增的修改轉移 $C_t$，不執行原本沿 path 翻開的部分。程式用 exponential waiting time 抽真正的跳躍，對照「兩群的總 rate 相等」和「flow 配平」。先看 $C_t^{\mathsf T}p_t$ 是否為零，再看重複抽樣後 PMF 有沒有明顯漂移。
+
+<DiscretePythonExperiment example="remasking" />
+
+預設配平時，每個方向的新增 flow 都能抵消；只設相同總 rate 時，MASK 的機率則會改變。改 `sigma` 或 `correction_time` 可以看見差異。這個實驗檢查固定時間的新增 generator 是否保留 PMF，整趟有限步生成還需要前面的原本 reveal 與 remasking kernel；完整模型的品質比較放在實作 B。
+
+[下載這份 flow 配平程式](/personal_website/notes/notebooks/diffusion-models-applications/dma-u4-balanced-remasking.py)。
 
 ## 快速回顧一下
 

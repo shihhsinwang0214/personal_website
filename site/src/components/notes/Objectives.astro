@@ -7,14 +7,21 @@
  *   - 目標二
  *   </Objectives>
  */
-interface Props { title?: string }
-const { title = '學完這篇，你能' } = Astro.props;
+interface Props { title?: string; collapsible?: boolean }
+const { title = '學完這篇，你能', collapsible = false } = Astro.props;
 ---
 
-<aside class="objectives">
-  <p class="objectives-title">{title}</p>
-  <div class="objectives-body"><slot /></div>
-</aside>
+{collapsible ? (
+  <details class="objectives">
+    <summary class="objectives-title">這篇要走到哪裡</summary>
+    <div class="objectives-body"><slot /></div>
+  </details>
+) : (
+  <aside class="objectives">
+    <p class="objectives-title">{title}</p>
+    <div class="objectives-body"><slot /></div>
+  </aside>
+)}
 
 <style>
   .objectives {
@@ -29,6 +36,8 @@ const { title = '學完這篇，你能' } = Astro.props;
     font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
     color: var(--accent);
   }
+  summary.objectives-title { margin: 0; cursor: pointer; }
+  details[open] .objectives-body { margin-top: 10px; }
   .objectives-body :global(ul) { margin: 0; padding-left: 1.2em; }
   .objectives-body :global(li) { margin: 4px 0; line-height: 1.6; }
   .objectives-body :global(p) { margin: 0; }

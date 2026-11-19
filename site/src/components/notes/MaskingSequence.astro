@@ -1,0 +1,53 @@
+---
+/** A possible masking sequence; each cell remains one discrete token. */
+const original = ['我', '今天', '想', '吃', '麥當勞'];
+const stages = [
+  { label: '完整原句', hidden: [] },
+  { label: '遮住一格', hidden: [2] },
+  { label: '遮住更多格', hidden: [0, 2, 4] },
+  { label: '全部遮住', hidden: [0, 1, 2, 3, 4] },
+];
+---
+
+<figure class="masking-sequence" aria-label="一句話從完整原文，逐漸遮住更多位置，最後變成五個 MASK 的例子">
+  {stages.map((stage, index) => (
+    <>
+      {index > 0 && <div class="direction" aria-hidden="true">↓</div>}
+      <div class="stage">
+        <p class="stage-label">{stage.label}</p>
+        <div class="tokens">
+          {original.map((token, position) => (
+            <span class:list={['token', { masked: stage.hidden.includes(position) }]}>
+              {stage.hidden.includes(position) ? '[MASK]' : token}
+            </span>
+          ))}
+        </div>
+      </div>
+    </>
+  ))}
+  <figcaption>一個可能的遮蔽過程：每格仍是一個 token，但原句留下的線索越來越少。</figcaption>
+</figure>
+
+<style>
+  .masking-sequence { max-width: 560px; margin: 1.5em auto; }
+  .stage-label { margin: 0 0 6px; color: var(--text-muted); font-size: .8rem; }
+  .tokens { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+  .token {
+    display: flex; align-items: center; justify-content: center;
+    min-width: 0; min-height: 42px; padding: 7px 3px;
+    border: 1px solid var(--border); border-radius: 7px;
+    background: var(--surface); color: var(--text);
+    font-size: .95rem; white-space: nowrap;
+  }
+  .masked {
+    background: repeating-linear-gradient(135deg, var(--code-bg), var(--code-bg) 5px, var(--surface) 5px, var(--surface) 10px);
+    color: var(--text-muted); font-family: var(--font-mono); font-size: .78rem;
+  }
+  .direction { margin: 5px 0; color: var(--text-muted); text-align: center; }
+  figcaption { margin-top: 10px; color: var(--text-muted); font-size: .82rem; line-height: 1.7; }
+  @media (max-width: 520px) {
+    .tokens { gap: 4px; }
+    .token { font-size: .85rem; }
+    .masked { font-size: .69rem; }
+  }
+</style>

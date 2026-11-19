@@ -2,16 +2,16 @@
 slug: "dma-w7-4-discrete-flow-matching"
 label: "dma-discrete-flow-matching"
 prereqs:
-  - math-ctmc
+  - dma-ctmc
   - math-conditional-expectation
-  - math-continuity-equation
 lang: "zh"
 title: "不知道原句，怎麼學到推動 PMF 的規則？"
 category: "courses"
 group: "Unit 4 · Discrete Diffusion"
 status: "available"
-updated: 2026-10-23
-summary: "從已知原文的 MASK reveal rate 出發，透過 posterior averaging 建構生成 dynamics，再用 cross-entropy 學習其中未知的原字機率。"
+readingMode: "sections"
+updated: 2026-11-11
+summary: "沿用同一份克漏字，從想／要的資料比例推出 posterior-average rate，再由原字 labels 與 CE 學到模型 PMF，分清已知原句、理想生成與模型近似。"
 demos: []
 references:
   - label: "Gat et al., Discrete Flow Matching (2024)"
@@ -37,75 +37,141 @@ import Explanation from '../../../components/Explanation.astro';
 import Details from '../../../components/Details.astro';
 import Bridge from '../../../components/Bridge.astro';
 import Ref from '../../../components/Ref.astro';
+import DiscretePythonExperiment from '../../../components/DiscretePythonExperiment.astro';
+import DiscreteMechanismFigure from '../../../components/DiscreteMechanismFigure.astro';
 
 # 不知道原句，怎麼學到推動 PMF 的規則？
 
-<Objectives>
-- **從指定的 MASK path 算出 conditional rate。** 把需要搬回的機率質量，除以目前可用的 MASK 比例。
+<Objectives collapsible>
+- **分清已知原字與未知原字的生成規則。** 指出 reference rate 中，哪些由 schedule 決定、哪些必須根據目前整句估計。
 - **用 posterior average 建構生成時的 rate。** 固定目前序列，平均仍可能原句給出的 rates，並用 flow 檢查它保留指定的 joint PMF path。
 - **寫出模型的 input、label 與 cross-entropy。** 說明理想預測為什麼是原字的 posterior，而不是 token 編號的平均。
 </Objectives>
 
 <Prereq items={frontmatter.prereqs} />
 
-## 先假設我們知道原句
+<span id="先假設我們知道原句"></span>
 
-在 <Ref to="dma-ctmc"/>，我們把離散的 velocity 寫成跳躍 rate，也知道要用流入減流出檢查分布。現在要反過來：已經指定 PMF path，怎麼找到生成方向的 rate？
+## 已經有 reference rate，現在少了原句
 
-先用最容易追蹤的 MASK。固定原句 $x_0$，位置 $\ell$ 在時間 $t$ 的 PMF 是
+在 <Ref to="dma-ctmc"/>，我們拿著原句「我／今天／想／吃／麥當勞」，把第三、第五格遮住，再讓每個 MASK 隨機翻開。翻得多快由 schedule 決定，翻開後填什麼則由原句決定，所以即使同時翻開兩格，也知道分別要填 `想`、`麥當勞`。
+
+現在把答案拿走，只給我們目前的克漏字 $I_t=x=$ `我／今天／[MASK]／吃／麥當勞`。第三格可能是 `想`，也可能是 `要`。**前面算出的翻開快慢仍然能用，少的是每個候選字應該分到多少機率。**
+
+想像我們拿出資料裡能配上這份克漏字的原句：其中有多少用 `想`、多少用 `要`？這些比例就能告訴我們，同一份 context 出現時，應該有多少樣本往各個答案填回去。
+
+<Ask>
+不知道原句時，<br />
+能不能參考仍可能的原字，把同一個 reveal rate 分給不同答案？
+</Ask>
+
+<span id="把單格的換字動作寫成整句的轉換"></span>
+<span id="生成時不知道原句能不能參考所有可能"></span>
+
+## 同一份克漏字，可能對到哪些答案？
+
+假設我們收集到 $100$ 句前後文字相同的句子：$70$ 句是「我今天想吃麥當勞」，$30$ 句是「我今天要吃麥當勞」。把這批比例當成 toy 的資料分布，第三格按 `想`、`要`、MASK 排成 column vector，就是
 
 $$
-q_t^\ell(a\mid x_0)
-=\alpha_t\delta_{x_0^\ell}(a)+(1-\alpha_t)\delta_m(a).
+\boldsymbol p_0^{(3)}(\cdot)=\begin{pmatrix}0.7\\0.3\\0\end{pmatrix}.
 $$
 
-這格不是原字，就是 MASK。假設我們偷看了原文，知道被遮的是 `想`，生成時就只需要決定：**現在這群 MASK 裡，有多少要翻回 `想`？**
-
-本篇維持 $t=0$ data、$t=1$ noise，$\alpha_t$ 非增，生成從 $t$ 退到 $t-h$，$h>0$。這段時間可見比例要由 $\alpha_t$ 增至 $\alpha_{t-h}$；需要翻回的質量是兩者之差，來源 MASK 比例則是 $1-\alpha_t$。因此每個 MASK 的翻開機率為
+這裡已經混合了不同原句；前篇的 $q_t^{(3)}(a\mid x_0)$ 則固定一筆原句。兩種原句用相同的機率遮住第三格，其他四格又相同，因此看到這份克漏字後，原字的機率仍是 $0.7/0.3$：
 
 $$
 \begin{aligned}
-\frac{\alpha_{t-h}-\alpha_t}{1-\alpha_t}
-&=h\frac{-\dot\alpha_t}{1-\alpha_t}+o(h).
+\Pr(X_0^{(3)}=\texttt{想}\mid I_t=x)&=0.7,\\
+\Pr(X_0^{(3)}=\texttt{要}\mid I_t=x)&=0.3.
 \end{aligned}
 $$
 
-所以每個 MASK 的 reveal rate 是 $-\dot\alpha_t/(1-\alpha_t)$。例如 $\alpha_t=1-t$，在 $t=0.5$ 有一半樣本是 MASK；退回 $h=0.01$ 要補回 $0.01$ 的總質量，因此這群 MASK 各有約 $0.02$ 的翻開機率，rate 是 $2$。
+這就是原字的 **posterior**：已經看到目前整句，再判斷它原本是哪個字。一般情況下，換掉 context，這張表也會變；不是把整個資料集的詞頻直接放進每個 MASK。
 
-用 $x^{(\ell\to a)}$ 表示把整句 $x$ 的第 $\ell$ 格換成 $a$，其他位置不動。已知原句時，翻開一定填原字，所以對 $x^\ell=m$、$a\in\mathcal V$，
+在 $\alpha_t=1-t$、$t=0.5$，每個 MASK 的總 reveal rate 為 $2$。已知原句用 `想` 時，全部 rate 都往 `想`；原句用 `要` 時，全部都往 `要`。現在不知道是哪句，就按兩種可能性加權：
+
+<DiscreteMechanismFigure kind="posterior" />
+
+因此往 `想` 的 rate 是 $0.7\times2+0.3\times0=1.4$，往 `要` 則是 $0.7\times0+0.3\times2=0.6$。兩者加起來仍是 $2$，只是把翻開的機會分給不同答案。
+
+## 把可能原句提供的 rates 接起來
+
+剛才我們算的是「第三格從 MASK 換成 `想`」的 rate。如果把其他四格也一起寫出來，這個動作其實就是整句從 $x$ 變成 $y$：
+
+| 整句的 state | 完整 sequence |
+| --- | --- |
+| 目前的 $x$ | 我／今天／**[MASK]**／吃／麥當勞 |
+| 候選去向 $y$ | 我／今天／**想**／吃／麥當勞 |
+
+只有第三格改變，其他格都保留。$x$ 表示目前整句，$y$ 表示這次考慮的候選下一句，$x_0$ 則表示給定的原句。
+
+這個例子目前只剩第三格是 MASK，其他四格都已可見；沿用 U4.1 的規則，可見字不再改變。因此，給定目前整句後，「整句從 $x$ 變成 $y$」就是「第三格從 MASK 填成 `想`」：只要這格填成 `想`，整句就一定是表中的 $y$。
+
+給定原句 $x_0$ 後，這個單格動作的 rate 是 $r_t^{(3)}(m,\texttt{想}\mid x_0)$；整句轉換則記為 $\bar R_t^{\mathrm{cond}}(x,y\mid x_0)$。**因為上述兩個事件的短時間轉移機率相同，除以時間長度、取極限後，rate 也相同：**
 
 $$
 \begin{gathered}
-\bar R_t^{\mathrm{cond}}
-\bigl(x,x^{(\ell\to a)}\mid x_0\bigr)\\
-=\frac{-\dot\alpha_t}{1-\alpha_t}
-\mathbf1[x_0^\ell=a].
+\bar R_t^{\mathrm{cond}}(x,y\mid x_0)\\[.3em]
+=r_t^{(3)}(m,\texttt{想}\mid x_0).
 \end{gathered}
 $$
 
-指示量 $\mathbf1[x_0^\ell=a]$ 只在原字是 $a$ 時為 $1$。已經可見的位置不再跳；對角元素仍是負的總流出。上標 cond 表示這條規則還需要原句，$\bar R$ 的橫線則表示沿生成方向倒著走，並不是先前已簡化掉的保留係數符號。
+左邊標出換字前後的整句，右邊標出第三格的 token 轉換；$\mathrm{cond}$ 與 $\mid x_0$ 表示仍給定原句。這裡只剩一格 MASK，所以整句的總翻開 rate 也只來自這一格。
 
-<Remark label="條件" summary="時間方向與端點怎麼處理？">
-以下先在 $0<\alpha_t<1$ 的內部時間使用可微的 schedule。$\bar R_t$ 以正的生成時間長度 $h$ 定義：$\Pr(Y_{t-h}=y\mid Y_t=x)=h\bar R_t(x,y)+o(h)$，$y\ne x$。因此它要滿足的是 $-\dot p_t=\bar R_t^{\mathsf T}p_t$。若 rate 在端點發散，需使用極限或另外指定端點轉移，不能把無限 rate 直接乘上有限步長。
-</Remark>
+現在把第五格也遮住，仍給定原句 $x_0=$ `我／今天／想／吃／麥當勞`。我們考慮的是下面這個整句轉換：
 
-## 生成時不知道原句，能不能參考所有可能？
+| 整句的 state | 完整 sequence |
+| --- | --- |
+| 目前的 $x$ | 我／今天／**[MASK]**／吃／**[MASK]** |
+| 只填第三格後的 $y$ | 我／今天／**想**／吃／**[MASK]** |
 
-真正生成時，只看到「我／今天／[MASK]／吃／[MASK]」。我們沒有原句，不知道第三格應該跳成 `想` 還是 `要`。但回想 <Ref to="dma-conditional-flow-matching"/>：同一個街口可能有多條 reference paths，我們參考的是所有相容路徑給出的方向。
+要在這一步得到 $y$，第三格必須翻開，第五格必須繼續遮住。給定原句後，各格獨立翻開，因此確實要將兩個機率相乘：
 
-這裡也一樣。先固定時間 $t$ 和目前序列 $x$，只考慮能產生這個 $x$ 的原句，再按它們的 posterior 機率平均 conditional rates。例如相容原句在第三格有 $70\%$ 是 `想`、$30\%$ 是 `要`，總 reveal rate 為 $2$，就分別給 `想` rate $1.4$、`要` rate $0.6$。
+$$
+\begin{gathered}
+\Pr(I_{t-h}=y\mid I_t=x,X_0=x_0)\\[.3em]
+=\underbrace{w_{t,h}}_{\text{第三格翻開}}
+\underbrace{(1-w_{t,h})}_{\text{第五格不翻開}}.
+\end{gathered}
+$$
 
-<Ask>
-把可能原句提供的 rates 取條件平均，<br />
-能不能得到只看目前序列就能使用的生成規則？
-</Ask>
+其他三格可見，依 reference 規則保留，機率都是 $1$。例如 $t=0.5$、$h=0.1$ 時，每格翻開機率為 $0.2$，整句只填第三格的機率就是 $0.2\times0.8=0.16$。
 
-用 $I_t$ 表示 reference noisy state，固定 $I_t=x$ 後，仍隨機的是原句 $X_0$。我們想平均的 label 是這些原句各自提供的 conditional rate：
+接著按照 rate 的定義，將這個整句轉移機率除以 $h$，再讓 $h\downarrow0$。U4.1 已經得到 $w_{t,h}/h\to c_t$，其中 $c_t=-\dot\alpha_t/(1-\alpha_t)$；同時，$w_{t,h}\to0$，所以第五格不翻開的機率 $1-w_{t,h}\to1$：
+
+<FormulaSteps
+  id="u4-two-mask-single-jump-rate"
+  compact
+  title="保留第五格不翻開的機率，再取 rate 的極限"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{1}{\bar R_t^{\mathrm{cond}}(x,y\mid x_0)}\\[.3em]
+    \reveal{2}{=\lim_{h\downarrow0}\frac{w_{t,h}(1-w_{t,h})}{h}}\\[.3em]
+    \reveal{3}{=\lim_{h\downarrow0}\frac{w_{t,h}}{h}(1-w_{t,h})}\\[.3em]
+    \reveal{4}{=c_t\cdot1=r_t^{(3)}(m,\texttt{想}\mid x_0).}
+    \end{gathered}
+  `}
+  steps={[
+    {label: '指定整句轉換', text: String.raw`第三格填成「想」，第五格保持 MASK，其餘位置保留。$x,y$ 是這個動作前後的完整 sequences。`},
+    {label: '轉移機率除以時間', text: String.raw`第三格翻開與第五格不翻開的機率相乘，再除以正的時間長度 $h$，取極限定義整句 rate。`},
+    {label: '分開看兩個因子', text: String.raw`$w_{t,h}/h$ 是第三格的機率除以時間；$(1-w_{t,h})$ 保留了第五格不翻開的條件。`},
+    {label: '分別取極限', text: String.raw`第一個因子趨近第三格的 rate $c_t$；時間縮短時，第五格繼續遮住的機率趨近 $1$，因此乘積的極限仍是 $c_t$。`},
+  ]}
+/>
+
+回到 $\alpha_t=1-t$、$t=0.5$：$h=0.1$ 時，整句轉移機率除以時間為 $0.16/0.1=1.6$；縮到 $h=0.01$，則是 $0.02\times0.98/0.01=1.96$，逐漸靠近第三格的 rate $2$。
+
+也可以從兩格都翻開來看：它的機率是 $w_{t,h}^2=O(h^2)$，除以 $h$ 後趨近 $0$。**另一格是否翻開會影響有限時間的轉移機率；取 rate 的極限時，只留下單格跳躍的一階變化。**
+
+整句的總流出 rate 則把不同去向加起來：只填第三格的 rate 是 $c_t$，只填第五格也是 $c_t$，合計 $2c_t$。
+
+為了讓同一個記號適用於不同位置，我們把「只將 $x$ 的第 $\ell$ 格換成 $a$，其他格不動」後的整句寫成 $x^{(\ell\to a)}$。因此表中的去向也可以寫成 $y=x^{(3\to\texttt{想})}$。
+
+現在固定時間與目前整句 $I_t=x$，不再固定 $X_0=x_0$。回想 U2 的 Flow Matching：站在同一個街口時，我們參考相容 reference paths 的 velocities；這次則按可能原句的 posterior，平均它們對**同一個換字動作**給出的 rates：
 
 <FormulaSteps
   id="u4-average-conditional-rates"
   compact
-  title="不知道原字時，該用哪個跳躍 rate？"
+  title="固定目前整句，再平均未知原句給出的規則"
   formula={String.raw`
     \begin{gathered}
     \reveal{1}{\bar R_t(x,y)=}\\[.25em]
@@ -116,158 +182,269 @@ $$
     \end{gathered}
   `}
   steps={[
-    {label: '要找的生成規則', text: String.raw`固定時間 $t$，目前在 $x$，想算跳向另一個狀態 $y$ 的 rate。`},
-    {label: '固定能看見的資訊', text: String.raw`只參考這時能造出目前序列的原句：$I_t=x$。`},
-    {label: '各原句給出的 label', text: String.raw`若知道原句 $X_0$，我們就能算出 conditional rate。`},
-    {label: '按 posterior 取平均', text: String.raw`對 $X_0\mid I_t=x$ 平均這些 rates，得到只依賴目前狀態與時間的規則。`},
+    {label: '要決定的跳躍', text: String.raw`來源 $x$、去向 $y$ 都是整句。像是把目前第三格的 MASK 填成「想」，其他格不動。`},
+    {label: '只固定能看見的資訊', text: String.raw`固定時間 $t$ 與目前整句 $I_t=x$。原句 $X_0$ 不知道，正是接下來要平均的隨機量。`},
+    {label: '參考每種可能原句', text: String.raw`每筆可能原句都能用 U4.1 的規則，給這個相同的 $x\to y$ 動作一個 conditional rate。`},
+    {label: '按可能性加權', text: String.raw`使用 $X_0\mid I_t=x$ 的 posterior 平均。平均後不再帶 $\mid x_0$，但目前整句仍由 $x$ 指定。`},
   ]}
 />
 
-把剛才的指示量代入，便得到對 MASK 位置的生成 rate：
+對目前是 MASK 的位置 $x^{(\ell)}=m$ 與候選 $a\in\mathcal V$，U4.1 的 conditional rate 可以寫成
+
+$$
+r_t^{(\ell)}(m,a\mid x_0)
+=\frac{-\dot\alpha_t}{1-\alpha_t}\mathbf1[x_0^{(\ell)}=a].
+$$
+
+指示量只在 $a$ 是原字時為 $1$。時間係數已知，不隨原句改變；需要平均的就是「原字是不是 $a$」。這個指示量的條件平均，正好是原字為 $a$ 的機率，所以
 
 $$
 \begin{gathered}
-\bar R_t\bigl(x,x^{(\ell\to a)}\bigr)\\
+\bar R_t\bigl(x,x^{(\ell\to a)}\bigr)\\[.3em]
 =\frac{-\dot\alpha_t}{1-\alpha_t}
-\underbrace{\mathbb E[\mathbf1[X_0^\ell=a]\mid I_t=x]}_{\text{原字 posterior}}.
+\Pr(X_0^{(\ell)}=a\mid I_t=x).
 \end{gathered}
 $$
 
-指示量的條件平均，就是原字為 $a$ 的 posterior probability。**前面的係數決定翻得多快，後面的機率決定翻成哪個字。** 我們沒有平均 token 編號，也不需要先列出整張 joint PMF。
+**前面的係數決定翻得多快，後面的 posterior 決定翻成哪個字。** 左邊仍是整句轉換的 rate，右邊只需要一格的原字 posterior；計算這張 posterior 時，條件卻是完整的 context。
 
 <Question id="Q1">
-既然有些原句比較可能，能不能只選最可能的原句，再使用它提供的 conditional rate？
-
+既然 `想` 比較可能，能不能每次只選最可能的原句，再使用它提供的 conditional rate？
 <Answer>
-這會改變轉移的比例。若目前 context 下，原字為 `想`、`要` 的 posterior 是 $0.7$、$0.3$，總 reveal rate 是 $2$，posterior average 分別給它們 $1.4$、$0.6$ 的 rate；只選最可能的原句，則會給 `想` rate $2$、`要` rate $0$。
-
-我們要重現的是各種可能原句所貢獻的 flows，所以需要按 posterior 加權，不能用最可能的一句取代整個平均。接著就用這個 flow 關係檢查分布。
+那就會給 `想` rate $2$、`要` rate $0$，而不是 $1.4/0.6$。資料裡三成使用 `要` 的可能性被刪掉了。要重現分布，就需要按 posterior 分配 flows；選最可能的答案，改變的是生成規則。
 </Answer>
 </Question>
 
-## 為什麼平均後仍推動原本的分布？
+<span id="為什麼平均後仍推動原本的分布"></span>
 
-只平均出一條合法 rate 還不夠，還要檢查它是否推動我們指定的 $p_t$。沿用 <Ref to="dma-discrete-data"/> 的混合式，$p_t(x)=\sum_{x_0}p_{\mathrm{data}}(x_0)q_t(x\mid x_0)$。在 $p_t(x)>0$ 的狀態，Bayes 給出相容原句的權重：
+## 這樣平均，整句 PMF 為什麼也接得上？
+
+U4.1 已經從填回規則推出 conditional master equation。現在我們想把不同原句的 flows，按資料比例加在一起。這就要看看：剛才平均出的 rate，乘上目前整句的來源機率後，會得到什麼。
+
+先固定時間 $t$、來源句 $x$ 與去向句 $y$，考慮 $x\ne y$、$p_t(x)>0$ 的轉換。原句 $x_0$ 被抽到的機率是 $p_{\mathrm{data}}(x_0)$；給定這句原文後，產生目前 $x$ 的機率是 $q_t(x\mid x_0)$。兩者相乘，得到「原句為 $x_0$，而且目前看到 $x$」的 joint probability。再除以看到 $x$ 的總機率，就得到 posterior 權重：
 
 $$
-p(X_0=x_0\mid I_t=x)
+\begin{gathered}
+\Pr(X_0=x_0\mid I_t=x)\\[.3em]
 =\frac{p_{\mathrm{data}}(x_0)q_t(x\mid x_0)}{p_t(x)}.
+\end{gathered}
 $$
 
-把它放進平均 rate，再乘回來源狀態的機率：
+接著，把前面的 conditional expectation 寫成求和。每個可能原句提供一個 conditional rate，再乘上它的 posterior 權重：
 
 $$
-\begin{aligned}
-p_t(x)\bar R_t(x,y)
-&=\sum_{x_0}p_{\mathrm{data}}(x_0)q_t(x\mid x_0)\\
-&\quad\cdot\bar R_t^{\mathrm{cond}}(x,y\mid x_0).
-\end{aligned}
+\begin{gathered}
+\bar R_t(x,y)\\[.3em]
+=\sum_{x_0}\Pr(X_0=x_0\mid I_t=x)\,\bar R_t^{\mathrm{cond}}(x,y\mid x_0).
+\end{gathered}
 $$
 
-右邊正是各原句提供的 conditional flows，按資料機率加起來。每一組 conditional process 都有正確的流入減流出；加總後，就得到 $-\dot p_t=\bar R_t^{\mathsf T}p_t$。因此，在正確的 noise 起點與可適當定義的精確動態下，這條 rate 會倒著經過原本的 **joint** PMF path；不要求某條生成 trajectory 認回某一句 training 原文。
+這是固定目前 $x$ 後，每個樣本使用的 rate。要算整群樣本從 $x$ 往 $y$ 搬動多少 probability flow，就乘上目前處在 $x$ 的比例 $p_t(x)$。我們依序展開平均、代入權重，再約分：
 
-這是 <Ref to="dma-denoising-regression"/> 的 **conditional trick** 在跳躍規則上的版本。先設計 conditional probability path、建立能推動它的 conditional rates，再取 posterior average，便得到 **Discrete Flow Matching（DFM）** 的建構方式；Gat 等人 [1] 與 Campbell 等人 [2] 系統化了這類離散生成流程。
+<FormulaSteps
+  id="u4-posterior-rate-to-flow"
+  compact
+  title="從 posterior-average rate，逐步算出整群樣本的 flow"
+  formula={String.raw`
+    \begin{gathered}
+    \reveal{1}{p_t(x)\bar R_t(x,y)}\\[.4em]
+    \reveal{2}{=p_t(x)\sum_{x_0}\Pr(X_0=x_0\mid I_t=x)\,\bar R_t^{\mathrm{cond}}(x,y\mid x_0)}\\[.4em]
+    \reveal{3}{=p_t(x)\sum_{x_0}\frac{p_{\mathrm{data}}(x_0)q_t(x\mid x_0)}{p_t(x)}\,\bar R_t^{\mathrm{cond}}(x,y\mid x_0)}\\[.4em]
+    \reveal{4}{=\sum_{x_0}\frac{p_t(x)p_{\mathrm{data}}(x_0)q_t(x\mid x_0)}{p_t(x)}\,\bar R_t^{\mathrm{cond}}(x,y\mid x_0)}\\[.4em]
+    \reveal{5}{=\sum_{x_0}p_{\mathrm{data}}(x_0)q_t(x\mid x_0)\,\bar R_t^{\mathrm{cond}}(x,y\mid x_0).}
+    \end{gathered}
+  `}
+  steps={[
+    {label: '要計算的 flow', text: String.raw`目前在來源句 $x$ 的樣本占 $p_t(x)$，各自以 rate $\bar R_t(x,y)$ 跳到 $y$；兩者相乘，得到這個方向的 probability flow。`},
+    {label: '展開平均 rate', text: String.raw`先將 $\bar R_t(x,y)$ 換成剛才的 posterior 加權和，來源機率 $p_t(x)$ 保留在求和外。`},
+    {label: '代入 Bayes 權重', text: String.raw`只替換 posterior：原句的資料機率乘上產生 $x$ 的機率，再除以 $p_t(x)$。`},
+    {label: '將來源機率乘進每一項', text: String.raw`固定 $t,x$ 後，$p_t(x)$ 不隨求和中的 $x_0$ 改變，所以能乘進每一項的分子。`},
+    {label: '約掉相同的來源機率', text: String.raw`每項分子與分母都有同一個正數 $p_t(x)$，約分後，留下資料機率乘上 conditional flow。`},
+  ]}
+/>
 
-![連續與離散 Flow Matching](./imgs/w7-4-1.png)
+最後一行可以直接讀回資料：給定某句原文時，在 $x$ 的比例是 $q_t(x\mid x_0)$，乘上它提供的 rate，就是這句原文的 conditional flow；再用 $p_{\mathrm{data}}(x_0)$ 加權，把不同原句的貢獻加起來。**Posterior-average rate 乘上來源機率，正好得到各原句 flows 按資料比例混合的結果。**
 
-*圖：連續情況平均 reference velocities；離散情況平均 conditional rates。兩者都以機率守恆確認平均後的動態能走過指定的 probability path。*
-
-## 未知的 posterior，要用什麼 label 學？
-
-U2 用平方誤差對準 reference velocity，理想解就是相容 velocities 的條件平均。這裡也可以沿用同一個做法：固定一個內部時間 $t$，以剛才的 conditional rate 為 label 做平方誤差 regression，理想解就是我們已經推得的 posterior-average rate。
-
-不過，剛才的公式還告訴我們：時間係數 $-\dot\alpha_t/(1-\alpha_t)$ 已知，真正未知的只剩指示量的條件平均，也就是 $p(X_0^\ell=a\mid I_t=x)$。**因此可以先讓模型預測這張原字 PMF，再乘回已知係數，組成生成時的 rate。** 這仍是在學推動分布的規則，只是改用原字機率來參數化它。
-
-讓模型讀取整句 $x$ 與時間 $t$，在每個位置輸出一張字典上的機率表：
+那整個 PMF 的變化呢？沿用 U4.0，$p_t(y)=\sum_{x_0}p_{\mathrm{data}}(x_0)q_t(y\mid x_0)$。資料機率不隨時間改變，因此對 $t$ 微分，得到
 
 $$
-f_\theta^\ell(a\mid x,t)
-\approx p(X_0^\ell=a\mid I_t=x),
-\qquad a\in\mathcal V.
+-\partial_t p_t(y)
+=\sum_{x_0}p_{\mathrm{data}}(x_0)
+[-\partial_t q_t(y\mid x_0)].
 $$
 
-對 $a$ 加總為 $1$；模型不必把 MASK 當成原字的候選。這個預測原始資料的模型，仍稱為 **denoiser**。每個 output 可以參考整句 context；輸出每格的 posterior，不代表假設原句各位置獨立。
+也就是各原句的 PMF 變化，仍按相同資料比例混合。U4.1 已經知道，括號中的 conditional PMF 變化，是各來源的機率乘上 conditional rate 後加總。把它代入：
 
-接下來選擇用 cross-entropy 學這張 PMF。我們沒有真 posterior 當 label，但製造 noisy input 時，手上還保有原文。先抽 $x_0\sim p_{\mathrm{data}}$、$t\sim\mathrm{Unif}(0,1)$，按已知 $q_t(\cdot\mid x_0)$ 抽出 $x_t$；模型只看 $(x_t,t)$，被遮位置的 label 就是 $x_0^\ell$。用 cross-entropy 衡量它給原字多少機率：
+$$
+\begin{gathered}
+-\partial_t p_t(y)\\[.3em]
+=\sum_{x_0}p_{\mathrm{data}}(x_0)\sum_x q_t(x\mid x_0)\,\bar R_t^{\mathrm{cond}}(x,y\mid x_0).
+\end{gathered}
+$$
+
+這裡 $x$ 遍歷完整序列，包含 $x=y$；對角的負 rate 記錄從 $y$ 流出的部分。同樣的平均與約分也適用於對角項，來源機率為零的項則貢獻為零。接著交換兩個有限求和的順序，先收集同一個來源 $x$ 的不同原句貢獻：
+
+$$
+\begin{gathered}
+-\partial_t p_t(y)\\[.3em]
+=\sum_x\underbrace{\sum_{x_0}p_{\mathrm{data}}(x_0)q_t(x\mid x_0)\,\bar R_t^{\mathrm{cond}}(x,y\mid x_0)}_{\displaystyle p_t(x)\bar R_t(x,y)}\\[.3em]
+=\sum_x p_t(x)\bar R_t(x,y).
+\end{gathered}
+$$
+
+大括號標出的內層求和，就是剛才逐步算出的 flow。於是，混合後的 PMF 變化，等於混合後 rate 給出的流入與流出。將每個完整序列 $y$ 的等式排在一起，便得到 column vector 的寫法：
+
+$$
+\begin{gathered}
+-\dot{\boldsymbol p}_t(\cdot)\\[.3em]
+=\bigl[\bar{\boldsymbol R}_t(\cdot,\cdot)\bigr]^{\mathsf T}
+\boldsymbol p_t(\cdot).
+\end{gathered}
+$$
+
+$\boldsymbol p_t$ 收集不同完整序列的機率，$\bar{\boldsymbol R}_t$ 的列、行分別對應來源句、去向句。從正確的全 MASK 起點出發，在可適當定義的精確動態下，這些 rates 便沿著原本的 **joint PMF path** 填回資料。
+
+這和 U2 一樣：先有已知端點的 reference 規則，再對相容端點取條件平均。這是 **conditional trick**（<Ref to="dma-denoising-regression"/>）在離散跳躍上的用法，也是 Gat 等人 [1]、Campbell 等人 [2] 建構 **Discrete Flow Matching（DFM）** 的核心。
+
+<span id="未知的-posterior要用什麼-label-學"></span>
+
+## 模型不知道原字，但訓練時我們知道
+
+理想 rate 已經有了，但裡面的 posterior 還不知道。做克漏字時，我們可以先留著答案，再把部分文字遮住：**答案是 training label，不是模型的 input。** 因此不必先算出整張 posterior，才能製作訓練資料。
+
+先抽原句 $X_0\sim p_{\mathrm{data}}$ 與時間 $t\sim\mathrm{Unif}(0,1)$，再按 U4.0 的 $q_t(\cdot\mid X_0)$ 製造整份 reference sequence $I_t$。模型 $f_\theta$ 只讀取 $(I_t,t)$，每個位置輸出一張原字典 $\mathcal V$ 上的 PMF；第 $\ell$ 格的 label，則是遮住之前的 $X_0^{(\ell)}$。
+
+例如 input 都是 `我／今天／[MASK]／吃／麥當勞`，這次 label 可能是 `想`，下次可能是 `要`。我們讓模型替正確 label 分配機率，以負 log-probability 作為 cross-entropy：
 
 <FormulaSteps
   id="u4-posterior-training-loss"
   compact
-  title="用能製造的 training pairs 學原字機率"
+  title="用看得到的原字 label，學看不到答案時的 PMF"
   formula={String.raw`
     \begin{gathered}
     \reveal{1}{\mathcal L(\theta)=}\\[.25em]
     \reveal{4}{\mathbb E_{t,X_0,I_t}\Big[}
-    \reveal{3}{\sum_{\ell:I_t^\ell=m}-\log}
-    \reveal{2}{f_\theta^\ell(}
-    \reveal{3}{X_0^\ell}
+    \reveal{3}{\sum_{\ell:I_t^{(\ell)}=m}-\log}
+    \reveal{2}{f_\theta^{(\ell)}(}
+    \reveal{3}{X_0^{(\ell)}}
     \reveal{2}{\mid I_t,t)}
     \reveal{4}{\Big].}
     \end{gathered}
   `}
   steps={[
-    {label: '製造 input', text: String.raw`先抽原文 $X_0$ 與時間 $t$，再依 conditional PMF 製造 $I_t$。`},
-    {label: '模型給機率', text: String.raw`模型只看 $(I_t,t)$，替各個原字候選給出機率。`},
-    {label: '用原文當 label', text: String.raw`在 MASK 位置，以已知的 $X_0^\ell$ 當正確類別，計算負 log-probability。`},
-    {label: '涵蓋可能的 labels', text: '對時間、原文與遮罩隨機性平均；反覆訓練時，相容的原字會按其機率成為 label。'},
+    {label: '製造 input', text: String.raw`抽原句和時間，再逐格遮蔽，得到整句 $I_t$。不必先模擬完整的跨時間過程。`},
+    {label: '模型看克漏字', text: String.raw`$f_\theta^{(\ell)}(\cdot\mid I_t,t)$ 是第 $\ell$ 格的原字 PMF，條件仍包含整句；不是讓模型偷看 $X_0$。`},
+    {label: '用答案評分', text: String.raw`在 MASK 位置，取模型給真正原字 $X_0^{(\ell)}$ 的機率，再取負 log。給 label 的機率越小，這筆 loss 越大。`},
+    {label: '讓不同答案都成為 label', text: String.raw`對時間、原句與遮蔽隨機性平均，也就是考慮我們能製造的不同 inputs 與 labels；同一 input 的可能原字按其條件機率出現。`},
   ]}
 />
 
-固定一個 masked input 和位置，將它的真 posterior 簡記為 $p_a$、模型機率記為 $f_a$。把可能的原字 labels 平均，loss 就是 $-\sum_a p_a\log f_a$。加減同一項，可寫成
+<span id="只有一個原字-label怎麼學到整張-pmf"></span>
+
+## 同一個 input 有不同答案，模型最後該給多少機率？
+
+固定剛才的 context 和第三格。若 labels 有七成 `想`、三成 `要`，模型不需要每次都猜同一個字；我們要比較的是它分配的兩個機率。暫記 $u=f_\theta^{(3)}(\texttt{想}\mid x,t)$，另一個為 $1-u$，平均 CE 就是
 
 $$
--\sum_a p_a\log f_a
+-0.7\log u-0.3\log(1-u).
+$$
+
+對 $u$ 微分得到 $-0.7/u+0.3/(1-u)$，在 $u=0.7$ 時為零；因此理想輸出是 $0.7/0.3$，不是每次都把全部機率押在 `想`。
+
+一般情況下，暫記 $p_a=\Pr(X_0^{(\ell)}=a\mid I_t=x)$、$f_a=f_\theta^{(\ell)}(a\mid x,t)$。同樣把可能 labels 平均，CE 可寫成
+
+$$
+\begin{gathered}
+-\sum_a p_a\log f_a\\[.3em]
 =-\sum_a p_a\log p_a+D_{\mathrm{KL}}(p\|f).
+\end{gathered}
 $$
 
-第一項不隨模型改變，第二項在 $f=p$ 時為零，因此理想最佳輸出正是真 posterior。每次只給一個原字 label，反覆訓練卻能學到整張條件機率表；不需要事先知道這張表。
+第一項固定，第二項在 $f=p$ 時最小。因此模型的理想最佳預測是
 
-<AlgorithmView id="u4-mask-training" title="MASK denoiser：一次 training update" code={`輸入：資料集、保留係數 alpha(t)、模型 f_theta
+$$
+f_\theta^{(\ell)}(a\mid x,t)
+\approx\Pr(X_0^{(\ell)}=a\mid I_t=x).
+$$
+
+這種預測原字的模型仍稱為 **denoiser**。它輸出一格的 PMF，卻可以讀取所有位置的 context；這沒有把原句的各格假設成獨立。
+
+<span id="把訓練得到的-pmf-接回生成-rate"></span>
+
+## 把學到的 PMF，放回剛才的 rate
+
+現在只需替換理想式裡未知的 posterior。對 $x^{(\ell)}=m$、$a\in\mathcal V$，模型 rate 為
+
+$$
+\begin{gathered}
+\bar R_{\theta,t}\bigl(x,x^{(\ell\to a)}\bigr)\\
+=\frac{-\dot\alpha_t}{1-\alpha_t}f_\theta^{(\ell)}(a\mid x,t).
+\end{gathered}
+$$
+
+$\bar R_t$ 使用真 posterior，$\bar R_{\theta,t}$ 使用學到的 PMF；兩者都只讀目前整句與時間。理想式的守恆結論，不會自動消除模型的預測誤差。把整個訓練動作寫下來就是：
+
+<AlgorithmView id="u4-mask-training" title="MASK denoiser：一次 training update" code={`輸入：資料集、保留機率 alpha(t)、模型 f_theta
 x0 ← 從資料集抽一句原文
 t ← Uniform(0, 1)
-xt ← copy(x0)
+x ← copy(x0)
 for ell = 1, ..., L:
-    以機率 1 - alpha(t)，將 xt[ell] 換成 MASK
-prediction ← f_theta(xt, t)     # 每格一張原字典上的 PMF
+    以機率 1 - alpha(t)，將 x[ell] 換成 MASK
+prediction ← f_theta(x, t)
 loss ← 對所有 MASK 位置加總 -log prediction[ell, x0[ell]]
 以 loss 的 gradient 更新 theta`}>
 
 $$
 \begin{aligned}
 &(x_0,t)\sim p_{\mathrm{data}}\times\mathrm{Unif}(0,1)\\
-&\quad\xrightarrow{\text{依 }q_t\text{ 抽樣}}x_t\\
-&\quad\xrightarrow{f_\theta(\cdot,t)}
-\{f_\theta^\ell(\cdot\mid x_t,t)\}_{\ell=1}^L\\
-&\quad\xrightarrow{\text{以原字為 label}}
-\sum_{\ell:x_t^\ell=m}-\log f_\theta^\ell(x_0^\ell\mid x_t,t).
+&\xrightarrow{\text{按 }q_t(\cdot\mid x_0)\text{ 抽樣}}x\\
+&\xrightarrow{\text{模型讀取 }(x,t)}\{f_\theta^{(\ell)}(\cdot\mid x,t)\}_{\ell=1}^L\\
+&\xrightarrow{\text{取原字的負 log 機率}}\\
+&\sum_{\ell:x^{(\ell)}=m}-\log f_\theta^{(\ell)}(x_0^{(\ell)}\mid x,t).
 \end{aligned}
 $$
 
 </AlgorithmView>
 
-**Training 只要抽 snapshot，不必先模擬完整的跳躍過程。** 學完後，用 $f_\theta$ 取代 rate 裡的 posterior；理想 rate 與網路近似是兩個層次，實際生成還要選取樣方法。
+**Training 只需抽 snapshot 與原字 label；生成時才把學到的 PMF 乘上 schedule 係數，決定下一個跳躍。** 有多個 MASK 時，每個位置各有一張 PMF，但都讀取同一份目前整句。如何把這些預測變成一次有限時間的更新，是下一篇的問題。
+
+## 動手做：從原字 labels 學出一張 PMF
+
+我們真的製作遮罩 training pairs，再用 CE 更新一個參數。固定其他四格，只讓第三格在 `想`、`要` 之間變化；模型以 $f_\theta^{(3)}(\texttt{想}\mid x,t)=\operatorname{sigmoid}(\theta)$ 給機率，`要` 的機率是它的補數。
+
+這個 toy 只有一種 masked context，posterior 又不隨 $t$ 改變，所以一個參數就能表示它；還不是處理任意句子的網路。程式會列出 input／label、訓練前後的 CE、學到的 PMF，以及乘上 reveal 係數後的 rates。
+
+<DiscretePythonExperiment example="posterior" />
+
+先把 `training_steps` 設為 `0`，再改成 `300`：原本各半的預測，會往這次被遮 labels 的比例移動。`n_pairs` 或 `seed` 改變後，有限資料的比例也會改變；CE 的最佳解對準的是這批 labels，不保證剛好等於 population 的 $0.7/0.3$。
+
+[下載這份 posterior 學習程式](/personal_website/notes/notebooks/diffusion-models-applications/dma-u4-learn-posterior.py)。
+
+<Details summary="延伸閱讀：時間加權、uniform、端點配對與應用">
 
 <Remark label="補充" summary="換時間權重，還是在學同一張 posterior 嗎？">
 若只在 loss 乘上與原字 label 無關、對所學時間為正的 $w(t)$，固定 input 下的最佳機率表仍是 posterior。有限模型會共用參數，權重仍可能影響實際學習。這裡先用容易理解的 CE 建立模型；<Ref to="dma-d3pm"/> 的補充再從 discrete diffusion 的 ELBO 解釋特定 weighting。
 </Remark>
 
 <Details summary="換成 uniform，能沿用同一個建構嗎？">
-可以。對 $q_t^\ell=\alpha_t\delta_{x_0^\ell}+(1-\alpha_t)\nu$，在生成方向選擇「以 rate $c_t=-\dot\alpha_t/(1-\alpha_t)$ 重設成原字」。這個操作對候選 $a$ 的淨變化為
+可以。給定整筆 clean sequence $x_0$，對單格 PMF $q_t^{(\ell)}(a\mid x_0)=\alpha_t\delta_{x_0^{(\ell)}}(a)+(1-\alpha_t)\nu(a)$，在生成方向選擇「以 rate $c_t=-\dot\alpha_t/(1-\alpha_t)$ 重設成原字」。這個操作對候選 $a$ 的淨變化為
 
 $$
 \begin{aligned}
-&c_t[\delta_{x_0^\ell}(a)-q_t^\ell(a\mid x_0)]\\
-&=-\dot\alpha_t[\delta_{x_0^\ell}(a)-\nu(a)]\\
-&=-\partial_tq_t^\ell(a\mid x_0).
+&c_t[\delta_{x_0^{(\ell)}}(a)-q_t^{(\ell)}(a\mid x_0)]\\
+&=-\dot\alpha_t[\delta_{x_0^{(\ell)}}(a)-\nu(a)]\\
+&=-\partial_tq_t^{(\ell)}(a\mid x_0).
 \end{aligned}
 $$
 
-因此它也實現同一條 conditional PMF path。對所有原句取 posterior average 後，對 $a\ne x^\ell$ 有
+因此它也實現同一條 conditional PMF path。對所有原句取 posterior average 後，對 $a\ne x^{(\ell)}$ 有
 
 $$
-\bar R_t\bigl(x,x^{(\ell\to a)}\bigr)
+\begin{gathered}
+\bar R_t\bigl(x,x^{(\ell\to a)}\bigr)\\
 =\frac{-\dot\alpha_t}{1-\alpha_t}
-p(X_0^\ell=a\mid I_t=x).
+\Pr(X_0^{(\ell)}=a\mid I_t=x).
+\end{gathered}
 $$
 
 MASK 時，已見字的原字 posterior 是 point mass，所以不能再跳；uniform 時，當前字也可能被換掉，所以所有位置都可能需要預測。Training 可以對所有位置計算 CE。
@@ -279,18 +456,35 @@ MASK 時，已見字的原字 posterior 是 point mass，所以不能再跳；un
 先抽配對 $(X_0,X_1)\sim\pi$，$X_0$ 是 data、$X_1$ 是 source；$\pi$ 指定兩端如何配在一起，兩個 marginals 分別是所需的資料與 source 分布。固定兩端，令
 
 $$
-q_t^\ell(a\mid x_0,x_1)
-=\alpha_t\delta_{x_0^\ell}(a)+(1-\alpha_t)\delta_{x_1^\ell}(a).
+\begin{gathered}
+q_t^{(\ell)}(a\mid x_0,x_1)\\
+=\alpha_t\delta_{x_0^{(\ell)}}(a)+(1-\alpha_t)\delta_{x_1^{(\ell)}}(a).
+\end{gathered}
 $$
 
 各位置條件獨立，再按端點配對混合：
 
 $$
-p_t(x)=\sum_{x_0,x_1}\pi(x_0,x_1)
-\prod_\ell q_t^\ell(x^\ell\mid x_0,x_1).
+\begin{gathered}
+p_t(x)=\\
+\sum_{x_0,x_1}\pi(x_0,x_1)\\[.3em]
+\cdot\prod_\ell q_t^{(\ell)}(x^{(\ell)}\mid x_0,x_1).
+\end{gathered}
 $$
 
-同樣可以選擇生成方向以 $-\dot\alpha_t/(1-\alpha_t)$ 的 rate 重設成 data token，再對兩端的 posterior 平均。正文的 iid noise 版本，相當於令 source 與 data 獨立，再將 source 平均掉。
+這裡條件是兩筆完整端點 $(X_0,X_1)=(x_0,x_1)$，上標 $\ell$ 則仍只描述一格。選擇生成方向以 $-\dot\alpha_t/(1-\alpha_t)$ 的 rate 重設成 data token，給出整句 conditional rate $\bar R_t^{\mathrm{cond}}(x,y\mid x_0,x_1)$；再固定目前整句，對兩端的 posterior 平均：
+
+$$
+\begin{gathered}
+\bar R_t(x,y)\\
+=\mathbb E\!\left[\begin{gathered}
+\bar R_t^{\mathrm{cond}}(x,y\mid X_0,X_1)\\
+\mid I_t=x
+\end{gathered}\right].
+\end{gathered}
+$$
+
+兩個未知端點都被平均掉，最後仍是只依賴目前序列與時間的整句 rate。正文的 iid noise 版本，相當於令 source 與 data 獨立，再將 source 平均掉。
 
 配對不同，中間 PMF 與 endpoint posterior 可能不同；這不等於 U3 的幾何拉直，也不保證有限模型更容易學。這裡仍沿用 $\alpha_t$；原 DFM 論文 [1] 的時間方向相反，不能直接照搬其下標。
 
@@ -304,6 +498,7 @@ $$
 </Details>
 
 
+</Details>
 
 ## 快速回顧一下
 
@@ -332,7 +527,7 @@ Posterior averaging 固定了什麼、平均什麼？
 </QuizBlock>
 
 <Bridge to="dma-d3pm">
-現在我們知道離散的 velocity 如何設計、怎麼由 conditional rates 平均而來，也有模型可以學的原字機率。下一步要真的生成：從全 MASK 出發，一次應該翻開多少格、如何抽字，又該怎麼把 rate 轉成有限步的轉移機率？
+我們從給定 clean 原句的 $\bar R_t^{\mathrm{cond}}(x,y\mid x_0)$，經由固定 $I_t=x$ 的 posterior average，得到不再需要原句的理想 rate $\bar R_t(x,y)$；模型學到原字 posterior 後，就能組成近似 $\bar R_{\theta,t}(x,y)$。下一步要真的生成：從全 MASK 出發，一次應該翻開多少格、如何抽字，又該怎麼把 rate 轉成有限步的轉移機率？
 </Bridge>
 
 ## 參考文獻
